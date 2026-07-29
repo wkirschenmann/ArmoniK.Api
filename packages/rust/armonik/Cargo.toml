@@ -25,6 +25,7 @@ _gen-client = [
   "dep:hyper-rustls",
   "dep:hyper",
   "dep:tower-service",
+  "dep:socket2",
   "dep:tokio",
   "tokio/io-util",
   "tokio/net",
@@ -64,6 +65,9 @@ tokio = { version = "1.52", default-features = false, optional = true }
 # Needed to implement the connector that performs HTTP CONNECT tunnelling. Already in the
 # dependency graph through hyper-util and tonic; declared here so the trait can be named.
 tower-service = { version = "0.3", optional = true }
+# Needed to apply the fine-grained TCP keepalive settings on the port-reuse connector, which owns
+# socket creation. Already in the dependency graph through tokio and hyper-util.
+socket2 = { version = "0.6", optional = true }
 serde = { version = "1.0", features = [
   "derive",
 ], default-features = false, optional = true }
@@ -97,6 +101,10 @@ required-features = ["client", "server"]
 
 [[test]]
 name = "auth"
+required-features = ["client", "server"]
+
+[[test]]
+name = "concurrency"
 required-features = ["client", "server"]
 
 [[test]]

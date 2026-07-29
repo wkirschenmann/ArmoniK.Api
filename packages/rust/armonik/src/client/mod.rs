@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use hyper::Uri;
 use hyper_rustls::{ConfigBuilderExt, FixedServerNameResolver, HttpsConnector};
-use hyper_util::client::legacy::connect::HttpConnector;
 use rustls::pki_types::ServerName;
 use snafu::{ResultExt, Snafu};
 
@@ -32,6 +31,8 @@ mod sessions;
 mod submitter;
 #[cfg(feature = "client")]
 mod tasks;
+#[cfg(feature = "_gen-client")]
+mod tcp;
 #[cfg(feature = "client")]
 mod versions;
 #[cfg(feature = "agent")]
@@ -144,6 +145,9 @@ impl Client<tonic::transport::Channel> {
     async fn https_connector(
         config: ClientConfig,
     ) -> Result<HttpsConnector<proxy::ProxyConnector>, ConnectionError> {
+        // Built first, while `config` is still whole: the fields below are moved out of it.
+        let tcp = tcp::TcpConnector::new(&config);
+
         let endpoint = config.endpoint;
 
         // Get the default crypto provider or fallback to the ring crypto provider
@@ -203,19 +207,9 @@ impl Client<tonic::transport::Channel> {
             https = https.with_server_name_resolver(FixedServerNameResolver::new(server_name));
         };
 
-        let mut http = HttpConnector::new();
-        http.enforce_http(false); // required for hyper-rustls to switch schemes
-        http.set_nodelay(!config.tcp_nagle_algorithm);
-        http.set_keepalive(config.tcp_keepalive);
-        http.set_keepalive_interval(config.tcp_keepalive_interval);
-        http.set_keepalive_retries(config.tcp_keepalive_retries);
-        if let Some(timeout) = config.connect_timeout {
-            http.set_connect_timeout(Some(timeout));
-        }
-
         // Tunnelling happens below TLS, so the handshake above still targets the real server.
-        // With no proxy configured this delegates straight to `http`.
-        let http = proxy::ProxyConnector::new(http, config.proxy);
+        // With no proxy configured this delegates straight to the TCP connector.
+        let http = proxy::ProxyConnector::new(tcp, config.proxy);
 
         Ok(https.enable_http1().enable_http2().wrap_connector(http))
     }

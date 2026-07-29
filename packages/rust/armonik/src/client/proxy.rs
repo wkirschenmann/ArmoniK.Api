@@ -16,13 +16,13 @@ use std::time::Duration;
 
 use hyper::http::uri::{Authority, Scheme};
 use hyper::Uri;
-use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioIo;
 use snafu::{IntoError, ResultExt, Snafu};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tower_service::Service;
 
+use super::tcp::TcpConnector;
 use super::{ProxyConfig, ProxySource};
 
 /// Upper bound on the response head a proxy may send, to stop a hostile or broken proxy from
@@ -39,13 +39,13 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// passed straight to the inner connector, so the non-proxied path is exactly what it was before.
 #[derive(Debug, Clone)]
 pub(crate) struct ProxyConnector {
-    inner: HttpConnector,
+    inner: TcpConnector,
     proxy: ProxyConfig,
 }
 
 impl ProxyConnector {
     /// Wrap a TCP connector with the given proxy configuration.
-    pub(crate) fn new(inner: HttpConnector, proxy: ProxyConfig) -> Self {
+    pub(crate) fn new(inner: TcpConnector, proxy: ProxyConfig) -> Self {
         Self { inner, proxy }
     }
 }
@@ -69,7 +69,7 @@ impl Service<Uri> for ProxyConnector {
         // Nothing to tunnel through: keep the original behaviour untouched.
         let Some(proxy_uri) = proxy_uri else {
             let future = self.inner.call(target);
-            return Box::pin(async move { future.await.map_err(Into::into) });
+            return Box::pin(future);
         };
 
         let authority = match target_authority(&target) {
@@ -84,11 +84,12 @@ impl Service<Uri> for ProxyConnector {
         let connect_to_proxy = self.inner.call(proxy_uri.clone());
 
         Box::pin(async move {
+            // The TCP connector already yields a boxed error, so it needs no further wrapping.
             let stream = connect_to_proxy.await.map_err(|source| {
                 ConnectSnafu {
                     proxy: proxy_uri.clone(),
                 }
-                .into_error(Box::new(source) as Box<dyn std::error::Error + Send + Sync>)
+                .into_error(source)
             })?;
             let mut stream = stream.into_inner();
 

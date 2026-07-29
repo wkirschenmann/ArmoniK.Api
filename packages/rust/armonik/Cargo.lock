@@ -36,6 +36,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "snafu",
+ "socket2",
  "tokio",
  "tokio-util",
  "tonic",
