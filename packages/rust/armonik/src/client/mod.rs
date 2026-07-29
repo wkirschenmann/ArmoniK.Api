@@ -23,6 +23,7 @@ mod health_checks;
 mod partitions;
 #[cfg(feature = "client")]
 mod results;
+mod retry;
 #[cfg(feature = "client")]
 mod sessions;
 #[cfg(feature = "client")]
@@ -41,7 +42,9 @@ pub use agent::Agent;
 pub use applications::Applications;
 #[cfg(feature = "client")]
 pub use auth::Auth;
-pub use config::{ClientConfig, ClientConfigArgs, ConfigError};
+pub use config::{
+    ClientConfig, ClientConfigArgs, ConfigError, ProxyConfig, ProxySource, RetryPolicy,
+};
 #[cfg(feature = "client")]
 pub use events::Events;
 #[cfg(feature = "client")]
@@ -50,6 +53,7 @@ pub use health_checks::HealthChecks;
 pub use partitions::Partitions;
 #[cfg(feature = "client")]
 pub use results::Results;
+pub use retry::{retry_with, MethodKind};
 #[cfg(feature = "client")]
 pub use sessions::Sessions;
 #[cfg(feature = "client")]
@@ -86,12 +90,21 @@ impl Client<tonic::transport::Channel> {
                 let http2_keep_alive_while_idle = config.http2_keep_alive_while_idle;
                 let http2_max_header_list_size = config.http2_max_header_list_size;
                 let user_agent = config.user_agent.clone();
+                let timeout = config.timeout;
+                let rate_limit = config.rate_limit;
 
                 let https = Self::https_connector(config).await?;
 
                 let mut transport_endpoint = tonic::transport::Endpoint::from(endpoint.clone());
                 if let Some(target) = override_target {
                     transport_endpoint = transport_endpoint.origin(target);
+                }
+
+                if let Some(timeout) = timeout {
+                    transport_endpoint = transport_endpoint.timeout(timeout);
+                }
+                if let Some((limit, duration)) = rate_limit {
+                    transport_endpoint = transport_endpoint.rate_limit(limit, duration);
                 }
 
                 if let Some(interval) = http2_keep_alive_interval {

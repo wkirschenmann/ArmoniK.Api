@@ -410,3 +410,6 @@ target/
 # Documentation artifacts
 build/
 .venv-doc
+
+# Claude Code personal settings
+.claude/settings.local.json
