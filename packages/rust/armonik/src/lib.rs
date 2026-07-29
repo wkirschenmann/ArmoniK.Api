@@ -8,7 +8,7 @@ mod objects;
 pub mod server;
 
 #[cfg(feature = "_gen-client")]
-pub use client::{Client, ClientConfig};
+pub use client::{Client, ClientConfig, ProxyConfig, ProxySource, RetryPolicy};
 pub use objects::*;
 
 mod utils;

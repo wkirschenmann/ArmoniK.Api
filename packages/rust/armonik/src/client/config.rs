@@ -37,6 +37,36 @@ pub struct ProxyConfig {
 }
 
 impl ProxyConfig {
+    /// Use this specific proxy.
+    ///
+    /// The type is `#[non_exhaustive]`, so downstream crates cannot build it with a struct
+    /// expression; these constructors are the way in.
+    pub fn explicit(uri: Uri) -> Self {
+        Self {
+            source: ProxySource::Explicit(uri),
+            ..Default::default()
+        }
+    }
+
+    /// Read the proxy from the environment.
+    pub fn system() -> Self {
+        Self {
+            source: ProxySource::System,
+            ..Default::default()
+        }
+    }
+
+    /// Attach credentials for proxy authentication.
+    pub fn with_credentials(
+        mut self,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
+        self.username = username.into();
+        self.password = password.into();
+        self
+    }
+
     /// Whether a proxy should be used at all.
     pub fn is_enabled(&self) -> bool {
         !matches!(self.source, ProxySource::Disabled)

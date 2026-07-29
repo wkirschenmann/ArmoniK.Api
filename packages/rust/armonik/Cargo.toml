@@ -19,7 +19,17 @@ client = ["_gen-client"]
 server = ["_gen-server"]
 agent = ["_gen-client", "_gen-server"]
 worker = ["_gen-client", "_gen-server"]
-_gen-client = ["tonic/channel", "dep:rustls", "dep:hyper-rustls", "dep:hyper"]
+_gen-client = [
+  "tonic/channel",
+  "dep:rustls",
+  "dep:hyper-rustls",
+  "dep:hyper",
+  "dep:tower-service",
+  "dep:tokio",
+  "tokio/io-util",
+  "tokio/net",
+  "tokio/time",
+]
 _gen-server = ["tonic/server", "tonic/router", "dep:tokio"]
 
 [dependencies]
@@ -51,6 +61,9 @@ rustls = { version = "0.23", features = [
   "tls12",
 ], default-features = false, optional = true }
 tokio = { version = "1.52", default-features = false, optional = true }
+# Needed to implement the connector that performs HTTP CONNECT tunnelling. Already in the
+# dependency graph through hyper-util and tonic; declared here so the trait can be named.
+tower-service = { version = "0.3", optional = true }
 serde = { version = "1.0", features = [
   "derive",
 ], default-features = false, optional = true }
@@ -92,6 +105,10 @@ required-features = ["client", "server"]
 
 [[test]]
 name = "partitions"
+required-features = ["client", "server"]
+
+[[test]]
+name = "proxy"
 required-features = ["client", "server"]
 
 [[test]]

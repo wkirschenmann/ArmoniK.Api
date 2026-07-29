@@ -21,6 +21,8 @@ mod events;
 mod health_checks;
 #[cfg(feature = "client")]
 mod partitions;
+#[cfg(feature = "_gen-client")]
+mod proxy;
 #[cfg(feature = "client")]
 mod results;
 mod retry;
@@ -51,6 +53,8 @@ pub use events::Events;
 pub use health_checks::HealthChecks;
 #[cfg(feature = "client")]
 pub use partitions::Partitions;
+#[cfg(feature = "_gen-client")]
+pub use proxy::ProxyError;
 #[cfg(feature = "client")]
 pub use results::Results;
 pub use retry::{retry_with, MethodKind};
@@ -139,7 +143,7 @@ impl Client<tonic::transport::Channel> {
 
     async fn https_connector(
         config: ClientConfig,
-    ) -> Result<HttpsConnector<HttpConnector>, ConnectionError> {
+    ) -> Result<HttpsConnector<proxy::ProxyConnector>, ConnectionError> {
         let endpoint = config.endpoint;
 
         // Get the default crypto provider or fallback to the ring crypto provider
@@ -208,6 +212,10 @@ impl Client<tonic::transport::Channel> {
         if let Some(timeout) = config.connect_timeout {
             http.set_connect_timeout(Some(timeout));
         }
+
+        // Tunnelling happens below TLS, so the handshake above still targets the real server.
+        // With no proxy configured this delegates straight to `http`.
+        let http = proxy::ProxyConnector::new(http, config.proxy);
 
         Ok(https.enable_http1().enable_http2().wrap_connector(http))
     }
