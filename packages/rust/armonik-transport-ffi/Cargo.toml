@@ -1,0 +1,45 @@
+[package]
+name = "armonik-transport-ffi"
+description = "C ABI over armonik-transport, for the ArmoniK.Api.Client.Legacy .NET Framework binding"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+# Both are needed: `cdylib` is what .NET loads, `lib` is what the integration tests link against.
+[lib]
+crate-type = ["lib", "cdylib"]
+name = "armonik_transport_ffi"
+
+[dependencies]
+# By path: this crate is never published, and pinning by path keeps the two in step. Depending on
+# `armonik-transport` directly rather than on `armonik` means no protobuf codegen, no `protoc`
+# requirement, at all in this crate's own build — only `armonik-transport`'s connection layer.
+armonik-transport = { path = "../armonik-transport" }
+# Only for the runtime and the bounded queues. Everything else comes through
+# `armonik-transport::reexports`, so the tonic and prost versions can never drift apart from the
+# transport crate's.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+# For the raw-bytes codec: `EncodeBuf`/`DecodeBuf` already implement `BufMut`/`Buf`, so this crate
+# only needs the trait definitions, not a new wire format. Already in the dependency graph through
+# tonic and prost.
+bytes.workspace = true
+# The logging bridge: `armonik-transport` instruments itself with `tracing`, and
+# `tracing-subscriber`'s own JSON formatter is reused rather than hand-rolling one, so log lines
+# follow a schema Serilog/Seq already understand instead of an ABI-specific one.
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["json", "fmt", "std"] }
+
+[dev-dependencies]
+# Full `armonik` (protos and all) is only needed for the mock-service test fixtures
+# (`armonik::server::VersionsServiceExt`), never for the production build of this crate.
+armonik = { path = "../armonik", features = ["client", "server"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+# Generates real self-signed certificates for the config-parsing tests, so they exercise the same
+# rustls PEM reader a real certificate goes through rather than a hand-rolled fixture.
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
+
+[build-dependencies]
+cbindgen = { version = "0.29", default-features = false }

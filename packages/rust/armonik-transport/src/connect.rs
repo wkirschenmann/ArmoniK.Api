@@ -1,0 +1,205 @@
+//! Turning a [`ClientConfig`] into a connected `tonic` channel.
+//!
+//! This is the whole point of the crate: TLS (and mTLS), the HTTP proxy tunnel, the optional
+//! `SO_REUSE_UNICASTPORT` connector, and every timeout/keepalive setting all come together here.
+//! [`connect`] is what almost everyone wants; [`https_connector`] is the lower-level connector
+//! underneath it, exposed for callers (namely `armonik` itself, in its test helpers) who need to
+//! drive raw HTTP requests over the same TLS/proxy/connection stack rather than a gRPC channel.
+
+use std::sync::Arc;
+
+use hyper::Uri;
+use hyper_rustls::{ConfigBuilderExt, FixedServerNameResolver, HttpsConnector};
+use rustls::pki_types::ServerName;
+use snafu::{IntoError, ResultExt, Snafu};
+
+use crate::config::ConfigError;
+use crate::proxy::ProxyConnector;
+use crate::tcp::TcpConnector;
+use crate::ClientConfig;
+
+/// Connect to the endpoint described by `config`, eagerly (this resolves once the connection is
+/// actually established, not lazily on first request).
+pub async fn connect(config: ClientConfig) -> Result<tonic::transport::Channel, ConnectionError> {
+    let endpoint = config.endpoint.to_string();
+    tracing_futures::Instrument::instrument(
+        async move {
+            let endpoint = config.endpoint.clone();
+            let override_target = config.override_target.clone();
+            let http2_keep_alive_interval = config.http2_keep_alive_interval;
+            let http2_keep_alive_timeout = config.http2_keep_alive_timeout;
+            let http2_keep_alive_while_idle = config.http2_keep_alive_while_idle;
+            let http2_max_header_list_size = config.http2_max_header_list_size;
+            let user_agent = config.user_agent.clone();
+            let timeout = config.timeout;
+            let rate_limit = config.rate_limit;
+
+            let https = https_connector(config).await?;
+
+            let mut transport_endpoint = tonic::transport::Endpoint::from(endpoint.clone());
+            if let Some(target) = override_target {
+                transport_endpoint = transport_endpoint.origin(target);
+            }
+
+            if let Some(timeout) = timeout {
+                transport_endpoint = transport_endpoint.timeout(timeout);
+            }
+            if let Some((limit, duration)) = rate_limit {
+                transport_endpoint = transport_endpoint.rate_limit(limit, duration);
+            }
+
+            if let Some(interval) = http2_keep_alive_interval {
+                transport_endpoint = transport_endpoint.http2_keep_alive_interval(interval);
+            }
+            if let Some(timeout) = http2_keep_alive_timeout {
+                transport_endpoint = transport_endpoint.keep_alive_timeout(timeout);
+            }
+            transport_endpoint =
+                transport_endpoint.keep_alive_while_idle(http2_keep_alive_while_idle);
+            if let Some(max) = http2_max_header_list_size {
+                transport_endpoint = transport_endpoint.http2_max_header_list_size(max);
+            }
+            if let Some(ua) = user_agent {
+                transport_endpoint = transport_endpoint
+                    .user_agent(ua)
+                    .expect("HeaderValue is already validated, conversion is infallible");
+            }
+
+            // Build the actual channel from the configuration
+            transport_endpoint
+                .connect_with_connector(https)
+                .await
+                .context(TransportSnafu { endpoint })
+        },
+        tracing::debug_span!("connect", endpoint),
+    )
+    .await
+}
+
+/// Build the connector stack (TCP or port-reuse, optional proxy tunnel, TLS/mTLS) without wrapping
+/// it in a `tonic` channel.
+///
+/// Most callers want [`connect`] instead. This exists so a caller can drive plain HTTP requests
+/// through the exact same TLS/proxy/connection configuration a [`connect`]ed channel would use —
+/// `armonik`'s own test helper does that to reach the mock server's diagnostic `/calls.json`
+/// endpoint.
+///
+/// Hidden from the documented surface because its return type names this crate's internal connector
+/// types: they are `pub` only so this signature is expressible, not as an API to build against.
+#[doc(hidden)]
+pub async fn https_connector(
+    config: ClientConfig,
+) -> Result<HttpsConnector<ProxyConnector>, ConnectionError> {
+    // Built first, while `config` is still whole: the fields below are moved out of it.
+    let tcp = TcpConnector::new(&config);
+
+    let endpoint = config.endpoint;
+
+    // Get the default crypto provider or fallback to the ring crypto provider
+    let crypto_provider = rustls::crypto::CryptoProvider::get_default()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(rustls::crypto::ring::default_provider()));
+
+    // Configure TLS with sane protocol defaults
+    let tls_config = rustls::ClientConfig::builder_with_provider(crypto_provider)
+        .with_safe_default_protocol_versions()
+        .with_context(|_| TlsSnafu {
+            endpoint: endpoint.clone(),
+        })?;
+
+    // Configure the server verification
+    let tls_config = if config.allow_unsafe_connection {
+        // Do not verify the server
+        tls_config
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(crate::utils::InsecureCertVerifier))
+    } else if let Some(cacert) = config.cacert {
+        // Verify that the server certificate is signed with a specific CA cert
+        let mut root_cert_store = rustls::RootCertStore::empty();
+        root_cert_store.add(cacert).with_context(|_| TlsSnafu {
+            endpoint: endpoint.clone(),
+        })?;
+        tls_config.with_root_certificates(root_cert_store)
+    } else {
+        // Verify the server certificate using the system CAs
+        tls_config
+            .with_native_roots()
+            .with_context(|_| IoSnafu {})?
+    };
+
+    // Configure client identity for mTLS
+    let tls_config = if let Some((cert, key)) = config.identity {
+        // Use the the specified client certificate and key for the client authentication
+        tls_config
+            .with_client_auth_cert(vec![cert], key)
+            .with_context(|_| TlsSnafu {
+                endpoint: endpoint.clone(),
+            })?
+    } else {
+        // No mTLS
+        tls_config.with_no_client_auth()
+    };
+
+    // Configure the connector to use http or https depending on the URI scheme
+    let mut https = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls_config)
+        .https_or_http();
+
+    if let Some(hostname) = &config.override_target {
+        let server_name = ServerName::try_from(hostname.host().unwrap_or_default())
+            .expect("A valid URI host should be a valid ServerName")
+            .to_owned();
+        https = https.with_server_name_resolver(FixedServerNameResolver::new(server_name));
+    };
+
+    // Tunnelling happens below TLS, so the handshake above still targets the real server.
+    // With no proxy configured this delegates straight to the TCP connector.
+    let http = ProxyConnector::new(tcp, config.proxy);
+
+    Ok(https.enable_http1().enable_http2().wrap_connector(http))
+}
+
+#[derive(Debug, Snafu)]
+#[non_exhaustive]
+pub enum ConnectionError {
+    #[snafu(display("Could not read the client config [{location}]"))]
+    #[non_exhaustive]
+    Config {
+        #[snafu(source(from(ConfigError, Box::new)))]
+        source: Box<ConfigError>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("Could not connect to the remote {endpoint} [{location}]"))]
+    #[non_exhaustive]
+    Transport {
+        endpoint: Uri,
+        #[snafu(source(from(tonic::transport::Error, Box::new)))]
+        source: Box<tonic::transport::Error>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("Could not establish TLS connection to the remote {endpoint} [{location}]"))]
+    #[non_exhaustive]
+    Tls {
+        endpoint: Uri,
+        #[snafu(source(from(rustls::Error, Box::new)))]
+        source: Box<rustls::Error>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("Could not read system cert store [{location}]"))]
+    #[non_exhaustive]
+    Io {
+        #[snafu(source(from(std::io::Error, Box::new)))]
+        source: Box<std::io::Error>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+}
+
+impl From<ConfigError> for ConnectionError {
+    fn from(source: ConfigError) -> Self {
+        ConfigSnafu {}.into_error(source)
+    }
+}

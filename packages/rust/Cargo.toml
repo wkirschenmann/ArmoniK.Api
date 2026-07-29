@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["armonik", "armonik-transport", "armonik-transport-ffi"]
+
+# Shared metadata and dependency versions for every crate in this workspace, so version bumps and
+# policy (MSRV, license, repository) are made once here instead of drifting per crate. Member
+# crates opt in per field with `xxx.workspace = true`; nothing is forced.
+[workspace.package]
+authors = ["Florian Lemaitre <flemaitre@aneo.fr>"]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/aneoconsulting/ArmoniK.Api"
+rust-version = "1.88.0"
+version = "3.29.2-beta-0"
+
+# Versions pinned once for every crate that needs them. A member still has to list the dependency
+# itself (`foo.workspace = true`), this only fixes the version so `armonik`, `armonik-transport` and
+# `armonik-transport-ffi` can never resolve to three different `tonic`s (or three different
+# `rustls`es, etc.) in the same build.
+[workspace.dependencies]
+bytes = "1"
+humantime = "2.3.0"
+hyper = "1.10"
+hyper-rustls = { version = "0.27", default-features = false }
+hyper-util = "0.1"
+rustls = { version = "0.23", default-features = false }
+snafu = "0.9"
+socket2 = "0.6"
+tokio = { version = "1.52", default-features = false }
+tonic = { version = "0.14", default-features = false }
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+tower-service = "0.3"
+tracing = "0.1"
+tracing-futures = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false }

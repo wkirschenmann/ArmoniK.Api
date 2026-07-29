@@ -208,7 +208,9 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/rust/armonik
+        # The workspace root, so every `--workspace` below covers armonik, armonik-transport and
+        # armonik-transport-ffi rather than just one member.
+        working-directory: packages/rust
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
@@ -223,16 +225,24 @@ jobs:
           components: rust-src,rust-docs,rustfmt,clippy
       - name: Build
         run: |
-          cargo build --all --locked
+          cargo build --workspace --locked
       - name: Format
         run: |
           cargo fmt --all --check
       - name: Doc
         run: |
-          RUSTDOCFLAGS="-Dwarnings" cargo doc
+          RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --no-deps
       - name: Clippy
         run: |
-          cargo clippy --all --no-deps -- -Dwarnings -Dunused-crate-dependencies
+          cargo clippy --workspace --all-features --no-deps -- -Dwarnings -Dunused-crate-dependencies
+      - name: The generated C header must match the sources
+        run: |
+          # `build.rs` regenerates it, so a stale committed header means someone changed the ABI
+          # without committing the result. Reviewers read this file as the contract.
+          if ! git diff --exit-code -- armonik-transport-ffi/include; then
+            echo "::error::include/armonik_transport_ffi.h is out of date; rebuild and commit it"
+            exit 1
+          fi
 
   lint-js:
     name: Lint JS

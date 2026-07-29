@@ -25,9 +25,20 @@ use super::ClientConfig;
 /// Boxed error, matching what the connectors below and hyper itself produce.
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Await `body`, bounded by an absolute `deadline` when one is set. [`None`] means it expired.
+async fn with_optional_deadline<T>(
+    deadline: Option<tokio::time::Instant>,
+    body: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(deadline, body).await.ok(),
+        None => Some(body.await),
+    }
+}
+
 /// How the underlying TCP connection is opened.
 #[derive(Debug, Clone)]
-pub(crate) enum TcpConnector {
+pub enum TcpConnector {
     /// hyper's connector. The default, and unchanged.
     Standard(HttpConnector),
     /// Our own connector, which can defer ephemeral port allocation.
@@ -130,8 +141,16 @@ impl ReusePortsConnector {
             }
         });
 
-        let addresses = tokio::net::lookup_host((host, port))
+        // Anchored before resolution, so name lookup and every connection attempt draw from the one
+        // budget the caller asked for. Bounding each attempt separately instead would let a host
+        // with several addresses take a multiple of `connect_timeout` to fail.
+        let deadline = self
+            .connect_timeout
+            .map(|timeout| tokio::time::Instant::now() + timeout);
+
+        let addresses = with_optional_deadline(deadline, tokio::net::lookup_host((host, port)))
             .await
+            .ok_or_else(|| BoxError::from(format!("resolving `{host}` timed out")))?
             .map_err(|source| BoxError::from(format!("could not resolve `{host}`: {source}")))?
             .collect::<Vec<_>>();
 
@@ -141,11 +160,17 @@ impl ReusePortsConnector {
 
         let mut last_error = None;
         for address in addresses {
-            match self.connect_to(address).await {
-                Ok(stream) => return Ok(TokioIo::new(stream)),
-                Err(error) => {
+            let attempt = with_optional_deadline(deadline, self.connect_to(address)).await;
+            match attempt {
+                Some(Ok(stream)) => return Ok(TokioIo::new(stream)),
+                Some(Err(error)) => {
                     tracing::debug!(%address, %error, "Connection attempt failed");
                     last_error = Some(error);
+                }
+                None => {
+                    return Err(BoxError::from(format!(
+                        "connecting to `{host}` timed out after trying {address}"
+                    )))
                 }
             }
         }
@@ -171,13 +196,9 @@ impl ReusePortsConnector {
         socket.set_nodelay(self.nodelay)?;
         socket.set_keepalive(self.keepalive.is_some())?;
 
-        let connect = socket.connect(address);
-        let stream = match self.connect_timeout {
-            Some(timeout) => tokio::time::timeout(timeout, connect)
-                .await
-                .map_err(|_| BoxError::from(format!("connecting to {address} timed out")))??,
-            None => connect.await?,
-        };
+        // No timeout here: `connect` above bounds the whole operation against one deadline, and a
+        // second per-attempt timeout would be the very thing that let the total overrun it.
+        let stream = socket.connect(address).await?;
 
         self.apply_keepalive(&stream)?;
 

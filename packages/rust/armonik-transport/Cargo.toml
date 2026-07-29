@@ -1,0 +1,50 @@
+[package]
+name = "armonik-transport"
+description = "Transport layer (config, TLS/mTLS, proxy, retry) for the ArmoniK Rust client"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+include = ["**/*.rs", "Cargo.toml", "README.md"]
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+tonic = { workspace = true, features = ["channel", "codegen"] }
+snafu.workspace = true
+tracing.workspace = true
+tracing-futures = { workspace = true, features = ["futures-03"] }
+hyper = { workspace = true, features = ["client", "http1", "http2"] }
+hyper-util = { workspace = true, features = ["client", "http1"] }
+hyper-rustls = { workspace = true, features = [
+  "http1",
+  "http2",
+  "native-tokio",
+  "tls12",
+  "logging",
+] }
+rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+tokio = { workspace = true, features = ["net", "io-util", "time"] }
+tower-service.workspace = true
+socket2.workspace = true
+serde = { version = "1.0", features = ["derive"], default-features = false, optional = true }
+humantime.workspace = true
+
+[dev-dependencies]
+eyre = "0.6"
+# A couple of tests have to set an environment variable to exercise a code path that reads it
+# directly; they must not run alongside anything else that reads the same variable.
+serial_test = "3.5"
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+# Only the tests need to serve a gRPC service; `tonic`'s `server`/`router` features union with the
+# `channel` feature already enabled by the regular dependency above for test builds only.
+tonic = { workspace = true, features = ["server", "router"] }
+# The tests' hand-rolled raw-bytes test service, mirroring `armonik-transport-ffi`'s codec, needs
+# this directly rather than through `armonik_transport::reexports` (which does not re-export it,
+# since production code never constructs `Bytes` itself).
+bytes = "1"

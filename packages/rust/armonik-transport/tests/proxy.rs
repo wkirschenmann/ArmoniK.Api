@@ -9,47 +9,18 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use armonik::server::{RequestContext, VersionsServiceExt};
-use armonik::{versions, ClientConfig, ProxyConfig};
+use armonik_transport::{ClientConfig, ProxyConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 mod common;
 
-/// The version string the stub server reports, used to prove the response really came back.
-const CORE_VERSION: &str = "proxied-core-version";
+/// The payload the stub server echoes back, used to prove the response really came back.
+const CORE_VERSION: &[u8] = b"proxied-core-version";
 
-#[derive(Debug, Clone, Default)]
-struct Service;
-
-impl armonik::server::VersionsService for Service {
-    async fn list(
-        self: Arc<Self>,
-        _request: versions::list::Request,
-        _context: RequestContext,
-    ) -> Result<versions::list::Response, tonic::Status> {
-        Ok(versions::list::Response {
-            core: String::from(CORE_VERSION),
-            ..Default::default()
-        })
-    }
-}
-
-/// Serve the stub Versions service on an ephemeral loopback port.
+/// Serve the stub echo service on an ephemeral loopback port.
 async fn spawn_server() -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind server");
-    let address = listener.local_addr().expect("server address");
-
-    tokio::spawn(async move {
-        let incoming = armonik::reexports::tokio_stream::wrappers::TcpListenerStream::new(listener);
-        tonic::transport::Server::builder()
-            .add_service(Service.versions_server())
-            .serve_with_incoming(incoming)
-            .await
-            .expect("serve");
-    });
-
-    address
+    common::spawn_raw_server(CORE_VERSION).await
 }
 
 /// What a test proxy should demand of its clients.
@@ -161,10 +132,10 @@ fn explicit(proxy: SocketAddr) -> ProxyConfig {
     ProxyConfig::explicit(hyper::Uri::try_from(format!("http://{proxy}")).expect("proxy uri"))
 }
 
-/// Ask the server for its versions, returning the core version it reported.
-async fn call_versions(config: ClientConfig) -> Result<String, Box<dyn std::error::Error>> {
-    let mut client = armonik::Client::with_config(config).await?.into_versions();
-    Ok(client.list().await?.core)
+/// Connect and make one raw call, returning whatever the server echoed back.
+async fn call_versions(config: ClientConfig) -> Result<bytes::Bytes, Box<dyn std::error::Error>> {
+    let channel = armonik_transport::connect(config).await?;
+    Ok(common::call_raw_unary(channel, &b""[..]).await?)
 }
 
 /// Render an error and everything it was caused by.

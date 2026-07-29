@@ -85,7 +85,7 @@ impl ProxyConfig {
 /// Policy for automatically replaying failed requests.
 ///
 /// Only requests that are known to be safe to replay are retried: see
-/// [`RetryPolicy::may_replay`](crate::client::RetryPolicy::may_replay).
+/// [`RetryPolicy::may_replay`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct RetryPolicy {
@@ -293,43 +293,111 @@ pub struct ClientConfigArgs {
     pub reuse_ports: bool,
 }
 
+/// The prefix every option's environment variable carries.
+const ENV_PREFIX: &str = "GrpcClient__";
+
 impl ClientConfigArgs {
-    pub fn from_env() -> Result<Self, super::ConfigError> {
-        use crate::utils::{read_env, read_env_bool};
-        let ctx = EnvSnafu {};
-        Ok(Self {
-            endpoint: read_env("GrpcClient__Endpoint").context(ctx)?,
-            cert_pem: read_env("GrpcClient__CertPem").context(ctx)?,
-            key_pem: read_env("GrpcClient__KeyPem").context(ctx)?,
-            ca_cert: read_env("GrpcClient__CaCert").context(ctx)?,
-            allow_unsafe_connection: read_env_bool("GrpcClient__AllowUnsafeConnection")
-                .context(ctx)?,
-            override_target_name: read_env("GrpcClient__OverrideTargetName").context(ctx)?,
-            connect_timeout: read_env("GrpcClient__ConnectTimeout").context(ctx)?,
-            timeout: read_env("GrpcClient__Timeout").context(ctx)?,
-            rate_limit: read_env("GrpcClient__RateLimit").context(ctx)?,
-            tcp_keepalive: read_env("GrpcClient__TcpKeepalive").context(ctx)?,
-            tcp_keepalive_interval: read_env("GrpcClient__TcpKeepaliveInterval").context(ctx)?,
-            tcp_keepalive_retries: read_env("GrpcClient__TcpKeepaliveRetries").context(ctx)?,
-            tcp_nagle_algorithm: read_env_bool("GrpcClient__TcpNagleAlgorithm").context(ctx)?,
-            http2_keep_alive_interval: read_env("GrpcClient__Http2KeepAliveInterval")
-                .context(ctx)?,
-            http2_keep_alive_timeout: read_env("GrpcClient__Http2KeepAliveTimeout").context(ctx)?,
-            http2_keep_alive_while_idle: read_env_bool("GrpcClient__Http2KeepAliveWhileIdle")
-                .context(ctx)?,
-            http2_max_header_list_size: read_env("GrpcClient__Http2MaxHeaderListSize")
-                .context(ctx)?,
-            user_agent: read_env("GrpcClient__UserAgent").context(ctx)?,
-            proxy: read_env("GrpcClient__Proxy").context(ctx)?,
-            proxy_username: read_env("GrpcClient__ProxyUsername").context(ctx)?,
-            proxy_password: read_env("GrpcClient__ProxyPassword").context(ctx)?,
-            max_attempts: read_env("GrpcClient__MaxAttempts").context(ctx)?,
-            initial_backoff: read_env("GrpcClient__InitialBackOff").context(ctx)?,
-            max_backoff: read_env("GrpcClient__MaxBackOff").context(ctx)?,
-            backoff_multiplier: read_env("GrpcClient__BackoffMultiplier").context(ctx)?,
-            retryable_status_codes: read_env("GrpcClient__RetryableStatusCodes").context(ctx)?,
-            reuse_ports: read_env_bool("GrpcClient__ReusePorts").context(ctx)?,
-        })
+    /// Every option this type accepts, named exactly as the suffix of its `GrpcClient__*`
+    /// environment variable and as the corresponding .NET `GrpcClient` property.
+    ///
+    /// This is the single source of truth for the option vocabulary: [`Self::from_env`] iterates it,
+    /// and so does any other front end that feeds options in by name (the C ABI in
+    /// `armonik-transport-ffi` does exactly that). Adding an option means adding it here and in
+    /// [`Self::set`], and every path picks it up.
+    pub const OPTION_NAMES: &'static [&'static str] = &[
+        "Endpoint",
+        "CertPem",
+        "KeyPem",
+        "CaCert",
+        "AllowUnsafeConnection",
+        "OverrideTargetName",
+        "ConnectTimeout",
+        "Timeout",
+        "RateLimit",
+        "TcpKeepalive",
+        "TcpKeepaliveInterval",
+        "TcpKeepaliveRetries",
+        "TcpNagleAlgorithm",
+        "Http2KeepAliveInterval",
+        "Http2KeepAliveTimeout",
+        "Http2KeepAliveWhileIdle",
+        "Http2MaxHeaderListSize",
+        "UserAgent",
+        "Proxy",
+        "ProxyUsername",
+        "ProxyPassword",
+        "MaxAttempts",
+        "InitialBackOff",
+        "MaxBackOff",
+        "BackoffMultiplier",
+        "RetryableStatusCodes",
+        "ReusePorts",
+    ];
+
+    /// Set one option by name, as it appears in [`Self::OPTION_NAMES`].
+    ///
+    /// Values are always the string form, exactly as an environment variable would carry it: empty
+    /// means "unset", durations are `humantime` (`"30s"`), booleans accept the same spellings
+    /// `GrpcClient__*` environment variables do (`1`/`true`/`yes`/`enable`/…).
+    ///
+    /// An unknown name is an error rather than being ignored: a caller that misspells an option
+    /// should hear about it instead of silently getting the default.
+    pub fn set(&mut self, name: &str, value: &str) -> Result<(), ConfigError> {
+        // Only used to give `parse_bool` a name for its error message; the caller may not have gone
+        // through the environment at all, but the variable name is the vocabulary users know.
+        let env_name = || format!("{ENV_PREFIX}{name}");
+        let boolean = |target: &mut bool| -> Result<(), ConfigError> {
+            *target = crate::utils::parse_bool(&env_name(), value).context(EnvSnafu {})?;
+            Ok(())
+        };
+
+        match name {
+            "Endpoint" => self.endpoint = value.to_owned(),
+            "CertPem" => self.cert_pem = value.to_owned(),
+            "KeyPem" => self.key_pem = value.to_owned(),
+            "CaCert" => self.ca_cert = value.to_owned(),
+            "AllowUnsafeConnection" => boolean(&mut self.allow_unsafe_connection)?,
+            "OverrideTargetName" => self.override_target_name = value.to_owned(),
+            "ConnectTimeout" => self.connect_timeout = value.to_owned(),
+            "Timeout" => self.timeout = value.to_owned(),
+            "RateLimit" => self.rate_limit = value.to_owned(),
+            "TcpKeepalive" => self.tcp_keepalive = value.to_owned(),
+            "TcpKeepaliveInterval" => self.tcp_keepalive_interval = value.to_owned(),
+            "TcpKeepaliveRetries" => self.tcp_keepalive_retries = value.to_owned(),
+            "TcpNagleAlgorithm" => boolean(&mut self.tcp_nagle_algorithm)?,
+            "Http2KeepAliveInterval" => self.http2_keep_alive_interval = value.to_owned(),
+            "Http2KeepAliveTimeout" => self.http2_keep_alive_timeout = value.to_owned(),
+            "Http2KeepAliveWhileIdle" => boolean(&mut self.http2_keep_alive_while_idle)?,
+            "Http2MaxHeaderListSize" => self.http2_max_header_list_size = value.to_owned(),
+            "UserAgent" => self.user_agent = value.to_owned(),
+            "Proxy" => self.proxy = value.to_owned(),
+            "ProxyUsername" => self.proxy_username = value.to_owned(),
+            "ProxyPassword" => self.proxy_password = value.to_owned(),
+            "MaxAttempts" => self.max_attempts = value.to_owned(),
+            "InitialBackOff" => self.initial_backoff = value.to_owned(),
+            "MaxBackOff" => self.max_backoff = value.to_owned(),
+            "BackoffMultiplier" => self.backoff_multiplier = value.to_owned(),
+            "RetryableStatusCodes" => self.retryable_status_codes = value.to_owned(),
+            "ReusePorts" => boolean(&mut self.reuse_ports)?,
+            _ => {
+                return UnknownOptionSnafu {
+                    name: name.to_owned(),
+                }
+                .fail()
+            }
+        }
+        Ok(())
+    }
+
+    /// Read every option from its `GrpcClient__*` environment variable.
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let mut args = Self::default();
+        for name in Self::OPTION_NAMES {
+            let value =
+                crate::utils::read_env(&format!("{ENV_PREFIX}{name}")).context(EnvSnafu {})?;
+            args.set(name, &value)?;
+        }
+        Ok(args)
     }
 }
 
@@ -916,6 +984,15 @@ pub enum ConfigError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
+    #[snafu(display(
+        "`{name}` is not a client option; see `ClientConfigArgs::OPTION_NAMES` [{location}]"
+    ))]
+    #[non_exhaustive]
+    UnknownOption {
+        name: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
 }
 
 #[cfg(test)]
@@ -1213,5 +1290,96 @@ mod tests {
         .unwrap();
 
         assert_eq!(format!("{config:?}"), format!("{:?}", config.clone()));
+    }
+
+    #[test]
+    fn every_advertised_option_name_is_actually_settable() {
+        // The guard that keeps `OPTION_NAMES` and `set` from drifting apart: an option advertised
+        // but not handled would otherwise be silently rejected by every front end that iterates the
+        // list, including `from_env` itself.
+        for name in ClientConfigArgs::OPTION_NAMES {
+            let mut args = ClientConfigArgs::default();
+            args.set(name, "")
+                .unwrap_or_else(|error| panic!("`{name}` is advertised but not settable: {error}"));
+        }
+    }
+
+    #[test]
+    fn setting_every_option_reaches_a_distinct_field() {
+        // The converse guard: two names accidentally writing the same field would make one of them
+        // a silent no-op. Giving each a distinguishable value and checking the whole struct changed
+        // exactly once per name catches that.
+        let mut previous = ClientConfigArgs::default();
+        for name in ClientConfigArgs::OPTION_NAMES {
+            let mut args = previous.clone();
+            // A value every field accepts: booleans take `1`, and no string field validates here
+            // (validation happens later, in `from_config_args`).
+            args.set(name, "1").expect("settable");
+            assert_ne!(
+                args, previous,
+                "setting `{name}` changed nothing, so it must share a field with another option"
+            );
+            previous = args;
+        }
+    }
+
+    #[test]
+    fn an_unknown_option_is_rejected_rather_than_ignored() {
+        let mut args = ClientConfigArgs::default();
+        let error = args
+            .set("EndPoint", "https://localhost:5001")
+            .expect_err("a misspelled option must not be silently dropped");
+        assert!(
+            error.to_string().contains("not a client option"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn set_and_from_env_agree_on_boolean_spellings() {
+        for (value, expected) in [
+            ("", false),
+            ("0", false),
+            ("false", false),
+            ("no", false),
+            ("1", true),
+            ("true", true),
+            ("yes", true),
+            ("enable", true),
+        ] {
+            let mut args = ClientConfigArgs::default();
+            args.set("AllowUnsafeConnection", value).expect("settable");
+            assert_eq!(
+                args.allow_unsafe_connection, expected,
+                "unexpected reading of {value:?}"
+            );
+        }
+
+        let mut args = ClientConfigArgs::default();
+        let error = args
+            .set("AllowUnsafeConnection", "perhaps")
+            .expect_err("a non-boolean must be rejected");
+        // The detail lives in the cause, not the outer message. Note the cause names the option as
+        // its `GrpcClient__*` environment variable even when the value came from elsewhere — that is
+        // the spelling users know it by, so it stays actionable either way.
+        assert!(
+            error_chain(&error).contains("not a valid boolean"),
+            "unexpected error: {}",
+            error_chain(&error)
+        );
+    }
+
+    /// Render an error and every cause behind it.
+    ///
+    /// snafu keeps the detail in the source chain while the outer variant gives context, so
+    /// assertions on *what went wrong* have to look at the whole chain.
+    fn error_chain(error: &dyn std::error::Error) -> String {
+        let mut rendered = vec![error.to_string()];
+        let mut current = error.source();
+        while let Some(source) = current {
+            rendered.push(source.to_string());
+            current = source.source();
+        }
+        rendered.join(" -> ")
     }
 }

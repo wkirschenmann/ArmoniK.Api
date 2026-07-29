@@ -38,7 +38,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Requests that must not be proxied — proxying disabled, or a host matched by `NO_PROXY` — are
 /// passed straight to the inner connector, so the non-proxied path is exactly what it was before.
 #[derive(Debug, Clone)]
-pub(crate) struct ProxyConnector {
+pub struct ProxyConnector {
     inner: TcpConnector,
     proxy: ProxyConfig,
 }
@@ -113,23 +113,29 @@ impl Service<Uri> for ProxyConnector {
 
 /// Decide which proxy, if any, should be used to reach `target`.
 fn resolve_proxy(proxy: &ProxyConfig, target: &Uri) -> Result<Option<Uri>, ProxyError> {
-    let proxy_uri = match &proxy.source {
-        ProxySource::Disabled => return Ok(None),
-        ProxySource::Explicit(uri) => uri.clone(),
-        ProxySource::System => match system_proxy(target) {
-            Some(uri) => uri,
-            None => return Ok(None),
-        },
-    };
+    match &proxy.source {
+        ProxySource::Disabled => Ok(None),
+        // `NO_PROXY` deliberately does *not* apply here. It is part of the same environment
+        // convention as `HTTPS_PROXY`, so it belongs to `System`; the .NET client builds an explicit
+        // proxy as `new WebProxy(url, false, Array.Empty<string>(), …)` — an empty bypass list that
+        // ignores `NO_PROXY` entirely. Honouring it for an explicitly-configured proxy would mean a
+        // request bypassing the proxy here while going through it there.
+        ProxySource::Explicit(uri) => Ok(Some(uri.clone())),
+        ProxySource::System => {
+            let Some(uri) = system_proxy(target) else {
+                return Ok(None);
+            };
 
-    if let Some(host) = target.host() {
-        if no_proxy_matches(&read_env_first(&["NO_PROXY", "no_proxy"]), host) {
-            tracing::debug!(host, "Bypassing the proxy, host matched by NO_PROXY");
-            return Ok(None);
+            if let Some(host) = target.host() {
+                if no_proxy_matches(&read_env_first(&["NO_PROXY", "no_proxy"]), host) {
+                    tracing::debug!(host, "Bypassing the proxy, host matched by NO_PROXY");
+                    return Ok(None);
+                }
+            }
+
+            Ok(Some(uri))
         }
     }
-
-    Ok(Some(proxy_uri))
 }
 
 /// Read the proxy for `target` from the environment, following the usual `*_PROXY` convention.
@@ -539,13 +545,40 @@ mod tests {
     #[test]
     fn explicit_proxy_is_used_as_is() {
         let target = Uri::try_from("https://armonik.example.com:5001/").unwrap();
-        let proxy = ProxyConfig {
-            source: ProxySource::Explicit(Uri::try_from("http://proxy.corp:3128").unwrap()),
-            ..Default::default()
-        };
+        let proxy = ProxyConfig::explicit(Uri::try_from("http://proxy.corp:3128").unwrap());
 
         let resolved = resolve_proxy(&proxy, &target).unwrap().expect("a proxy");
         assert_eq!(resolved.host(), Some("proxy.corp"));
         assert_eq!(resolved.port_u16(), Some(3128));
+    }
+
+    #[test]
+    #[serial_test::serial(env)]
+    fn no_proxy_does_not_apply_to_an_explicitly_configured_proxy() {
+        // `NO_PROXY` belongs to the same environment convention as `HTTPS_PROXY`, so it governs
+        // `System` only. The .NET client gives an explicit proxy an empty bypass list, and diverging
+        // here would mean a request skipping the proxy in this transport while using it in that one.
+        //
+        // Set for the duration of this test only; `resolve_proxy` reads the variable itself, so
+        // there is no way to inject it. Marked `serial` for that reason.
+        let target = Uri::try_from("https://armonik.example.com:5001/").unwrap();
+        let proxy = ProxyConfig::explicit(Uri::try_from("http://proxy.corp:3128").unwrap());
+
+        let restore = std::env::var("NO_PROXY").ok();
+        // SAFETY: single-threaded within this test, which is `serial` for exactly this reason.
+        unsafe { std::env::set_var("NO_PROXY", "armonik.example.com") };
+
+        let resolved = resolve_proxy(&proxy, &target).unwrap();
+
+        match restore {
+            // SAFETY: as above.
+            Some(previous) => unsafe { std::env::set_var("NO_PROXY", previous) },
+            None => unsafe { std::env::remove_var("NO_PROXY") },
+        }
+
+        assert!(
+            resolved.is_some(),
+            "an explicit proxy must be used even when NO_PROXY names the target"
+        );
     }
 }

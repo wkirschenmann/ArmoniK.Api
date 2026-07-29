@@ -5,47 +5,15 @@
 //! `GrpcClient__ReusePorts` exists to defer port allocation so it does not.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 
-use armonik::server::{RequestContext, VersionsServiceExt};
-use armonik::{versions, ClientConfig};
+use armonik_transport::ClientConfig;
 
 mod common;
 
-const CORE_VERSION: &str = "concurrent-core-version";
-
-#[derive(Debug, Clone, Default)]
-struct Service;
-
-impl armonik::server::VersionsService for Service {
-    async fn list(
-        self: Arc<Self>,
-        _request: versions::list::Request,
-        _context: RequestContext,
-    ) -> Result<versions::list::Response, tonic::Status> {
-        Ok(versions::list::Response {
-            core: String::from(CORE_VERSION),
-            ..Default::default()
-        })
-    }
-}
+const CORE_VERSION: &[u8] = b"concurrent-core-version";
 
 async fn spawn_server() -> SocketAddr {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind server");
-    let address = listener.local_addr().expect("server address");
-
-    tokio::spawn(async move {
-        let incoming = armonik::reexports::tokio_stream::wrappers::TcpListenerStream::new(listener);
-        tonic::transport::Server::builder()
-            .add_service(Service.versions_server())
-            .serve_with_incoming(incoming)
-            .await
-            .expect("serve");
-    });
-
-    address
+    common::spawn_raw_server(CORE_VERSION).await
 }
 
 fn config(endpoint: SocketAddr, reuse_ports: bool) -> ClientConfig {
@@ -60,21 +28,20 @@ fn config(endpoint: SocketAddr, reuse_ports: bool) -> ClientConfig {
 /// Each channel is its own TCP connection, which is the point: a shared channel would multiplex
 /// over one socket and never touch the port range.
 async fn open_channels(config: ClientConfig, count: usize) -> Result<(), String> {
-    let mut clients = Vec::with_capacity(count);
+    let mut channels = Vec::with_capacity(count);
     for index in 0..count {
-        let client = armonik::Client::with_config(config.clone())
+        let channel = armonik_transport::connect(config.clone())
             .await
             .map_err(|error| format!("connection {index} failed: {error}"))?;
-        clients.push(client.into_versions());
+        channels.push(channel);
     }
 
-    for (index, client) in clients.iter_mut().enumerate() {
-        let response = client
-            .list()
+    for (index, channel) in channels.into_iter().enumerate() {
+        let response = common::call_raw_unary(channel, &b""[..])
             .await
             .map_err(|error| format!("call {index} failed: {error}"))?;
-        if response.core != CORE_VERSION {
-            return Err(format!("call {index} returned {:?}", response.core));
+        if response != CORE_VERSION {
+            return Err(format!("call {index} returned {response:?}"));
         }
     }
 
@@ -106,14 +73,15 @@ async fn port_reuse_does_not_change_what_the_call_returns() {
     let server = spawn_server().await;
 
     for reuse_ports in [false, true] {
-        let mut client = armonik::Client::with_config(config(server, reuse_ports))
+        let channel = armonik_transport::connect(config(server, reuse_ports))
             .await
-            .expect("connect")
-            .into_versions();
+            .expect("connect");
 
+        let response = common::call_raw_unary(channel, &b""[..])
+            .await
+            .expect("call");
         assert_eq!(
-            client.list().await.expect("call").core,
-            CORE_VERSION,
+            response, CORE_VERSION,
             "reuse_ports={reuse_ports} changed the response"
         );
     }

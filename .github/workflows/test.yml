@@ -57,15 +57,18 @@ jobs:
             cmd: pytest tests --cov=armonik --cov-config=.coveragerc --cov-report=term-missing --cov-append --cov-report xml:coverage.xml --cov-report html:coverage_report
             dir: python
             env: {}
+          # `--workspace` matters: the Rust crates are a Cargo workspace, and `cargo test` from a
+          # member directory tests only that member. Without it, armonik-transport and
+          # armonik-transport-ffi would build in CI but never have their tests run.
           - lang: Rust
             toolchain: stable
-            cmd: cargo test --locked
-            dir: rust/armonik
+            cmd: cargo test --locked --workspace
+            dir: rust
             env: {}
           - lang: Rust
             toolchain: nightly
-            cmd: cargo test --locked
-            dir: rust/armonik
+            cmd: cargo test --locked --workspace
+            dir: rust
             env: {}
         plateform:
           - os: ubuntu-latest
@@ -154,11 +157,11 @@ jobs:
         with:
           toolchain: ${{ matrix.language.toolchain }}
           components: rust-src,rust-docs,rustfmt${{contains(matrix.language.toolchain, 'nightly') && ',miri' || ''}}
-      - name: Build Rust package
+      - name: Build Rust packages
         if: ${{ matrix.language.lang == 'Rust' }}
-        working-directory: packages/rust/armonik
+        working-directory: packages/rust
         run: |
-          cargo build --locked --tests
+          cargo build --locked --workspace --tests
 
       # Prepare C++
       - name: Build C++ package
