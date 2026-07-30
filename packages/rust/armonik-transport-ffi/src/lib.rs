@@ -45,6 +45,8 @@ mod guard;
 mod handle;
 mod log;
 mod metadata;
+#[cfg(test)]
+mod test_support;
 // Public, and hidden, for exactly one reason: `runtime::alive_tasks` lets the integration tests
 // assert the runtime comes back to rest. Nothing in it is `extern "C"`, so none of it reaches the
 // generated header or the .NET side.

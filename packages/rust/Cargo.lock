@@ -76,6 +76,7 @@ dependencies = [
  "bytes",
  "cbindgen",
  "rcgen",
+ "serde_json",
  "serial_test",
  "tokio",
  "tower-service",

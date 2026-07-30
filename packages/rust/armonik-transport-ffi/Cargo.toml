@@ -44,6 +44,10 @@ tower-service.workspace = true
 # The leak tests read process-wide counters, so they have to run one at a time; `#[serial]` says so at
 # the test rather than relying on a `--test-threads` flag nobody passes.
 serial_test = "3.5"
+# The log-bridge tests assert on the *structure* of what the bridge emits, not on a substring of it,
+# since the .NET side parses it as JSON. Only ever a test dependency: the crate itself writes this
+# format through `tracing-subscriber` and never reads it back.
+serde_json = "1"
 # Generates real self-signed certificates for the config-parsing tests, so they exercise the same
 # rustls PEM reader a real certificate goes through rather than a hand-rolled fixture.
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }

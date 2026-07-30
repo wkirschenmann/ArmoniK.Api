@@ -111,6 +111,7 @@ pub(crate) unsafe fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::certificate;
 
     fn view(s: &[u8]) -> ak_bytes_in {
         ak_bytes_in {
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_cert_and_key_pair_is_parsed_and_attached() {
-        let (cert_pem, key_pem) = test_certificate();
+        let (cert_pem, key_pem) = certificate();
         let config = build_from(
             &[("Endpoint", "https://localhost:5001")],
             Certificates {
@@ -268,7 +269,7 @@ mod tests {
 
     #[test]
     fn a_cert_without_a_key_or_a_key_without_a_cert_is_rejected() {
-        let (cert_pem, key_pem) = test_certificate();
+        let (cert_pem, key_pem) = certificate();
 
         for certificates in [
             Certificates {
@@ -304,7 +305,7 @@ mod tests {
 
     #[test]
     fn a_ca_cert_is_parsed_and_attached() {
-        let (ca_pem, _key_pem) = test_certificate();
+        let (ca_pem, _key_pem) = certificate();
         let config = build_from(
             &[("Endpoint", "https://localhost:5001")],
             Certificates {
@@ -331,19 +332,5 @@ mod tests {
         )
         .expect("the path must be ignored, not opened");
         assert!(config.cacert.is_none());
-    }
-
-    /// A minimal self-signed certificate and key.
-    ///
-    /// Real DER-encoded, PEM-armoured material from `rcgen`, so the parsing path under test
-    /// (`rustls`'s own PEM reader) sees exactly what a real certificate looks like.
-    fn test_certificate() -> (String, String) {
-        let params = rcgen::CertificateParams::new(vec!["localhost".to_owned()])
-            .expect("certificate params");
-        let key_pair = rcgen::KeyPair::generate().expect("key pair");
-        let cert = params
-            .self_signed(&key_pair)
-            .expect("self-signed certificate");
-        (cert.pem(), key_pair.serialize_pem())
     }
 }

@@ -9,6 +9,7 @@ fn draining_before_init_is_reported_rather_than_reading_nothing() {
     let mut count = 0usize;
     let mut dropped = 0u64;
 
+    // SAFETY: `max` is zero, so no line buffer is needed, and both counters are live locals.
     let status = unsafe {
         armonik_transport_ffi::ak_log_drain(
             std::ptr::null_mut(),

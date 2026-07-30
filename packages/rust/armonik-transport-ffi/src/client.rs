@@ -286,6 +286,51 @@ mod tests {
     }
 
     #[test]
+    fn a_client_certificate_that_does_not_match_its_key_is_rejected_by_name() {
+        // Both halves are real and parse cleanly; only `rustls` can see that they are not a pair, and
+        // it does so while building the TLS configuration — before any socket is opened. Worth pinning
+        // down, because a customer who mixes up two deployments' files hits exactly this, and the
+        // error has to say so rather than look like an unreachable endpoint.
+        let (cert_pem, _) = crate::test_support::certificate();
+        let (_, unrelated_key_pem) = crate::test_support::certificate();
+
+        let blob = options(&[("Endpoint", "https://localhost:1")]);
+        let mut out: *mut ak_client = std::ptr::null_mut();
+        let mut err = ak_bytes::EMPTY;
+        // SAFETY: the two PEM buffers and the blob are live across the call, and both out-parameters
+        // point at live locals.
+        let status = unsafe {
+            ak_client_create(
+                blob.as_ptr(),
+                blob.len(),
+                ak_bytes_in {
+                    ptr: cert_pem.as_ptr(),
+                    len: cert_pem.len(),
+                },
+                ak_bytes_in {
+                    ptr: unrelated_key_pem.as_ptr(),
+                    len: unrelated_key_pem.len(),
+                },
+                empty_in(),
+                std::ptr::addr_of_mut!(out),
+                std::ptr::addr_of_mut!(err),
+            )
+        };
+
+        assert_eq!(status, crate::status::CONNECTION_FAILED);
+        assert!(out.is_null());
+        // SAFETY: produced by the failed call above.
+        let message = unsafe { std::slice::from_raw_parts(err.ptr, err.len) };
+        let message = String::from_utf8_lossy(message).to_lowercase();
+        assert!(
+            message.contains("key") || message.contains("certificate"),
+            "the mismatch should be named, not reported as a connection problem: {message}"
+        );
+        // SAFETY: freed exactly once.
+        unsafe { crate::error::ak_bytes_free(err) };
+    }
+
+    #[test]
     fn a_null_out_parameter_is_rejected_rather_than_dereferenced() {
         let blob = options_for("http://localhost:1");
         let mut err = ak_bytes::EMPTY;

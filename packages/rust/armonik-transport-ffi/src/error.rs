@@ -139,12 +139,69 @@ pub(crate) enum FfiError {
     EventCreation(String),
 }
 
+/// Render `error` and everything that caused it as the one message that crosses the ABI.
+///
+/// Two things happen here, both because the caller gets a single string and nothing else.
+///
+/// The chain is flattened. `armonik-transport` reports "Could not establish TLS connection to the
+/// remote ..." and leaves *why* — a key that does not match its certificate, a CA file that could not
+/// be read — in the source beneath it. There is no `InnerException` to walk on the far side of a C
+/// ABI, so a message that stopped at the outermost error would drop the only part that says what to
+/// fix.
+///
+/// And the ` [some/file.rs:12:34]` suffix those errors carry is removed. It is a Rust debugging aid:
+/// useful in a Rust backtrace, meaningless in a .NET exception message, and actively misleading to
+/// whoever ends up reading it in a customer's log.
+fn describe(error: &dyn std::error::Error) -> String {
+    let mut message = String::new();
+    let mut current = Some(error);
+
+    while let Some(error) = current {
+        let rendered = error.to_string();
+        let text = strip_location(&rendered);
+        if !text.is_empty() {
+            if !message.is_empty() {
+                message.push_str(": ");
+            }
+            message.push_str(text);
+        }
+        current = error.source();
+    }
+
+    message
+}
+
+/// Drop a trailing ` [path:line:column]`, if that is what the message ends with.
+///
+/// Deliberately narrow: only a bracketed tail whose last two `:`-separated parts are numbers is
+/// treated as a source location, so a message that happens to end in brackets of its own keeps them.
+fn strip_location(text: &str) -> &str {
+    let Some(without_bracket) = text.strip_suffix(']') else {
+        return text;
+    };
+    let Some(open) = without_bracket.rfind(" [") else {
+        return text;
+    };
+
+    let mut parts = without_bracket[open + 2..].rsplitn(3, ':');
+    let column = parts.next().unwrap_or_default();
+    let line = parts.next().unwrap_or_default();
+    let path = parts.next().unwrap_or_default();
+
+    let is_number = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit());
+    if !path.is_empty() && is_number(line) && is_number(column) {
+        text[..open].trim_end()
+    } else {
+        text
+    }
+}
+
 impl fmt::Display for FfiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NullArgument(name) => write!(f, "`{name}` must not be null"),
             Self::InvalidUtf8 => write!(f, "a buffer that was expected to be UTF-8 was not"),
-            Self::Config(source) => write!(f, "{source}"),
+            Self::Config(source) => write!(f, "{}", describe(source)),
             Self::MismatchedIdentity => write!(
                 f,
                 "`cert_pem` and `key_pem` must either both be empty or both be set"
@@ -152,7 +209,7 @@ impl fmt::Display for FfiError {
             Self::InvalidCertPem(source) => write!(f, "invalid `cert_pem`: {source}"),
             Self::InvalidKeyPem(source) => write!(f, "invalid `key_pem`: {source}"),
             Self::InvalidCaCertPem(source) => write!(f, "invalid `ca_cert`: {source}"),
-            Self::Connection(source) => write!(f, "{source}"),
+            Self::Connection(source) => write!(f, "{}", describe(source)),
             Self::InvalidHandle => write!(f, "the handle is invalid or has already been freed"),
             Self::InvalidState(reason) => write!(f, "{reason}"),
             Self::EventCreation(source) => {
@@ -274,6 +331,53 @@ mod tests {
         assert_eq!(status, crate::status::NULL_ARGUMENT);
         // SAFETY: written by `into_ffi_result` just above, freed exactly once.
         assert_eq!(unsafe { read_and_free(out) }, b"`out` must not be null");
+    }
+
+    #[test]
+    fn a_message_keeps_what_caused_it() {
+        #[derive(Debug)]
+        struct Cause;
+        impl fmt::Display for Cause {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "the key does not match the certificate")
+            }
+        }
+        impl std::error::Error for Cause {}
+
+        #[derive(Debug)]
+        struct Outer;
+        impl fmt::Display for Outer {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "could not establish TLS [src/connect.rs:135:14]")
+            }
+        }
+        impl std::error::Error for Outer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&Cause)
+            }
+        }
+
+        assert_eq!(
+            describe(&Outer),
+            "could not establish TLS: the key does not match the certificate",
+            "the outer message alone says nothing actionable, and the location says nothing at all"
+        );
+    }
+
+    #[test]
+    fn only_a_real_source_location_is_stripped() {
+        assert_eq!(strip_location("failed [src/a.rs:1:2]"), "failed");
+        assert_eq!(
+            strip_location("failed [C:\\work\\src\\a.rs:12:34]"),
+            "failed"
+        );
+        // Not a location, so not the boundary's business to remove: brackets are ordinary text.
+        assert_eq!(strip_location("option [Endpoint]"), "option [Endpoint]");
+        assert_eq!(
+            strip_location("failed [src/a.rs:no:no]"),
+            "failed [src/a.rs:no:no]"
+        );
+        assert_eq!(strip_location("nothing bracketed"), "nothing bracketed");
     }
 
     #[test]
