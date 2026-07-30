@@ -167,14 +167,19 @@ impl StatusRecord {
         }
     }
 
-    /// The driving task ended without publishing an outcome — a bug in this crate. Reported rather
-    /// than left absent; see [`StatusPublisher`].
-    fn internal_failure() -> Self {
+    /// The driving task failed in a way that is a bug in this crate, `reason` being whatever could be
+    /// said about it.
+    ///
+    /// The message matters as much as the code: this is what a bug report will be written from, and
+    /// "something went wrong" is not a bug report. A panic's own text — `` `send_item` called without
+    /// first calling `poll_reserve` ``, say — is the whole diagnosis, and it has nowhere else to go
+    /// once the task that produced it is gone.
+    fn internal_failure(reason: &str) -> Self {
         Self {
             code: crate::status::INTERNAL_PANIC,
-            message: Bytes::from_static(
-                b"the call ended unexpectedly: its driving task did not produce a status",
-            ),
+            message: Bytes::from(format!(
+                "the call failed inside the native transport: {reason}"
+            )),
             trailers: MetadataMap::new(),
         }
     }
@@ -184,12 +189,16 @@ impl StatusRecord {
 ///
 /// [`ak_call_try_recv`] reports a call as completed as soon as the response channel disconnects,
 /// which happens when the driving task's future is dropped — on a normal return, but equally on a
-/// panic. Without this guard, that second case leaves a call that reports "completed" while
-/// [`ak_call_status`] still answers `INVALID_STATE`, and there is no state left for the caller to
-/// wait for: a hang, from a bug that would otherwise be invisible until it happened in production.
+/// panic or a `JoinHandle::abort`. Without this guard, those cases leave a call that reports
+/// "completed" while [`ak_call_status`] still answers `INVALID_STATE`, and there is no state left for
+/// the caller to wait for: a hang, from a bug that would otherwise be invisible until production.
 ///
 /// So the invariant is enforced by construction rather than by discipline: whatever happens to the
 /// task, dropping this either finds a status already published or publishes one saying it did not.
+///
+/// This is the *last* net, not the first one. A panic inside the work itself is caught by
+/// [`crate::guard::catch_unwind_future`], which can still say what the panic was; by the time this
+/// `Drop` runs there is nothing left to report but the fact.
 struct StatusPublisher {
     slot: Arc<Mutex<Option<StatusRecord>>>,
     event: Arc<OwnedEvent>,
@@ -213,7 +222,9 @@ impl StatusPublisher {
 
 impl Drop for StatusPublisher {
     fn drop(&mut self) {
-        self.publish(StatusRecord::internal_failure());
+        self.publish(StatusRecord::internal_failure(
+            "its driving task ended without producing a status",
+        ));
     }
 }
 
@@ -287,7 +298,7 @@ async fn drive(
     kind: MethodKind,
     metadata: MetadataMap,
     deadline: Option<Duration>,
-    mut request_rx: mpsc::Receiver<Bytes>,
+    request_rx: mpsc::Receiver<Bytes>,
     response_tx: mpsc::Sender<Bytes>,
     headers_slot: Arc<Mutex<Option<MetadataMap>>>,
     status_slot: Arc<Mutex<Option<StatusRecord>>>,
@@ -300,7 +311,66 @@ async fn drive(
     // Anchored once, here, so every phase below draws from the same budget.
     let deadline = deadline.map(|deadline| tokio::time::Instant::now() + deadline);
 
-    let outcome = if is_retryable_shape(kind) {
+    // Boxed and run through `catch_unwind_future` so a panic in here becomes an outcome the caller
+    // can read instead of a call that reports itself finished with nothing to say. `response_tx`
+    // deliberately stays *outside* this future: the caller sees a call as completed the moment that
+    // sender drops, so it has to outlive the publish below.
+    let body: std::pin::Pin<Box<dyn Future<Output = StatusRecord> + Send + '_>> =
+        Box::pin(drive_to_outcome(
+            grpc,
+            retry,
+            path,
+            kind,
+            metadata,
+            deadline,
+            request_rx,
+            &response_tx,
+            headers_slot,
+            cancel,
+            event,
+        ));
+
+    publisher.publish(outcome_of(body).await);
+    // `response_tx` drops here (and, on the retryable path, nothing else was holding the sender
+    // half of the request channel either), disconnecting the channel `ak_call_try_recv` polls —
+    // that disconnection is exactly what it reports as "Completed". Publishing first is what makes
+    // "completed implies a status is readable" true.
+}
+
+/// Run `body`, turning a panic inside it into the outcome the caller will read.
+///
+/// Named, rather than inlined into [`drive`], so a test can exercise the panic path through the same
+/// code the real call goes through: this is the one place that decides what a bug in this crate looks
+/// like from .NET.
+async fn outcome_of(
+    body: std::pin::Pin<Box<dyn Future<Output = StatusRecord> + Send + '_>>,
+) -> StatusRecord {
+    match crate::guard::catch_unwind_future(body).await {
+        Ok(outcome) => outcome,
+        Err(message) => StatusRecord::internal_failure(&message),
+    }
+}
+
+/// Everything that decides the call's outcome, with nothing to publish it.
+///
+/// Split out of [`drive`] purely so it can be run under [`crate::guard::catch_unwind_future`]: a
+/// panic in here has to become a status, and that means the code that publishes the status cannot be
+/// the code that might panic.
+#[allow(clippy::too_many_arguments)]
+async fn drive_to_outcome(
+    grpc: Grpc<Channel>,
+    retry: Option<RetryPolicy>,
+    path: PathAndQuery,
+    kind: MethodKind,
+    metadata: MetadataMap,
+    deadline: Option<tokio::time::Instant>,
+    mut request_rx: mpsc::Receiver<Bytes>,
+    response_tx: &mpsc::Sender<Bytes>,
+    headers_slot: Arc<Mutex<Option<MetadataMap>>>,
+    cancel: Arc<Cancellation>,
+    event: &Arc<OwnedEvent>,
+) -> StatusRecord {
+    if is_retryable_shape(kind) {
         // The one request message has to be buffered before the first attempt, since replaying a
         // call means resending it. The wait for `ak_call_close_send` is itself covered by the
         // cancellation signal and the deadline: without that, a caller that forgot to close its
@@ -335,7 +405,7 @@ async fn drive(
                     metadata,
                     deadline,
                     buffered,
-                    &response_tx,
+                    response_tx,
                     &headers_slot,
                     &cancel,
                     event,
@@ -352,19 +422,13 @@ async fn drive(
             metadata,
             deadline,
             request_rx,
-            &response_tx,
+            response_tx,
             &headers_slot,
             &cancel,
             event,
         )
         .await
-    };
-
-    publisher.publish(outcome);
-    // `response_tx` drops here (and, on the retryable path, nothing else was holding the sender
-    // half of the request channel either), disconnecting the channel `ak_call_try_recv` polls —
-    // that disconnection is exactly what it reports as "Completed". Publishing first is what makes
-    // "completed implies a status is readable" true.
+    }
 }
 
 enum AttemptOutcome {
@@ -1006,6 +1070,34 @@ mod tests {
         drop(publisher);
 
         assert_eq!(published_code(&slot), Some(Code::Cancelled as i32));
+    }
+
+    #[test]
+    fn a_panic_while_driving_a_call_becomes_a_status_the_caller_can_read() {
+        // The property that matters: a bug in this crate must reach .NET as a failed call carrying the
+        // diagnosis, not as a call that reports itself finished with nothing to say — and certainly not
+        // as a panic unwinding into managed code. Both halves are asserted, because a status with a
+        // useless message is only half the job: the panic's own text is what a bug report is written
+        // from, and it has nowhere else to go once the task that produced it is gone.
+        let (slot, publisher) = publisher();
+
+        let body: std::pin::Pin<Box<dyn Future<Output = StatusRecord> + Send>> = Box::pin(async {
+            crate::test_support::yield_once().await;
+            panic!("`send_item` called without first calling `poll_reserve`");
+        });
+        let mut outcome = Box::pin(outcome_of(body));
+        publisher.publish(crate::test_support::block_on(outcome.as_mut()));
+
+        let published = slot.lock().unwrap_or_else(PoisonError::into_inner);
+        let record = published
+            .as_ref()
+            .expect("a status must have been published");
+        assert_eq!(record.code, crate::status::INTERNAL_PANIC);
+        let message = String::from_utf8_lossy(&record.message);
+        assert!(
+            message.contains("poll_reserve"),
+            "the panic's own words are the diagnosis: {message}"
+        );
     }
 
     #[test]

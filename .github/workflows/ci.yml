@@ -254,7 +254,9 @@ jobs:
   miri-rust:
     name: Miri
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Miri builds the whole dependency tree for its own target and interprets the tests, so this is
+    # slower than an ordinary test run by a wide margin.
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: packages/rust
@@ -267,9 +269,12 @@ jobs:
         with:
           tool: protoc
       - name: Install nightly with Miri
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: miri
+        # Through rustup rather than an action, for `--allow-downgrade`: Miri is not built for every
+        # single nightly, and without it this job fails on any day the component is missing — a red
+        # cross that says nothing about the code.
+        run: |
+          rustup toolchain install nightly --profile minimal --component miri --allow-downgrade
+          rustup default nightly
       - name: Miri
         run: |
           # `armonik-transport-ffi` is where this repository's raw pointers live: an owned buffer

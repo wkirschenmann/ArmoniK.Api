@@ -46,6 +46,45 @@ pub(crate) fn catch_unwind_or<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(body)).unwrap_or(fallback)
 }
 
+/// Run `future` to completion, turning a panic inside it into an `Err` carrying its message.
+///
+/// The `catch_unwind` above only wraps a closure, and there is no equivalent for a future in the
+/// standard library, so this catches around each individual poll — which is where a panic can escape
+/// from. It exists for the one piece of work that does *not* run inside an entry point:
+/// [`crate::call`]'s driving task. A panic there cannot cross the ABI by unwinding, since it is on a
+/// runtime thread of its own, but it must not be silently swallowed either: the caller is waiting for
+/// a status and would otherwise wait for one that is never coming.
+///
+/// Boxed rather than pin-projected by hand, which is what keeps this free of `unsafe`: a
+/// `Pin<Box<dyn Future>>` is `Unpin`, so its `poll` is reachable through an ordinary `&mut`.
+///
+/// A panic leaves the future half-finished, so it is dropped without being polled again — the same
+/// rule as any other future that has returned `Ready`.
+pub(crate) async fn catch_unwind_future<'a, T>(
+    future: std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>,
+) -> Result<T, String> {
+    struct CatchUnwind<'a, T>(std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>);
+
+    impl<T> std::future::Future for CatchUnwind<'_, T> {
+        type Output = Result<T, String>;
+
+        fn poll(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            // `Self` is `Unpin` (it holds only a boxed future), so this projection is the safe one.
+            let inner = &mut self.get_mut().0;
+            match catch_unwind(AssertUnwindSafe(|| inner.as_mut().poll(cx))) {
+                Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+                Ok(std::task::Poll::Ready(value)) => std::task::Poll::Ready(Ok(value)),
+                Err(payload) => std::task::Poll::Ready(Err(panic_message(payload.as_ref()))),
+            }
+        }
+    }
+
+    CatchUnwind(future).await
+}
+
 /// Render a panic payload as a human-readable message.
 pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
@@ -111,6 +150,40 @@ mod tests {
     fn void_swallows_the_panic() {
         catch_unwind_void(|| panic!("boom"));
         // Reaching here at all is the assertion.
+    }
+
+    #[test]
+    fn a_future_that_panics_reports_what_it_panicked_about() {
+        use crate::test_support::{block_on, yield_once};
+
+        let future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+            Box::pin(async {
+                // From the second poll, so this is a panic escaping a `poll` rather than the call that
+                // built the future — the only case that needs catching here.
+                yield_once().await;
+                panic!("the transport fell over");
+            });
+
+        let mut caught = Box::pin(catch_unwind_future(future));
+        let message = block_on(caught.as_mut()).expect_err("the panic should be reported");
+
+        assert!(
+            message.contains("the transport fell over"),
+            "the payload is the diagnosis, so it has to survive: {message}"
+        );
+    }
+
+    #[test]
+    fn a_future_that_does_not_panic_passes_its_value_through() {
+        use crate::test_support::{block_on, yield_once};
+
+        let future: std::pin::Pin<Box<dyn std::future::Future<Output = i32> + Send>> =
+            Box::pin(async {
+                yield_once().await;
+                7
+            });
+        let mut caught = Box::pin(catch_unwind_future(future));
+        assert_eq!(block_on(caught.as_mut()), Ok(7));
     }
 
     #[test]
