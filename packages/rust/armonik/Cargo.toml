@@ -38,7 +38,10 @@ tracing-futures = { workspace = true, features = ["futures-03"] }
 # by the `armonik-transport` split). `hyper-rustls`/`rustls` moved there entirely; re-exported
 # through it above in `lib.rs`.
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
-armonik-transport = { path = "../armonik-transport", optional = true }
+# By path *and* by version: a path dependency cannot be published, so `cargo publish` rewrites this
+# into the version requirement below, which therefore has to name the version actually being
+# released. `nr update-versions` keeps it in step; publish `armonik-transport` first.
+armonik-transport = { path = "../armonik-transport", version = "3.29.2-beta-0", optional = true }
 tokio = { workspace = true, optional = true }
 serde = { version = "1.0", features = [
   "derive",

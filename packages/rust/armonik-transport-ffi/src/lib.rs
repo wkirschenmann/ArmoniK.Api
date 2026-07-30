@@ -45,7 +45,11 @@ mod guard;
 mod handle;
 mod log;
 mod metadata;
-mod runtime;
+// Public, and hidden, for exactly one reason: `runtime::alive_tasks` lets the integration tests
+// assert the runtime comes back to rest. Nothing in it is `extern "C"`, so none of it reaches the
+// generated header or the .NET side.
+#[doc(hidden)]
+pub mod runtime;
 
 pub use call::{ak_call, ak_call_cancel, ak_call_close_send};
 pub use call::{ak_call_free, ak_call_start, ak_call_status, ak_call_try_headers};

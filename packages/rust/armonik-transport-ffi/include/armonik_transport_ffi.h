@@ -282,6 +282,11 @@ int32_t ak_call_close_send(const struct ak_call *call);
  * Read the final status. Only meaningful once [`ak_call_try_recv`] has reported the call
  * completed; returns [`crate::status::INVALID_STATE`] before that.
  *
+ * `*out_code` follows the same convention as this crate's own return codes: `0` for success, a
+ * positive gRPC status code when the call failed on the wire, and one of the negative
+ * `crate::status` values when it failed locally instead — so a caller mapping it to a gRPC status
+ * enumeration has to handle the negative case rather than casting blindly.
+ *
  * # Safety
  *
  * `call` must be a live handle. `out_code`, `out_msg` and `out_trailers` must be non-null and

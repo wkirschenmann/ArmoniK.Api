@@ -166,6 +166,67 @@ impl StatusRecord {
             trailers: MetadataMap::new(),
         }
     }
+
+    /// The driving task ended without publishing an outcome — a bug in this crate. Reported rather
+    /// than left absent; see [`StatusPublisher`].
+    fn internal_failure() -> Self {
+        Self {
+            code: crate::status::INTERNAL_PANIC,
+            message: Bytes::from_static(
+                b"the call ended unexpectedly: its driving task did not produce a status",
+            ),
+            trailers: MetadataMap::new(),
+        }
+    }
+}
+
+/// Owns publishing the final status, and guarantees something is published.
+///
+/// [`ak_call_try_recv`] reports a call as completed as soon as the response channel disconnects,
+/// which happens when the driving task's future is dropped — on a normal return, but equally on a
+/// panic. Without this guard, that second case leaves a call that reports "completed" while
+/// [`ak_call_status`] still answers `INVALID_STATE`, and there is no state left for the caller to
+/// wait for: a hang, from a bug that would otherwise be invisible until it happened in production.
+///
+/// So the invariant is enforced by construction rather than by discipline: whatever happens to the
+/// task, dropping this either finds a status already published or publishes one saying it did not.
+struct StatusPublisher {
+    slot: Arc<Mutex<Option<StatusRecord>>>,
+    event: Arc<OwnedEvent>,
+}
+
+impl StatusPublisher {
+    fn new(slot: Arc<Mutex<Option<StatusRecord>>>, event: Arc<OwnedEvent>) -> Self {
+        Self { slot, event }
+    }
+
+    /// Publish `record` unless something already has.
+    fn publish(&self, record: StatusRecord) {
+        let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(record);
+        }
+        drop(slot);
+        self.event.signal();
+    }
+}
+
+impl Drop for StatusPublisher {
+    fn drop(&mut self) {
+        self.publish(StatusRecord::internal_failure());
+    }
+}
+
+/// Wait until the channel will accept a new request.
+///
+/// `Grpc::streaming` does not do this itself, and every `tonic`-generated client calls it first, with
+/// this same mapping to `Unknown` — which is in the default retryable set, so a channel that has just
+/// lost its connection is retried rather than surfaced. Skipping it trips `tower::Buffer`'s
+/// "send_item called without first calling poll_reserve" assertion instead of returning an error.
+async fn ready(grpc: &mut Grpc<Channel>) -> Result<(), Status> {
+    grpc.ready()
+        .await
+        .map_err(|error| Status::unknown(format!("Service was not ready: {error}")))
 }
 
 /// Feeds request messages from a bounded channel into `tonic` as a `Stream`, signalling the event
@@ -233,6 +294,9 @@ async fn drive(
     cancel: Arc<Cancellation>,
     event: &Arc<OwnedEvent>,
 ) {
+    // Taken before anything can fail, so the guarantee covers the whole body below.
+    let publisher = StatusPublisher::new(status_slot, Arc::clone(event));
+
     // Anchored once, here, so every phase below draws from the same budget.
     let deadline = deadline.map(|deadline| tokio::time::Instant::now() + deadline);
 
@@ -296,11 +360,11 @@ async fn drive(
         .await
     };
 
-    *status_slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome);
-    event.signal();
+    publisher.publish(outcome);
     // `response_tx` drops here (and, on the retryable path, nothing else was holding the sender
     // half of the request channel either), disconnecting the channel `ak_call_try_recv` polls —
-    // that disconnection is exactly what it reports as "Completed".
+    // that disconnection is exactly what it reports as "Completed". Publishing first is what makes
+    // "completed implies a status is readable" true.
 }
 
 enum AttemptOutcome {
@@ -346,6 +410,10 @@ async fn drive_retryable(
         // `&mut self` and does not need a fresh clone between sequential calls, so cloning it here
         // would only be an unnecessary atomic refcount bump on the underlying channel.
         let attempt_body = async {
+            if let Err(status) = ready(&mut grpc).await {
+                return Err((status, 0u64));
+            }
+
             let mut request = Request::new(armonik_transport::reexports::tokio_stream::iter(
                 attempt_messages,
             ));
@@ -433,6 +501,10 @@ async fn drive_streaming(
     // This shape is never retried, so there is only ever one attempt: `metadata` moves straight
     // into the request, with no clone at all.
     let body = async {
+        if let Err(status) = ready(&mut grpc).await {
+            return StatusRecord::from_status(status);
+        }
+
         let mut request = Request::new(RequestStream {
             rx: request_rx,
             // The stream outlives this frame, so it needs its own handle on the event; cloning an
@@ -810,6 +882,11 @@ pub unsafe extern "C" fn ak_call_close_send(call: *const ak_call) -> i32 {
 /// Read the final status. Only meaningful once [`ak_call_try_recv`] has reported the call
 /// completed; returns [`crate::status::INVALID_STATE`] before that.
 ///
+/// `*out_code` follows the same convention as this crate's own return codes: `0` for success, a
+/// positive gRPC status code when the call failed on the wire, and one of the negative
+/// `crate::status` values when it failed locally instead — so a caller mapping it to a gRPC status
+/// enumeration has to handle the negative case rather than casting blindly.
+///
 /// # Safety
 ///
 /// `call` must be a live handle. `out_code`, `out_msg` and `out_trailers` must be non-null and
@@ -902,4 +979,57 @@ pub unsafe extern "C" fn ak_call_free(call: *mut ak_call) {
         call.cancel.cancel();
         call.task.abort();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn publisher() -> (Arc<Mutex<Option<StatusRecord>>>, StatusPublisher) {
+        let slot = Arc::new(Mutex::new(None));
+        let event = OwnedEvent::new().expect("create an event");
+        (Arc::clone(&slot), StatusPublisher::new(slot, event))
+    }
+
+    fn published_code(slot: &Mutex<Option<StatusRecord>>) -> Option<i32> {
+        slot.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|record| record.code)
+    }
+
+    #[test]
+    fn a_published_outcome_is_what_the_caller_reads() {
+        let (slot, publisher) = publisher();
+
+        publisher.publish(StatusRecord::cancelled());
+        drop(publisher);
+
+        assert_eq!(published_code(&slot), Some(Code::Cancelled as i32));
+    }
+
+    #[test]
+    fn dropping_without_publishing_reports_a_failure_rather_than_nothing() {
+        // The invariant `ak_call_try_recv`'s "completed" state depends on. Without it, a driving task
+        // that ended without publishing — a panic, say — leaves a call that reports itself completed
+        // while `ak_call_status` answers `INVALID_STATE` forever, with nothing left to wait for.
+        let (slot, publisher) = publisher();
+
+        drop(publisher);
+
+        assert_eq!(published_code(&slot), Some(crate::status::INTERNAL_PANIC));
+    }
+
+    #[test]
+    fn a_late_publish_never_overwrites_the_outcome_the_caller_already_has() {
+        // `ak_call_status` may be read as soon as the status appears, so replacing it afterwards would
+        // change an answer the caller could already have acted on.
+        let (slot, publisher) = publisher();
+
+        publisher.publish(StatusRecord::ok(MetadataMap::new()));
+        publisher.publish(StatusRecord::deadline_exceeded());
+        drop(publisher);
+
+        assert_eq!(published_code(&slot), Some(Code::Ok as i32));
+    }
 }

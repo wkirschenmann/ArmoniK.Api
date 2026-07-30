@@ -235,6 +235,13 @@ jobs:
       - name: Clippy
         run: |
           cargo clippy --workspace --all-features --no-deps -- -Dwarnings -Dunused-crate-dependencies
+      - name: Clippy (tests)
+        run: |
+          # A second pass, because the two cannot be combined: `--all-targets` passes every
+          # dev-dependency to every test target, so `-Dunused-crate-dependencies` would fail on each
+          # test binary that happens not to use one of them. Without this pass the test code — where
+          # most of the `unsafe` in `armonik-transport-ffi` lives — is never linted at all.
+          cargo clippy --workspace --all-features --all-targets --no-deps -- -Dwarnings
       - name: The generated C header must match the sources
         run: |
           # `build.rs` regenerates it, so a stale committed header means someone changed the ABI
@@ -243,6 +250,43 @@ jobs:
             echo "::error::include/armonik_transport_ffi.h is out of date; rebuild and commit it"
             exit 1
           fi
+
+  miri-rust:
+    name: Miri
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/rust
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+      # `armonik` is a dev-dependency of the crate under test, so its build script still runs.
+      - uses: taiki-e/install-action@019e22100565643c6890fe3f00da0b63017c1672 # v2
+        with:
+          tool: protoc
+      - name: Install nightly with Miri
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Miri
+        run: |
+          # `armonik-transport-ffi` is where this repository's raw pointers live: an owned buffer
+          # handed across the ABI, a hand-parsed length-prefixed blob, a set of live handles compared
+          # as addresses. Ordinary tests can only tell us those produce the right answers; Miri is
+          # what says they do it without undefined behaviour.
+          #
+          # Module by module, and only these modules, because Miri cannot run the rest: it has no
+          # `kernel32`, so `event` is out, and it cannot drive a multi-threaded tokio runtime or a
+          # socket, so `runtime`, `call`, `client` and every integration test are out with it. What
+          # remains is, conveniently, exactly the pointer arithmetic — the part where a bug would be
+          # silent rather than a crash.
+          for module in blob metadata handle guard error; do
+            echo "::group::miri $module"
+            cargo miri test -p armonik-transport-ffi --lib -- "$module::"
+            echo "::endgroup::"
+          done
 
   lint-js:
     name: Lint JS

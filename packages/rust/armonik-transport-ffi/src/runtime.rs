@@ -20,6 +20,18 @@ pub(crate) fn handle() -> &'static Runtime {
     RUNTIME.get_or_init(|| Runtime::new().expect("failed to create the ArmoniK FFI tokio runtime"))
 }
 
+/// How many tasks are currently alive on the shared runtime.
+///
+/// Not part of the C ABI — no `extern "C"`, no `#[no_mangle]`, so it never reaches the generated
+/// header — and not part of anything a consumer is meant to call. It exists because the leak
+/// assertions in `tests/call_lifecycle.rs` have nothing else to look at: a cancelled or abandoned
+/// call that left its driving task parked forever is invisible from the outside, and "the tests
+/// passed" is not evidence that the runtime came back to rest.
+#[doc(hidden)]
+pub fn alive_tasks() -> usize {
+    handle().metrics().num_alive_tasks()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

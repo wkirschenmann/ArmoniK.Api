@@ -76,7 +76,9 @@ dependencies = [
  "bytes",
  "cbindgen",
  "rcgen",
+ "serial_test",
  "tokio",
+ "tower-service",
  "tracing",
  "tracing-subscriber",
 ]

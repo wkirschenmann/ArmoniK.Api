@@ -297,9 +297,10 @@ mod tests {
     use super::*;
 
     fn config(reuse_ports: bool) -> ClientConfig {
-        let mut config = ClientConfig::default();
-        config.reuse_ports = reuse_ports;
-        config
+        ClientConfig {
+            reuse_ports,
+            ..ClientConfig::default()
+        }
     }
 
     #[test]

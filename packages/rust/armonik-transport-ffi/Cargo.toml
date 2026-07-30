@@ -37,6 +37,13 @@ tracing-subscriber = { workspace = true, features = ["json", "fmt", "std"] }
 # (`armonik::server::VersionsServiceExt`), never for the production build of this crate.
 armonik = { path = "../armonik", features = ["client", "server"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+# The tests' hand-rolled gRPC service is a `tower` service, so it needs the trait itself. `tonic`'s
+# own `server`/`router` features come in through the `armonik` dev-dependency above, which enables
+# them, and union with the `channel`/`codegen` features `armonik-transport` already asks for.
+tower-service.workspace = true
+# The leak tests read process-wide counters, so they have to run one at a time; `#[serial]` says so at
+# the test rather than relying on a `--test-threads` flag nobody passes.
+serial_test = "3.5"
 # Generates real self-signed certificates for the config-parsing tests, so they exercise the same
 # rustls PEM reader a real certificate goes through rather than a hand-rolled fixture.
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
