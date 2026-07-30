@@ -1,9 +1,9 @@
-//! The structured-logging bridge, as the .NET side will read it.
+//! The structured-logging bridge, as a caller will read it.
 //!
-//! The point of this bridge is that a Rust field arrives at `ILogger` as a real structured property —
-//! something Serilog or Seq can index — rather than interpolated into a sentence. That only works if
-//! the JSON keeps its shape and its types, so these tests parse what they drain and assert on the
-//! structure, not on a substring of it.
+//! The point of this bridge is that a Rust field arrives in the host's logging system as a real
+//! structured property — something a log store can index — rather than interpolated into a sentence.
+//! That only works if the JSON keeps its shape and its types, so these tests parse what they drain and
+//! assert on the structure, not on a substring of it.
 //!
 //! Its own test binary, because the bridge is process-wide: one `tracing` subscriber and one ring
 //! buffer, installed once and never removed. `#[serial]`, for the same reason — two tests draining at
@@ -46,7 +46,7 @@ fn an_event_carries_its_level_target_and_fields_separately() {
     assert_eq!(
         line.target(),
         "log_bridge",
-        "the target becomes the .NET logger category, so it must be the emitting module"
+        "the target becomes the caller's logger category, so it must be the emitting module"
     );
     assert!(
         line.json["timestamp"].is_string(),
@@ -55,7 +55,7 @@ fn an_event_carries_its_level_target_and_fields_separately() {
     );
 
     // Typed, not stringified: `42` has to stay a number, or every numeric property arrives at the
-    // .NET sink as text and stops being aggregatable.
+    // caller's sink as text and stops being aggregatable.
     assert_eq!(line.fields()["answer"], serde_json::json!(42));
     assert_eq!(line.fields()["session"], serde_json::json!("session-id"));
 }
@@ -102,7 +102,7 @@ fn the_active_span_stack_travels_with_the_event() {
 #[serial]
 fn a_retry_inside_a_real_call_is_reported_through_the_bridge() {
     // End to end, and the reason this bridge exists: something that happens deep inside the native
-    // transport, invisible to the caller, has to reach the .NET log with its fields intact. A retry is
+    // transport, invisible to the caller, has to reach the host's log with its fields intact. A retry is
     // exactly that — the call succeeds, and without this line nobody ever knows it took three tries.
     init();
     logs::drain_all();
@@ -147,7 +147,7 @@ fn a_retry_inside_a_real_call_is_reported_through_the_bridge() {
 #[test]
 #[serial]
 fn a_drain_is_bounded_by_max_and_leaves_the_rest_buffered() {
-    // .NET drains into a fixed-size array, so a bound that was not respected would be a buffer
+    // A caller drains into a fixed-size array, so a bound that was not respected would be a buffer
     // overrun, and lines beyond it must wait rather than be discarded.
     init();
     logs::drain_all();

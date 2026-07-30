@@ -2,17 +2,17 @@
 //!
 //! # Why Rust creates it
 //!
-//! The obvious design has .NET create the event and pass it in. It does not work cleanly: .NET
-//! needs the handle to stay valid for as long as it is waiting on the call, and Rust needs it to
-//! stay valid for as long as the driving task might still signal. Those two windows *overlap*
+//! The obvious design has the caller create the event and pass it in. It does not work cleanly: the
+//! caller needs the handle to stay valid for as long as it is waiting on the call, and this side needs
+//! it to stay valid for as long as the driving task might still signal. Those two windows *overlap*
 //! rather than nest, so neither side can be the sole owner, and both trying to close it is a
 //! double close.
 //!
 //! Inverting it removes the problem. Rust creates the event, owns it, and hands out a borrowed
 //! handle through [`crate::ak_call_wait_handle`]. The handle lives in an [`Arc`], cloned into the
 //! driving task, so whichever of the task and [`crate::ak_call_free`] finishes last closes it —
-//! entirely within Rust, with no cross-language coordination. On the .NET side the borrow is
-//! expressed in the type system: `new SafeWaitHandle(handle, ownsHandle: false)`.
+//! entirely on this side, with no cross-language coordination. The caller only ever borrows it, and
+//! can say so in its own type system if it has a way to.
 //!
 //! The borrow is valid exactly as long as the `ak_call` it came from, which is the same rule that
 //! already governs the call handle itself, so it adds no new lifetime for the caller to track.
@@ -24,8 +24,8 @@ use std::sync::Arc;
 ///
 /// Auto-reset rather than manual-reset: each `SetEvent` releases exactly one waiter and the event
 /// returns to unsignalled by itself, which is the semantics a "poll again, there is new state"
-/// notification wants. A manual-reset event would stay signalled and spin the .NET waiter until it
-/// reset it explicitly.
+/// notification wants. A manual-reset event would stay signalled and spin the waiter until it reset
+/// it explicitly.
 #[derive(Debug)]
 pub(crate) struct OwnedEvent {
     handle: *mut c_void,

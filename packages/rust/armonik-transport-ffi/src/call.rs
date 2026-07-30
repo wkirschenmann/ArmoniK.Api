@@ -2,10 +2,10 @@
 //!
 //! [`ak_call_start`] spawns a background task on the shared runtime and returns immediately; every
 //! other function here is a synchronous, non-blocking poll of state that task publishes. Nothing
-//! ever calls back into managed code: messages and the final status travel through bounded
+//! ever calls back into the caller's code: messages and the final status travel through bounded
 //! `tokio::sync::mpsc` channels that [`ak_call_try_recv`]/[`ak_call_status`] drain, and the caller
 //! is woken up through an OS event this crate creates and owns, borrowed to the caller by
-//! [`ak_call_wait_handle`] — see [`crate::event`] for why Rust rather than .NET owns it.
+//! [`ak_call_wait_handle`] — see [`crate::event`] for why this side rather than the caller owns it.
 //!
 //! # Which calls can be retried
 //!
@@ -341,7 +341,7 @@ async fn drive(
 ///
 /// Named, rather than inlined into [`drive`], so a test can exercise the panic path through the same
 /// code the real call goes through: this is the one place that decides what a bug in this crate looks
-/// like from .NET.
+/// like from the outside.
 async fn outcome_of(
     body: std::pin::Pin<Box<dyn Future<Output = StatusRecord> + Send + '_>>,
 ) -> StatusRecord {
@@ -758,8 +758,8 @@ pub unsafe extern "C" fn ak_call_start(
 /// the final status became available, or a send slot freed up.
 ///
 /// The handle is **borrowed**. It is created and owned by this crate, valid for exactly as long as
-/// `call` itself — that is, until [`ak_call_free`] — and must never be closed by the caller. On
-/// .NET, wrap it as `new SafeWaitHandle(handle, ownsHandle: false)` to say so in the type system.
+/// `call` itself — that is, until [`ak_call_free`] — and must never be closed by the caller, which
+/// should wrap it as a borrowed handle if its language has such a notion.
 ///
 /// It is an auto-reset event, so each wait that succeeds consumes one signal. A wake-up means "poll
 /// again", never "exactly one thing changed": always drain [`ak_call_try_recv`] until it reports
@@ -1074,9 +1074,9 @@ mod tests {
 
     #[test]
     fn a_panic_while_driving_a_call_becomes_a_status_the_caller_can_read() {
-        // The property that matters: a bug in this crate must reach .NET as a failed call carrying the
-        // diagnosis, not as a call that reports itself finished with nothing to say — and certainly not
-        // as a panic unwinding into managed code. Both halves are asserted, because a status with a
+        // The property that matters: a bug in this crate must reach the caller as a failed call carrying
+        // the diagnosis, not as a call that reports itself finished with nothing to say — and certainly
+        // not as a panic unwinding across the ABI. Both halves are asserted, because a status with a
         // useless message is only half the job: the panic's own text is what a bug report is written
         // from, and it has nowhere else to go once the task that produced it is gone.
         let (slot, publisher) = publisher();

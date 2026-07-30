@@ -1,12 +1,11 @@
 //! Converting gRPC metadata across the ABI.
 //!
-//! `Grpc.Core.Metadata` on the .NET side and `tonic::metadata::MetadataMap` on this side are both
-//! ordered multi-maps of ASCII or binary values, so they map onto the shared key/value encoding in
-//! [`crate::blob`] directly, duplicate keys included.
+//! gRPC metadata is an ordered multi-map of ASCII or binary values on either side of this ABI, which
+//! maps onto the shared key/value encoding in [`crate::blob`] directly, duplicate keys included.
 //!
 //! The one wrinkle is binary values. gRPC stores a `-bin` suffixed value base64-encoded on the wire,
 //! and `tonic` exposes that stored form through `AsRef<[u8]>`. This blob carries the *decoded* bytes
-//! instead, so the .NET side sees what `Grpc.Core.Metadata` would give it, which means going through
+//! instead, which is what a caller's own gRPC library would hand it, so the conversion goes through
 //! `MetadataValue::to_bytes` on the way out and `from_bytes` on the way in.
 
 use armonik_transport::reexports::tonic::metadata::{
@@ -166,7 +165,7 @@ mod tests {
     #[test]
     fn an_uppercase_key_is_lowercased_rather_than_rejected() {
         // HTTP header names are case-insensitive and normalised to lower case, which is what both
-        // `tonic` and `Grpc.Core.Metadata` do. Worth pinning down, because the obvious guess is that
+        // `tonic` and every other gRPC library do. Worth pinning down, because the obvious guess is that
         // an upper-case name is simply invalid — it is not, it silently changes case, and a caller
         // that looked the key back up by its original spelling would find nothing.
         let blob = one_entry_blob(b"X-Mixed-Case", b"v");

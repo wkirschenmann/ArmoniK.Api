@@ -15,8 +15,8 @@ pub(crate) const DEBUG: i32 = 1;
 
 /// Install the bridge, once per process.
 ///
-/// No event handle: a test polls, where .NET waits. The wake-up itself is Windows-only and is covered
-/// where it belongs, on the call handle.
+/// No event handle: a test polls, where a caller waits. The wake-up itself is Windows-only and is
+/// covered where it belongs, on the call handle.
 pub(crate) fn init(max_level: i32, capacity: usize) {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
@@ -33,7 +33,7 @@ pub(crate) struct Line {
 }
 
 impl Line {
-    /// The event's own fields, i.e. what `.NET` turns into structured properties.
+    /// The event's own fields, i.e. what a caller turns into structured log properties.
     pub(crate) fn fields(&self) -> &serde_json::Value {
         &self.json["fields"]
     }

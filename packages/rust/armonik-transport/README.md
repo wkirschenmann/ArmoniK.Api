@@ -7,9 +7,7 @@ Windows, and the retry policy for replaying a failed request.
 This crate is factored out of [`armonik`](../armonik), which re-exports everything here at the same
 paths it always used (`armonik::ClientConfig`, `armonik::client::RetryPolicy`, ...), so depending on
 `armonik` directly is unaffected by this split. Depend on `armonik-transport` instead when you need
-the connection layer without generated protobuf types or a `protoc`/`tonic-prost-build` build step —
-this is what the native half of the `ArmoniK.Api.Client.Legacy` .NET Framework binding
-(`armonik-transport-ffi`) does.
+the connection layer without generated protobuf types or a `protoc`/`tonic-prost-build` build step.
 
 ## Publishing
 
@@ -22,5 +20,5 @@ cargo publish -p armonik-transport   # first, and wait for the index to pick it 
 cargo publish -p armonik
 ```
 
-`armonik-transport-ffi` is never published — it is `publish = false`, built only as the native half of
-a NuGet package.
+Any crate in this workspace that is marked `publish = false` is skipped entirely: it is built as part
+of a larger artefact rather than consumed from the registry.

@@ -1,8 +1,9 @@
 //! Keeping panics on the Rust side of the ABI.
 //!
-//! A panic unwinding into the calling .NET frame is undefined behaviour. Every `extern "C"` entry
-//! point in this crate runs its body through one of the functions below instead of running
-//! directly, so a panic turns into the crate's own error status rather than crossing the boundary.
+//! A panic unwinding out of an `extern "C"` function into whatever called it is undefined behaviour.
+//! Every `extern "C"` entry point in this crate runs its body through one of the functions below
+//! instead of running directly, so a panic turns into the crate's own error status rather than
+//! crossing the boundary.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 

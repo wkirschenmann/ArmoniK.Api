@@ -25,8 +25,8 @@ header = """
  *    Integers are in NATIVE byte order: this is an in-process ABI, not a wire format.
  *
  *  - `ak_call_wait_handle` returns a BORROWED Win32 event handle, owned by this library and valid
- *    for exactly as long as its `ak_call`. Never close it. On .NET, wrap it as
- *    `new SafeWaitHandle(handle, ownsHandle: false)`. It is an auto-reset event, and a signal means
+ *    for exactly as long as its `ak_call`. Never close it - wrap it as a borrowed handle if the
+ *    calling language has such a notion. It is an auto-reset event, and a signal means
  *    "poll again", not "exactly one thing changed": always drain `ak_call_try_recv` until it reports
  *    pending or completed.
  */

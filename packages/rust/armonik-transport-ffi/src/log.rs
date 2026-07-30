@@ -1,5 +1,5 @@
-//! Bridging the crate's `tracing` instrumentation to .NET's `ILoggerFactory`, without ever calling
-//! back into managed code.
+//! Handing the crate's `tracing` instrumentation to the host's own logging system, without ever
+//! calling back into the caller's code.
 //!
 //! [`ak_log_init`] installs a global `tracing` subscriber that formats every event as one JSON
 //! object per line — level, target, message and fields, plus the active span stack — into a bounded
@@ -9,8 +9,8 @@
 //! never block or slow down the transport.
 //!
 //! The JSON schema is `tracing_subscriber`'s own `fmt().json()` format — timestamp, level, target,
-//! `fields` (including `message`), and `spans` — which is what lets the .NET side hand each field
-//! across as a genuine structured log property instead of interpolating them into one string.
+//! `fields` (including `message`), and `spans` — which is what lets a caller hand each field to its
+//! own logging system as a genuine structured property instead of interpolating them into one string.
 
 use std::collections::VecDeque;
 use std::io;

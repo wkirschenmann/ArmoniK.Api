@@ -13,7 +13,7 @@
 //! ```
 //!
 //! Integers are in native byte order. That is safe here because this ABI only ever runs in-process
-//! between a .NET assembly and this library on Windows x86/x64, both little-endian, and it is
+//! in-process between this library and its caller on Windows x86/x64, both little-endian, and it is
 //! spelled out in the generated header so it is never mistaken for a portable wire format.
 //!
 //! Keys and values are opaque bytes: callers that need text validate it themselves. Metadata needs

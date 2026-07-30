@@ -23,8 +23,8 @@
  *    Integers are in NATIVE byte order: this is an in-process ABI, not a wire format.
  *
  *  - `ak_call_wait_handle` returns a BORROWED Win32 event handle, owned by this library and valid
- *    for exactly as long as its `ak_call`. Never close it. On .NET, wrap it as
- *    `new SafeWaitHandle(handle, ownsHandle: false)`. It is an auto-reset event, and a signal means
+ *    for exactly as long as its `ak_call`. Never close it - wrap it as a borrowed handle if the
+ *    calling language has such a notion. It is an auto-reset event, and a signal means
  *    "poll again", not "exactly one thing changed": always drain `ak_call_try_recv` until it reports
  *    pending or completed.
  */
@@ -213,8 +213,8 @@ int32_t ak_call_start(const struct ak_client *client,
  * the final status became available, or a send slot freed up.
  *
  * The handle is **borrowed**. It is created and owned by this crate, valid for exactly as long as
- * `call` itself — that is, until [`ak_call_free`] — and must never be closed by the caller. On
- * .NET, wrap it as `new SafeWaitHandle(handle, ownsHandle: false)` to say so in the type system.
+ * `call` itself — that is, until [`ak_call_free`] — and must never be closed by the caller, which
+ * should wrap it as a borrowed handle if its language has such a notion.
  *
  * It is an auto-reset event, so each wait that succeeds consumes one signal. A wake-up means "poll
  * again", never "exactly one thing changed": always drain [`ak_call_try_recv`] until it reports

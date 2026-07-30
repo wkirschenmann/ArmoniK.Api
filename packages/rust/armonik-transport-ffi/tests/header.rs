@@ -33,8 +33,8 @@ fn every_macro_is_namespaced() {
 
 #[test]
 fn every_entry_point_is_declared() {
-    // The header is what the .NET side's P/Invoke declarations are written against, so an entry
-    // point missing from it is a function .NET cannot reach. cbindgen only emits `#[no_mangle]`
+    // The header is what a caller's own declarations are written against, so an entry point missing
+    // from it is a function no caller can reach. cbindgen only emits `#[no_mangle]`
     // `pub extern "C"` items, so this catches one losing its attribute as much as a generation
     // failure.
     for symbol in [
@@ -71,7 +71,7 @@ fn the_ownership_rules_are_spelled_out() {
         "never freed by this library",
         "NATIVE byte order",
         "BORROWED",
-        "ownsHandle: false",
+        "Never close it",
     ] {
         assert!(
             HEADER.contains(phrase),

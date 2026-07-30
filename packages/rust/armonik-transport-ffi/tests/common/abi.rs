@@ -1,7 +1,7 @@
 //! A safe wrapper over the `ak_*` entry points, and the reference for how to use them.
 //!
 //! Every test drives the real ABI through this module: the same functions, in the same order, with
-//! the same ownership rules the .NET side will follow. It exists for two reasons beyond making the
+//! the same ownership rules any caller has to follow. It exists for two reasons beyond making the
 //! tests readable.
 //!
 //! First, `unsafe` belongs in one reviewed place. A test that scattered raw pointers and
@@ -9,8 +9,8 @@
 //!
 //! Second, the blob decoding here is written from the *documented* format in
 //! `include/armonik_transport_ffi.h`, not by calling back into the crate's own decoder. A round trip
-//! through one implementation proves only that it is self-consistent; the .NET side will have its own
-//! reader, and this stands in for it.
+//! through one implementation proves only that it is self-consistent; a real caller writes its own
+//! reader from that header, and this stands in for it.
 
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
@@ -102,7 +102,7 @@ fn decode_blob(blob: &[u8]) -> Vec<(String, Vec<u8>)> {
     pairs
 }
 
-/// Encode a key/value blob, the way the .NET side will.
+/// Encode a key/value blob, the way a caller will.
 pub(crate) fn encode_blob<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a [u8])>) -> Vec<u8> {
     let mut body = Vec::new();
     let mut count = 0u32;
@@ -120,9 +120,9 @@ pub(crate) fn encode_blob<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a [u8]
 
 /// Wait for the call's event handle, or, where there is no such handle, yield briefly.
 ///
-/// On Windows this exercises the real wake-up path the .NET side uses. Elsewhere
-/// `ak_call_wait_handle` returns null by design — the cdylib only ever ships for Windows — and the
-/// tests fall back to polling, which tests everything except the signalling itself.
+/// On Windows this exercises the real wake-up path a caller uses. Elsewhere `ak_call_wait_handle`
+/// returns null by design — the cdylib only ever ships for Windows — and the tests fall back to
+/// polling, which tests everything except the signalling itself.
 fn wait(handle: *mut c_void) {
     #[cfg(windows)]
     {
@@ -415,7 +415,7 @@ impl Call {
 
     /// Drain until the call completes, returning every message in order and the final status.
     ///
-    /// This is the loop the .NET side runs: poll until nothing is left, wait on the handle, repeat.
+    /// This is the loop a caller runs: poll until nothing is left, wait on the handle, repeat.
     pub(crate) fn drain(&self) -> (Vec<Vec<u8>>, Outcome) {
         let mut messages = Vec::new();
         let started = Instant::now();

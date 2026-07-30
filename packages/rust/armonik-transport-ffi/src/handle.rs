@@ -24,7 +24,7 @@ use std::sync::{PoisonError, RwLock};
 /// LiveSet::new()`) because `HashSet::new` reads from the OS to seed its hasher and so is not a
 /// `const fn`, which a `static` initializer requires.
 ///
-/// An [`RwLock`] rather than a `Mutex`: [`Self::contains`] runs on the hot path — .NET polls
+/// An [`RwLock`] rather than a `Mutex`: [`Self::contains`] runs on the hot path — a caller polls
 /// `ak_call_try_recv` in a loop, across every concurrent call — while insertion and removal happen
 /// once per handle. A mutex would serialise all of those polls against each other for no reason.
 pub(crate) struct LiveSet {

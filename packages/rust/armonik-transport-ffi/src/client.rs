@@ -136,7 +136,7 @@ pub unsafe extern "C" fn ak_client_free(client: *mut ak_client) {
 mod tests {
     use super::*;
 
-    /// Encode an options blob, the way the .NET side will.
+    /// Encode an options blob, the way a caller will.
     fn options(pairs: &[(&str, &str)]) -> Vec<u8> {
         let mut blob = (pairs.len() as u32).to_ne_bytes().to_vec();
         for (key, value) in pairs {

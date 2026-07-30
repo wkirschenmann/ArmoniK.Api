@@ -1,6 +1,6 @@
 [package]
 name = "armonik-transport-ffi"
-description = "C ABI over armonik-transport, for the ArmoniK.Api.Client.Legacy .NET Framework binding"
+description = "C ABI over armonik-transport, for host applications that cannot link Rust directly"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,8 @@ publish = false
 rust-version.workspace = true
 version.workspace = true
 
-# Both are needed: `cdylib` is what .NET loads, `lib` is what the integration tests link against.
+# Both are needed: `cdylib` is what a host application loads, `lib` is what the integration tests
+# link against.
 [lib]
 crate-type = ["lib", "cdylib"]
 name = "armonik_transport_ffi"
@@ -28,7 +29,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "ti
 bytes.workspace = true
 # The logging bridge: `armonik-transport` instruments itself with `tracing`, and
 # `tracing-subscriber`'s own JSON formatter is reused rather than hand-rolling one, so log lines
-# follow a schema Serilog/Seq already understand instead of an ABI-specific one.
+# follow a schema existing structured-log consumers already understand instead of an ABI-specific one.
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json", "fmt", "std"] }
 
@@ -45,7 +46,7 @@ tower-service.workspace = true
 # the test rather than relying on a `--test-threads` flag nobody passes.
 serial_test = "3.5"
 # The log-bridge tests assert on the *structure* of what the bridge emits, not on a substring of it,
-# since the .NET side parses it as JSON. Only ever a test dependency: the crate itself writes this
+# since a caller parses it as JSON. Only ever a test dependency: the crate itself writes this
 # format through `tracing-subscriber` and never reads it back.
 serde_json = "1"
 # Generates real self-signed certificates for the config-parsing tests, so they exercise the same

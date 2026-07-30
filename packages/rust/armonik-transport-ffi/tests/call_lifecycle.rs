@@ -50,7 +50,7 @@ fn a_deadline_expires_while_waiting_for_the_request_messages() {
     // The caller never closes its send side, so a retryable call sits in the phase that buffers the
     // request message. That wait used to be covered by neither the deadline nor the cancellation
     // signal, which parked the driving task for the life of the process: a leak of a task, a
-    // connection and an OS handle per call, triggered by nothing worse than a forgotten `Dispose`.
+    // connection and an OS handle per call, triggered by nothing worse than a forgotten close.
     let endpoint = serve(TestService::canned([Bytes::from_static(b"never sent")]));
 
     let client = Client::to(&endpoint, &[]);
@@ -179,7 +179,7 @@ fn cancelling_is_idempotent_and_safe_after_completion() {
     let (_, outcome) = call.drain();
     assert_eq!(outcome.code, 0);
 
-    // .NET's `CancellationToken` may fire at any point, including after the call it was meant to
+    // A caller's cancellation signal may fire at any point, including after the call it was meant to
     // cancel already returned.
     assert_eq!(call.cancel(), status::OK);
     assert_eq!(call.cancel(), status::OK);
@@ -390,8 +390,8 @@ fn a_malformed_metadata_blob_is_rejected_before_the_call_starts() {
 #[test]
 fn every_call_entry_point_rejects_a_freed_handle() {
     // A use-after-free must be reported, not dereferenced. Each of these would otherwise read
-    // through a dangling pointer — the failure mode that turns a .NET double-`Dispose` into memory
-    // corruption in a customer's process.
+    // through a dangling pointer — the failure mode that turns a caller releasing a handle twice into
+    // memory corruption in a customer's process.
     let endpoint = serve(TestService::canned([Bytes::from_static(b"pong")]));
     let client = Client::to(&endpoint, &[]);
     let call = client.start(METHOD_PATH, Kind::Unary, StartOptions::default());
@@ -504,7 +504,7 @@ fn every_call_entry_point_rejects_null() {
 
 #[test]
 fn a_call_freed_mid_flight_is_safe() {
-    // The .NET side frees on `Dispose`, which a `using` block runs on the way out of an exception —
+    // A caller frees on scope exit, which happens on the way out of an error as well as a success —
     // i.e. routinely, while the call is still running.
     let endpoint = serve(TestService::hang());
     let client = Client::to(&endpoint, &[]);

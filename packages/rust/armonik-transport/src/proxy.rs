@@ -116,7 +116,7 @@ fn resolve_proxy(proxy: &ProxyConfig, target: &Uri) -> Result<Option<Uri>, Proxy
     match &proxy.source {
         ProxySource::Disabled => Ok(None),
         // `NO_PROXY` deliberately does *not* apply here. It is part of the same environment
-        // convention as `HTTPS_PROXY`, so it belongs to `System`; the .NET client builds an explicit
+        // convention as `HTTPS_PROXY`, so it belongs to `System`; ArmoniK's configuration gives an explicit
         // proxy as `new WebProxy(url, false, Array.Empty<string>(), …)` — an empty bypass list that
         // ignores `NO_PROXY` entirely. Honouring it for an explicitly-configured proxy would mean a
         // request bypassing the proxy here while going through it there.
@@ -556,7 +556,7 @@ mod tests {
     #[serial_test::serial(env)]
     fn no_proxy_does_not_apply_to_an_explicitly_configured_proxy() {
         // `NO_PROXY` belongs to the same environment convention as `HTTPS_PROXY`, so it governs
-        // `System` only. The .NET client gives an explicit proxy an empty bypass list, and diverging
+        // `System` only. ArmoniK's configuration gives an explicit proxy an empty bypass list, and diverging
         // here would mean a request skipping the proxy in this transport while using it in that one.
         //
         // Set for the duration of this test only; `resolve_proxy` reads the variable itself, so

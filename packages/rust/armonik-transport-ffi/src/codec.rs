@@ -2,9 +2,8 @@
 //!
 //! Every other language binding in this repository has protoc generate a typed `Encoder`/`Decoder`
 //! pair per message. This crate deliberately has none of that: [`BytesCodec`] moves the encoded
-//! protobuf bytes verbatim, and the .NET side supplies its own `Marshaller<T>` (backed by the
-//! `Google.Protobuf`-generated types it already has) to interpret them. That is what lets this
-//! crate route any method path without a line of code per RPC.
+//! protobuf bytes verbatim, and the caller interprets them with whatever generated types it already
+//! has. That is what lets this crate route any method path without a line of code per RPC.
 
 use armonik_transport::reexports::tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use armonik_transport::reexports::tonic::Status;

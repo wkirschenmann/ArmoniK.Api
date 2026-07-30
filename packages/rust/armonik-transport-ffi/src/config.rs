@@ -4,22 +4,22 @@
 //! # Why options travel as a blob
 //!
 //! The options arrive as a key/value blob ([`crate::blob`]) rather than a `#[repr(C)]` struct with a
-//! field per option. A struct would be marginally simpler to fill in from .NET, but every new option
-//! would change its memory layout, and a layout mismatch between the native library and the managed
-//! assembly reads one field as another rather than failing — the worst possible way for a
+//! field per option. A struct would be marginally simpler for a caller to fill in, but every new
+//! option would change its memory layout, and a layout mismatch between this library and the caller's
+//! declaration of it reads one field as another rather than failing — the worst possible way for a
 //! configuration bug to present itself. With a blob, adding an option is additive, and an option the
 //! native side does not recognise is *reported* rather than guessed at.
 //!
 //! The names are exactly [`armonik_transport::ClientConfigArgs::OPTION_NAMES`] — the suffixes of the
-//! `GrpcClient__*` environment variables, which are also the .NET `GrpcClient` property names. One
-//! vocabulary across all three surfaces, defined once in `armonik-transport` and never restated
-//! here, so this module cannot fall out of step with it.
+//! `GrpcClient__*` environment variables, and so the same names ArmoniK's client configuration uses
+//! everywhere else. One vocabulary across every surface, defined once in `armonik-transport` and never
+//! restated here, so this module cannot fall out of step with it.
 //!
 //! # Why certificates do not
 //!
 //! `cert_pem`/`key_pem`/`ca_cert` are passed separately, as PEM bytes rather than the file paths
-//! `ClientConfigArgs` expects. That is the whole point of this ABI: it lets .NET hand over material
-//! taken from a PKCS#12 file or the Windows certificate store without ever writing a private key to
+//! `ClientConfigArgs` expects. That is deliberate: it lets a caller hand over material taken from a
+//! PKCS#12 file or the operating system's certificate store without ever writing a private key to
 //! disk. Keeping them out of the options blob also keeps the private key structurally apart from the
 //! values this crate is free to log.
 
@@ -68,7 +68,7 @@ pub(crate) unsafe fn build(
     }
 
     // A caller that put a certificate path in the blob meant something this ABI does not accept;
-    // clearing these keeps `from_config_args` from reading a file the .NET side never intended.
+    // clearing these keeps `from_config_args` from reading a file the caller never intended.
     for name in CERTIFICATE_OPTIONS {
         args.set(name, "")?;
     }
@@ -135,7 +135,7 @@ mod tests {
         }
     }
 
-    /// Encode an options blob the way the .NET side will.
+    /// Encode an options blob the way a caller will.
     fn options(pairs: &[(&str, &str)]) -> Vec<u8> {
         let mut blob = (pairs.len() as u32).to_ne_bytes().to_vec();
         for (key, value) in pairs {

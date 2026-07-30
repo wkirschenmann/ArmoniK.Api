@@ -102,7 +102,7 @@ pub struct RetryPolicy {
 }
 
 impl Default for RetryPolicy {
-    /// The same policy as the one the .NET client installs through its gRPC service config:
+    /// The same policy ArmoniK's clients install through their gRPC service config:
     /// 5 attempts, 1s initial backoff capped at 5s, multiplied by 1.5 each time, on
     /// `UNAVAILABLE`, `ABORTED` and `UNKNOWN`.
     fn default() -> Self {
@@ -298,7 +298,7 @@ const ENV_PREFIX: &str = "GrpcClient__";
 
 impl ClientConfigArgs {
     /// Every option this type accepts, named exactly as the suffix of its `GrpcClient__*`
-    /// environment variable and as the corresponding .NET `GrpcClient` property.
+    /// environment variable and as the corresponding `GrpcClient` option elsewhere in ArmoniK.
     ///
     /// This is the single source of truth for the option vocabulary: [`Self::from_env`] iterates it,
     /// and so does any other front end that feeds options in by name (the C ABI in
@@ -703,7 +703,7 @@ impl ClientConfig {
 
 /// Interpret the `GrpcClient__Proxy` value.
 ///
-/// Mirrors the .NET client: empty is a direct connection, `none` explicitly disables proxying,
+/// Mirrors ArmoniK's client configuration: empty is a direct connection, `none` explicitly disables proxying,
 /// `system` reads the environment, anything else is a proxy URL. A URL without a scheme is assumed
 /// to be `http`, so `proxy.corp:3128` works as well as `http://proxy.corp:3128`.
 fn parse_proxy_source(proxy: &str) -> Result<ProxySource, ConfigError> {
@@ -741,7 +741,7 @@ fn parse_proxy_source(proxy: &str) -> Result<ProxySource, ConfigError> {
 ///
 /// Retries are opt-in: without an explicit attempt count above 1 there is no policy at all, which
 /// keeps the behaviour of clients that never configured one. The remaining values fall back to
-/// [`RetryPolicy::default`], which mirrors the .NET service config.
+/// [`RetryPolicy::default`], which mirrors ArmoniK's own service config.
 fn parse_retry_policy(
     max_attempts: &str,
     initial_backoff: &str,
@@ -1130,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    fn retry_falls_back_to_dotnet_defaults() {
+    fn retry_falls_back_to_armoniks_defaults() {
         let config = ClientConfig::from_config_args(ClientConfigArgs {
             max_attempts: String::from("5"),
             ..args()

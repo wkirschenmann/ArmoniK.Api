@@ -1,6 +1,6 @@
 //! What happens when nobody drains fast enough.
 //!
-//! The buffer is bounded on purpose: a .NET sink that is slow, blocked or misconfigured must cost log
+//! The buffer is bounded on purpose: a log sink that is slow, blocked or misconfigured must cost log
 //! lines and nothing else — never a stalled RPC. So the contract is "drop the oldest, count it, say
 //! so", and this is where that is checked.
 //!
@@ -59,8 +59,8 @@ fn overflowing_drops_the_oldest_lines_and_counts_them() {
 #[test]
 #[serial]
 fn the_dropped_count_is_since_the_last_drain_rather_than_a_running_total() {
-    // .NET surfaces this as a warning, so a running total would re-warn about the same losses at every
-    // drain for the rest of the process's life.
+    // A caller surfaces this as a warning, so a running total would re-warn about the same losses at
+    // every drain for the rest of the process's life.
     init();
     logs::drain_all();
 

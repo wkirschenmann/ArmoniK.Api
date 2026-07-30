@@ -1,7 +1,7 @@
 //! Every call shape, driven through the C ABI against a real gRPC server.
 //!
-//! These are the tests that say the ABI works. Everything below goes through the exact entry points
-//! .NET will call, in the same order, over a real HTTP/2 connection to a real `tonic` server — no
+//! These are the tests that say the ABI works. Everything below goes through the exact entry points a
+//! caller uses, in the same order, over a real HTTP/2 connection to a real `tonic` server — no
 //! mocking of the transport, no calling into private helpers. The misuse, deadline, cancellation and
 //! backpressure paths live in `call_lifecycle.rs`.
 //!
@@ -242,7 +242,7 @@ fn request_metadata_reaches_the_server_including_binary_values() {
 
 #[test]
 fn response_headers_become_available_before_the_call_completes() {
-    // `ResponseHeadersAsync` on the .NET side resolves as soon as the headers arrive, well before the
+    // A caller waiting on the response headers expects them as soon as they arrive, well before the
     // last message of a stream, so this must not be readable only at the end.
     let service = TestService::canned([Bytes::from_static(b"one"), Bytes::from_static(b"two")])
         .with_response_header("x-served-by", "the-test-service");
@@ -264,7 +264,7 @@ fn response_headers_become_available_before_the_call_completes() {
         "the response headers should carry what the server set: {headers:?}"
     );
 
-    // Reading them does not consume them: the contract says so, because .NET may look twice.
+    // Reading them does not consume them: the contract says so, because a caller may look twice.
     assert_eq!(call.headers(), Some(headers));
 
     let (messages, outcome) = call.drain();
@@ -301,8 +301,8 @@ fn an_error_status_carries_its_code_message_and_trailers() {
 
 #[test]
 fn a_status_can_be_read_more_than_once() {
-    // .NET reads the status from more than one place — the `RpcException` it throws and
-    // `GetStatus()` on the call — so, unlike `ak_call_try_recv`, this must not drain.
+    // A caller typically reads the status from more than one place — the failure it raises, and an
+    // accessor on the call itself — so, unlike `ak_call_try_recv`, this must not drain.
     let service = TestService::canned([Bytes::from_static(b"ok")]);
     let endpoint = serve(service);
 
@@ -490,8 +490,8 @@ fn a_server_stream_that_failed_before_yielding_anything_is_retried() {
 
 #[test]
 fn one_client_serves_many_concurrent_calls() {
-    // The whole point of a single multiplexed HTTP/2 connection. Also the shape of the .NET test that
-    // already exists for the managed client, so a regression here would show up there too.
+    // The whole point of a single multiplexed HTTP/2 connection, and the same shape as ArmoniK's
+    // existing concurrency tests for its other clients.
     const CALLS: usize = 32;
 
     let service = TestService::echo_each(Bytes::from_static(b"!"));
@@ -521,8 +521,8 @@ fn one_client_serves_many_concurrent_calls() {
 #[test]
 fn a_call_outlives_the_client_it_was_started_from() {
     // Documented behaviour: `ak_call_start` takes what it needs out of the client, so freeing the
-    // client only stops *new* calls. .NET disposes in whatever order the GC finalises, so this is not
-    // a theoretical case.
+    // client only stops *new* calls. A caller with automatic memory management releases handles in
+    // whatever order its collector decides, so this is not a theoretical case.
     let service = TestService::canned([Bytes::from_static(b"pong")]);
     let endpoint = serve(service);
 

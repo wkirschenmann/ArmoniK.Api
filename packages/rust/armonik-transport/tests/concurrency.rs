@@ -1,6 +1,6 @@
 //! Opening many connections in a short window.
 //!
-//! This mirrors the `MultipleChannels` test of the .NET client suite, which builds up to a hundred
+//! This mirrors ArmoniK's `MultipleChannels` client test, which builds up to a hundred
 //! channels at once. On Windows that pattern is what exhausts the ephemeral port range, and
 //! `GrpcClient__ReusePorts` exists to defer port allocation so it does not.
 

@@ -1,9 +1,9 @@
 //! Generates the C header for this crate's ABI.
 //!
 //! The header is written into the source tree, at `include/armonik_transport_ffi.h`, and committed:
-//! it is the artefact a reviewer reads to see the whole contract at once, and the file the .NET
-//! side's P/Invoke declarations are checked against. Generating it into `OUT_DIR` instead would put
-//! it somewhere nobody looks.
+//! it is the artefact a reviewer reads to see the whole contract at once, and the file a caller's own
+//! declarations are checked against. Generating it into `OUT_DIR` instead would put it somewhere
+//! nobody looks.
 //!
 //! Because it is committed, a build that changes the ABI also changes a tracked file — which is the
 //! point: an ABI change should show up in the diff rather than only in a `.dll`.

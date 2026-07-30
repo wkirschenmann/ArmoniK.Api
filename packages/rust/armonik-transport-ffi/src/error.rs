@@ -145,13 +145,13 @@ pub(crate) enum FfiError {
 ///
 /// The chain is flattened. `armonik-transport` reports "Could not establish TLS connection to the
 /// remote ..." and leaves *why* — a key that does not match its certificate, a CA file that could not
-/// be read — in the source beneath it. There is no `InnerException` to walk on the far side of a C
-/// ABI, so a message that stopped at the outermost error would drop the only part that says what to
-/// fix.
+/// be read — in the source beneath it. Nothing survives a C ABI but the bytes handed across it, and
+/// there is no error chain left to walk on the other side, so a message that stopped at the outermost
+/// error would drop the only part that says what to fix.
 ///
 /// And the ` [some/file.rs:12:34]` suffix those errors carry is removed. It is a Rust debugging aid:
-/// useful in a Rust backtrace, meaningless in a .NET exception message, and actively misleading to
-/// whoever ends up reading it in a customer's log.
+/// useful in a Rust backtrace, meaningless in the error a host application reports, and actively
+/// misleading to whoever ends up reading it in a customer's log.
 fn describe(error: &dyn std::error::Error) -> String {
     let mut message = String::new();
     let mut current = Some(error);

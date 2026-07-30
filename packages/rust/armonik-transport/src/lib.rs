@@ -8,9 +8,8 @@
 //!
 //! `armonik` re-exports everything here at the paths it always had
 //! (`armonik::ClientConfig`, `armonik::client::RetryPolicy`, ...), so this split is not a breaking
-//! change for it. It exists to serve a second, direct consumer: `armonik-transport-ffi`, the native
-//! half of the `ArmoniK.Api.Client.Legacy` .NET Framework binding, needs exactly this layer and
-//! nothing else — in particular, no `protoc`/`tonic-prost-build` build step, since nothing here
+//! change for it. It exists so that a consumer needing only a configured, connected channel can have
+//! exactly that — in particular without a `protoc`/`tonic-prost-build` build step, since nothing here
 //! touches a generated proto type.
 
 mod config;
