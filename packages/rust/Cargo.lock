@@ -21,9 +21,10 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 name = "armonik"
 version = "3.29.2-beta-0"
 dependencies = [
- "armonik-macros",
  "armonik-transport",
+ "armonik-types",
  "async-stream",
+ "bytes",
  "eyre",
  "futures",
  "http-body-util",
@@ -31,7 +32,6 @@ dependencies = [
  "hyper-util",
  "prost",
  "prost-types",
- "protox",
  "serde",
  "serde_json",
  "serial_test",
@@ -49,6 +49,14 @@ dependencies = [
 [[package]]
 name = "armonik-macros"
 version = "3.29.2-beta-0"
+dependencies = [
+ "fnv",
+ "proc-macro2",
+ "prost",
+ "prost-types",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "armonik-transport"
@@ -68,6 +76,22 @@ dependencies = [
  "tonic",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "armonik-types"
+version = "3.29.2-beta-0"
+dependencies = [
+ "armonik-macros",
+ "armonik-types",
+ "bytes",
+ "fnv",
+ "linkme",
+ "prost",
+ "prost-reflect",
+ "prost-types",
+ "protox",
+ "serde",
 ]
 
 [[package]]
@@ -175,6 +199,9 @@ name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "cc"
@@ -601,6 +628,26 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+
+[[package]]
+name = "linkme"
+version = "0.3.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3045e122bd98aef8ec3ad58ce84f0791f64e70163d1a02710af4aa11a4d54cc5"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77060ebe535362c3da75682cd17b0431017b6e7c5661e714fc69a7ad017d1301"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
 
 [[package]]
 name = "linux-raw-sys"
