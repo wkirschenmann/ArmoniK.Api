@@ -20,20 +20,30 @@ use crate::tls_config::TlsConfig;
 /// Timeout for establishing a connection when the option is left unset.
 pub(crate) const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Everything one embedding of a grouped unit needs: the prefix its options are read under, and a
-/// reader that names the option a source got wrong.
+/// Everything one embedding of a grouped unit needs: the prefix its options are read under, a
+/// reader that names the option a source got wrong, and the unit's schema under the same prefix.
 ///
 /// The prefix is this embedding's to choose, not the unit's to declare: a unit is a plain
 /// collection of fields, and another embedding may compose the same one under a prefix of its own.
+/// Writing it once here is what keeps the three from drifting apart.
+///
+/// `$schema` is separate from `$ty` because a unit built through `TryFrom` describes itself to a
+/// schema in the shape a document writes, not the shape the program keeps.
 ///
 /// Emits a module rather than free functions because `macro_rules!` cannot build an identifier out
-/// of pieces on stable, and takes `$ty` as a full path because names in the body resolve inside
+/// of pieces on stable, and takes its types as full paths because names in the body resolve inside
 /// that module rather than at the call site.
 #[cfg(feature = "serde")]
 macro_rules! embed_prefixed {
-    ($name:ident, $ty:ty, $prefix:literal) => {
+    ($name:ident, $ty:ty, $schema:ty, $prefix:literal) => {
         mod $name {
             serde_with::with_prefix!(prefix $prefix);
+
+            /// The unit's schema, with this embedding's prefix on every property it declares.
+            #[cfg(feature = "schema")]
+            pub fn schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                crate::config::schema_with_prefix::<$schema>(generator, $prefix)
+            }
 
             /// The unit, read under this embedding's prefix, naming the option a source got wrong.
             ///
@@ -69,13 +79,33 @@ macro_rules! embed_prefixed {
 // own. An empty prefix strips nothing: it reads the flat vocabulary unchanged, and still gets the
 // naming and a prefix to give the day the unit is embedded a second time.
 #[cfg(feature = "serde")]
-embed_prefixed!(tls, crate::tls_config::TlsConfig, "");
+embed_prefixed!(
+    tls,
+    crate::tls_config::TlsConfig,
+    crate::tls_config::RawTls,
+    ""
+);
 #[cfg(feature = "serde")]
-embed_prefixed!(tcp, crate::tcp_config::TcpConfig, "Tcp");
+embed_prefixed!(
+    tcp,
+    crate::tcp_config::TcpConfig,
+    crate::tcp_config::TcpConfig,
+    "Tcp"
+);
 #[cfg(feature = "serde")]
-embed_prefixed!(http2, crate::http2_config::Http2Config, "Http2");
+embed_prefixed!(
+    http2,
+    crate::http2_config::Http2Config,
+    crate::http2_config::Http2Config,
+    "Http2"
+);
 #[cfg(feature = "serde")]
-embed_prefixed!(proxy, crate::proxy::ProxyConfig, "Proxy");
+embed_prefixed!(
+    proxy,
+    crate::proxy::ProxyConfig,
+    crate::proxy::ProxyShape,
+    "Proxy"
+);
 
 /// Options for creating a gRPC client.
 ///
@@ -89,10 +119,16 @@ embed_prefixed!(proxy, crate::proxy::ProxyConfig, "Proxy");
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "PascalCase", default))]
+#[cfg_attr(
+    feature = "schema",
+    derive(schemars::JsonSchema),
+    schemars(transform = strip_defaults)
+)]
 #[non_exhaustive]
 pub struct HttpConfig {
     /// Endpoint for sending requests. `Endpoint`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "endpoint"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub endpoint: Uri,
     /// TLS and mTLS: the client's own identity, the server's CA, and SSL verification behaviour,
     /// read under no prefix (`CertPem`, `CaCert`, `AllowUnsafeConnection`, ...).
@@ -100,22 +136,27 @@ pub struct HttpConfig {
         feature = "serde",
         serde(flatten, deserialize_with = "tls::deserialize")
     )]
+    #[cfg_attr(feature = "schema", schemars(schema_with = "tls::schema"))]
     pub tls: TlsConfig,
     /// Timeout for establishing a connection to the server, defaults to 60s. `ConnectTimeout`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "connect_timeout"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub connect_timeout: Option<Duration>,
     /// Timeout for each request, defaults to no timeout. `Timeout`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "optional_duration"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub timeout: Option<Duration>,
     /// Rate limit for requests, written `count/duration` (e.g. `100/1s`), defaults to no rate
     /// limit. `RateLimit`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "rate_limit"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub rate_limit: Option<(u64, Duration)>,
     /// TCP-level socket options, read under the `Tcp` prefix (`TcpKeepalive`, ...).
     #[cfg_attr(
         feature = "serde",
         serde(flatten, deserialize_with = "tcp::deserialize")
     )]
+    #[cfg_attr(feature = "schema", schemars(schema_with = "tcp::schema"))]
     pub tcp: TcpConfig,
     /// HTTP/2-level transport options, read under the `Http2` prefix (`Http2KeepAliveInterval`,
     /// ...).
@@ -123,9 +164,11 @@ pub struct HttpConfig {
         feature = "serde",
         serde(flatten, deserialize_with = "http2::deserialize")
     )]
+    #[cfg_attr(feature = "schema", schemars(schema_with = "http2::schema"))]
     pub http2: Http2Config,
     /// User-Agent header value sent with each request. `UserAgent`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "user_agent"))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub user_agent: Option<HeaderValue>,
     /// HTTP proxy used to reach the endpoint, read under the `Proxy` prefix (`ProxyAddress`,
     /// `ProxyUsername`, `ProxyPassword`), defaults to following the environment.
@@ -133,6 +176,7 @@ pub struct HttpConfig {
         feature = "serde",
         serde(flatten, deserialize_with = "proxy::deserialize")
     )]
+    #[cfg_attr(feature = "schema", schemars(schema_with = "proxy::schema"))]
     pub proxy: ProxyConfig,
 }
 
@@ -230,6 +274,79 @@ pub(crate) fn secret_text<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<secrecy::SecretString, D::Error> {
     text(deserializer).map(secrecy::SecretString::from)
+}
+
+/// Remove every `default` from the generated schema, recursively.
+///
+/// A `default` here is a Rust field's `Default`, serialised in the field's own type rather than
+/// in the option's text form: `false` on an option whose schema type is string. Every option's
+/// real contract is already stated once, as text: an empty or absent option reads as its default.
+#[cfg(feature = "schema")]
+pub(crate) fn strip_defaults(schema: &mut schemars::Schema) {
+    fn strip(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(object) => {
+                object.remove("default");
+                for child in object.values_mut() {
+                    strip(child);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    strip(item);
+                }
+            }
+            _ => {}
+        }
+    }
+    let object = schema.ensure_object();
+    object.remove("default");
+    for child in object.values_mut() {
+        strip(child);
+    }
+}
+
+/// `T`'s own schema with `prefix` glued onto every property, mirroring what
+/// [`serde_with::with_prefix!`] does to the names a flattened group is read from: `serde_with`
+/// has no `schemars` integration, so without this the schema would list `Keepalive` where the
+/// option is `TcpKeepalive`.
+#[cfg(feature = "schema")]
+pub(crate) fn schema_with_prefix<T: schemars::JsonSchema>(
+    generator: &mut schemars::SchemaGenerator,
+    prefix: &str,
+) -> schemars::Schema {
+    /// The names live one level down in each branch of a union: a unit whose shapes are selected
+    /// untagged describes itself as an `anyOf`, and prefixing only the top level would rename
+    /// nothing at all there.
+    fn rename(object: &mut serde_json::Map<String, serde_json::Value>, prefix: &str) {
+        if let Some(serde_json::Value::Object(properties)) = object.remove("properties") {
+            let properties: serde_json::Map<String, serde_json::Value> = properties
+                .into_iter()
+                .map(|(name, subschema)| (format!("{prefix}{name}"), subschema))
+                .collect();
+            object.insert(String::from("properties"), properties.into());
+        }
+        if let Some(serde_json::Value::Array(required)) = object.get_mut("required") {
+            for name in required {
+                if let serde_json::Value::String(name) = name {
+                    *name = format!("{prefix}{name}");
+                }
+            }
+        }
+        for keyword in ["anyOf", "oneOf", "allOf"] {
+            if let Some(serde_json::Value::Array(branches)) = object.get_mut(keyword) {
+                for branch in branches {
+                    if let Some(branch) = branch.as_object_mut() {
+                        rename(branch, prefix);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut schema = T::json_schema(generator);
+    rename(schema.ensure_object(), prefix);
+    schema
 }
 
 /// The spellings a boolean option accepts, as an error message shows them.
