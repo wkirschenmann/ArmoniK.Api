@@ -1,36 +1,31 @@
 //! HTTP/2-level transport options.
 //!
-//! Grouped because their names in the environment already share the `Http2` prefix
-//! (`Http2KeepAliveInterval`, `Http2MaxHeaderListSize`, ...): [`serde_with::with_prefix!`]
-//! reproduces that prefix from [`Http2Config`]'s own field names composed with
-//! `#[serde(flatten)]`, so grouping these fields changes no environment variable a deployment
-//! already sets.
+//! A unit of fields, not a naming scheme: the embedding composes them with `#[serde(flatten)]`
+//! under a prefix of its own, so the same unit serves however many embeddings read HTTP/2 options,
+//! and grouping these fields changes no environment variable a deployment already sets.
 
 use std::time::Duration;
 
-#[cfg(feature = "serde")]
-serde_with::with_prefix!(pub(crate) prefix_http2 "Http2");
-
 /// HTTP/2-level transport options.
 ///
-/// Read from an `Http2`-prefixed variable or JSON key, e.g. [`Self::keep_alive_interval`] is
-/// `Http2KeepAliveInterval`: see the module documentation for why.
+/// Each field names one option; the full name a source spells is the embedding's prefix followed
+/// by that name.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "PascalCase", default))]
 #[non_exhaustive]
 pub struct Http2Config {
-    /// HTTP/2 PING frame interval (e.g. `20s`), defaults to no keepalive. `Http2KeepAliveInterval`.
+    /// HTTP/2 PING frame interval (e.g. `20s`), defaults to no keepalive. `KeepAliveInterval`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "keep_alive_interval"))]
     pub keep_alive_interval: Option<Duration>,
-    /// HTTP/2 PING timeout (e.g. `10s`), defaults to no timeout. `Http2KeepAliveTimeout`.
+    /// HTTP/2 PING timeout (e.g. `10s`), defaults to no timeout. `KeepAliveTimeout`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "keep_alive_timeout"))]
     pub keep_alive_timeout: Option<Duration>,
-    /// Send HTTP/2 keepalive PINGs even when idle, defaults to false. `Http2KeepAliveWhileIdle`.
+    /// Send HTTP/2 keepalive PINGs even when idle, defaults to false. `KeepAliveWhileIdle`.
     /// See [`crate::TlsConfig::allow_unsafe_connection`] for the accepted spellings.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "keep_alive_while_idle"))]
     pub keep_alive_while_idle: bool,
-    /// HTTP/2 max header list size in bytes, defaults to no limit. `Http2MaxHeaderListSize`.
+    /// HTTP/2 max header list size in bytes, defaults to no limit. `MaxHeaderListSize`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "max_header_list_size"))]
     pub max_header_list_size: Option<u32>,
 }

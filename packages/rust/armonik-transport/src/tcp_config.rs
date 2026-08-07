@@ -1,35 +1,31 @@
 //! TCP-level socket options.
 //!
-//! Grouped because their names in the environment already share the `Tcp` prefix
-//! (`TcpKeepalive`, `TcpKeepaliveInterval`, ...): [`serde_with::with_prefix!`] reproduces that
-//! prefix from [`TcpConfig`]'s own field names composed with `#[serde(flatten)]`, so grouping
-//! these fields changes no environment variable a deployment already sets.
+//! A unit of fields, not a naming scheme: the embedding composes them with `#[serde(flatten)]`
+//! under a prefix of its own, so the same unit serves however many embeddings read TCP options,
+//! and grouping these fields changes no environment variable a deployment already sets.
 
 use std::time::Duration;
 
-#[cfg(feature = "serde")]
-serde_with::with_prefix!(pub(crate) prefix_tcp "Tcp");
-
 /// TCP-level socket options.
 ///
-/// Read from a `Tcp`-prefixed variable or JSON key, e.g. [`Self::keepalive`] is `TcpKeepalive`: see
-/// the module documentation for why.
+/// Each field names one option; the full name a source spells is the embedding's prefix followed
+/// by that name.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "PascalCase", default))]
 #[non_exhaustive]
 pub struct TcpConfig {
-    /// TCP keepalive duration (e.g. `30s`), defaults to no keepalive. `TcpKeepalive`.
+    /// TCP keepalive duration (e.g. `30s`), defaults to no keepalive. `Keepalive`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "keepalive"))]
     pub keepalive: Option<Duration>,
     /// Interval between TCP keepalive probes (e.g. `5s`), defaults to OS default.
-    /// `TcpKeepaliveInterval`.
+    /// `KeepaliveInterval`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "keepalive_interval"))]
     pub keepalive_interval: Option<Duration>,
-    /// Number of TCP keepalive retries, defaults to OS default. `TcpKeepaliveRetries`.
+    /// Number of TCP keepalive retries, defaults to OS default. `KeepaliveRetries`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "keepalive_retries"))]
     pub keepalive_retries: Option<u32>,
-    /// Enable Nagle's algorithm (disable TCP_NODELAY), defaults to false. `TcpNagleAlgorithm`. See
+    /// Enable Nagle's algorithm (disable TCP_NODELAY), defaults to false. `NagleAlgorithm`. See
     /// [`crate::TlsConfig::allow_unsafe_connection`] for the accepted spellings.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "nagle_algorithm"))]
     pub nagle_algorithm: bool,

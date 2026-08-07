@@ -12,17 +12,21 @@ use std::time::Duration;
 use hyper::{http::HeaderValue, Uri};
 use snafu::Snafu;
 
-#[cfg(feature = "serde")]
-use crate::http2_config::prefix_http2;
 use crate::http2_config::Http2Config;
 use crate::proxy::ProxyConfig;
-#[cfg(feature = "serde")]
-use crate::tcp_config::prefix_tcp;
 use crate::tcp_config::TcpConfig;
 use crate::tls_config::TlsConfig;
 
 /// Timeout for establishing a connection when the option is left unset.
 pub(crate) const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+
+// The prefix a grouped unit is read under is this embedding's to choose, not the unit's to
+// declare: a unit is a plain collection of fields, and another embedding may compose the same one
+// under a prefix of its own.
+#[cfg(feature = "serde")]
+serde_with::with_prefix!(prefix_tcp "Tcp");
+#[cfg(feature = "serde")]
+serde_with::with_prefix!(prefix_http2 "Http2");
 
 /// Options for creating a gRPC client.
 ///

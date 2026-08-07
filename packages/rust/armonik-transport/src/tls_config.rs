@@ -1,9 +1,9 @@
 //! TLS and mTLS: the client's own identity, the server's CA, and the two options that change how
 //! verification behaves rather than what is verified.
 //!
-//! Unlike the `Tcp`/`Http2` units, these fields share no common prefix in the environment
-//! (`CertPem`, `CaCert`, `AllowUnsafeConnection`, `OverrideTargetName`, ...), so grouping them is a
-//! plain [`serde(flatten)`](serde::Deserialize), with no [`serde_with::with_prefix!`] needed.
+//! Unlike the TCP and HTTP/2 units, these fields share no common prefix in the environment
+//! (`CertPem`, `CaCert`, `AllowUnsafeConnection`, `OverrideTargetName`, ...), so the embedding
+//! composes them with a plain [`serde(flatten)`](serde::Deserialize) and no prefix at all.
 //!
 //! Every option naming a file loads it while the configuration is read: [`TlsConfig`] holds the
 //! material itself, so a programmatic caller hands certificates over as content (from a secret
