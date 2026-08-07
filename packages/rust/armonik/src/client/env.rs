@@ -1,11 +1,9 @@
 //! ArmoniK's own environment vocabulary: `GrpcClient__*`.
 //!
-//! A deliberately small reader: every `GrpcClient__*` variable is handed to serde as the raw text
-//! it holds, and `armonik-transport`'s option readers do the interpreting. Reading the
-//! environment is integration work, ArmoniK's own vocabulary, so it lives in this crate rather
-//! than in the transport.
+//! The prefix is all this crate contributes. `armonik-transport` reads the options under whichever
+//! prefix it is given; naming that prefix is integration work, ArmoniK's own vocabulary, so it
+//! lives here rather than in the transport.
 
-use armonik_transport::reexports::serde;
 use snafu::ResultExt;
 
 use super::{ConnectionError, HttpConfig};
@@ -18,23 +16,12 @@ pub(super) fn config_from_env() -> Result<HttpConfig, NewClientError> {
     config_from(std::env::vars_os())
 }
 
-/// [`config_from_env`] over any set of variables, so the prefix rule and the decoding can be
-/// exercised without mutating the process environment, which every other test shares.
+/// [`config_from_env`] over any set of variables, so the prefix rule can be exercised without
+/// mutating the process environment, which every other test shares.
 fn config_from(
-    variables: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    variables: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
 ) -> Result<HttpConfig, NewClientError> {
-    use serde::Deserialize as _;
-
-    // Raw text, verbatim: each option's own reader parses what it needs, so nothing guesses a
-    // type here and a numeric-looking password survives byte for byte. Through `OsString` and a
-    // lossy decode, because the plain `vars` iterator panics on any non-Unicode variable in the
-    // process, even one naming no option here.
-    let options = variables.filter_map(|(name, value)| {
-        let name = name.to_string_lossy();
-        let option = name.strip_prefix(ARMONIK_PREFIX)?;
-        Some((option.to_owned(), value.to_string_lossy().into_owned()))
-    });
-    HttpConfig::deserialize(serde::de::value::MapDeserializer::new(options)).context(EnvSnafu)
+    HttpConfig::from_env_vars(ARMONIK_PREFIX, variables).context(EnvSnafu)
 }
 
 /// Creating a client from the environment.
@@ -45,8 +32,8 @@ pub enum NewClientError {
     #[snafu(display("Could not read the client configuration from the environment [{location}]"))]
     #[non_exhaustive]
     Env {
-        #[snafu(source(from(serde::de::value::Error, Box::new)))]
-        source: Box<serde::de::value::Error>,
+        #[snafu(source(from(armonik_transport::EnvError, Box::new)))]
+        source: Box<armonik_transport::EnvError>,
         #[snafu(implicit)]
         location: snafu::Location,
     },
@@ -126,52 +113,18 @@ mod tests {
     }
 
     #[test]
-    fn an_option_that_cannot_be_read_reports_the_value_it_was_given() {
+    fn an_option_that_cannot_be_read_names_the_variable_it_came_from() {
         let error = config_from(variables([
             ("GrpcClient__Endpoint", "http://localhost:5001"),
             ("GrpcClient__Timeout", "soon"),
         ]))
         .expect_err("`soon` is not a duration");
 
-        // The value and what was expected of it, but not the variable it came from: a plain
-        // `MapDeserializer` keeps no path, so the key is gone by the time a reader rejects the
-        // value. Wrapping the read in a path tracker is what puts the name back.
+        // The full variable, so the message is the line of the deployment to go and fix rather
+        // than a value to hunt for: eight options share the duration reader.
         let rendered = chain(&error);
+        assert!(rendered.contains("`GrpcClient__Timeout`"), "{rendered}");
         assert!(rendered.contains("soon"), "{rendered}");
         assert!(rendered.contains("duration"), "{rendered}");
-    }
-
-    #[test]
-    fn a_variable_that_is_not_unicode_does_not_bring_the_read_down() {
-        // `std::env::vars` panics on one of these, wherever in the process it came from, so the
-        // read goes through `OsString` and decodes lossily instead.
-        let odd = lossy_name();
-        let config = config_from(
-            [
-                (
-                    std::ffi::OsString::from("GrpcClient__Endpoint"),
-                    std::ffi::OsString::from("http://localhost:5001"),
-                ),
-                (odd, std::ffi::OsString::from("whatever")),
-            ]
-            .into_iter(),
-        )
-        .expect("a non-Unicode variable names no option and must not fail the read");
-
-        assert_eq!(config.endpoint.host(), Some("localhost"));
-    }
-
-    /// A variable name that is not valid Unicode, built the way each platform allows.
-    #[cfg(windows)]
-    fn lossy_name() -> std::ffi::OsString {
-        use std::os::windows::ffi::OsStringExt as _;
-        // An unpaired surrogate: representable in a Windows environment block, not in a `str`.
-        std::ffi::OsString::from_wide(&[0xD800, 0x0041])
-    }
-
-    #[cfg(not(windows))]
-    fn lossy_name() -> std::ffi::OsString {
-        use std::os::unix::ffi::OsStringExt as _;
-        std::ffi::OsString::from_vec(vec![0xFF, 0x41])
     }
 }
