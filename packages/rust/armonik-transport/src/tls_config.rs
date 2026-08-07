@@ -5,13 +5,13 @@
 //! (`CertPem`, `CaCert`, `AllowUnsafeConnection`, `OverrideTargetName`, ...), so grouping them is a
 //! plain [`serde(flatten)`](serde::Deserialize), with no [`serde_with::with_prefix!`] needed.
 //!
-//! The identity options load their files while the configuration is read: [`Identity`] holds the
+//! Every option naming a file loads it while the configuration is read: [`TlsConfig`] holds the
 //! material itself, so a programmatic caller hands certificates over as content (from a secret
 //! store, say) without staging them on disk, and a mistyped path fails where the error can name
-//! the option. The CA option stays a path and [`TlsConfig::resolve`] reads it when the connection
-//! is made: it names what the connecting machine trusts, which is that machine's file to have.
+//! the option. Only the override target is left for connection time, and only because it is
+//! resolved against the endpoint.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use hyper::Uri;
 use rustls::pki_types::pem::PemObject;
@@ -97,8 +97,9 @@ pub struct TlsConfig {
     /// TLS identity of the client, `None` for no client authentication. Read from
     /// `CertPem`/`KeyPem`, whose files are loaded as the configuration is read.
     pub identity: Option<Identity>,
-    /// Path to the Certificate Authority file in PEM format, `None` for the system CAs. `CaCert`.
-    pub ca_cert: Option<PathBuf>,
+    /// The Certificate Authority the server is verified against, `None` for the system CAs. Read
+    /// from `CaCert`, whose PEM file is loaded as the configuration is read.
+    pub ca_cert: Option<CertificateDer<'static>>,
     /// Override the endpoint name during SSL verification. `OverrideTargetName`.
     pub override_target_name: Option<String>,
 }
@@ -200,7 +201,10 @@ impl TryFrom<RawTls> for TlsConfig {
             ca_cert: if ca_cert.is_empty() {
                 None
             } else {
-                Some(PathBuf::from(ca_cert))
+                let pem = std::fs::read_to_string(&ca_cert).context(IoSnafu {
+                    path: ca_cert.clone(),
+                })?;
+                Some(CertificateDer::from_pem_slice(pem.as_bytes()).context(TlsSnafu {})?)
             },
             override_target_name: if override_target_name.is_empty() {
                 None
@@ -211,76 +215,52 @@ impl TryFrom<RawTls> for TlsConfig {
     }
 }
 
-/// The resolved form of [`TlsConfig`]'s connect-time half: the CA file read, and the override
-/// target built against the endpoint. The identity needs no resolving; it is already loaded.
-#[derive(Debug)]
-pub(crate) struct ResolvedTls {
-    pub(crate) allow_unsafe_connection: bool,
-    pub(crate) cacert: Option<CertificateDer<'static>>,
-    pub(crate) override_target: Option<Uri>,
-}
-
 impl TlsConfig {
-    /// Read the CA file the option names, and resolve the override target against `endpoint`: an
+    /// The name the server certificate is verified against, resolved against `endpoint`: an
     /// override given as a bare host keeps the endpoint's own scheme and path, and is otherwise a
     /// full URI whose authority and path replace the endpoint's, but never its scheme, since the
     /// connection is still made to the endpoint. Only the name it is verified against changes.
-    pub(crate) fn resolve(&self, endpoint: &Uri) -> Result<ResolvedTls, ConfigError> {
-        let cacert = match &self.ca_cert {
-            None => None,
-            Some(path) => {
-                let pem = std::fs::read_to_string(path).context(IoSnafu {
-                    path: path.display().to_string(),
-                })?;
-                Some(CertificateDer::from_pem_slice(pem.as_bytes()).context(TlsSnafu {})?)
-            }
+    pub(crate) fn override_target(&self, endpoint: &Uri) -> Result<Option<Uri>, ConfigError> {
+        let Some(name) = &self.override_target_name else {
+            return Ok(None);
         };
 
-        let override_target = match &self.override_target_name {
-            None => None,
-            Some(name) => {
-                let authority;
-                let path_and_query;
+        let authority;
+        let path_and_query;
 
-                if let Ok(auth) = name.parse::<hyper::http::uri::Authority>() {
-                    authority = Some(auth);
-                    path_and_query = endpoint.path_and_query().cloned();
-                } else {
-                    hyper::http::uri::Parts {
-                        authority,
-                        path_and_query,
-                        ..
-                    } = Uri::try_from(name.as_str())
-                        .context(UriSnafu { uri: name.clone() })?
-                        .into_parts();
-                }
+        if let Ok(auth) = name.parse::<hyper::http::uri::Authority>() {
+            authority = Some(auth);
+            path_and_query = endpoint.path_and_query().cloned();
+        } else {
+            hyper::http::uri::Parts {
+                authority,
+                path_and_query,
+                ..
+            } = Uri::try_from(name.as_str())
+                .context(UriSnafu { uri: name.clone() })?
+                .into_parts();
+        }
 
-                let mut uri = hyper::http::uri::Builder::new();
+        let mut uri = hyper::http::uri::Builder::new();
 
-                if let Some(scheme) = endpoint.scheme() {
-                    uri = uri.scheme(scheme.clone());
-                }
-                if let Some(authority) = authority.or_else(|| endpoint.authority().cloned()) {
-                    uri = uri.authority(authority);
-                }
-                if let Some(path_and_query) = path_and_query {
-                    uri = uri.path_and_query(path_and_query);
-                }
+        if let Some(scheme) = endpoint.scheme() {
+            uri = uri.scheme(scheme.clone());
+        }
+        if let Some(authority) = authority.or_else(|| endpoint.authority().cloned()) {
+            uri = uri.authority(authority);
+        }
+        if let Some(path_and_query) = path_and_query {
+            uri = uri.path_and_query(path_and_query);
+        }
 
-                Some(uri.build().context(HttpSnafu { uri: name.clone() })?)
-            }
-        };
-
-        Ok(ResolvedTls {
-            allow_unsafe_connection: self.allow_unsafe_connection,
-            cacert,
-            override_target,
-        })
+        Ok(Some(uri.build().context(HttpSnafu { uri: name.clone() })?))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     /// Every message in the chain, joined. snafu keeps the detail in the source, so asserting on
@@ -427,36 +407,32 @@ MC4CAQAwBQYDK2VwBCIEIAKZ5vS5lxuHsHFDHPJmgDlI5D43nIUJ6Woni24zaHSM
         assert_eq!(identity.clone(), identity);
     }
 
-    #[test]
-    fn an_empty_configuration_resolves_to_nothing() {
-        let resolved = TlsConfig::default()
-            .resolve(&endpoint())
-            .expect("nothing to read");
-
-        assert!(resolved.cacert.is_none());
-        assert_eq!(resolved.override_target, None);
-        assert!(!resolved.allow_unsafe_connection);
-    }
-
+    #[cfg(feature = "serde")]
     #[test]
     fn a_missing_ca_certificate_is_reported_with_the_path() {
-        // Unlike the identity, the CA is still a path read at connect time, so this failure
-        // belongs to `resolve`.
-        let config = TlsConfig {
-            ca_cert: Some(PathBuf::from("no/such/ca.pem")),
-            ..TlsConfig::default()
-        };
+        // The CA is loaded with the rest of the configuration, so a typo in the option names the
+        // file instead of surfacing as a failed handshake.
+        let error = serde_json::from_value::<TlsConfig>(serde_json::json!({
+            "CaCert": "no/such/ca.pem",
+        }))
+        .expect_err("a missing file must be reported");
 
-        let error = config
-            .resolve(&endpoint())
-            .expect_err("a missing file must be reported");
+        assert!(error.to_string().contains("no/such/ca.pem"), "{error}");
+    }
 
-        assert!(matches!(error, ConfigError::Io { .. }), "{error:?}");
-        assert!(
-            chain(&error).contains("no/such/ca.pem"),
-            "{}",
-            chain(&error)
-        );
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_ca_certificate_is_loaded_while_the_configuration_is_read() {
+        let dir = PemDir::new("ca");
+        let ca = dir.write("ca.pem", LEAF_CERT);
+
+        let config = serde_json::from_value::<TlsConfig>(serde_json::json!({
+            "CaCert": ca.display().to_string(),
+        }))
+        .expect("a readable CA file");
+
+        let expected = CertificateDer::from_pem_slice(LEAF_CERT.as_bytes()).expect("valid PEM");
+        assert_eq!(config.ca_cert, Some(expected));
     }
 
     // --- override target ---
@@ -470,11 +446,13 @@ MC4CAQAwBQYDK2VwBCIEIAKZ5vS5lxuHsHFDHPJmgDlI5D43nIUJ6Woni24zaHSM
             ..TlsConfig::default()
         };
 
-        let resolved = config
-            .resolve(&Uri::try_from("https://10.0.0.1:5003/base").expect("a valid endpoint"))
-            .expect("valid");
+        let override_target = config
+            .override_target(
+                &Uri::try_from("https://10.0.0.1:5003/base").expect("a valid endpoint"),
+            )
+            .expect("valid")
+            .expect("an override target");
 
-        let override_target = resolved.override_target.expect("an override target");
         assert_eq!(override_target.scheme_str(), Some("https"));
         assert_eq!(
             override_target.authority().map(|a| a.as_str()),
@@ -490,11 +468,13 @@ MC4CAQAwBQYDK2VwBCIEIAKZ5vS5lxuHsHFDHPJmgDlI5D43nIUJ6Woni24zaHSM
             ..TlsConfig::default()
         };
 
-        let resolved = config
-            .resolve(&Uri::try_from("https://10.0.0.1:5003/base").expect("a valid endpoint"))
-            .expect("valid");
+        let override_target = config
+            .override_target(
+                &Uri::try_from("https://10.0.0.1:5003/base").expect("a valid endpoint"),
+            )
+            .expect("valid")
+            .expect("an override target");
 
-        let override_target = resolved.override_target.expect("an override target");
         assert_eq!(
             override_target.authority().map(|a| a.as_str()),
             Some("server.example.com")
@@ -507,7 +487,10 @@ MC4CAQAwBQYDK2VwBCIEIAKZ5vS5lxuHsHFDHPJmgDlI5D43nIUJ6Woni24zaHSM
 
     #[test]
     fn no_override_target_leaves_it_unset() {
-        let resolved = TlsConfig::default().resolve(&endpoint()).expect("valid");
-        assert_eq!(resolved.override_target, None);
+        let config = TlsConfig::default();
+
+        assert_eq!(config.override_target(&endpoint()).expect("valid"), None);
+        assert!(config.ca_cert.is_none());
+        assert!(!config.allow_unsafe_connection);
     }
 }

@@ -1,8 +1,8 @@
 //! Turning an [`HttpConfig`] into a connected `tonic` channel.
 //!
-//! TLS, mTLS, and every timeout, keepalive and identity setting come together here. The CA file
-//! the configuration names is read here too; the identity was already loaded when the
-//! configuration was read, so only the trust side is left to resolve.
+//! TLS, mTLS, and every timeout, keepalive and identity setting come together here. The
+//! certificates were loaded when the configuration was read; the override target is built here
+//! because it is resolved against the endpoint, which only a connection attempt knows.
 
 use std::sync::Arc;
 
@@ -14,21 +14,19 @@ use snafu::{IntoError, ResultExt, Snafu};
 
 use crate::config::ConfigError;
 use crate::proxy::ProxyConnector;
-use crate::tls_config::ResolvedTls;
 use crate::HttpConfig;
 
 /// Connect to the endpoint described by `config`, eagerly: this resolves once the connection is
 /// established, not lazily on the first request.
 pub async fn connect(config: HttpConfig) -> Result<tonic::transport::Channel, ConnectionError> {
-    let tls = resolve(&config)?;
+    let override_target = resolve(&config)?;
     let endpoint = config.endpoint.clone();
-    let override_target = tls.override_target.clone();
     let http2 = config.http2;
     let user_agent = config.user_agent.clone();
     let timeout = config.timeout;
     let rate_limit = config.rate_limit;
 
-    let https = build_connector(config, tls)?;
+    let https = build_connector(config, override_target.clone())?;
 
     let mut transport_endpoint = tonic::transport::Endpoint::from(endpoint.clone());
     if let Some(target) = override_target {
@@ -75,16 +73,16 @@ pub async fn connect(config: HttpConfig) -> Result<tonic::transport::Channel, Co
 pub async fn https_connector(
     config: HttpConfig,
 ) -> Result<HttpsConnector<ProxyConnector<HttpConnector>>, ConnectionError> {
-    let tls = resolve(&config)?;
-    build_connector(config, tls)
+    let override_target = resolve(&config)?;
+    build_connector(config, override_target)
 }
 
-/// Reject an empty endpoint and read the CA file the TLS options name.
+/// Reject an empty endpoint and build the name the server certificate is verified against.
 ///
 /// The endpoint check lives here rather than at deserialise time: an unset endpoint reads as the
 /// default [`Uri`] so a configuration file need only name what it changes, and the option that is
 /// actually missing gets named by the connection attempt that needed it.
-fn resolve(config: &HttpConfig) -> Result<ResolvedTls, ConnectionError> {
+fn resolve(config: &HttpConfig) -> Result<Option<Uri>, ConnectionError> {
     if config.endpoint == Uri::default() {
         let error = crate::config::IncompatibleOptionsSnafu {
             msg: String::from("`Endpoint` is not set, so there is nothing to connect to"),
@@ -92,13 +90,16 @@ fn resolve(config: &HttpConfig) -> Result<ResolvedTls, ConnectionError> {
         .build();
         return Err(ConfigSnafu.into_error(error));
     }
-    config.tls.resolve(&config.endpoint).context(ConfigSnafu)
+    config
+        .tls
+        .override_target(&config.endpoint)
+        .context(ConfigSnafu)
 }
 
-/// The connector stack itself, from a configuration whose TLS half is already resolved.
+/// The connector stack itself, from a configuration and the override target resolved for it.
 fn build_connector(
     config: HttpConfig,
-    tls: ResolvedTls,
+    override_target: Option<Uri>,
 ) -> Result<HttpsConnector<ProxyConnector<HttpConnector>>, ConnectionError> {
     let endpoint = config.endpoint;
 
@@ -115,12 +116,12 @@ fn build_connector(
         })?;
 
     // Configure the server verification
-    let tls_config = if tls.allow_unsafe_connection {
+    let tls_config = if config.tls.allow_unsafe_connection {
         // Do not verify the server
         tls_config
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(crate::utils::InsecureCertVerifier))
-    } else if let Some(cacert) = tls.cacert {
+    } else if let Some(cacert) = config.tls.ca_cert {
         // Verify that the server certificate is signed with a specific CA cert
         let mut root_cert_store = rustls::RootCertStore::empty();
         root_cert_store.add(cacert).with_context(|_| TlsSnafu {
@@ -152,7 +153,7 @@ fn build_connector(
         .with_tls_config(tls_config)
         .https_or_http();
 
-    if let Some(hostname) = &tls.override_target {
+    if let Some(hostname) = &override_target {
         let server_name = ServerName::try_from(hostname.host().unwrap_or_default())
             .expect("A valid URI host should be a valid ServerName")
             .to_owned();
