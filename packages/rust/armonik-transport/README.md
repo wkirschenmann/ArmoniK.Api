@@ -12,13 +12,34 @@ wants the services as well needs only that one.
 `HttpConfig` is plain data: build it directly, or turn on a feature to read it from somewhere. The
 `serde` feature makes it deserializable (`Deserialize` only: a configuration that cannot be written
 out cannot leak its proxy password), from a flat document of PascalCase options (`Endpoint`,
-`TcpKeepalive`, `Http2KeepAliveInterval`, ...). The `CertPem`/`KeyPem` identity loads its files as
-the configuration is read, so a mistyped path fails there, naming the file. The `env` feature adds
+`TcpKeepalive`, `Http2KeepAliveInterval`, ...). The client identity loads its files as the
+configuration is read, so a mistyped path fails there, naming the file. The `env` feature adds
 `HttpConfig::from_env(prefix)`, reading each option from one environment variable under a prefix of
 the caller's choosing; the `armonik` crate reads them under the `GrpcClient__` prefix. The
 `schema` feature derives a JSON schema of the same flat vocabulary (via `schemars`), for
 generating an options class in another language; `cargo run -p armonik-transport --features
 schema --example generate_schema` prints it.
+
+## TLS and mutual TLS
+
+`CaCert` authenticates the server and is read when the connection is made: it names what the
+connecting machine trusts, which is that machine's file to have. The client's own identity for
+mutual TLS is loaded while the configuration is read, and comes one of two ways.
+
+`CertPem` and `KeyPem` are the certificate chain and its key, each in its own PEM file; set both
+or neither. `CertP12` is the alternative: the two bundled together in one PKCS#12 file, the form
+Windows and most certificate authorities hand out, optionally protected by `CertP12Password`.
+Whichever way it is spelled, the whole chain the file carries is presented, leaf first, so a
+server that trusts only the root can still build its path. `CertP12` and `CertPem`/`KeyPem` are
+mutually exclusive - set one identity or the other, never both - and a `CertP12Password` naming no
+bundle is refused rather than ignored. ArmoniK's C# client reads the same `CertP12` option but has
+no `CertP12Password` counterpart, so a password-protected bundle is not portable to it.
+
+`CertP12Password` is a secret, redacted by `Debug`; the other options are not secrets themselves,
+only what they lead to is. `AllowUnsafeConnection` accepts any server certificate instead of
+verifying it, for a self-signed endpoint; it has no effect on a plain `http://` endpoint, which
+never negotiates TLS at all. `OverrideTargetName` overrides the name checked during verification,
+for an endpoint reached by an address that does not match its certificate.
 
 ## Reaching the endpoint through a proxy
 

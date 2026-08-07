@@ -67,6 +67,20 @@ fn alternative_properties(alternative: &serde_json::Value) -> Vec<String> {
     names
 }
 
+/// The property names one alternative of an `anyOf` requires.
+fn required_names(alternative: &serde_json::Value) -> Vec<String> {
+    alternative
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(|name| name.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[test]
 fn every_option_appears_under_its_flat_name() {
     // The whole vocabulary, spelled exactly as deserialisation reads it: this list is what a
@@ -79,6 +93,8 @@ fn every_option_appears_under_its_flat_name() {
         "Endpoint",
         "CertPem",
         "KeyPem",
+        "CertP12",
+        "CertP12Password",
         "CaCert",
         "AllowUnsafeConnection",
         "OverrideTargetName",
@@ -100,13 +116,6 @@ fn every_option_appears_under_its_flat_name() {
     ] {
         assert!(names.iter().any(|name| name == option), "missing {option}");
     }
-
-    // The PKCS#12 identity is not an option yet: the schema must not promise it before the code
-    // reads it.
-    assert!(
-        !names.iter().any(|name| name == "CertP12"),
-        "CertP12 is not read"
-    );
 }
 
 #[test]
@@ -136,21 +145,33 @@ fn the_prefixed_groups_keep_their_flat_spellings() {
 
 #[test]
 fn the_identity_alternatives_are_an_any_of() {
-    // The identity comes as both PEM halves or not at all: the schema has to spell the
-    // alternatives rather than flatten them into one bag of optional fields.
+    // The identity comes as both PEM halves, as a PKCS#12 bundle, or not at all: the schema has to
+    // spell the alternatives rather than flatten them into one bag of optional fields. Each shape
+    // declares every identity option, since that is how deserialisation catches the two spellings
+    // set at once, so what tells the shapes apart there and here alike is which ones they require.
     let schema = schema();
     let mut found = Vec::new();
     any_ofs(&schema, &mut found);
 
     let identity = found.iter().find(|alternatives| {
-        alternatives.iter().any(|alternative| {
-            let names = alternative_properties(alternative);
-            names.iter().any(|name| name == "CertPem") && names.iter().any(|name| name == "KeyPem")
-        })
+        let pem = alternatives.iter().any(|alternative| {
+            let required = required_names(alternative);
+            required.iter().any(|name| name == "CertPem")
+                && required.iter().any(|name| name == "KeyPem")
+        });
+        let bundle = alternatives.iter().any(|alternative| {
+            let required = required_names(alternative);
+            required.iter().any(|name| name == "CertP12")
+                && !required.iter().any(|name| name == "CertPem")
+                && alternative_properties(alternative)
+                    .iter()
+                    .any(|name| name == "CertP12Password")
+        });
+        pem && bundle
     });
     assert!(
         identity.is_some(),
-        "no anyOf alternative declares CertPem and KeyPem: {schema:#}"
+        "no anyOf spells the PEM pair and the PKCS#12 bundle as alternatives: {schema:#}"
     );
 }
 
