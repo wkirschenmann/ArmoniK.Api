@@ -134,18 +134,20 @@ struct RawTls {
 #[serde(untagged)]
 enum RawIdentity {
     /// A certificate chain and its key, each in its own PEM file.
+    #[serde(rename_all = "PascalCase")]
     PemFiles {
-        #[serde(rename = "CertPem", deserialize_with = "crate::config::text")]
+        #[serde(deserialize_with = "crate::config::text")]
         cert_pem: String,
-        #[serde(rename = "KeyPem", deserialize_with = "crate::config::text")]
+        #[serde(deserialize_with = "crate::config::text")]
         key_pem: String,
     },
     /// At most one identity option present: no identity, or half of one, which [`Self::load`]
     /// rejects by name.
+    #[serde(rename_all = "PascalCase")]
     Bare {
-        #[serde(rename = "CertPem", default, deserialize_with = "crate::config::text")]
+        #[serde(default, deserialize_with = "crate::config::text")]
         cert_pem: String,
-        #[serde(rename = "KeyPem", default, deserialize_with = "crate::config::text")]
+        #[serde(default, deserialize_with = "crate::config::text")]
         key_pem: String,
     },
 }

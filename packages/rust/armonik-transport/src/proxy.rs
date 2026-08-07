@@ -99,8 +99,9 @@ impl std::fmt::Display for RedactedUri<'_> {
 /// Proxying uses a `CONNECT` tunnel, so TLS, mutual TLS included, is negotiated end to end with the
 /// real server and the proxy never sees the plaintext.
 ///
-/// Deserialised from the flat `Proxy`/`ProxyUsername`/`ProxyPassword` options: empty or `system`
-/// follows the environment, `none` forces a direct connection, anything else is the proxy URL.
+/// Deserialised from the flat `ProxyAddress`/`ProxyUsername`/`ProxyPassword` options: empty or
+/// `system` follows the environment, `none` forces a direct connection, anything else is the proxy
+/// URL.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(
     feature = "serde",
@@ -266,13 +267,10 @@ pub(crate) type RouteResult = Result<Option<(Uri, Option<HeaderValue>)>, Uri>;
 
 /// The flat string options [`ProxyConfig`] is read from.
 ///
-/// `username`/`password` share the `Proxy` prefix uniformly (`ProxyUsername`, `ProxyPassword`),
-/// but `source` does not: it is `Proxy` alone, ArmoniK's own convention across every client.
-/// [`serde_with::with_prefix!`] can only apply the same prefix to every field of a group, so each
-/// field is renamed individually here instead.
+/// Each field carries its own name only; the embedding prepends the prefix it reads them under.
 #[cfg(feature = "serde")]
 #[derive(Debug, Default, serde::Deserialize)]
-#[serde(default)]
+#[serde(rename_all = "PascalCase", default)]
 struct RawProxy {
     /// Where to find the proxy.
     ///
@@ -280,18 +278,15 @@ struct RawProxy {
     /// direct connection, otherwise the proxy URL, whose scheme has to be `http`: the `CONNECT`
     /// handshake is written in the clear. `none` and `system` are the spellings every ArmoniK
     /// client understands; other casings are accepted here but not everywhere.
-    #[serde(rename = "Proxy", deserialize_with = "crate::config::text")]
-    source: String,
+    #[serde(deserialize_with = "crate::config::text")]
+    address: String,
     /// Username for proxy authentication. Mutually exclusive with credentials written into the
-    /// `Proxy` URL.
-    #[serde(rename = "ProxyUsername", deserialize_with = "crate::config::text")]
+    /// proxy URL.
+    #[serde(deserialize_with = "crate::config::text")]
     username: String,
     /// Password for proxy authentication. Mutually exclusive with credentials written into the
-    /// `Proxy` URL. Redacted by `Debug` and zeroized on drop.
-    #[serde(
-        rename = "ProxyPassword",
-        deserialize_with = "crate::config::secret_text"
-    )]
+    /// proxy URL. Redacted by `Debug` and zeroized on drop.
+    #[serde(deserialize_with = "crate::config::secret_text")]
     password: SecretString,
 }
 
@@ -314,19 +309,19 @@ enum ProxyShape {
 
 #[cfg(feature = "serde")]
 impl ProxyShape {
-    /// Which shape `raw` fits, if any. `parse_proxy_source` moves any URL credentials into the
+    /// Which shape `raw` fits, if any. `parse_proxy_address` moves any URL credentials into the
     /// config's fields, so a non-empty field there means the URL carried some.
     fn classify(raw: RawProxy) -> Result<Self, crate::config::ConfigError> {
         use crate::config::IncompatibleOptionsSnafu;
 
-        let config = parse_proxy_source(&raw.source)?;
+        let config = parse_proxy_address(&raw.address)?;
         let url_carried =
             !config.username.is_empty() || !config.password.expose_secret().is_empty();
         let dedicated = !raw.username.is_empty() || !raw.password.expose_secret().is_empty();
         match (url_carried, dedicated) {
             (true, true) => IncompatibleOptionsSnafu {
                 msg: String::from(
-                    "credentials are set both inside the `Proxy` URL and through \
+                    "credentials are set both inside the `ProxyAddress` URL and through \
                      `ProxyUsername`/`ProxyPassword`; set them one way",
                 ),
             }
@@ -362,14 +357,14 @@ impl TryFrom<RawProxy> for ProxyConfig {
     }
 }
 
-/// Interpret the `Proxy` value.
+/// Interpret the `ProxyAddress` value.
 ///
 /// Empty and `system` follow the environment, `none` forces a direct connection, anything else is a
 /// proxy URL, defaulting to the `http` scheme. A URL that cannot be dialled as written, a missing
 /// host, a port that is not one, or a scheme the `CONNECT` handshake cannot use, fails here, while
 /// the configuration is being read and can name itself, rather than at connect time.
 #[cfg(feature = "serde")]
-fn parse_proxy_source(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigError> {
+fn parse_proxy_address(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigError> {
     use crate::config::IncompatibleOptionsSnafu;
     use snafu::ensure;
 
@@ -395,7 +390,7 @@ fn parse_proxy_source(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigE
         return IncompatibleOptionsSnafu {
             // Elided: a URL rejected for having no host can still have carried a password.
             msg: format!(
-                "`Proxy={}` is not a valid proxy URL. Expected `none`, \
+                "`ProxyAddress={}` is not a valid proxy URL. Expected `none`, \
                  `system`, or a URL such as `http://proxy.example.com:3128`",
                 elide_userinfo(proxy)
             ),
@@ -407,7 +402,7 @@ fn parse_proxy_source(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigE
         uri.scheme_str().is_none_or(|scheme| scheme == "http"),
         IncompatibleOptionsSnafu {
             msg: format!(
-                "{}, and `Proxy={}` names another scheme",
+                "{}, and `ProxyAddress={}` names another scheme",
                 HTTP_ONLY_RULE,
                 elide_userinfo(proxy)
             ),
@@ -417,7 +412,7 @@ fn parse_proxy_source(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigE
     let config = ProxyConfig::explicit(uri);
     let ProxySource::Explicit(stripped) = &config.source else {
         return IncompatibleOptionsSnafu {
-            msg: String::from("`Proxy`: an explicit proxy should stay explicit"),
+            msg: String::from("`ProxyAddress`: an explicit proxy should stay explicit"),
         }
         .fail();
     };
@@ -431,7 +426,7 @@ fn parse_proxy_source(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigE
         stripped != &elided_proxy(),
         IncompatibleOptionsSnafu {
             msg: format!(
-                "`Proxy={}` is not a valid proxy URL once its credentials are taken out. \
+                "`ProxyAddress={}` is not a valid proxy URL once its credentials are taken out. \
                  Expected `none`, `system`, or a URL such as `http://proxy.example.com:3128`",
                 elide_userinfo(proxy)
             ),
@@ -451,7 +446,7 @@ fn parse_proxy_source(proxy: &str) -> Result<ProxyConfig, crate::config::ConfigE
         written_port.is_none() || stripped.port_u16().is_some(),
         IncompatibleOptionsSnafu {
             msg: format!(
-                "`Proxy={}` does not name a valid port",
+                "`ProxyAddress={}` does not name a valid port",
                 elide_userinfo(proxy)
             ),
         }

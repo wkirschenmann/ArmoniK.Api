@@ -13,7 +13,12 @@ include = ["**/*.rs", "Cargo.toml", "README.md"]
 [features]
 # `secrecy/serde` so the proxy password deserialises with the rest of the options. There is no
 # Serialize half to turn on: the type refuses to be written out.
-serde = ["dep:serde", "secrecy/serde", "dep:serde_with"]
+serde = [
+  "dep:serde",
+  "secrecy/serde",
+  "dep:serde_with",
+  "dep:serde_path_to_error",
+]
 
 [dependencies]
 # `channel` for `tonic::transport::Endpoint`, which is what `connect` builds; `codegen` for the
@@ -45,9 +50,13 @@ rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
 serde = { workspace = true, optional = true }
 # `with_prefix!`, for a group of options whose flat names already share a literal prefix (`Tcp*`,
 # `Http2*`): it composes with `#[serde(flatten)]` to read the same names as before the grouping,
-# while keeping each option's definition in its own thematic file. `std` because `with_prefix!` is
-# gated behind it.
+# while keeping each option's definition in its own thematic file, under whichever prefix the
+# embedding gives it. `std` because `with_prefix!` is gated behind it.
 serde_with = { workspace = true, optional = true, features = ["std"] }
+# Records which key a `serde` source was reading when a value was refused. Wrapped around the
+# deserializer a flattened unit reads through, it recovers the option name that `#[serde(flatten)]`
+# otherwise buffers away, so no reader has to be told its own name.
+serde_path_to_error = { workspace = true, optional = true }
 humantime.workspace = true
 # `Proxy-Authorization: Basic` needs it. Already in the tree through `tonic`, so declaring it adds
 # nothing to the build.

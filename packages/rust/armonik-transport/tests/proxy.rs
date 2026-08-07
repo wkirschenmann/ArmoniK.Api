@@ -383,7 +383,7 @@ async fn the_proxy_options_reach_the_tunnel() {
     let config: HttpConfig = serde_json::from_value(serde_json::json!({
         "Endpoint": server,
         "AllowUnsafeConnection": "true",
-        "Proxy": format!("http://{proxy}"),
+        "ProxyAddress": format!("http://{proxy}"),
         "ProxyUsername": "user",
         "ProxyPassword": "secret",
     }))
@@ -408,7 +408,7 @@ async fn the_system_option_takes_the_proxy_from_the_environment() {
     let config: HttpConfig = serde_json::from_value(serde_json::json!({
         "Endpoint": server,
         "AllowUnsafeConnection": "true",
-        "Proxy": "system",
+        "ProxyAddress": "system",
     }))
     .expect("a valid configuration");
 

@@ -20,13 +20,62 @@ use crate::tls_config::TlsConfig;
 /// Timeout for establishing a connection when the option is left unset.
 pub(crate) const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
 
-// The prefix a grouped unit is read under is this embedding's to choose, not the unit's to
-// declare: a unit is a plain collection of fields, and another embedding may compose the same one
-// under a prefix of its own.
+/// Everything one embedding of a grouped unit needs: the prefix its options are read under, and a
+/// reader that names the option a source got wrong.
+///
+/// The prefix is this embedding's to choose, not the unit's to declare: a unit is a plain
+/// collection of fields, and another embedding may compose the same one under a prefix of its own.
+///
+/// Emits a module rather than free functions because `macro_rules!` cannot build an identifier out
+/// of pieces on stable, and takes `$ty` as a full path because names in the body resolve inside
+/// that module rather than at the call site.
 #[cfg(feature = "serde")]
-serde_with::with_prefix!(prefix_tcp "Tcp");
+macro_rules! embed_prefixed {
+    ($name:ident, $ty:ty, $prefix:literal) => {
+        mod $name {
+            serde_with::with_prefix!(prefix $prefix);
+
+            /// The unit, read under this embedding's prefix, naming the option a source got wrong.
+            ///
+            /// The tracker wraps the deserializer the prefix module reads through, so the key it
+            /// records is the one the source actually spelled, prefix included. That is the only
+            /// place the name survives: `#[serde(flatten)]` buffers a value before handing it over,
+            /// and by the time a reader interprets it the field it came from is gone.
+            ///
+            /// A conversion of the whole unit fails once every key has been read and popped, so
+            /// the tracker has no key to offer; such a failure speaks about a relationship between
+            /// options and names them itself, and its message goes through untouched.
+            pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<$ty, D::Error> {
+                use serde::de::Error as _;
+
+                let mut track = serde_path_to_error::Track::new();
+                let tracked = serde_path_to_error::Deserializer::new(deserializer, &mut track);
+                prefix::deserialize(tracked).map_err(|error| {
+                    let path = track.path().to_string();
+                    if path.is_empty() || path == "." {
+                        error
+                    } else {
+                        D::Error::custom(format!("`{path}`: {error}"))
+                    }
+                })
+            }
+        }
+    };
+}
+
+// Every flattened unit goes through the same mechanism, so no unit spells an option name of its
+// own. An empty prefix strips nothing: it reads the flat vocabulary unchanged, and still gets the
+// naming and a prefix to give the day the unit is embedded a second time.
 #[cfg(feature = "serde")]
-serde_with::with_prefix!(prefix_http2 "Http2");
+embed_prefixed!(tls, crate::tls_config::TlsConfig, "");
+#[cfg(feature = "serde")]
+embed_prefixed!(tcp, crate::tcp_config::TcpConfig, "Tcp");
+#[cfg(feature = "serde")]
+embed_prefixed!(http2, crate::http2_config::Http2Config, "Http2");
+#[cfg(feature = "serde")]
+embed_prefixed!(proxy, crate::proxy::ProxyConfig, "Proxy");
 
 /// Options for creating a gRPC client.
 ///
@@ -45,32 +94,45 @@ pub struct HttpConfig {
     /// Endpoint for sending requests. `Endpoint`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "endpoint"))]
     pub endpoint: Uri,
-    /// TLS and mTLS: the client's own identity, the server's CA, and SSL verification behaviour.
-    #[cfg_attr(feature = "serde", serde(flatten))]
+    /// TLS and mTLS: the client's own identity, the server's CA, and SSL verification behaviour,
+    /// read under no prefix (`CertPem`, `CaCert`, `AllowUnsafeConnection`, ...).
+    #[cfg_attr(
+        feature = "serde",
+        serde(flatten, deserialize_with = "tls::deserialize")
+    )]
     pub tls: TlsConfig,
     /// Timeout for establishing a connection to the server, defaults to 60s. `ConnectTimeout`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "connect_timeout"))]
     pub connect_timeout: Option<Duration>,
     /// Timeout for each request, defaults to no timeout. `Timeout`.
-    #[cfg_attr(feature = "serde", serde(deserialize_with = "timeout"))]
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "optional_duration"))]
     pub timeout: Option<Duration>,
     /// Rate limit for requests, written `count/duration` (e.g. `100/1s`), defaults to no rate
     /// limit. `RateLimit`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "rate_limit"))]
     pub rate_limit: Option<(u64, Duration)>,
     /// TCP-level socket options, read under the `Tcp` prefix (`TcpKeepalive`, ...).
-    #[cfg_attr(feature = "serde", serde(flatten, with = "prefix_tcp"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(flatten, deserialize_with = "tcp::deserialize")
+    )]
     pub tcp: TcpConfig,
     /// HTTP/2-level transport options, read under the `Http2` prefix (`Http2KeepAliveInterval`,
     /// ...).
-    #[cfg_attr(feature = "serde", serde(flatten, with = "prefix_http2"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(flatten, deserialize_with = "http2::deserialize")
+    )]
     pub http2: Http2Config,
     /// User-Agent header value sent with each request. `UserAgent`.
     #[cfg_attr(feature = "serde", serde(deserialize_with = "user_agent"))]
     pub user_agent: Option<HeaderValue>,
-    /// HTTP proxy used to reach the endpoint (`Proxy`, `ProxyUsername`, `ProxyPassword`), defaults
-    /// to following the environment.
-    #[cfg_attr(feature = "serde", serde(flatten))]
+    /// HTTP proxy used to reach the endpoint, read under the `Proxy` prefix (`ProxyAddress`,
+    /// `ProxyUsername`, `ProxyPassword`), defaults to following the environment.
+    #[cfg_attr(
+        feature = "serde",
+        serde(flatten, deserialize_with = "proxy::deserialize")
+    )]
     pub proxy: ProxyConfig,
 }
 
@@ -170,36 +232,53 @@ pub(crate) fn secret_text<'de, D: serde::Deserializer<'de>>(
     text(deserializer).map(secrecy::SecretString::from)
 }
 
-/// Reads a boolean option, on the vocabulary every ArmoniK client accepts. `Err` carries the
-/// message, naming `option`: a flattened `serde` source buffers values before handing them over,
-/// so by the time one is interpreted the field's own name is no longer available, and each caller
-/// has to supply it.
+/// The spellings a boolean option accepts, as an error message shows them.
 #[cfg(feature = "serde")]
-pub(crate) fn parse_bool(option: &str, value: &str) -> Result<bool, String> {
+const BOOLEAN_SPELLINGS: &str = "e.g. `true`, `1`, `yes`, or `false`, `0`, `no`";
+
+/// The boolean `value` spells, on the vocabulary every ArmoniK client accepts, `None` for a
+/// spelling on none of them.
+#[cfg(feature = "serde")]
+fn boolean(value: &str) -> Option<bool> {
     match value {
-        "" | "0" | "false" | "no" | "disable" | "disallow" | "forbid" => Ok(false),
-        "1" | "true" | "yes" | "enable" | "allow" | "authorize" => Ok(true),
-        _ => Err(format!(
-            "`{option}={value}` is not a valid boolean (e.g. `true`, `1`, `yes`, or `false`, `0`, \
-             `no`)"
-        )),
+        "" | "0" | "false" | "no" | "disable" | "disallow" | "forbid" => Some(false),
+        "1" | "true" | "yes" | "enable" | "allow" | "authorize" => Some(true),
+        _ => None,
     }
 }
 
-/// [`parse_bool`], as a `deserialize_with` body.
+/// Reads a boolean option, `Err` carrying a message that names `option`.
+///
+/// Used by a conversion that states something about several options at once, where the
+/// relationship is what has to be named and no single key identifies it. A per-field reader is
+/// [`bool_option`], which gets its name from the source instead.
 #[cfg(feature = "serde")]
-pub(crate) fn bool_option<'de, D: serde::Deserializer<'de>>(
-    option: &'static str,
-    deserializer: D,
-) -> Result<bool, D::Error> {
-    parse_bool(option, &text(deserializer)?).map_err(serde::de::Error::custom)
+pub(crate) fn parse_bool(option: &str, value: &str) -> Result<bool, String> {
+    boolean(value)
+        .ok_or_else(|| format!("`{option}={value}` is not a valid boolean ({BOOLEAN_SPELLINGS})"))
 }
 
-/// Reads a duration option, empty for `None`. `Err` names `option`, for the same reason
-/// [`parse_bool`] takes it: the field's own name is gone by the time the value is read.
+/// Reads a boolean field.
+///
+/// The message quotes the value alone: the option's name is the source's own key, which the
+/// embedding's reader prepends, so writing one here would be inventing a second answer to a
+/// question already answered.
+#[cfg(feature = "serde")]
+pub(crate) fn bool_option<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<bool, D::Error> {
+    let value = text(deserializer)?;
+    boolean(&value).ok_or_else(|| {
+        serde::de::Error::custom(format!(
+            "`{value}` is not a valid boolean ({BOOLEAN_SPELLINGS})"
+        ))
+    })
+}
+
+/// Reads a duration field, empty for `None`. The message quotes the value alone, like
+/// [`bool_option`].
 #[cfg(feature = "serde")]
 pub(crate) fn optional_duration<'de, D: serde::Deserializer<'de>>(
-    option: &'static str,
     deserializer: D,
 ) -> Result<Option<Duration>, D::Error> {
     let value = text(deserializer)?;
@@ -209,15 +288,15 @@ pub(crate) fn optional_duration<'de, D: serde::Deserializer<'de>>(
     match value.parse::<humantime::Duration>() {
         Ok(duration) => Ok(Some(duration.into())),
         Err(error) => Err(serde::de::Error::custom(format!(
-            "`{option}={value}` is not a valid duration (e.g. `30s` or `1m`): {error}"
+            "`{value}` is not a valid duration (e.g. `30s` or `1m`): {error}"
         ))),
     }
 }
 
-/// Reads an integer option, empty for `None`. `Err` names `option`, like [`optional_duration`].
+/// Reads an integer field, empty for `None`. The message quotes the value alone, like
+/// [`bool_option`].
 #[cfg(feature = "serde")]
 pub(crate) fn optional_u32<'de, D: serde::Deserializer<'de>>(
-    option: &'static str,
     deserializer: D,
 ) -> Result<Option<u32>, D::Error> {
     let value = text(deserializer)?;
@@ -227,7 +306,7 @@ pub(crate) fn optional_u32<'de, D: serde::Deserializer<'de>>(
     match value.parse::<u32>() {
         Ok(int) => Ok(Some(int)),
         Err(error) => Err(serde::de::Error::custom(format!(
-            "`{option}={value}` is not a valid integer: {error}"
+            "`{value}` is not a valid integer: {error}"
         ))),
     }
 }
@@ -253,15 +332,7 @@ fn endpoint<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Uri, D:
 fn connect_timeout<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<Duration>, D::Error> {
-    Ok(optional_duration("ConnectTimeout", deserializer)?.or(Some(DEFAULT_CONNECT_TIMEOUT)))
-}
-
-/// [`optional_duration`], naming this field's own option.
-#[cfg(feature = "serde")]
-fn timeout<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Duration>, D::Error> {
-    optional_duration("Timeout", deserializer)
+    Ok(optional_duration(deserializer)?.or(Some(DEFAULT_CONNECT_TIMEOUT)))
 }
 
 /// Reads the User-Agent option, empty for `None`.
@@ -487,7 +558,8 @@ mod tests {
     #[test]
     fn a_duration_that_cannot_be_parsed_names_the_option_and_the_value() {
         // Eight options share the duration and integer readers, so a message that does not name
-        // its option leaves the reader guessing which of them is mistyped.
+        // its option leaves the reader guessing which of them is mistyped. The name is the key the
+        // document spelled, prefix included, and no reader is told what it is called.
         let rendered = error(json!({
             "Endpoint": "http://localhost:5001",
             "TcpKeepalive": "soon",
@@ -496,6 +568,86 @@ mod tests {
         assert!(rendered.contains("not a valid duration"), "{rendered}");
         assert!(rendered.contains("soon"), "{rendered}");
         assert!(rendered.contains("TcpKeepalive"), "{rendered}");
+    }
+
+    #[test]
+    fn the_named_option_carries_the_prefix_the_embedding_reads_it_under() {
+        // The unit knows nothing of the prefix, so the name can only come from the document, and
+        // it has to be the full option a deployment would set rather than the bare field.
+        for (option, value) in [
+            ("Http2KeepAliveInterval", "soon"),
+            ("TcpKeepaliveInterval", "soon"),
+            ("TcpKeepaliveRetries", "many"),
+            ("Http2MaxHeaderListSize", "many"),
+            ("TcpNagleAlgorithm", "perhaps"),
+            ("Http2KeepAliveWhileIdle", "perhaps"),
+        ] {
+            let rendered = error(json!({
+                "Endpoint": "http://localhost:5001",
+                option: value,
+            }));
+
+            assert!(rendered.contains(&format!("`{option}`")), "{rendered}");
+            assert!(rendered.contains(value), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn a_relationship_between_options_is_reported_without_a_key_in_front_of_it() {
+        // A conversion of a whole unit fails once every key has been read, so the tracker has no
+        // key left to offer. Decorating it with the empty path would put a bare `.` where the
+        // reader expects an option name, and the message already names what it relates.
+        for value in [
+            json!({
+                "Endpoint": "http://localhost:5001",
+                "CertPem": "cert.pem",
+            }),
+            json!({
+                "Endpoint": "http://localhost:5001",
+                "ProxyAddress": "http://url-user:url-secret@proxy.corp:3128",
+                "ProxyUsername": "option-user",
+            }),
+        ] {
+            let rendered = error(value);
+
+            assert!(!rendered.contains("`.`"), "{rendered}");
+            assert!(!rendered.starts_with('.'), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn every_unit_reads_its_options_under_the_flat_names_a_deployment_sets() {
+        // The units are read through prefix modules now, so this pins the whole vocabulary: a
+        // prefix written on the wrong embedding would silently move a group of options.
+        let config = config(json!({
+            "Endpoint": "http://localhost:5001",
+            "AllowUnsafeConnection": "true",
+            "OverrideTargetName": "server.example.com",
+            "TcpKeepalive": "30s",
+            "TcpNagleAlgorithm": "true",
+            "Http2KeepAliveTimeout": "10s",
+            "Http2MaxHeaderListSize": "16384",
+            "ProxyAddress": "http://proxy.corp:3128",
+            "ProxyUsername": "user",
+        }));
+
+        assert!(config.tls.allow_unsafe_connection);
+        assert_eq!(
+            config.tls.override_target_name.as_deref(),
+            Some("server.example.com")
+        );
+        assert_eq!(config.tcp.keepalive, Some(Duration::from_secs(30)));
+        assert!(config.tcp.nagle_algorithm);
+        assert_eq!(
+            config.http2.keep_alive_timeout,
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(config.http2.max_header_list_size, Some(16384));
+        assert_eq!(config.proxy.username, "user");
+        let ProxySource::Explicit(uri) = &config.proxy.source else {
+            panic!("expected an explicit proxy");
+        };
+        assert_eq!(uri.host(), Some("proxy.corp"));
     }
 
     #[test]
@@ -708,14 +860,14 @@ mod tests {
 
     // --- the proxy ---
 
-    /// The configuration `Proxy=value` produces, expected to be valid.
+    /// The configuration `ProxyAddress=value` produces, expected to be valid.
     fn proxy_config(value: &str) -> HttpConfig {
-        config(json!({"Endpoint": "http://localhost:5001", "Proxy": value}))
+        config(json!({"Endpoint": "http://localhost:5001", "ProxyAddress": value}))
     }
 
-    /// The error message `Proxy=value` produces, expected to be a rejection.
+    /// The error message `ProxyAddress=value` produces, expected to be a rejection.
     fn proxy_error(value: &str) -> String {
-        error(json!({"Endpoint": "http://localhost:5001", "Proxy": value}))
+        error(json!({"Endpoint": "http://localhost:5001", "ProxyAddress": value}))
     }
 
     #[test]
@@ -779,7 +931,7 @@ mod tests {
         ] {
             let mut value = json!({
                 "Endpoint": "http://localhost:5001",
-                "Proxy": "http://url-user:url-secret@proxy.corp:3128",
+                "ProxyAddress": "http://url-user:url-secret@proxy.corp:3128",
             });
             value
                 .as_object_mut()
@@ -804,11 +956,11 @@ mod tests {
         for value in [
             json!({
                 "Endpoint": "http://localhost:5001",
-                "Proxy": "http://user:url-secret@proxy.corp:3128",
+                "ProxyAddress": "http://user:url-secret@proxy.corp:3128",
             }),
             json!({
                 "Endpoint": "http://localhost:5001",
-                "Proxy": "http://proxy.corp:3128",
+                "ProxyAddress": "http://proxy.corp:3128",
                 "ProxyUsername": "user",
                 "ProxyPassword": "option-secret",
             }),

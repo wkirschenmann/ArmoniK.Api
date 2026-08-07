@@ -25,15 +25,18 @@ connection; `ProxyConfig::explicit(uri)` names a proxy, which is then used whate
 `with_credentials` authenticates to it, half by half: a half left empty keeps what the proxy URL
 itself carried.
 
-In the string form, the `Proxy` option takes the same four values as ArmoniK's C# client: empty
-and `system` follow the environment, `none` forces a direct connection, anything else is the
+In the string form, the `ProxyAddress` option takes the same four values as ArmoniK's C# client:
+empty and `system` follow the environment, `none` forces a direct connection, anything else is the
 proxy's URL, defaulting to the `http` scheme. Credentials come one of two ways: written into the
 URL, or through `ProxyUsername` and `ProxyPassword` next to a clean URL; setting both is refused
 rather than merged. A URL that cannot be dialled as written, no host, a port that is not one, or a
 scheme other than `http`, is refused while the configuration is being read. The `armonik` crate
-reads these options from the environment under the `GrpcClient__` prefix (`GrpcClient__Proxy`, ...).
+reads these options from the environment under the `GrpcClient__` prefix
+(`GrpcClient__ProxyAddress`, ...).
 
-Two divergences from the C# client are deliberate. Spell `none` and `system` exactly so, or
+Three divergences from the C# client are deliberate. The option is `ProxyAddress`, where C# reads
+`Proxy`: the three proxy options share one prefix here, so the group is one reusable unit rather
+than one option renamed by hand next to two that are not. Spell `none` and `system` exactly so, or
 capitalised: this crate accepts any casing, C# treats `NONE` as a proxy URL. And an `https` proxy
 URL, which C# passes to the runtime, is refused here: the `CONNECT` handshake would go out in the
 clear to a proxy expecting TLS.
