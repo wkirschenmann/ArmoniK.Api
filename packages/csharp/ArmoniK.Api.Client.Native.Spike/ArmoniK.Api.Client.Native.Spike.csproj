@@ -21,7 +21,7 @@
   <ItemGroup>
     <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
     <PackageReference Include="Grpc.Tools" Version="2.72.0" PrivateAssets="all" />
-    <PackageReference Include="Google.Protobuf" Version="3.31.1" />
+    <PackageReference Include="Google.Protobuf" Version="3.32.0" />
     <PackageReference Include="NUnit" Version="3.14.0" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
@@ -29,6 +29,15 @@
 
   <ItemGroup>
     <Protobuf Include="spike.proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <!--
+    The shipped client, unchanged, so the harness can prove the handler against the generated
+    ArmoniK clients rather than only against a service written for the spike. It targets
+    netstandard2.0, which is what net4.8 consumes.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\ArmoniK.Api.Client\ArmoniK.Api.Client.csproj" />
   </ItemGroup>
 
   <!--

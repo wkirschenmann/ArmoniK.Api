@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A packaging proof for the spike: can one NuGet package carry the Rust library for several
+    architectures, and does a .NET Framework consumer get the right one?
+
+    netstandard2.0, which is the target phase 3 gives the real `ArmoniK.Api.Client.Native`. The
+    managed half here is only the loader; what is being proved is the layout and the resolution.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>ArmoniK.Api.Client.Native.Spike.Packaging</PackageId>
+    <!--
+      Stamped, because NuGet's global-packages cache is keyed by id and version and treated as
+      immutable: with a fixed version, a re-pack after editing the loader or the targets would be
+      ignored, and the consumer would go on validating the first build while appearing to pass.
+    -->
+    <Version>0.0.1-spike-$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))</Version>
+    <Authors>ANEO</Authors>
+    <Description>Packaging proof for the ArmoniK Rust transport: native assets per RID plus a .NET Framework loader.</Description>
+    <!-- Nothing here is a reference assembly for the natives; suppress the "no lib" complaint. -->
+    <NoWarn>$(NoWarn);NU5100</NoWarn>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RustTarget Condition="'$(RustTarget)' == ''">$(MSBuildThisFileDirectory)..\..\rust\target\</RustTarget>
+  </PropertyGroup>
+
+  <!--
+    One package, several architectures. `runtimes/<rid>/native` is the convention the .NET Core RID
+    graph resolves on its own; .NET Framework ignores it entirely, which is what the `build/`
+    targets and the loader below are for.
+  -->
+  <ItemGroup>
+    <None Include="$(RustTarget)debug\armonik_transport_ffi.dll"
+          Condition="Exists('$(RustTarget)debug\armonik_transport_ffi.dll')"
+          Pack="true"
+          PackagePath="runtimes/win-x64/native/" />
+    <None Include="$(RustTarget)i686-pc-windows-msvc\debug\armonik_transport_ffi.dll"
+          Condition="Exists('$(RustTarget)i686-pc-windows-msvc\debug\armonik_transport_ffi.dll')"
+          Pack="true"
+          PackagePath="runtimes/win-x86/native/" />
+    <!--
+      The same two lines per further RID once the crate is cross-compiled for them:
+      win-arm64, linux-x64, linux-arm64. Nothing about the package changes shape.
+    -->
+  </ItemGroup>
+
+  <!-- The MSBuild half of the .NET Framework story: put the natives where the loader will look. -->
+  <ItemGroup>
+    <!--
+      One source file, packed to the two places NuGet reads targets from: `build/` for a direct
+      reference, `buildTransitive/` for a project that gets this package through another. They are
+      positions inside the `.nupkg`, so the file itself stays at the project root rather than in a
+      directory named `build`, which every ignore rule in the repository treats as output.
+    -->
+    <None Include="ArmoniK.Api.Client.Native.Spike.Packaging.targets"
+          Pack="true"
+          PackagePath="build/;buildTransitive/" />
+  </ItemGroup>
+
+</Project>

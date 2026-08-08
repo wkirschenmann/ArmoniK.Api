@@ -1,0 +1,35 @@
+<Project>
+
+  <!--
+    What .NET Framework needs and .NET Core does not.
+
+    A .NET Core consumer resolves `runtimes/<rid>/native` through the RID graph and copies the right
+    library into its output by itself. A .NET Framework consumer does not: `runtimes/` means nothing
+    to it, so without this the package would restore cleanly and then fail at the first P/Invoke.
+
+    So both architectures are copied, each under its own subdirectory rather than into the output
+    root - two files of the same name cannot share a directory - and `NativeLoader` picks between
+    them at run time on `IntPtr.Size`. That is also the only thing that can decide: a .NET Framework
+    process built as AnyCPU only learns its own bitness when it starts.
+
+    This file lives at the project root and is packed into `build/` and `buildTransitive/`. Those
+    names are a package layout, not a source layout, and NuGet only reads them inside the `.nupkg`;
+    keeping a directory called `build/` in the tree would only be a source file hiding where every
+    ignore rule in the world expects build output.
+  -->
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <None Include="$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\armonik_transport_ffi.dll"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\armonik_transport_ffi.dll')">
+      <Link>runtimes\win-x64\native\armonik_transport_ffi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\runtimes\win-x86\native\armonik_transport_ffi.dll"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x86\native\armonik_transport_ffi.dll')">
+      <Link>runtimes\win-x86\native\armonik_transport_ffi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The other half of the packaging proof: a .NET Framework consumer that has the package and
+    nothing else - no cargo target directory, no copy step of its own. What it can do is exactly
+    what a real application would be able to do.
+
+    It restores from a local feed, so `dotnet pack` on the packaging project has to have run first.
+    The feed is a property rather than a `nuget.config` so the two steps can be given on one line.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net4.8</TargetFramework>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RestoreAdditionalProjectSources>$(SpikeFeed)</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Floating, to match the stamped version the packaging project produces on every pack. -->
+    <PackageReference Include="ArmoniK.Api.Client.Native.Spike.Packaging" Version="0.0.1-spike-*" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+  </ItemGroup>
+
+</Project>
