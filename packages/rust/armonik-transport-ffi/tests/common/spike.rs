@@ -39,14 +39,22 @@ enum Behaviour {
     Hang,
     /// Fail before any header is written: a trailers-only response.
     Fail,
-    /// Report how many calls have been observed to end in a client cancellation.
+    /// Like [`Behaviour::Bidi`], but counts the request streams that end.
+    ///
+    /// The client of this method never half-closes, so an end can only mean the peer reset the
+    /// stream. That indirection is forced: `tonic` turns a client RST_STREAM(CANCEL) on a request
+    /// stream into a clean end of stream on purpose (`tonic::codec::decode`, the
+    /// `direction == Request && code == Cancelled` arm), so a handler cannot see the cancellation
+    /// as a cancellation. What it can see, and what actually matters, is that it stops waiting.
+    CancelWatch,
+    /// Report how many request streams [`Behaviour::CancelWatch`] has seen end.
     CancelsObserved,
 }
 
 /// How many replies [`Behaviour::ServerStream`] produces.
 pub(crate) const SERVER_STREAM_REPLIES: usize = 5;
 
-/// Calls whose request stream ended because the client reset it, process-wide.
+/// `CancelWatch` request streams that have ended, process-wide.
 static CANCELS_OBSERVED: AtomicU32 = AtomicU32::new(0);
 
 /// The method names the spike service answers to, under `/armonik_transport_ffi.test.Raw/`.
@@ -56,6 +64,7 @@ fn behaviour_of(path: &str) -> Option<Behaviour> {
         "ServerStream" => Some(Behaviour::ServerStream),
         "ClientStream" => Some(Behaviour::ClientStream),
         "Bidi" => Some(Behaviour::Bidi),
+        "CancelWatch" => Some(Behaviour::CancelWatch),
         "Hang" => Some(Behaviour::Hang),
         "Fail" => Some(Behaviour::Fail),
         "CancelsObserved" => Some(Behaviour::CancelsObserved),
@@ -116,15 +125,13 @@ pub(crate) fn decode_echo(message: &[u8]) -> Result<Vec<u8>, Status> {
         .ok_or_else(|| Status::invalid_argument("truncated EchoMsg payload"))
 }
 
-/// Count a request stream that ended because the client reset it.
-///
-/// `tonic` reports a peer RST_STREAM(CANCEL) as `Code::Cancelled`; anything else is a real failure
-/// and is not what the cancellation test is asking about.
-fn note_cancellation(status: &Status) {
-    if status.code() == Code::Cancelled {
-        CANCELS_OBSERVED.fetch_add(1, Ordering::SeqCst);
-    }
-}
+/// The gRPC code of the last `CancelWatch` request stream that ended, for diagnosis. `CLEAN_END`
+/// means it ended without an error, which is what an absorbed RST_STREAM(CANCEL) looks like;
+/// `u32::MAX` means none has ended yet.
+static LAST_STREAM_ERROR: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// What [`LAST_STREAM_ERROR`] holds when a request stream ended without an error.
+const CLEAN_END: u32 = 1000;
 
 /// The handler behind one method of the spike service.
 #[derive(Clone, Copy)]
@@ -149,7 +156,11 @@ impl Service<Request<Streaming<Bytes>>> for SpikeHandler {
             }
 
             if behaviour == Behaviour::CancelsObserved {
-                let count = CANCELS_OBSERVED.load(Ordering::SeqCst).to_string();
+                let count = format!(
+                    "{}:{}",
+                    CANCELS_OBSERVED.load(Ordering::SeqCst),
+                    LAST_STREAM_ERROR.load(Ordering::SeqCst)
+                );
                 let items = vec![Ok(encode_echo(count.as_bytes()))];
                 return Ok(Response::new(
                     Box::pin(armonik_transport::reexports::tokio_stream::iter(items))
@@ -160,7 +171,8 @@ impl Service<Request<Streaming<Bytes>>> for SpikeHandler {
             // Answers while it is still reading, which is the only shape that proves the two
             // directions really interleave. Capacity one, so a reply that nobody reads stops the
             // handler rather than letting it run ahead.
-            if behaviour == Behaviour::Bidi {
+            if behaviour == Behaviour::Bidi || behaviour == Behaviour::CancelWatch {
+                let watching = behaviour == Behaviour::CancelWatch;
                 let (tx, rx) = mpsc::channel(1);
                 tokio::spawn(async move {
                     loop {
@@ -177,9 +189,18 @@ impl Service<Request<Streaming<Bytes>>> for SpikeHandler {
                                     break;
                                 }
                             }
-                            Ok(None) => break,
+                            Ok(None) => {
+                                if watching {
+                                    LAST_STREAM_ERROR.store(CLEAN_END, Ordering::SeqCst);
+                                    CANCELS_OBSERVED.fetch_add(1, Ordering::SeqCst);
+                                }
+                                break;
+                            }
                             Err(status) => {
-                                note_cancellation(&status);
+                                if watching {
+                                    LAST_STREAM_ERROR.store(status.code() as u32, Ordering::SeqCst);
+                                    CANCELS_OBSERVED.fetch_add(1, Ordering::SeqCst);
+                                }
                                 let _ = tx.send(Err(status)).await;
                                 break;
                             }
@@ -195,10 +216,7 @@ impl Service<Request<Streaming<Bytes>>> for SpikeHandler {
                 match stream.message().await {
                     Ok(Some(message)) => payloads.push(decode_echo(&message)?),
                     Ok(None) => break,
-                    Err(status) => {
-                        note_cancellation(&status);
-                        return Err(status);
-                    }
+                    Err(status) => return Err(status),
                 }
             }
 
@@ -219,11 +237,10 @@ impl Service<Request<Streaming<Bytes>>> for SpikeHandler {
                     .collect(),
                 Behaviour::ClientStream => vec![Ok(encode_echo(&payloads.concat()))],
                 Behaviour::Bidi
+                | Behaviour::CancelWatch
                 | Behaviour::Hang
                 | Behaviour::Fail
-                | Behaviour::CancelsObserved => {
-                    unreachable!("handled above")
-                }
+                | Behaviour::CancelsObserved => unreachable!("handled above"),
             };
             Ok(Response::new(
                 Box::pin(armonik_transport::reexports::tokio_stream::iter(items)) as ResponseStream,

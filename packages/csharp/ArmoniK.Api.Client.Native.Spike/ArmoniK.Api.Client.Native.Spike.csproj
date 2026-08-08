@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The go/no-go harness of the FFI spike. It exists to answer one question that no amount of Rust
+    testing can: does Grpc.Net.Client, on .NET Framework, drive a custom duplex HttpMessageHandler
+    the way HTTP/2 gRPC needs. net4.8 only, because that is the platform in question.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net4.8</TargetFramework>
+    <Company>ANEO</Company>
+    <Copyright>Copyright (C) ANEO, 2021-2026</Copyright>
+    <IsPackable>false</IsPackable>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <DebugType>Embedded</DebugType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The harness is the deliverable; nothing consumes it, so a stale XML doc is noise. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.72.0" PrivateAssets="all" />
+    <PackageReference Include="Google.Protobuf" Version="3.31.1" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="spike.proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <!--
+    The native library and the test server, straight out of the cargo target directory. Copied
+    rather than referenced so the test host loads them from its own directory, which is the only
+    place a plain `DllImport` looks.
+  -->
+  <PropertyGroup>
+    <RustTargetDir Condition="'$(RustTargetDir)' == ''">$(MSBuildThisFileDirectory)..\..\rust\target\debug\</RustTargetDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(RustTargetDir)armonik_transport_ffi.dll" Condition="Exists('$(RustTargetDir)armonik_transport_ffi.dll')">
+      <Link>armonik_transport_ffi.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="$(RustTargetDir)examples\spike_server.exe" Condition="Exists('$(RustTargetDir)examples\spike_server.exe')">
+      <Link>spike_server.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="TheNativeLibraryHasToExist" BeforeTargets="Build">
+    <Error Condition="!Exists('$(RustTargetDir)armonik_transport_ffi.dll')"
+           Text="$(RustTargetDir)armonik_transport_ffi.dll is missing. Run: cargo build -p armonik-transport-ffi --example spike_server (from packages/rust)" />
+    <Error Condition="!Exists('$(RustTargetDir)examples\spike_server.exe')"
+           Text="$(RustTargetDir)examples\spike_server.exe is missing. Run: cargo build -p armonik-transport-ffi --example spike_server (from packages/rust)" />
+  </Target>
+
+</Project>

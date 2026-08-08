@@ -1,0 +1,37 @@
+// The service the go/no-go checklist calls.
+//
+// The server serving it has no protobuf codegen at all: it reads and writes `EchoMsg` by hand, and
+// accepts any method under the service name. This file exists only so the harness can call it
+// through a generated client, which is the point - the checklist has to exercise the same
+// `Grpc.Net.Client` code path an application would.
+
+syntax = "proto3";
+
+package armonik_transport_ffi.test;
+
+option csharp_namespace = "ArmoniK.Api.Client.Native.Spike.Generated";
+
+// One opaque payload, echoed back.
+message EchoMsg {
+  bytes payload = 1;
+}
+
+service Raw {
+  // One message in, one message out.
+  rpc Unary(EchoMsg) returns (EchoMsg);
+  // One message in, several out.
+  rpc ServerStream(EchoMsg) returns (stream EchoMsg);
+  // Several messages in, one out, carrying every payload concatenated.
+  rpc ClientStream(stream EchoMsg) returns (EchoMsg);
+  // One message out per message in, emitted as each arrives.
+  rpc Bidi(stream EchoMsg) returns (stream EchoMsg);
+  // Reads everything, then never answers.
+  rpc Hang(stream EchoMsg) returns (stream EchoMsg);
+  // Fails before writing any header: a trailers-only response.
+  rpc Fail(EchoMsg) returns (EchoMsg);
+  // Like Bidi, but counts request streams that end. Its client never half-closes, so an end can
+  // only mean the peer reset the stream.
+  rpc CancelWatch(stream EchoMsg) returns (stream EchoMsg);
+  // Reports how many CancelWatch request streams the server has seen end.
+  rpc CancelsObserved(EchoMsg) returns (EchoMsg);
+}
