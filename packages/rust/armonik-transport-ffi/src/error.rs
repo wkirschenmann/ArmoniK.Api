@@ -140,9 +140,10 @@ pub(crate) enum FfiError {
 /// there is no error chain left to walk on the other side, so a message that stopped at the outermost
 /// error would drop the only part that says what to fix.
 ///
-/// And the ` [some/file.rs:12:34]` suffix those errors carry is removed. It is a Rust debugging aid:
-/// useful in a Rust backtrace, meaningless in the error a host application reports, and actively
-/// misleading to whoever ends up reading it in a customer's log.
+/// And the ` [some/file.rs:12:34]` locations those errors carry are handled the way this build says
+/// to - removed by default, kept under the `error-locations` feature. They are a Rust debugging aid:
+/// meaningless in the error a host application reports, and the first thing wanted when the reader
+/// is the person who wrote this crate.
 pub(crate) fn describe(error: &dyn std::error::Error) -> String {
     let mut message = String::new();
     let mut current = Some(error);
@@ -162,6 +163,23 @@ pub(crate) fn describe(error: &dyn std::error::Error) -> String {
     message
 }
 
+/// Render a message the way this build reports errors.
+///
+/// Source locations are removed, unless the `error-locations` feature says to keep them. They are a
+/// Rust debugging aid: meaningless to whoever reads a host application's log, and the first thing
+/// wanted when that reader is the person who wrote this crate. Which of the two a build serves is a
+/// build-time decision, so it costs a released library nothing.
+///
+/// The ABI is identical either way, so the two builds are interchangeable: a consumer picks one by
+/// which library it loads, not by how it calls.
+fn strip_location(text: &str) -> Cow<'_, str> {
+    if cfg!(feature = "error-locations") {
+        Cow::Borrowed(text)
+    } else {
+        remove_locations(text)
+    }
+}
+
 /// Drop every ` [path:line:column]` the message carries.
 ///
 /// Anywhere in the message, not only at its end: `serde_path_to_error` appends ` at line X column Y`
@@ -170,7 +188,7 @@ pub(crate) fn describe(error: &dyn std::error::Error) -> String {
 ///
 /// Deliberately narrow all the same: only a bracketed run whose last two `:`-separated parts are
 /// numbers counts as a location, so a message with brackets of its own keeps them.
-fn strip_location(text: &str) -> Cow<'_, str> {
+fn remove_locations(text: &str) -> Cow<'_, str> {
     let mut rest = text;
     let mut kept = String::new();
     // Whether anything was removed, which is not the same as `kept` being non-empty: a message that
@@ -218,8 +236,9 @@ impl fmt::Display for FfiError {
         match self {
             Self::NullArgument(name) => write!(f, "`{name}` must not be null"),
             Self::InvalidUtf8 => write!(f, "a buffer that was expected to be UTF-8 was not"),
-            // Stripped here too: a `serde_json` error renders the error it wraps, location and
-            // all, and never reaches `describe` because it has no `source` chain to walk.
+            // The build's policy applies here too: a `serde_json` error renders the error it
+            // wraps, location and all, and never reaches `describe` because it has no `source`
+            // chain to walk.
             Self::InvalidJson(source) => {
                 write!(f, "invalid configuration: {}", strip_location(source))
             }
@@ -365,35 +384,49 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            describe(&Outer),
-            "could not establish TLS: the key does not match the certificate",
-            "the outer message alone says nothing actionable, and the location says nothing at all"
+        // What this is about is the *chain*: the outer message alone says nothing actionable. The
+        // location is the other axis, and follows the build's feature, so it is asserted separately.
+        let described = describe(&Outer);
+        assert!(
+            described.contains("could not establish TLS"),
+            "the outer message is missing: {described}"
         );
+        assert!(
+            described.contains("the key does not match the certificate"),
+            "the cause is what says what to fix, and it has to survive: {described}"
+        );
+        if cfg!(feature = "error-locations") {
+            assert!(described.contains("src/connect.rs:135:14"), "{described}");
+        } else {
+            assert_eq!(
+                described,
+                "could not establish TLS: the key does not match the certificate"
+            );
+        }
     }
 
     #[test]
-    fn only_a_real_source_location_is_stripped() {
-        assert_eq!(strip_location("failed [src/a.rs:1:2]"), "failed");
+    fn only_a_real_source_location_is_removed() {
+        assert_eq!(remove_locations("failed [src/a.rs:1:2]"), "failed");
         assert_eq!(
-            strip_location("failed [C:\\work\\src\\a.rs:12:34]"),
+            remove_locations("failed [C:\\work\\src\\a.rs:12:34]"),
             "failed"
         );
         // Not a location, so not the boundary's business to remove: brackets are ordinary text.
-        assert_eq!(strip_location("option [Endpoint]"), "option [Endpoint]");
+        assert_eq!(remove_locations("option [Endpoint]"), "option [Endpoint]");
         assert_eq!(
-            strip_location("failed [src/a.rs:no:no]"),
+            remove_locations("failed [src/a.rs:no:no]"),
             "failed [src/a.rs:no:no]"
         );
-        assert_eq!(strip_location("nothing bracketed"), "nothing bracketed");
+        assert_eq!(remove_locations("nothing bracketed"), "nothing bracketed");
     }
 
     #[test]
-    fn a_location_anywhere_in_the_message_is_stripped_not_only_at_the_end() {
+    fn a_location_anywhere_in_the_message_is_removed_not_only_at_the_end() {
         // What `serde_path_to_error` produces: the wrapped error's location, then its own suffix.
         // A rule that only looked at the end of the message let this through to a customer's log.
         assert_eq!(
-            strip_location(
+            remove_locations(
                 "Could not read file `nope.pem` [armonik-transport/src/tls_config.rs:336:61] at line 1 column 56"
             ),
             "Could not read file `nope.pem` at line 1 column 56"
@@ -401,22 +434,34 @@ mod tests {
 
         // Several, mixed with brackets that are not locations.
         assert_eq!(
-            strip_location("a [src/a.rs:1:2] b [Endpoint] c [src/b.rs:3:4] d"),
+            remove_locations("a [src/a.rs:1:2] b [Endpoint] c [src/b.rs:3:4] d"),
             "a b [Endpoint] c d"
         );
 
         // A message that is nothing but a location leaves nothing behind. Answering with the
         // original here would be the easy mistake: "I built no replacement" is not the same as
         // "I removed nothing".
-        assert_eq!(strip_location(" [foo.rs:1:2]"), "");
-        assert_eq!(strip_location(" [a.rs:1:2] [b.rs:3:4] tail"), " tail");
+        assert_eq!(remove_locations(" [foo.rs:1:2]"), "");
+        assert_eq!(remove_locations(" [a.rs:1:2] [b.rs:3:4] tail"), " tail");
 
         // An unterminated bracket is text, and must not send the scan round again forever.
         assert_eq!(
-            strip_location("failed [src/a.rs:1:2] and then [unclosed"),
+            remove_locations("failed [src/a.rs:1:2] and then [unclosed"),
             "failed and then [unclosed"
         );
-        assert_eq!(strip_location(""), "");
+        assert_eq!(remove_locations(""), "");
+    }
+
+    #[test]
+    fn what_a_build_does_with_a_location_follows_its_feature() {
+        // The policy, as opposed to the removal itself. Asserted against the build that is running,
+        // so the test says the same thing whichever way the crate was compiled.
+        let rendered = strip_location("failed [src/a.rs:1:2]");
+        if cfg!(feature = "error-locations") {
+            assert_eq!(rendered, "failed [src/a.rs:1:2]");
+        } else {
+            assert_eq!(rendered, "failed");
+        }
     }
 
     #[test]

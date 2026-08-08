@@ -19,6 +19,16 @@ include = ["**/*.rs", "Cargo.toml", "README.md", "include/*.h", "cbindgen.toml"]
 crate-type = ["lib", "cdylib"]
 name = "armonik_transport_ffi"
 
+[features]
+# Keep the ` [file.rs:12:34]` source locations the transport's errors carry, instead of removing them
+# from the message that crosses the ABI. Off by default: a Rust source path means nothing to whoever
+# reads a host application's log. On, it is the first thing wanted when that reader wrote this crate.
+#
+# Compile-time rather than a configuration option, so a released library carries neither the branch
+# nor the choice. The ABI is the same either way, so the two builds are interchangeable and a
+# consumer picks one by which library it ships.
+error-locations = []
+
 [dependencies]
 # The whole connection layer - options, TLS, mTLS, proxy - comes from here, and `serde` is how the
 # configuration crosses the ABI. Depending on this rather than on `armonik` keeps protobuf codegen,
