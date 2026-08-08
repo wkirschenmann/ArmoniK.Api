@@ -195,7 +195,7 @@ public sealed class RustHttpHandler : HttpMessageHandler
                              1) == 0)
     {
       // Requests still in flight hold their own reference to the pool and finish normally.
-      NativeMethods.ak_client_free(client_);
+      NativeMethods.ak_client_release(client_);
     }
 
     base.Dispose(disposing);

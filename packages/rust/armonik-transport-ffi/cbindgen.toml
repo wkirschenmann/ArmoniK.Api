@@ -23,22 +23,24 @@ header = """
  *      2. AK_EVENT_COMPLETED arrives exactly once, and last. If `ak_request_start` returned AK_OK it
  *         always arrives, cancellation and connection failure included; if `ak_request_start`
  *         failed, no event ever arrives. Anything still armed is resolved by it. Nothing is called
- *         back afterwards, so that is where the caller releases whatever it rooted for `ctx`.
+ *         back afterwards, so that is where - and only there - the caller releases whatever it
+ *         rooted for `ctx`. `ak_request_release` does NOT end that obligation: it gives up the
+ *         handle, and the terminal event still arrives.
  *      3. No callback happens during an inbound call. Every function posts a command and returns;
  *         events are emitted from this library's own threads, serialised per request. A caller
  *         needs no lock of its own, but its callback runs on a foreign thread: it must not block,
  *         must not raise, and must not re-enter this library for the same request.
  *
- *  - Handles are thread-safe. An `ak_client` or `ak_request` may be used from any thread and from
- *    several at once, `_free` included: a call already under way when another thread frees the
- *    handle finishes normally. What is not allowed is using a handle after its own `_free` has
- *    returned.
+ *  - Handles are reference-counted, and thread-safe. `_release` gives up one reference rather than
+ *    destroying anything; the object lives until the last reference goes, so an `ak_client` or
+ *    `ak_request` may be used from any thread and from several at once, `_release` included - a call
+ *    already under way when another thread releases the handle finishes normally. What is not
+ *    allowed is using a handle after your own `_release`.
  *
- *  - `ak_request_free` is synchronous with respect to the event callback. When it returns, no
- *    callback for that request is running or will start, so that is a safe moment to release
- *    whatever `ctx` pointed at. It is therefore the one call a callback must never make for its own
- *    request: it would wait for itself. `ak_client_create` is the other, for an unrelated reason
- *    given in its own documentation.
+ *  - Releasing a request that has not completed cancels it. The AK_EVENT_COMPLETED event still
+ *    arrives, and `ctx` must stay valid until it does. A caller that has to know no callback can
+ *    reach it any more - an AppDomain being unloaded, a library being torn down - waits for the
+ *    outstanding terminal events, not for `ak_request_release` to return.
  *
  *  - Event payloads are BORROWED for the duration of the callback. Copy what is needed before
  *    returning; never free one. Nothing on the event path is owned by the caller.

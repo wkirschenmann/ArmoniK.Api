@@ -6,7 +6,7 @@
 //! event.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use armonik_transport::reexports::h2;
@@ -71,36 +71,6 @@ pub type ak_request_on_event =
 struct EventSink {
     on_event: ak_request_on_event,
     ctx: *mut std::ffi::c_void,
-    gate: Arc<Gate>,
-}
-
-/// What makes [`ak_request_free`] safe to call while an event is being delivered.
-///
-/// Muting alone is not enough. A flag the emitter reads and the caller sets leaves a window: the
-/// emitter reads "not muted", the caller then releases whatever `ctx` points at, and the callback
-/// still runs, into memory that is gone. That is exactly the case the mute exists for, so the flag
-/// is read under a lock that [`ak_request_free`] also takes, after setting it. Once
-/// [`ak_request_free`] returns, either the callback had already finished or it will never start.
-///
-/// The cost is one uncontended lock per event. The rule it puts on a caller is the one the header
-/// already states: a callback must not re-enter this crate for its own request, [`ak_request_free`]
-/// included, or it would wait for itself.
-#[derive(Default)]
-struct Gate {
-    muted: AtomicBool,
-    delivering: Mutex<()>,
-}
-
-impl Gate {
-    /// Silence the callback and wait for any delivery already under way to return.
-    fn close(&self) {
-        self.muted.store(true, Ordering::Release);
-        drop(
-            self.delivering
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner),
-        );
-    }
 }
 
 // SAFETY: `ctx` is opaque to this crate - never read, never written, only passed back to the
@@ -114,14 +84,6 @@ unsafe impl Sync for EventSink {}
 
 impl EventSink {
     fn emit(&self, kind: i32, payload: &[u8], code: i32) {
-        let _delivering = self
-            .gate
-            .delivering
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if self.gate.muted.load(Ordering::Acquire) {
-            return;
-        }
         let Some(callback) = self.on_event else {
             return;
         };
@@ -158,7 +120,6 @@ enum Command {
 /// flags that say what is currently armed.
 pub struct ak_request {
     commands: mpsc::UnboundedSender<Command>,
-    gate: Arc<Gate>,
     read_armed: Arc<AtomicBool>,
     write_armed: Arc<AtomicBool>,
     send_closed: AtomicBool,
@@ -192,14 +153,16 @@ fn borrow(request: *const ak_request) -> Result<Arc<ak_request>, i32> {
 /// Every other key is sent as a request header, in the order given, duplicates included. `-bin`
 /// values are passed through untouched: base64 is the caller's convention, not this crate's.
 ///
-/// On [`crate::status::OK`] a `COMPLETED` event is guaranteed to follow, exactly once, and `ctx` may
-/// be released when it arrives. On any other status no event will ever be delivered.
+/// On [`crate::status::OK`] a `COMPLETED` event is guaranteed to follow, exactly once, and that is
+/// the moment - the only moment - at which `ctx` may be released. On any other status no event will
+/// ever be delivered, and `ctx` may be released at once.
 ///
 /// # Safety
 ///
 /// `client` must be a live handle from [`crate::ak_client_create`]. `headers_blob` must point to
 /// `len` readable bytes for the duration of the call. `on_event` must remain callable, and `ctx`
-/// valid, until the `COMPLETED` event or a successful [`ak_request_free`]. `out` must be writable.
+/// valid, until the `COMPLETED` event - [`ak_request_release`] does not end that obligation, it only
+/// gives up the handle. `out` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn ak_request_start(
     client: *const ak_client,
@@ -238,7 +201,6 @@ pub unsafe extern "C" fn ak_request_start(
             Err(error) => return error.into_ffi_result(out_err),
         };
 
-        let gate = Arc::new(Gate::default());
         let read_armed = Arc::new(AtomicBool::new(false));
         let write_armed = Arc::new(AtomicBool::new(false));
         let (commands, command_rx) = mpsc::unbounded_channel();
@@ -246,11 +208,7 @@ pub unsafe extern "C" fn ak_request_start(
         let task = Task {
             pool: Arc::clone(&client.pool),
             timeout: client.timeout,
-            sink: EventSink {
-                on_event,
-                ctx,
-                gate: Arc::clone(&gate),
-            },
+            sink: EventSink { on_event, ctx },
             read_armed: Arc::clone(&read_armed),
             write_armed: Arc::clone(&write_armed),
         };
@@ -258,7 +216,6 @@ pub unsafe extern "C" fn ak_request_start(
 
         let handle = live().insert(ak_request {
             commands,
-            gate,
             read_armed,
             write_armed,
             send_closed: AtomicBool::new(false),
@@ -381,17 +338,26 @@ pub unsafe extern "C" fn ak_request_cancel(request: *const ak_request) -> i32 {
     })
 }
 
-/// Release a request handle.
+/// Give up this caller's reference to a request.
 ///
-/// Freeing before `COMPLETED` is allowed and is the only safe way to abandon a request whose `ctx`
-/// is about to become invalid: the callback is muted first, so no event can reach the caller
-/// afterwards, and the request is then cancelled so its task does not linger.
+/// A reference, not the object: the request is reference-counted, and whatever is still using it -
+/// another thread mid-call, the task driving it - keeps it alive. Nothing is deallocated until the
+/// last reference goes, so releasing a handle another thread is calling into is well-defined rather
+/// than a race.
+///
+/// Releasing before `COMPLETED` is allowed and is how a request is abandoned: it cancels, and the
+/// request runs to its `COMPLETED` event as it always does. **That event still arrives**, and it
+/// remains the only point at which `ctx` may be released - this call does not end that obligation.
+/// A caller that must know no callback can reach it any more, an AppDomain being unloaded for
+/// instance, waits for the outstanding `COMPLETED` events rather than for this to return.
+///
+/// Calling it twice, or on a handle that was never valid, does nothing.
 ///
 /// # Safety
 ///
-/// `request` must be a handle from [`ak_request_start`] that has not been freed, or null.
+/// `request` must be a handle from [`ak_request_start`] that has not been released, or null.
 #[no_mangle]
-pub unsafe extern "C" fn ak_request_free(request: *mut ak_request) {
+pub unsafe extern "C" fn ak_request_release(request: *mut ak_request) {
     crate::guard::catch_unwind_void(|| {
         if request.is_null() {
             return;
@@ -399,10 +365,8 @@ pub unsafe extern "C" fn ak_request_free(request: *mut ak_request) {
         let Some(request) = live().remove(request) else {
             return;
         };
-        // Silenced before cancelling, and synchronously: once this returns no callback can be
-        // running or about to start, so the caller may release whatever `ctx` pointed at. The
-        // cancel is what stops the task lingering on a request nobody will ever read.
-        request.gate.close();
+        // Cancelled, so the task does not linger on a request nobody is going to read. It still
+        // runs to `COMPLETED`; that is what tells the caller its context may go.
         let _ = request.commands.send(Command::Cancel);
     });
 }

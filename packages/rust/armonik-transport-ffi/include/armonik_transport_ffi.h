@@ -21,22 +21,24 @@
  *      2. AK_EVENT_COMPLETED arrives exactly once, and last. If `ak_request_start` returned AK_OK it
  *         always arrives, cancellation and connection failure included; if `ak_request_start`
  *         failed, no event ever arrives. Anything still armed is resolved by it. Nothing is called
- *         back afterwards, so that is where the caller releases whatever it rooted for `ctx`.
+ *         back afterwards, so that is where - and only there - the caller releases whatever it
+ *         rooted for `ctx`. `ak_request_release` does NOT end that obligation: it gives up the
+ *         handle, and the terminal event still arrives.
  *      3. No callback happens during an inbound call. Every function posts a command and returns;
  *         events are emitted from this library's own threads, serialised per request. A caller
  *         needs no lock of its own, but its callback runs on a foreign thread: it must not block,
  *         must not raise, and must not re-enter this library for the same request.
  *
- *  - Handles are thread-safe. An `ak_client` or `ak_request` may be used from any thread and from
- *    several at once, `_free` included: a call already under way when another thread frees the
- *    handle finishes normally. What is not allowed is using a handle after its own `_free` has
- *    returned.
+ *  - Handles are reference-counted, and thread-safe. `_release` gives up one reference rather than
+ *    destroying anything; the object lives until the last reference goes, so an `ak_client` or
+ *    `ak_request` may be used from any thread and from several at once, `_release` included - a call
+ *    already under way when another thread releases the handle finishes normally. What is not
+ *    allowed is using a handle after your own `_release`.
  *
- *  - `ak_request_free` is synchronous with respect to the event callback. When it returns, no
- *    callback for that request is running or will start, so that is a safe moment to release
- *    whatever `ctx` pointed at. It is therefore the one call a callback must never make for its own
- *    request: it would wait for itself. `ak_client_create` is the other, for an unrelated reason
- *    given in its own documentation.
+ *  - Releasing a request that has not completed cancels it. The AK_EVENT_COMPLETED event still
+ *    arrives, and `ctx` must stay valid until it does. A caller that has to know no callback can
+ *    reach it any more - an AppDomain being unloaded, a library being torn down - waits for the
+ *    outstanding terminal events, not for `ak_request_release` to return.
  *
  *  - Event payloads are BORROWED for the duration of the callback. Copy what is needed before
  *    returning; never free one. Nothing on the event path is owned by the caller.
@@ -117,7 +119,7 @@
 
 /**
  * The request was cancelled through [`crate::ak_request_cancel`], or by
- * [`crate::ak_request_free`] before it had completed.
+ * [`crate::ak_request_release`] before it had completed.
  */
 #define AK_CANCELLED -10
 
@@ -170,7 +172,7 @@
  * A connection pool, and the options every request on it inherits.
  *
  * Handed to the caller as an opaque pointer. Cloning the inner `Arc` into each request is what
- * lets a request outlive [`ak_client_free`]: the pool goes away when the last user does.
+ * lets a request outlive [`ak_client_release`]: the pool goes away when the last user does.
  */
 typedef struct ak_client ak_client;
 
@@ -275,7 +277,7 @@ extern "C" {
  * # Safety
  *
  * `config_json` must point to `len` readable bytes. `out` must be a writable `ak_client*`, and
- * receives a handle to be released with exactly one [`ak_client_free`]. `out_err`, when non-null,
+ * receives a handle to be given up with exactly one [`ak_client_release`]. `out_err`, when non-null,
  * must be a writable [`ak_bytes`] and receives a message to release with [`crate::ak_bytes_free`].
  */
 int32_t ak_client_create(const uint8_t *config_json,
@@ -284,17 +286,17 @@ int32_t ak_client_create(const uint8_t *config_json,
                          struct ak_bytes *out_err);
 
 /**
- * Release a client.
+ * Give up this caller's reference to a client.
  *
- * Requests already in flight keep the pool alive and run to their `COMPLETED` event, and a call
- * already inside another entry point finishes normally: this gives up the caller's reference, not
- * necessarily the last one.
+ * A reference, not the object. Requests already in flight keep the pool alive and run to their
+ * `COMPLETED` event, and a call already inside another entry point finishes normally; the pool goes
+ * away when the last user of it does.
  *
  * # Safety
  *
- * `client` must be a handle from [`ak_client_create`] that has not been freed, or null.
+ * `client` must be a handle from [`ak_client_create`] that has not been released, or null.
  */
-void ak_client_free(struct ak_client *client);
+void ak_client_release(struct ak_client *client);
 
 /**
  * Free an [`ak_bytes`] previously returned by this crate.
@@ -320,14 +322,16 @@ void ak_bytes_free(struct ak_bytes bytes);
  * Every other key is sent as a request header, in the order given, duplicates included. `-bin`
  * values are passed through untouched: base64 is the caller's convention, not this crate's.
  *
- * On [`crate::status::OK`] a `COMPLETED` event is guaranteed to follow, exactly once, and `ctx` may
- * be released when it arrives. On any other status no event will ever be delivered.
+ * On [`crate::status::OK`] a `COMPLETED` event is guaranteed to follow, exactly once, and that is
+ * the moment - the only moment - at which `ctx` may be released. On any other status no event will
+ * ever be delivered, and `ctx` may be released at once.
  *
  * # Safety
  *
  * `client` must be a live handle from [`crate::ak_client_create`]. `headers_blob` must point to
  * `len` readable bytes for the duration of the call. `on_event` must remain callable, and `ctx`
- * valid, until the `COMPLETED` event or a successful [`ak_request_free`]. `out` must be writable.
+ * valid, until the `COMPLETED` event - [`ak_request_release`] does not end that obligation, it only
+ * gives up the handle. `out` must be writable.
  */
 int32_t ak_request_start(const struct ak_client *client,
                          const uint8_t *headers_blob,
@@ -385,17 +389,26 @@ int32_t ak_request_read(const struct ak_request *request);
 int32_t ak_request_cancel(const struct ak_request *request);
 
 /**
- * Release a request handle.
+ * Give up this caller's reference to a request.
  *
- * Freeing before `COMPLETED` is allowed and is the only safe way to abandon a request whose `ctx`
- * is about to become invalid: the callback is muted first, so no event can reach the caller
- * afterwards, and the request is then cancelled so its task does not linger.
+ * A reference, not the object: the request is reference-counted, and whatever is still using it -
+ * another thread mid-call, the task driving it - keeps it alive. Nothing is deallocated until the
+ * last reference goes, so releasing a handle another thread is calling into is well-defined rather
+ * than a race.
+ *
+ * Releasing before `COMPLETED` is allowed and is how a request is abandoned: it cancels, and the
+ * request runs to its `COMPLETED` event as it always does. **That event still arrives**, and it
+ * remains the only point at which `ctx` may be released - this call does not end that obligation.
+ * A caller that must know no callback can reach it any more, an AppDomain being unloaded for
+ * instance, waits for the outstanding `COMPLETED` events rather than for this to return.
+ *
+ * Calling it twice, or on a handle that was never valid, does nothing.
  *
  * # Safety
  *
- * `request` must be a handle from [`ak_request_start`] that has not been freed, or null.
+ * `request` must be a handle from [`ak_request_start`] that has not been released, or null.
  */
-void ak_request_free(struct ak_request *request);
+void ak_request_release(struct ak_request *request);
 
 #ifdef __cplusplus
 }  // extern "C"

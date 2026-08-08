@@ -28,7 +28,7 @@ pub(crate) type Pool = Client<Connector, RequestBody>;
 /// A connection pool, and the options every request on it inherits.
 ///
 /// Handed to the caller as an opaque pointer. Cloning the inner `Arc` into each request is what
-/// lets a request outlive [`ak_client_free`]: the pool goes away when the last user does.
+/// lets a request outlive [`ak_client_release`]: the pool goes away when the last user does.
 pub struct ak_client {
     pub(crate) pool: Arc<Pool>,
     /// The whole-request timeout from the configuration, applied by the driving task. Nothing at
@@ -65,7 +65,7 @@ pub(crate) fn get(client: *const ak_client) -> Option<Arc<ak_client>> {
 /// # Safety
 ///
 /// `config_json` must point to `len` readable bytes. `out` must be a writable `ak_client*`, and
-/// receives a handle to be released with exactly one [`ak_client_free`]. `out_err`, when non-null,
+/// receives a handle to be given up with exactly one [`ak_client_release`]. `out_err`, when non-null,
 /// must be a writable [`ak_bytes`] and receives a message to release with [`crate::ak_bytes_free`].
 #[no_mangle]
 pub unsafe extern "C" fn ak_client_create(
@@ -136,17 +136,17 @@ fn build(config_json: &[u8]) -> Result<ak_client, FfiError> {
     })
 }
 
-/// Release a client.
+/// Give up this caller's reference to a client.
 ///
-/// Requests already in flight keep the pool alive and run to their `COMPLETED` event, and a call
-/// already inside another entry point finishes normally: this gives up the caller's reference, not
-/// necessarily the last one.
+/// A reference, not the object. Requests already in flight keep the pool alive and run to their
+/// `COMPLETED` event, and a call already inside another entry point finishes normally; the pool goes
+/// away when the last user of it does.
 ///
 /// # Safety
 ///
-/// `client` must be a handle from [`ak_client_create`] that has not been freed, or null.
+/// `client` must be a handle from [`ak_client_create`] that has not been released, or null.
 #[no_mangle]
-pub unsafe extern "C" fn ak_client_free(client: *mut ak_client) {
+pub unsafe extern "C" fn ak_client_release(client: *mut ak_client) {
     crate::guard::catch_unwind_void(|| {
         if client.is_null() {
             return;
@@ -185,7 +185,7 @@ mod tests {
         };
         if !client.is_null() {
             // SAFETY: produced by the call above.
-            unsafe { ak_client_free(client) };
+            unsafe { ak_client_release(client) };
         }
         (status, message)
     }
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn freeing_a_client_twice_is_refused_rather_than_a_double_free() {
+    fn releasing_a_client_twice_is_harmless() {
         let mut client: *mut ak_client = std::ptr::null_mut();
         let config = r#"{"Endpoint": "http://127.0.0.1:1/"}"#;
         // SAFETY: live out-parameter, live buffer.
@@ -257,10 +257,10 @@ mod tests {
         };
         assert_eq!(status, crate::status::OK);
 
-        // SAFETY: the first frees, the second must be caught by the live set.
+        // SAFETY: the first gives up the registry reference, the second finds nothing to give up.
         unsafe {
-            ak_client_free(client);
-            ak_client_free(client);
+            ak_client_release(client);
+            ak_client_release(client);
         }
     }
 }

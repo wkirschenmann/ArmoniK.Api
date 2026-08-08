@@ -78,7 +78,7 @@ internal static class NativeMethods
                                               out AkBytes error);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-  internal static extern void ak_client_free(IntPtr client);
+  internal static extern void ak_client_release(IntPtr client);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern int ak_request_start(IntPtr      client,
@@ -104,7 +104,7 @@ internal static class NativeMethods
   internal static extern int ak_request_cancel(IntPtr request);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-  internal static extern void ak_request_free(IntPtr request);
+  internal static extern void ak_request_release(IntPtr request);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern void ak_bytes_free(AkBytes bytes);

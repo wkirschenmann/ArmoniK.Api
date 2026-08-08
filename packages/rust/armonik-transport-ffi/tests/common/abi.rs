@@ -12,8 +12,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use armonik_transport_ffi::{ak_bytes, ak_bytes_free, ak_bytes_in, ak_client, ak_request};
-use armonik_transport_ffi::{ak_client_create, ak_client_free};
-use armonik_transport_ffi::{ak_request_cancel, ak_request_close_send, ak_request_free};
+use armonik_transport_ffi::{ak_client_create, ak_client_release};
+use armonik_transport_ffi::{ak_request_cancel, ak_request_close_send, ak_request_release};
 use armonik_transport_ffi::{ak_request_read, ak_request_start, ak_request_write};
 
 /// How long a test waits for an event before deciding one is not coming.
@@ -45,8 +45,10 @@ impl Event {
 
 /// What the callback's `ctx` points at: the sending half of the test's event channel.
 ///
-/// Leaked on `start` and reclaimed when the request wrapper is dropped, which is after
-/// `ak_request_free` has muted the callback, so nothing can reach it in between.
+/// Leaked on `start` and reclaimed by the `COMPLETED` callback. That is the ABI's rule, and it is
+/// the reference count made explicit: the context belongs to the driving task from the moment the
+/// request starts, and the terminal event is the task handing it back. Releasing the handle does
+/// not end that - the events keep coming until `COMPLETED`.
 #[derive(Debug)]
 struct Context {
     events: Sender<Event>,
@@ -57,8 +59,8 @@ struct Context {
 /// Everything it does happens before it returns: the payload is borrowed, so a copy here is not an
 /// optimisation to skip but the only way the bytes survive the call.
 extern "C" fn on_event(ctx: *mut std::ffi::c_void, kind: i32, payload: ak_bytes_in, code: i32) {
-    // SAFETY: `ctx` is the `Context` leaked by `Request::start`, kept alive until after the request
-    // has been freed.
+    // SAFETY: `ctx` is the `Context` leaked by `Request::start`. It stays alive until the
+    // `COMPLETED` branch below gives it back, which the ABI guarantees is the last callback.
     let context = unsafe { &*ctx.cast::<Context>() };
     let bytes = if payload.ptr.is_null() || payload.len == 0 {
         &[][..]
@@ -86,8 +88,17 @@ extern "C" fn on_event(ctx: *mut std::ffi::c_void, kind: i32, payload: ak_bytes_
         },
         other => panic!("unknown event kind {other}"),
     };
+    let terminal = matches!(event, Event::Completed { .. });
     // A closed channel means the test has already finished and stopped listening.
     let _ = context.events.send(event);
+
+    if terminal {
+        // The last callback for this request, so the context comes back here. The borrow above ends
+        // first; nothing reads it after this.
+        // SAFETY: leaked by `Request::start`, reclaimed exactly once, and only ever on the one event
+        // the ABI guarantees is both terminal and unique.
+        drop(unsafe { Box::from_raw(ctx.cast::<Context>()) });
+    }
 }
 
 /// Decode the ABI's key/value blob: `u32` count, then length-prefixed pairs, native byte order.
@@ -166,8 +177,8 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        // SAFETY: created by `ak_client_create` and freed exactly once, here.
-        unsafe { ak_client_free(self.0) };
+        // SAFETY: created by `ak_client_create` and released exactly once, here.
+        unsafe { ak_client_release(self.0) };
     }
 }
 
@@ -187,7 +198,6 @@ fn take_message(bytes: ak_bytes) -> String {
 #[derive(Debug)]
 pub(crate) struct Request {
     raw: *mut ak_request,
-    context: *mut Context,
     events: Receiver<Event>,
 }
 
@@ -219,16 +229,12 @@ impl Request {
         };
         let message = take_message(err);
         if status != armonik_transport_ffi::status::OK {
-            // No event will ever arrive, so nothing needs muting first.
+            // A start that failed produces no event ever, so the context comes back here instead.
             // SAFETY: leaked just above and never handed anywhere else.
             drop(unsafe { Box::from_raw(context) });
             return Err((status, message));
         }
-        Ok(Self {
-            raw,
-            context,
-            events: rx,
-        })
+        Ok(Self { raw, events: rx })
     }
 
     /// Arm one write.
@@ -258,6 +264,16 @@ impl Request {
     /// The bare handle, for a test that needs to call from another thread.
     pub(crate) fn raw(&self) -> RawRequest {
         RawRequest(self.raw)
+    }
+
+    /// Release the handle but keep listening, so a test can see what still arrives afterwards.
+    pub(crate) fn release_and_keep_listening(self) -> Receiver<Event> {
+        // SAFETY: created by `ak_request_start` and released exactly once, here; `Drop` is skipped
+        // because the receiver is moved out.
+        unsafe { ak_request_release(self.raw) };
+        let this = std::mem::ManuallyDrop::new(self);
+        // SAFETY: moved out of a value whose destructor will not run.
+        unsafe { std::ptr::read(&this.events) }
     }
 
     /// Wait for the next event.
@@ -322,14 +338,19 @@ impl RawRequest {
         // SAFETY: as above.
         unsafe { ak_request_cancel(self.0) }
     }
+
+    /// Give up a reference. Harmless on a handle already released.
+    pub(crate) fn release(self) {
+        // SAFETY: the ABI documents a second release as doing nothing.
+        unsafe { ak_request_release(self.0) };
+    }
 }
 
 impl Drop for Request {
     fn drop(&mut self) {
-        // Frees and mutes; after this no callback can reach the context, so it is safe to reclaim.
-        // SAFETY: created by `ak_request_start` and freed exactly once, here.
-        unsafe { ak_request_free(self.raw) };
-        // SAFETY: leaked in `start`, reclaimed exactly once, after the mute above.
-        drop(unsafe { Box::from_raw(self.context) });
+        // Gives up this side's reference and cancels. The context is deliberately not reclaimed
+        // here: the driving task still owns it and hands it back on `COMPLETED`.
+        // SAFETY: created by `ak_request_start` and released exactly once, here.
+        unsafe { ak_request_release(self.raw) };
     }
 }

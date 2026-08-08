@@ -82,7 +82,7 @@ public class PackagedNativeTests
                 "AK_OK");
     Assert.That(client,
                 Is.Not.EqualTo(IntPtr.Zero));
-    ak_client_free(client);
+    ak_client_release(client);
   }
 
   [StructLayout(LayoutKind.Sequential)]
@@ -102,5 +102,5 @@ public class PackagedNativeTests
 
   [DllImport("armonik_transport_ffi",
              CallingConvention = CallingConvention.Cdecl)]
-  private static extern void ak_client_free(IntPtr client);
+  private static extern void ak_client_release(IntPtr client);
 }

@@ -280,18 +280,42 @@ fn a_server_that_never_answers_is_cut_off_by_the_configured_timeout() {
 }
 
 #[test]
-fn freeing_a_request_before_it_completes_silences_it() {
-    let endpoint = serve(TestService::hang());
+fn releasing_a_request_before_it_completes_still_delivers_its_terminal_event() {
+    // The rule the whole ownership story rests on. Releasing a handle gives up a reference; it does
+    // not silence anything. The request is cancelled, runs to `COMPLETED`, and that event is what
+    // hands the caller's context back - which is why a caller must not release `ctx` at the same
+    // time as the handle.
+    let endpoint = serve(TestService::echo_each(""));
     let url = format!("{endpoint}{METHOD_PATH}");
     let client = Client::new(&endpoint);
     let request = Request::start(&client, &headers(&url)).expect("start the request");
-    assert_eq!(request.close_send(), status::OK);
+    assert_eq!(request.read(), status::OK);
 
-    // Dropping the wrapper calls `ak_request_free`, which mutes the callback and cancels. What must
-    // not happen is a callback afterwards, into a context the caller has already released - which
-    // in a host application is the point at which an AppDomain has gone.
+    // The wrapper releases the handle on drop and keeps the receiving end of the event channel, so
+    // what arrives after the release is still observable here.
+    let events = request.release_and_keep_listening();
+
+    let terminal = events
+        .recv_timeout(common::abi::PATIENCE)
+        .expect("a terminal event has to arrive after a release");
+    let Event::Completed { code, .. } = terminal else {
+        panic!("expected a completion, got {terminal:?}");
+    };
+    assert_eq!(code, status::CANCELLED);
+}
+
+#[test]
+fn releasing_a_request_twice_is_harmless() {
+    let endpoint = serve(TestService::echo_each(""));
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    let handle = request.raw();
     drop(request);
-    std::thread::sleep(Duration::from_millis(300));
+    // The second finds nothing left to give up. It must not touch anything.
+    handle.release();
+    handle.release();
 }
 
 #[test]
@@ -476,7 +500,7 @@ fn a_request_freed_from_another_thread_while_calls_are_in_flight_is_not_a_use_af
             }
         });
 
-        // Racing the loop above on purpose: this is the `ak_request_free`.
+        // Racing the loop above on purpose: this is the `ak_request_release`.
         drop(request);
         caller.join().expect("the caller thread should not crash");
     }

@@ -39,13 +39,13 @@ fn every_entry_point_is_declared() {
     // failure.
     for symbol in [
         "ak_client_create",
-        "ak_client_free",
+        "ak_client_release",
         "ak_request_start",
         "ak_request_write",
         "ak_request_close_send",
         "ak_request_read",
         "ak_request_cancel",
-        "ak_request_free",
+        "ak_request_release",
         "ak_request_on_event",
         "ak_bytes_free",
     ] {
@@ -97,8 +97,9 @@ fn the_contract_the_signatures_cannot_carry_is_spelled_out() {
         "BORROWED for the duration of the callback",
         "NATIVE byte order",
         // Thread affinity, which a caller has to know before it hands a handle to a thread pool.
-        "Handles are thread-safe",
-        "synchronous with respect to the event callback",
+        "Handles are reference-counted, and thread-safe",
+        // And when `ctx` may go, which is the one rule whose cost is a use-after-free.
+        "`ctx` must stay valid until it does",
         // The reactor's three rules.
         "Nothing arrives unarmed",
         "exactly once, and last",

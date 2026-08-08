@@ -22,8 +22,9 @@
 //! 2. **`COMPLETED` exactly once, and last.** If [`ak_request_start`] returns [`status::OK`], a
 //!    `COMPLETED` event always follows, whatever happens - cancellation, a connection failure, a
 //!    panic inside this crate. If `start` returns an error, no event ever arrives. After
-//!    `COMPLETED` no callback is ever made again for that request, so that is where the caller
-//!    releases whatever it rooted for `ctx`.
+//!    `COMPLETED` no callback is ever made again for that request, so that is where - and only
+//!    there - the caller releases whatever it rooted for `ctx`. Releasing the handle does not end
+//!    that obligation; the terminal event does.
 //! 3. **No callback during an inbound call.** Every function here posts a command and returns;
 //!    events are emitted from this crate's own runtime threads. There is no re-entrance, and
 //!    delivery is serialised per request, so a caller demultiplexing events needs no lock of its
@@ -43,8 +44,10 @@
 //! - Every allocation handed to the caller travels as an [`error::ak_bytes`] and must be released
 //!   through [`error::ak_bytes_free`] exactly once. Only synchronous out-parameters produce one;
 //!   the event path never does.
-//! - Every opaque handle ([`client::ak_client`], [`request::ak_request`]) is only ever touched
-//!   behind a raw pointer that the caller must not alias or use after the matching `_free` call.
+//! - Every opaque handle ([`client::ak_client`], [`request::ak_request`]) is reference-counted.
+//!   `_release` gives up one reference; the object lives until the last one goes, so releasing a
+//!   handle while another thread is mid-call is well-defined. What is never allowed is using a
+//!   handle after your own `_release`.
 
 #![deny(missing_docs)]
 #![allow(non_camel_case_types)] // the FFI type names mirror the C header, e.g. `ak_bytes`.
@@ -63,9 +66,9 @@ mod test_support;
 #[doc(hidden)]
 pub mod runtime;
 
-pub use client::{ak_client, ak_client_create, ak_client_free};
+pub use client::{ak_client, ak_client_create, ak_client_release};
 pub use error::{ak_bytes, ak_bytes_free, ak_bytes_in};
-pub use request::{ak_request, ak_request_cancel, ak_request_close_send, ak_request_free};
+pub use request::{ak_request, ak_request_cancel, ak_request_close_send, ak_request_release};
 pub use request::{ak_request_on_event, ak_request_read, ak_request_start, ak_request_write};
 
 /// Result codes returned by every entry point in this crate.
@@ -96,7 +99,7 @@ pub mod status {
     /// a bug in this crate; the message carries whatever the panic payload could be turned into.
     pub const INTERNAL_PANIC: i32 = -9;
     /// The request was cancelled through [`crate::ak_request_cancel`], or by
-    /// [`crate::ak_request_free`] before it had completed.
+    /// [`crate::ak_request_release`] before it had completed.
     pub const CANCELLED: i32 = -10;
     /// The configured `Timeout` elapsed while the request was still in flight.
     pub const TIMEOUT: i32 = -11;

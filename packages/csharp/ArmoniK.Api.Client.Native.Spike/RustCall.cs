@@ -47,6 +47,7 @@ internal sealed class RustCall : IDisposable
   private TaskCompletionSource<bool>?   write_;
   private TaskCompletionSource<byte[]?>? read_;
   private int                           disposed_;
+  private int                           contextReleased_;
 
   /// <summary>How a request ended.</summary>
   internal readonly struct Completion
@@ -81,9 +82,9 @@ internal sealed class RustCall : IDisposable
                                                 out var error);
     if (status != NativeMethods.Status.Ok)
     {
-      // No event will ever arrive for a start that failed, so there is nothing to wait for before
-      // giving the handle back.
-      self_.Free();
+      // A start that failed produces no event ever, so the context comes back now rather than on a
+      // COMPLETED that is never coming. Through the same method, so there is one place that frees.
+      ReleaseContext();
       throw new IOException($"ak_request_start failed with {status}: {NativeMethods.TakeMessage(error)}");
     }
 
@@ -222,6 +223,9 @@ internal sealed class RustCall : IDisposable
       case NativeMethods.Event.Completed:
         Complete(payload,
                  code);
+        // Last, and after everything Complete does: the object is only rooted by the handle this
+        // gives back, so nothing may touch `this` afterwards.
+        ReleaseContext();
         break;
     }
   }
@@ -274,6 +278,44 @@ internal sealed class RustCall : IDisposable
          ? new OperationCanceledException(message)
          : new IOException($"the request failed ({code}): {message}");
 
+  /// <summary>
+  ///   Give the context back, once, at the only moment the ABI allows.
+  /// </summary>
+  /// <remarks>
+  ///   <para>
+  ///     The GCHandle rooting this object belongs to the request's driving task from the moment
+  ///     <c>ak_request_start</c> succeeds, and <c>COMPLETED</c> is the task handing it back.
+  ///     Releasing the handle does not end that: the terminal event still arrives, and until it does
+  ///     the native side still holds a pointer to this object. Freeing at <see cref="Dispose" />
+  ///     instead would be the classic use-after-free.
+  ///   </para>
+  ///   <para>
+  ///     A flag rather than a counter, deliberately. There is exactly one native reference to this
+  ///     object - the task's - so the count can only ever be zero or one, and a decrement would
+  ///     advertise a generality the code does not have, sending the next reader looking for the
+  ///     other increment. It becomes a counter the day a second party can hold <c>ctx</c>, which is
+  ///     what a shutdown callback or the log bridge would do; the change is local to this method.
+  ///     Managed references to this object - the response stream, the request pump - are the
+  ///     garbage collector's business and need no handle of their own.
+  ///   </para>
+  ///   <para>
+  ///     Nothing reaches this twice today: a failed start and a <c>COMPLETED</c> are mutually
+  ///     exclusive, and the ABI delivers <c>COMPLETED</c> once. The guard is there because the cost
+  ///     of being wrong is asymmetric - <see cref="GCHandle.Free" /> on an already-freed handle
+  ///     throws, and it would throw inside a callback running on a foreign thread, which is the one
+  ///     place an exception must not escape. A contract violation on the other side degrades to
+  ///     nothing happening rather than to that.
+  ///   </para>
+  /// </remarks>
+  private void ReleaseContext()
+  {
+    if (Interlocked.Exchange(ref contextReleased_,
+                             1) == 0)
+    {
+      self_.Free();
+    }
+  }
+
   public void Dispose()
   {
     if (Interlocked.Exchange(ref disposed_,
@@ -282,10 +324,9 @@ internal sealed class RustCall : IDisposable
       return;
     }
 
-    // Synchronous with respect to delivery: once this returns, no callback is running or can start,
-    // so the handle behind `ctx` is safe to give back.
-    NativeMethods.ak_request_free(request_);
-    self_.Free();
+    // A reference given up, not an object destroyed: the request is cancelled and runs to its
+    // COMPLETED event, which is what releases the context. Nothing here frees the GCHandle.
+    NativeMethods.ak_request_release(request_);
 
     // Nothing else will ever complete these now.
     var abandoned = new ObjectDisposedException(nameof(RustCall));
