@@ -1,0 +1,56 @@
+[package]
+name = "armonik-transport-ffi"
+description = "C ABI over armonik-transport, for host applications that cannot link Rust directly"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+# Nothing outside this workspace consumes this crate, and its ABI is not a contract anyone has been
+# offered yet.
+publish = false
+include = ["**/*.rs", "Cargo.toml", "README.md", "include/*.h", "cbindgen.toml"]
+
+# Both are needed: `cdylib` is what a host application loads, `lib` is what the integration tests
+# link against.
+[lib]
+crate-type = ["lib", "cdylib"]
+name = "armonik_transport_ffi"
+
+[dependencies]
+# The whole connection layer - options, TLS, mTLS, proxy - comes from here, and `serde` is how the
+# configuration crosses the ABI. Depending on this rather than on `armonik` keeps protobuf codegen,
+# and the `protoc` it would need, out of this crate's build entirely.
+armonik-transport = { workspace = true, features = ["serde"] }
+# The runtime and the command channels. Everything else - `hyper`, `hyper-util`, `http`, `tonic` -
+# comes through `armonik_transport::reexports`, so no version of a shared type can drift.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+bytes.workspace = true
+# `channel::Channel` is the request body: a bounded frame queue with an abort half, which is exactly
+# what an armed-write reactor needs and about the only piece of it worth not writing again.
+# `BodyExt::frame` is how the response side is read one frame at a time.
+http-body-util = { workspace = true, features = ["channel"] }
+# Only to build the error whose `Reason` hyper reads back when deciding the RST_STREAM code, and to
+# recover a reason from a failure for the message that crosses the ABI.
+h2.workspace = true
+# Parses the configuration blob into `HttpConfig`.
+serde_json.workspace = true
+
+[dev-dependencies]
+# The tests serve a gRPC service to call. `armonik` is deliberately absent: its protobuf codegen has
+# nothing to do with a transport-level ABI, and the test service speaks the same opaque bytes this
+# crate does.
+tonic = { workspace = true, features = ["server", "router"] }
+tower-service.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+# The leak assertions read process-wide counters, so they run one at a time.
+serial_test.workspace = true
+
+[build-dependencies]
+cbindgen = { version = "0.29", default-features = false }
+
+# Serves the same raw gRPC service as the integration tests, for the C# harness to call.
+[[example]]
+name = "spike_server"

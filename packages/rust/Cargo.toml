@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["armonik", "armonik-transport"]
+members = ["armonik", "armonik-transport", "armonik-transport-ffi"]
 
 # Shared so that a version bump, or a change of MSRV or licence, is made once rather than drifting per
 # crate. Members opt in per field with `xxx.workspace = true`.
@@ -25,6 +25,9 @@ base64 = "0.22"
 bytes = "1"
 eyre = "0.6"
 futures = "0.3"
+# Named directly, at hyper's own version, only so a body error can carry an `h2::Reason`: that is
+# what decides the RST_STREAM code hyper sends, and hyper exposes no other way to choose it.
+h2 = "0.4"
 http-body-util = "0.1"
 humantime = "2.3.0"
 hyper = "1.10"
