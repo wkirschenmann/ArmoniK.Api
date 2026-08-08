@@ -47,5 +47,9 @@ pub mod reexports {
     pub use secrecy;
     #[cfg(feature = "serde")]
     pub use serde;
+    pub use tokio;
     pub use tonic;
+    // Through `tonic`, so they are the versions the generated code and this crate's own channel
+    // agree on: a dependent building an `http::Request` for the channel needs that exact `http`.
+    pub use tonic::codegen::{http, tokio_stream};
 }
