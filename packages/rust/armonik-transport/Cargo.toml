@@ -38,12 +38,15 @@ hyper = { workspace = true, features = ["client", "http1", "http2"] }
 # handshake; `tokio` for `TokioIo` and the runtime side of both. Each is named here even though
 # `hyper-rustls` happens to turn it on: depending on that would break the day it stops.
 # `client-proxy` for the proxy matcher: the `*_PROXY` convention, `NO_PROXY` on curl's rules, and
-# taking credentials out of a proxy URL, none of which is worth writing again here.
+# taking credentials out of a proxy URL, none of which is worth writing again here. `http2` gates
+# the legacy client's HTTP/2 half, which is the only protocol a dependent driving this crate's
+# connector over `reexports::hyper_util` speaks.
 hyper-util = { workspace = true, features = [
   "client",
   "client-legacy",
   "client-proxy",
   "http1",
+  "http2",
   "tokio",
 ] }
 hyper-rustls = { workspace = true, features = [
