@@ -78,7 +78,12 @@ pub(crate) async fn catch_unwind_future<'a, T>(
     CatchUnwind(future).await
 }
 
-/// Render a panic payload as a human-readable message.
+/// Render a panic payload as the message that crosses the ABI.
+///
+/// The payload survives in every build. It is prose this crate wrote - "a handle was inserted while
+/// already live" - and names no file and no type; a panic's location goes to the panic hook, not
+/// into the payload. What a released build must not disclose is where in the source something sits,
+/// and that is `error-locations`' business, not this function's.
 pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
         format!("panicked: {message}")

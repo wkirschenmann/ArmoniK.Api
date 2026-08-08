@@ -20,9 +20,14 @@ crate-type = ["lib", "cdylib"]
 name = "armonik_transport_ffi"
 
 [features]
-# Keep the ` [file.rs:12:34]` source locations the transport's errors carry, instead of removing them
-# from the message that crosses the ABI. Off by default: a Rust source path means nothing to whoever
-# reads a host application's log. On, it is the first thing wanted when that reader wrote this crate.
+# Keep the locations that errors carry in the message that crosses the ABI: the ` [file.rs:12:34]`
+# of a Rust source, and the ` at line 1 column 56` position `serde_json` names in the configuration
+# document.
+#
+# Off by default, and that is a disclosure rule rather than a matter of taste: a released build says
+# what went wrong, never whereabouts in the source it happened. Being open source changes nothing -
+# what someone can find by reading a repository is not what a library should volunteer in a log.
+# What the messages say stays the same either way; only the coordinates go.
 #
 # Compile-time rather than a configuration option, so a released library carries neither the branch
 # nor the choice. The ABI is the same either way, so the two builds are interchangeable and a
