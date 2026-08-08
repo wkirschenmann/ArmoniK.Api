@@ -63,16 +63,23 @@ pub async fn connect(config: HttpConfig) -> Result<tonic::transport::Channel, Co
         .context(TransportSnafu { endpoint })
 }
 
+/// The connector stack [`https_connector`] builds: TCP, then a proxy tunnel, then TLS or mTLS.
+///
+/// Named because it has to be nameable. A caller that drives requests itself, rather than through
+/// [`connect`], has to write this type down to hold the client it builds, and Rust offers no way to
+/// infer a struct field's type.
+pub type Connector = HttpsConnector<ProxyConnector<HttpConnector>>;
+
 /// Build the connector stack, TCP then TLS or mTLS, that [`connect`] wraps in a channel.
 ///
-/// Most callers want [`connect`]. This exists so a caller can drive plain HTTP through the same
-/// connection configuration a channel would use, which is what it takes to reach a mock server's
-/// diagnostic endpoint from a test. Hidden because its return type names this crate's dependencies
-/// rather than its own; `pub` only so the signature is expressible.
-#[doc(hidden)]
-pub async fn https_connector(
-    config: HttpConfig,
-) -> Result<HttpsConnector<ProxyConnector<HttpConnector>>, ConnectionError> {
+/// Most callers want [`connect`]. This exists so a caller can drive HTTP itself through the same
+/// connection configuration a channel would use - to reach a mock server's diagnostic endpoint from
+/// a test, or to run an HTTP/2 client of its own over these settings.
+///
+/// Synchronous: it reads what the configuration already loaded and assembles a connector, and opens
+/// nothing. That matters to a caller with no runtime to block on, and to one whose only runtime is
+/// the one it is being called from.
+pub fn https_connector(config: HttpConfig) -> Result<Connector, ConnectionError> {
     let override_target = resolve(&config)?;
     build_connector(config, override_target)
 }
@@ -100,7 +107,7 @@ fn resolve(config: &HttpConfig) -> Result<Option<Uri>, ConnectionError> {
 fn build_connector(
     config: HttpConfig,
     override_target: Option<Uri>,
-) -> Result<HttpsConnector<ProxyConnector<HttpConnector>>, ConnectionError> {
+) -> Result<Connector, ConnectionError> {
     let endpoint = config.endpoint;
 
     // Get the default crypto provider or fallback to the ring crypto provider
@@ -236,12 +243,11 @@ mod tests {
         rendered
     }
 
-    #[tokio::test]
-    async fn an_empty_endpoint_is_rejected_before_anything_is_dialled() {
+    #[test]
+    fn an_empty_endpoint_is_rejected_before_anything_is_dialled() {
         // An unset endpoint deserialises to the default URI rather than failing, so the rejection
         // has to happen here, where the error can name the option.
         let error = https_connector(HttpConfig::default())
-            .await
             .expect_err("an empty endpoint cannot be connected to");
 
         assert!(matches!(error, ConnectionError::Config { .. }), "{error:?}");

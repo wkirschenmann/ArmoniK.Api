@@ -18,7 +18,7 @@ use http_body_util::channel::{Channel, Sender};
 use http_body_util::BodyExt;
 use tokio::sync::mpsc;
 
-use crate::client::{ak_client, Requester, ResponseBody};
+use crate::client::{ak_client, Pool, ResponseBody};
 use crate::error::{ak_bytes, ak_bytes_in, describe, FfiError};
 use crate::handle::Registry;
 
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn ak_request_start(
         let (commands, command_rx) = mpsc::unbounded_channel();
 
         let task = Task {
-            requester: Arc::clone(&client.requester),
+            pool: Arc::clone(&client.pool),
             timeout: client.timeout,
             sink: EventSink {
                 on_event,
@@ -491,7 +491,7 @@ enum Outcome {
 
 /// Everything the driving task needs that outlives a single command.
 struct Task {
-    requester: Arc<dyn Requester>,
+    pool: Arc<Pool>,
     timeout: Option<Duration>,
     sink: EventSink,
     read_armed: Arc<AtomicBool>,
@@ -523,7 +523,7 @@ impl Task {
         commands: mpsc::UnboundedReceiver<Command>,
     ) {
         let Task {
-            requester,
+            pool,
             timeout,
             sink,
             read_armed,
@@ -532,7 +532,7 @@ impl Task {
 
         let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> =
             Box::pin(run(
-                requester,
+                pool,
                 &sink,
                 &read_armed,
                 &write_armed,
@@ -582,7 +582,7 @@ impl Task {
 /// The driving loop: commands in, events out, one terminal outcome.
 #[allow(clippy::too_many_arguments)]
 async fn run(
-    requester: Arc<dyn Requester>,
+    pool: Arc<Pool>,
     sink: &EventSink,
     read_armed_flag: &AtomicBool,
     write_armed_flag: &AtomicBool,
@@ -593,7 +593,7 @@ async fn run(
     // Boxed so `&mut` is a future regardless of whether `ResponseFuture` is `Unpin`, which is not
     // something this crate should have to depend on.
     let mut response: Option<std::pin::Pin<Box<ResponseFuture>>> =
-        Some(Box::pin(requester.request(request)));
+        Some(Box::pin(pool.request(request)));
     let mut body: Option<ResponseBody> = None;
     let mut sender: Option<Sender<Bytes, AbortError>> = Some(body_sender);
     // The chunk of an armed write. Re-sent from scratch on every turn of the loop it survives:

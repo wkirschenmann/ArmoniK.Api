@@ -269,12 +269,8 @@ extern "C" {
  *
  * Synchronous and lazy: this validates the options and assembles the connector, and opens no
  * connection. A failure here is a configuration failure, reported immediately with its whole cause
- * chain flattened into `out_err`.
- *
- * Not callable from an [`crate::ak_request_on_event`] callback: it briefly blocks on this crate's
- * runtime, which is the runtime the callback is running on, and blocking a runtime thread on that
- * same runtime panics. The panic is caught and reported as [`crate::status::INTERNAL_PANIC`]
- * rather than crossing the ABI, but the client is not created.
+ * chain flattened into `out_err`. It touches no runtime, so it is callable from anywhere, an event
+ * callback included.
  *
  * # Safety
  *

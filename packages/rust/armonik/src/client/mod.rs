@@ -122,9 +122,8 @@ impl Client<tonic::transport::Channel> {
             .body(http_body_util::Empty::<&[u8]>::new())
             .expect("Request");
 
-        let https = armonik_transport::https_connector(config)
-            .await
-            .expect("Build connection information");
+        let https =
+            armonik_transport::https_connector(config).expect("Build connection information");
 
         let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(https);
 

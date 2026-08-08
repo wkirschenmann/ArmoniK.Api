@@ -10,40 +10,27 @@ use std::sync::{Arc, OnceLock};
 
 use armonik_transport::reexports::http;
 use armonik_transport::reexports::hyper::body::Incoming;
-use armonik_transport::reexports::hyper_util::client::legacy::connect::Connect;
-use armonik_transport::reexports::hyper_util::client::legacy::{Client, ResponseFuture};
+use armonik_transport::reexports::hyper_util::client::legacy::Client;
 use armonik_transport::reexports::hyper_util::rt::{TokioExecutor, TokioTimer};
-use armonik_transport::HttpConfig;
+use armonik_transport::{Connector, HttpConfig};
 
 use crate::error::{ak_bytes, FfiError};
 use crate::handle::Registry;
 use crate::request::RequestBody;
 
-/// Issue a request on a pool whose connector type is no longer named.
+/// The pool a request is issued on.
 ///
-/// `armonik_transport::https_connector` returns a stack whose middle layer the transport crate does
-/// not export, so the concrete `Client<C, _>` is unnameable here. `ResponseFuture` is a concrete
-/// type independent of `C`, so one trait object over this single method erases the connector
-/// without erasing anything that matters.
-pub(crate) trait Requester: Send + Sync + 'static {
-    fn request(&self, request: http::Request<RequestBody>) -> ResponseFuture;
-}
-
-impl<C> Requester for Client<C, RequestBody>
-where
-    C: Connect + Clone + Send + Sync + 'static,
-{
-    fn request(&self, request: http::Request<RequestBody>) -> ResponseFuture {
-        Client::request(self, request)
-    }
-}
+/// Writable at all because `armonik-transport` names the connector stack it builds: without that
+/// alias the concrete `Client<C, _>` could not be spelled, and Rust has no way to infer the type of
+/// a struct field.
+pub(crate) type Pool = Client<Connector, RequestBody>;
 
 /// A connection pool, and the options every request on it inherits.
 ///
 /// Handed to the caller as an opaque pointer. Cloning the inner `Arc` into each request is what
 /// lets a request outlive [`ak_client_free`]: the pool goes away when the last user does.
 pub struct ak_client {
-    pub(crate) requester: Arc<dyn Requester>,
+    pub(crate) pool: Arc<Pool>,
     /// The whole-request timeout from the configuration, applied by the driving task. Nothing at
     /// the `hyper_util` level implements it.
     pub(crate) timeout: Option<std::time::Duration>,
@@ -72,12 +59,8 @@ pub(crate) fn get(client: *const ak_client) -> Option<Arc<ak_client>> {
 ///
 /// Synchronous and lazy: this validates the options and assembles the connector, and opens no
 /// connection. A failure here is a configuration failure, reported immediately with its whole cause
-/// chain flattened into `out_err`.
-///
-/// Not callable from an [`crate::ak_request_on_event`] callback: it briefly blocks on this crate's
-/// runtime, which is the runtime the callback is running on, and blocking a runtime thread on that
-/// same runtime panics. The panic is caught and reported as [`crate::status::INTERNAL_PANIC`]
-/// rather than crossing the ABI, but the client is not created.
+/// chain flattened into `out_err`. It touches no runtime, so it is callable from anywhere, an event
+/// callback included.
 ///
 /// # Safety
 ///
@@ -123,11 +106,7 @@ fn build(config_json: &[u8]) -> Result<ak_client, FfiError> {
     let user_agent = config.user_agent.clone();
     let http2 = config.http2;
 
-    // `https_connector` is `async` but performs no I/O: it reads the certificates that were already
-    // loaded and assembles a connector. Blocking on it here is what keeps creation synchronous, and
-    // the runtime is only touched so that there is one to build on.
-    let connector =
-        crate::runtime::handle().block_on(armonik_transport::https_connector(config))?;
+    let connector = armonik_transport::https_connector(config)?;
 
     let mut builder = Client::builder(TokioExecutor::new());
     // Without these three the client is unusable for gRPC. `http2_only` because an h2c endpoint has
@@ -151,7 +130,7 @@ fn build(config_json: &[u8]) -> Result<ak_client, FfiError> {
     }
 
     Ok(ak_client {
-        requester: Arc::new(builder.build::<_, RequestBody>(connector)),
+        pool: Arc::new(builder.build::<_, RequestBody>(connector)),
         timeout,
         user_agent,
     })
