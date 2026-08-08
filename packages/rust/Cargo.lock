@@ -94,6 +94,8 @@ version = "3.29.2-beta-0"
 dependencies = [
  "base64",
  "bytes",
+ "h2",
+ "http-body-util",
  "humantime",
  "hyper",
  "hyper-rustls",
@@ -123,8 +125,6 @@ dependencies = [
  "armonik-transport",
  "bytes",
  "cbindgen",
- "h2",
- "http-body-util",
  "serde_json",
  "serial_test",
  "tokio",

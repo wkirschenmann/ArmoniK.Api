@@ -38,6 +38,8 @@ pub use connect::{ConfigSnafu, IoSnafu, TlsSnafu, TransportSnafu};
 /// A dependent should take these rather than declare its own requirement for the same crates, so it
 /// cannot end up with a `rustls` other than the one the connection was built with.
 pub mod reexports {
+    pub use h2;
+    pub use http_body_util;
     pub use hyper;
     pub use hyper_rustls;
     pub use hyper_util;

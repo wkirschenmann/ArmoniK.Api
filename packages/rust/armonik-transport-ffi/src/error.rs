@@ -1,5 +1,6 @@
 //! Owned byte buffers handed across the ABI, and the errors this crate reports through them.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use bytes::Bytes;
@@ -153,7 +154,7 @@ pub(crate) fn describe(error: &dyn std::error::Error) -> String {
             if !message.is_empty() {
                 message.push_str(": ");
             }
-            message.push_str(text);
+            message.push_str(&text);
         }
         current = error.source();
     }
@@ -161,29 +162,55 @@ pub(crate) fn describe(error: &dyn std::error::Error) -> String {
     message
 }
 
-/// Drop a trailing ` [path:line:column]`, if that is what the message ends with.
+/// Drop every ` [path:line:column]` the message carries.
 ///
-/// Deliberately narrow: only a bracketed tail whose last two `:`-separated parts are numbers is
-/// treated as a source location, so a message that happens to end in brackets of its own keeps them.
-fn strip_location(text: &str) -> &str {
-    let Some(without_bracket) = text.strip_suffix(']') else {
-        return text;
-    };
-    let Some(open) = without_bracket.rfind(" [") else {
-        return text;
-    };
+/// Anywhere in the message, not only at its end: `serde_path_to_error` appends ` at line X column Y`
+/// after the location it wraps, so a rule that only looked at the suffix let a Rust source path
+/// through to the caller's log.
+///
+/// Deliberately narrow all the same: only a bracketed run whose last two `:`-separated parts are
+/// numbers counts as a location, so a message with brackets of its own keeps them.
+fn strip_location(text: &str) -> Cow<'_, str> {
+    let mut rest = text;
+    let mut kept = String::new();
+    // Whether anything was removed, which is not the same as `kept` being non-empty: a message that
+    // is nothing but a location leaves an empty string behind, and that is the answer, not a reason
+    // to hand back the original.
+    let mut stripped = false;
 
-    let mut parts = without_bracket[open + 2..].rsplitn(3, ':');
+    while let Some(open) = rest.find(" [") {
+        let after = &rest[open + 2..];
+        let Some(close) = after.find(']') else {
+            // No closing bracket: nothing further can be a location.
+            break;
+        };
+        if is_location(&after[..close]) {
+            kept.push_str(rest[..open].trim_end());
+            rest = &after[close + 1..];
+            stripped = true;
+        } else {
+            // Not a location: keep it, and go on looking after it.
+            kept.push_str(&rest[..open + 2]);
+            rest = after;
+        }
+    }
+
+    if !stripped {
+        return Cow::Borrowed(text);
+    }
+    kept.push_str(rest);
+    Cow::Owned(kept)
+}
+
+/// Whether `candidate` reads as `path:line:column`.
+fn is_location(candidate: &str) -> bool {
+    let mut parts = candidate.rsplitn(3, ':');
     let column = parts.next().unwrap_or_default();
     let line = parts.next().unwrap_or_default();
     let path = parts.next().unwrap_or_default();
 
     let is_number = |value: &str| !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit());
-    if !path.is_empty() && is_number(line) && is_number(column) {
-        text[..open].trim_end()
-    } else {
-        text
-    }
+    !path.is_empty() && is_number(line) && is_number(column)
 }
 
 impl fmt::Display for FfiError {
@@ -191,7 +218,11 @@ impl fmt::Display for FfiError {
         match self {
             Self::NullArgument(name) => write!(f, "`{name}` must not be null"),
             Self::InvalidUtf8 => write!(f, "a buffer that was expected to be UTF-8 was not"),
-            Self::InvalidJson(source) => write!(f, "invalid configuration: {source}"),
+            // Stripped here too: a `serde_json` error renders the error it wraps, location and
+            // all, and never reaches `describe` because it has no `source` chain to walk.
+            Self::InvalidJson(source) => {
+                write!(f, "invalid configuration: {}", strip_location(source))
+            }
             Self::Config(source) => write!(f, "{}", describe(source)),
             Self::Connection(source) => write!(f, "{}", describe(source)),
             Self::InvalidHandle => write!(f, "the handle is invalid or has already been freed"),
@@ -355,6 +386,37 @@ mod tests {
             "failed [src/a.rs:no:no]"
         );
         assert_eq!(strip_location("nothing bracketed"), "nothing bracketed");
+    }
+
+    #[test]
+    fn a_location_anywhere_in_the_message_is_stripped_not_only_at_the_end() {
+        // What `serde_path_to_error` produces: the wrapped error's location, then its own suffix.
+        // A rule that only looked at the end of the message let this through to a customer's log.
+        assert_eq!(
+            strip_location(
+                "Could not read file `nope.pem` [armonik-transport/src/tls_config.rs:336:61] at line 1 column 56"
+            ),
+            "Could not read file `nope.pem` at line 1 column 56"
+        );
+
+        // Several, mixed with brackets that are not locations.
+        assert_eq!(
+            strip_location("a [src/a.rs:1:2] b [Endpoint] c [src/b.rs:3:4] d"),
+            "a b [Endpoint] c d"
+        );
+
+        // A message that is nothing but a location leaves nothing behind. Answering with the
+        // original here would be the easy mistake: "I built no replacement" is not the same as
+        // "I removed nothing".
+        assert_eq!(strip_location(" [foo.rs:1:2]"), "");
+        assert_eq!(strip_location(" [a.rs:1:2] [b.rs:3:4] tail"), " tail");
+
+        // An unterminated bracket is text, and must not send the scan round again forever.
+        assert_eq!(
+            strip_location("failed [src/a.rs:1:2] and then [unclosed"),
+            "failed and then [unclosed"
+        );
+        assert_eq!(strip_location(""), "");
     }
 
     #[test]

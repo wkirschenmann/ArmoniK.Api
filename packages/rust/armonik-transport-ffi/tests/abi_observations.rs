@@ -118,9 +118,10 @@ fn what_a_failed_completion_actually_says() {
     };
     println!("timed out          -> {timed_out}");
 
-    let bad_endpoint = Client::try_new(r#"{"Endpoint": "https://localhost/", "CaCert": "nope.pem"}"#)
-        .err()
-        .expect("an unreadable CA file is refused");
+    let bad_endpoint =
+        Client::try_new(r#"{"Endpoint": "https://localhost/", "CaCert": "nope.pem"}"#)
+            .err()
+            .expect("an unreadable CA file is refused");
     println!(
         "bad configuration  -> {} {}",
         bad_endpoint.0, bad_endpoint.1

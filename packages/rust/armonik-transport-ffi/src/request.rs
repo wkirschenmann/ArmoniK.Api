@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
+use armonik_transport::reexports::h2;
 use armonik_transport::reexports::http;
+use armonik_transport::reexports::http_body_util;
 use armonik_transport::reexports::hyper_util::client::legacy::ResponseFuture;
 use bytes::Bytes;
 use http_body_util::channel::{Channel, Sender};

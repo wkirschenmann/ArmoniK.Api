@@ -28,13 +28,6 @@ armonik-transport = { workspace = true, features = ["serde"] }
 # comes through `armonik_transport::reexports`, so no version of a shared type can drift.
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 bytes.workspace = true
-# `channel::Channel` is the request body: a bounded frame queue with an abort half, which is exactly
-# what an armed-write reactor needs and about the only piece of it worth not writing again.
-# `BodyExt::frame` is how the response side is read one frame at a time.
-http-body-util = { workspace = true, features = ["channel"] }
-# Only to build the error whose `Reason` hyper reads back when deciding the RST_STREAM code, and to
-# recover a reason from a failure for the message that crosses the ABI.
-h2.workspace = true
 # Parses the configuration blob into `HttpConfig`.
 serde_json.workspace = true
 

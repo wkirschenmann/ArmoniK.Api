@@ -34,6 +34,12 @@ tonic = { workspace = true, features = ["channel", "codegen"] }
 snafu.workspace = true
 tracing.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
+# Neither is used by this crate: both are re-exported, so a dependent driving the connector itself
+# gets the versions hyper was built against instead of resolving its own. `h2` because the only way
+# to choose the RST_STREAM code of a reset is to put an `h2::Reason` in a body error's cause chain,
+# and `http-body-util` because that body is where the reason goes.
+h2.workspace = true
+http-body-util = { workspace = true, features = ["channel"] }
 # `client-legacy` for `HttpConnector` and for the `Tunnel` connector that performs the `CONNECT`
 # handshake; `tokio` for `TokioIo` and the runtime side of both. Each is named here even though
 # `hyper-rustls` happens to turn it on: depending on that would break the day it stops.
