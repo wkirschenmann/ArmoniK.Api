@@ -11,12 +11,13 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
+use armonik_transport_ffi::ak_request_write;
 use armonik_transport_ffi::event::ak_event;
 use armonik_transport_ffi::status::ak_status;
 use armonik_transport_ffi::{ak_bytes, ak_bytes_in, ak_bytes_release};
 use armonik_transport_ffi::{ak_client, ak_client_create, ak_client_release};
-use armonik_transport_ffi::{ak_request, ak_request_close_send, ak_request_read};
-use armonik_transport_ffi::{ak_request_release, ak_request_start, ak_request_write};
+use armonik_transport_ffi::{ak_request, ak_request_cancel, ak_request_close_send};
+use armonik_transport_ffi::{ak_request_read, ak_request_release, ak_request_start};
 
 /// How long a test waits for an event before deciding one is not coming.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
@@ -261,6 +262,17 @@ impl Request {
         unsafe { ak_request_read(self.raw) }
     }
 
+    /// Cancel the request.
+    pub(crate) fn cancel(&self) -> i32 {
+        // SAFETY: `raw` is live.
+        unsafe { ak_request_cancel(self.raw) }
+    }
+
+    /// The bare handle, for a test that calls the ABI from another thread.
+    pub(crate) fn raw(&self) -> RawRequest {
+        RawRequest(self.raw)
+    }
+
     /// Wait for the next event.
     pub(crate) fn next_event(&self) -> Event {
         match self.events.recv_timeout(PATIENCE) {
@@ -287,6 +299,41 @@ impl Request {
                 other => panic!("expected a read or the completion, got {other:?}"),
             }
         }
+    }
+}
+
+/// The bare handle, for a test that calls the ABI from two threads at once.
+///
+/// [`Request`] itself is deliberately not `Sync`: it owns a `std::sync::mpsc::Receiver`, which is
+/// not safe to read from two threads, and saying otherwise to buy one test a shortcut would be a lie
+/// about the wrapper rather than a statement about the ABI. This is the part the header really does
+/// guarantee - the handle - and nothing else.
+#[derive(Clone, Copy)]
+pub(crate) struct RawRequest(*mut ak_request);
+
+// SAFETY: the header states that a handle may be used from any thread and from several at once,
+// `_release` included.
+unsafe impl Send for RawRequest {}
+// SAFETY: as above.
+unsafe impl Sync for RawRequest {}
+
+impl RawRequest {
+    /// Arm one read.
+    pub(crate) fn read(self) -> i32 {
+        // SAFETY: the handle is either live, or released and therefore refused by the ABI.
+        unsafe { ak_request_read(self.0) }
+    }
+
+    /// Arm one write.
+    pub(crate) fn write(self, data: &[u8]) -> i32 {
+        // SAFETY: as above; `data` outlives the call.
+        unsafe { ak_request_write(self.0, data.as_ptr(), data.len()) }
+    }
+
+    /// Cancel the request.
+    pub(crate) fn cancel(self) -> i32 {
+        // SAFETY: as above.
+        unsafe { ak_request_cancel(self.0) }
     }
 }
 

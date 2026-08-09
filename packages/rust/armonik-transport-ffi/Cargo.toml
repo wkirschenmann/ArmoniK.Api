@@ -82,6 +82,8 @@ tower-service.workspace = true
 # `Stream`, which is what a `tonic` handler returns its responses as, and `stream::iter` for a
 # handler whose replies are all known before the first one goes out.
 futures.workspace = true
+# The leak assertions read a process-wide counter, so they run one at a time.
+serial_test.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

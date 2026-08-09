@@ -130,6 +130,7 @@ dependencies = [
  "http-body-util",
  "rcgen",
  "serde_json",
+ "serial_test",
  "tokio",
  "tonic",
  "tower-service",

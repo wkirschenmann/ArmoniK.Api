@@ -44,6 +44,7 @@ fn every_entry_point_is_declared() {
         "ak_request_close_send",
         "ak_request_read",
         "ak_request_write",
+        "ak_request_cancel",
         "ak_request_release",
         "ak_request_on_event",
     ] {
