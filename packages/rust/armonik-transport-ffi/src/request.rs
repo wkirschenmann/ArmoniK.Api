@@ -537,6 +537,7 @@ impl Task {
             write_armed,
         } = self;
 
+        let timeout = client.timeout;
         let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> =
             Box::pin(run(
                 &client,
@@ -547,7 +548,24 @@ impl Task {
                 body_sender,
                 commands,
             ));
-        let outcome = crate::guard::catch_unwind_future(inner).await;
+        let caught = crate::guard::catch_unwind_future(inner);
+
+        // `Timeout` bounds the whole life of a request, the wait for its headers included, and it is
+        // applied here because nothing below the sender of a request has a notion of one taking too
+        // long. Dropping the loop is what ends it: the futures it holds are the request and its
+        // response, and dropping those is what resets the stream.
+        let outcome = match timeout {
+            Some(limit) => match tokio::time::timeout(limit, caught).await {
+                Ok(caught) => caught,
+                Err(_) => Ok(Outcome::Failed(
+                    ak_status::AK_TIMEOUT.code(),
+                    format!(
+                        "the request did not complete within the configured Timeout ({limit:?})"
+                    ),
+                )),
+            },
+            None => caught.await,
+        };
 
         // The single point where the completion is emitted. Every path above arrives here, a panic
         // inside the loop included, which is what makes "exactly once, and last" hold by

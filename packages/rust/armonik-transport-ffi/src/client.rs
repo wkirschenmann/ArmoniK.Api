@@ -45,9 +45,8 @@ pub(crate) type RequestBody = BoxBody<Bytes, BodyError>;
 /// reference for as long as it runs, so a pool outlives an [`ak_client_release`] that lands while
 /// work is still on it.
 ///
-/// `timeout` and `rate_limit` are parsed and held, and nothing acts on them, which changes no
-/// behaviour on its own. `tests/schema.rs` says as much, and lists them among the options this
-/// library does not apply.
+/// `rate_limit` is parsed and held, and nothing acts on it, which changes no behaviour on its own.
+/// `tests/schema.rs` says as much, and lists it among the options this library does not apply.
 // `dead_code` measures reachability from this crate's Rust API, which is not the surface this crate
 // offers.
 #[allow(dead_code)]
@@ -60,7 +59,7 @@ pub struct ak_client {
     /// `Timeout`: the whole-request bound, `None` for none.
     ///
     /// Held rather than set on the pool, because `hyper` has no notion of a request taking too long:
-    /// nothing below the sender of a request can time one out.
+    /// nothing below the sender of a request can time one out, so the task driving one applies it.
     pub(crate) timeout: Option<Duration>,
     /// `UserAgent`: the header value a request carries when it has none of its own, `None` for none.
     ///

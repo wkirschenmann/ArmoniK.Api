@@ -130,6 +130,10 @@ const APPLIED: &[(&str, &str)] = &[
         "UserAgent",
         "the `user-agent` header of a request that names none of its own",
     ),
+    (
+        "Timeout",
+        "bounds the whole life of a request, the wait for its headers included",
+    ),
 ];
 
 /// Every option nothing in this library acts on, and why not.
@@ -151,11 +155,6 @@ const NOT_APPLIED: &[(&str, &str)] = &[
     ("InitialBackOff", "the same schedule, for the same reason"),
     ("MaxBackOff", "likewise"),
     ("BackOffMultiplier", "likewise"),
-    (
-        "Timeout",
-        "read onto the client as `ak_client::timeout`, and nothing bounds a request by it: a \
-         request runs for as long as the peer keeps it open",
-    ),
     (
         "RateLimit",
         "read onto the client as the limiter in `ak_client::rate_limit`, and no request takes a \
@@ -258,8 +257,8 @@ fn no_entry_of_either_list_has_left_the_vocabulary() {
 fn what_is_left_unapplied_is_the_retry_schedule_and_what_a_request_carries() {
     // The list spelled out, so that growing it is a decision somebody makes here rather than the
     // path of least resistance when an option turns out to be inconvenient. Two groups, and no
-    // third: the retry schedule, which belongs to the gRPC stack above this library, and the two
-    // options the client holds and nothing acts on. Shortening this list is the work; nothing may
+    // third: the retry schedule, which belongs to the gRPC stack above this library, and the one
+    // option the client holds and nothing acts on. Shortening this list is the work; nothing may
     // lengthen it quietly.
     let left_alone: Vec<&str> = NOT_APPLIED.iter().map(|(name, _)| *name).collect();
 
@@ -270,7 +269,6 @@ fn what_is_left_unapplied_is_the_retry_schedule_and_what_a_request_carries() {
             "InitialBackOff",
             "MaxBackOff",
             "BackOffMultiplier",
-            "Timeout",
             "RateLimit",
         ],
         "an option outside those two groups is being left unapplied"

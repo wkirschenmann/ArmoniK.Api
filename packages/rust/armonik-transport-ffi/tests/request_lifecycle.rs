@@ -458,6 +458,49 @@ fn cancelling_stops_the_server_waiting_on_the_request() {
 }
 
 #[test]
+fn a_server_that_never_answers_is_cut_off_by_the_configured_timeout() {
+    let endpoint = serve(TestService::hang());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::try_new(&format!(
+        r#"{{"Endpoint": "{endpoint}", "Timeout": "500ms"}}"#
+    ))
+    .expect("create the client");
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    assert_eq!(request.write(&frame(b"ping")), OK);
+    assert_eq!(request.next_event(), Event::WriteDone);
+    assert_eq!(request.close_send(), OK);
+
+    // `hang` reads the whole request and then never answers, so not even the headers arrive: the
+    // bound has to cover the wait for a response, not only the wait for a body.
+    let terminal = request.next_event();
+    let (code, message) = terminal.expect_completed();
+    assert_eq!(code, ak_status::AK_TIMEOUT as i32, "{message}");
+    assert!(
+        message.contains("Timeout"),
+        "the option to change has to be named: {message}"
+    );
+    assert_eq!(
+        request.try_next_event(Duration::from_millis(200)),
+        None,
+        "a timeout is one completion like any other, and nothing follows it"
+    );
+}
+
+#[test]
+fn a_request_on_a_client_with_no_timeout_is_not_cut_off() {
+    // The other half: the bound exists only when the option asks for one. A request against a server
+    // that never answers has to still be running when the same wait would have ended it above.
+    let endpoint = serve(TestService::hang());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+    assert_eq!(request.close_send(), OK);
+
+    assert_eq!(request.try_next_event(Duration::from_secs(1)), None);
+}
+
+#[test]
 fn releasing_a_request_before_it_completes_silences_it() {
     let endpoint = serve(TestService::hang());
     let url = format!("{endpoint}{METHOD_PATH}");
