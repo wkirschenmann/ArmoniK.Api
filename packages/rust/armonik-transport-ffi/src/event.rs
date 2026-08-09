@@ -33,6 +33,12 @@ pub enum ak_event {
     /// like. Otherwise the code is one of the failures and the payload is that failure as a UTF-8
     /// message, with its whole cause chain flattened into it.
     AK_EVENT_COMPLETED = 3,
+    /// The chunk armed by `ak_request_write` has been handed to the connection. The payload is
+    /// empty, and the code is `AK_OK`.
+    ///
+    /// It does not say the bytes reached the server, only that this library no longer needs them and
+    /// one more write may be armed.
+    AK_EVENT_WRITE_DONE = 4,
 }
 
 impl ak_event {
@@ -52,6 +58,7 @@ mod tests {
         AK_EVENT_RESPONSE_HEADERS,
         AK_EVENT_READ_DONE,
         AK_EVENT_COMPLETED,
+        AK_EVENT_WRITE_DONE,
     ];
 
     #[test]

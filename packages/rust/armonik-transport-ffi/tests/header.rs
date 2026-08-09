@@ -43,6 +43,7 @@ fn every_entry_point_is_declared() {
         "ak_request_start",
         "ak_request_close_send",
         "ak_request_read",
+        "ak_request_write",
         "ak_request_release",
         "ak_request_on_event",
     ] {
@@ -113,6 +114,7 @@ fn every_event_kind_is_declared_with_its_value() {
         ("AK_EVENT_RESPONSE_HEADERS", 1),
         ("AK_EVENT_READ_DONE", 2),
         ("AK_EVENT_COMPLETED", 3),
+        ("AK_EVENT_WRITE_DONE", 4),
     ] {
         assert!(
             HEADER.contains(&format!("  {name} = {value},")),

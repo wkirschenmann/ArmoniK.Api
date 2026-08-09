@@ -31,19 +31,27 @@ fn frame(message: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Open a request against `service` and close the request body straight away.
-fn call(service: TestService) -> (Client, Request) {
+/// Open a request against `service`, send `messages` and end the request body.
+fn call(service: TestService, messages: &[&[u8]]) -> (Client, Request) {
     let endpoint = serve(service);
     let url = format!("{endpoint}{METHOD_PATH}");
     let client = Client::new(&endpoint);
     let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    for message in messages {
+        assert_eq!(request.write(&frame(message)), OK);
+        assert_eq!(request.next_event(), Event::WriteDone);
+    }
     assert_eq!(request.close_send(), OK);
     (client, request)
 }
 
 #[test]
 fn a_call_answers_with_headers_a_body_and_trailers() {
-    let (_client, request) = call(TestService::canned([Bytes::from_static(b"pong")]));
+    let (_client, request) = call(
+        TestService::canned([Bytes::from_static(b"pong")]),
+        &[b"ping"],
+    );
 
     assert_eq!(request.next_event().expect_http_status(), "200");
 
@@ -66,7 +74,7 @@ fn a_server_streaming_call_delivers_every_message_in_order() {
     let replies: Vec<Bytes> = (0..5)
         .map(|index| Bytes::from(format!("reply-{index}")))
         .collect();
-    let (_client, request) = call(TestService::canned(replies.clone()));
+    let (_client, request) = call(TestService::canned(replies.clone()), &[b"go"]);
 
     assert_eq!(request.next_event().expect_http_status(), "200");
     let (body, terminal) = request.drain();
@@ -81,7 +89,7 @@ fn a_failing_call_reports_its_status_where_the_server_put_it() {
     let service = TestService::canned([Bytes::from_static(b"unused")])
         .failing_first(1, tonic::Code::PermissionDenied)
         .with_failure_trailer("x-why", "because");
-    let (_client, request) = call(service);
+    let (_client, request) = call(service, &[b"ping"]);
 
     // A handler that fails before writing anything produces a trailers-only response: the status is
     // in the initial headers, and the body ends immediately.
@@ -111,7 +119,7 @@ fn a_failing_call_reports_its_status_where_the_server_put_it() {
 fn a_second_read_armed_before_the_first_answers_is_refused() {
     // `echo_each` answers with headers before it has anything to say, so the response is open and
     // the first read parks. `hang` would not do: it never returns a response at all.
-    let (_client, request) = call(TestService::echo_each(""));
+    let (_client, request) = call(TestService::echo_each(""), &[]);
     assert_eq!(request.next_event().expect_http_status(), "200");
 
     assert_eq!(request.read(), OK);
@@ -124,12 +132,155 @@ fn a_second_read_armed_before_the_first_answers_is_refused() {
 
 #[test]
 fn ending_the_request_body_twice_is_refused() {
-    let (_client, request) = call(TestService::echo_each(""));
+    let (_client, request) = call(TestService::echo_each(""), &[]);
     assert_eq!(
         request.close_send(),
         ak_status::AK_INVALID_STATE as i32,
         "the request body is already ended"
     );
+}
+
+#[test]
+fn a_write_and_an_end_of_body_racing_cannot_both_be_accepted() {
+    // Two decisions about one thing, taken from two threads. Read as two flags, a write that finds
+    // the body open and a close that finds no armed write both succeed; the close then drops the
+    // sender before that write is admitted, and the write is left armed for an event that can never
+    // come. Whichever of them wins the race, only one of them may.
+    let endpoint = serve(TestService::hang_without_reading());
+    let url = format!("{endpoint}{METHOD_PATH}");
+
+    for _ in 0..64 {
+        let client = Client::new(&endpoint);
+        let request = Request::start(&client, &headers(&url)).expect("start the request");
+        let handle = request.raw();
+
+        let writing = std::thread::spawn(move || handle.write(b"chunk"));
+        let closed = request.close_send();
+        let written = writing.join().expect("the writing thread should not crash");
+
+        assert!(
+            written != OK || closed != OK,
+            "a write and an end of the request body were both accepted"
+        );
+    }
+}
+
+#[test]
+fn a_write_after_the_request_body_is_ended_is_refused() {
+    let (_client, request) = call(TestService::echo_each(""), &[b"ping"]);
+    assert_eq!(
+        request.write(b"late"),
+        ak_status::AK_INVALID_STATE as i32,
+        "the request body is already ended"
+    );
+}
+
+#[test]
+fn a_second_write_armed_before_the_first_is_admitted_is_refused() {
+    // `hang_without_reading` never opens its flow-control window, so the first chunk is never
+    // admitted and its event never comes: the write stays armed for as long as the test needs.
+    let endpoint = serve(TestService::hang_without_reading());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    // Enough to fill the initial window and then some, so the second chunk cannot slip through.
+    let payload = vec![b'x'; 1024 * 1024];
+    assert_eq!(request.write(&payload), OK);
+    assert_eq!(
+        request.write(b"second"),
+        ak_status::AK_INVALID_STATE as i32,
+        "one armed write at a time"
+    );
+    assert_eq!(
+        request.close_send(),
+        ak_status::AK_INVALID_STATE as i32,
+        "the body cannot be ended under an armed write either"
+    );
+}
+
+#[test]
+fn a_client_streaming_call_sends_every_message_before_the_response() {
+    let service = TestService::canned([Bytes::from_static(b"counted")]);
+    let messages: Vec<Vec<u8>> = (0..4)
+        .map(|index| format!("m{index}").into_bytes())
+        .collect();
+    let borrowed: Vec<&[u8]> = messages.iter().map(Vec::as_slice).collect();
+    let (_client, request) = call(service.clone(), &borrowed);
+
+    assert_eq!(request.next_event().expect_http_status(), "200");
+    let (body, terminal) = request.drain();
+    assert_eq!(body, frame(b"counted"));
+    assert_eq!(terminal.expect_completed().0, OK);
+
+    let received = service.messages_received();
+    assert_eq!(received.len(), 1);
+    assert_eq!(
+        received[0].len(),
+        messages.len(),
+        "every message the caller wrote reaches the handler"
+    );
+}
+
+#[test]
+fn a_bidirectional_call_interleaves_strictly() {
+    // The proof that neither side buffers: the server answers each message as it arrives, and this
+    // test refuses to send the next one until it has read the previous reply. If anything held the
+    // request body back until it closed, this would sit here until the patience runs out.
+    let endpoint = serve(TestService::echo_each("!"));
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    assert_eq!(request.write(&frame(b"one")), OK);
+    assert_eq!(request.next_event(), Event::WriteDone);
+    assert_eq!(request.next_event().expect_http_status(), "200");
+
+    for message in [&b"one"[..], b"two", b"three"] {
+        let mut seen = Vec::new();
+        while seen.len() < frame(message).len() + 1 {
+            assert_eq!(request.read(), OK);
+            match request.next_event() {
+                Event::Read(chunk) => seen.extend_from_slice(&chunk),
+                other => panic!("expected a reply to {message:?}, got {other:?}"),
+            }
+        }
+        let mut expected = message.to_vec();
+        expected.push(b'!');
+        assert_eq!(seen, frame(&expected));
+
+        if message != b"three" {
+            let next = if message == b"one" {
+                &b"two"[..]
+            } else {
+                b"three"
+            };
+            assert_eq!(request.write(&frame(next)), OK);
+            assert_eq!(request.next_event(), Event::WriteDone);
+        }
+    }
+
+    assert_eq!(request.close_send(), OK);
+    let (_, terminal) = request.drain();
+    assert_eq!(terminal.expect_completed().0, OK);
+}
+
+#[test]
+fn a_large_message_survives_the_flow_control_window_in_both_directions() {
+    // 16 MiB, well past the 64 KiB initial HTTP/2 window: the request body has to be admitted a
+    // window at a time through a queue that holds one chunk, and the response has to come back as
+    // however many chunks the connection chose to split it into.
+    let payload = vec![b'x'; 16 * 1024 * 1024];
+    let (_client, request) = call(
+        TestService::canned([Bytes::from(payload.clone())]),
+        &[&payload],
+    );
+
+    assert_eq!(request.next_event().expect_http_status(), "200");
+    let (body, terminal) = request.drain();
+    assert_eq!(body.len(), frame(&payload).len());
+    assert_eq!(body, frame(&payload));
+    assert_eq!(terminal.expect_completed().0, OK);
 }
 
 #[test]

@@ -6,7 +6,7 @@
 
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use armonik_transport::reexports::http;
 use armonik_transport::reexports::http_body_util::channel::{Channel, Sender};
@@ -34,6 +34,9 @@ type ResponseBody = Incoming;
 
 /// A failure raised by the client before any response header arrived.
 type LegacyError = armonik_transport::reexports::hyper_util::client::legacy::Error;
+
+/// A failure raised when a chunk cannot be queued: the body is gone.
+type SendError = armonik_transport::reexports::http_body_util::channel::SendError;
 
 /// A failure raised on the response body, after the headers.
 type HyperError = armonik_transport::reexports::hyper::Error;
@@ -87,10 +90,27 @@ impl EventSink {
 
 /// What the caller asks the driving task to do next.
 enum Command {
+    /// Arm one write. The bytes are owned: the write event fires when the chunk is admitted, which
+    /// is long after the entry point returned, so the caller's own buffer cannot be the one sent.
+    Write(Bytes),
     /// End the request body cleanly.
     CloseSend,
     /// Arm one read.
     ArmRead,
+}
+
+/// What the caller has done with the request body.
+///
+/// One lock rather than two flags, because arming a write and ending the body are decisions about
+/// the same thing. Taken separately they interleave: a write that reads an open body and a close
+/// that reads no armed write can both succeed, and the close then drops the sender before that
+/// write is admitted, leaving it armed for an event that can never come.
+#[derive(Default)]
+struct SendState {
+    /// Whether a write is armed and not yet resolved.
+    armed: bool,
+    /// Whether the body has been ended.
+    closed: bool,
 }
 
 /// A request handle.
@@ -100,7 +120,7 @@ enum Command {
 pub struct ak_request {
     commands: mpsc::UnboundedSender<Command>,
     read_armed: Arc<AtomicBool>,
-    send_closed: AtomicBool,
+    send: Arc<Mutex<SendState>>,
 }
 
 /// The live requests, by the address the caller holds.
@@ -185,19 +205,21 @@ pub unsafe extern "C" fn ak_request_start(
         };
 
         let read_armed = Arc::new(AtomicBool::new(false));
+        let send = Arc::new(Mutex::new(SendState::default()));
         let (commands, command_rx) = mpsc::unbounded_channel();
 
         let task = Task {
             client,
             sink: EventSink { on_event, ctx },
             read_armed: Arc::clone(&read_armed),
+            send: Arc::clone(&send),
         };
         crate::runtime::handle().spawn(task.drive(request, body_sender, command_rx));
 
         let handle = live().insert(ak_request {
             commands,
             read_armed,
-            send_closed: AtomicBool::new(false),
+            send,
         });
         // SAFETY: checked non-null above.
         unsafe { *out = handle.cast_mut() };
@@ -205,9 +227,50 @@ pub unsafe extern "C" fn ak_request_start(
     })
 }
 
+/// Arm one write of `len` bytes.
+///
+/// The bytes are copied before this returns, so the caller's buffer is free immediately. The write
+/// event says the chunk was accepted by the connection, and is what permits the next write: arming a
+/// second while one is outstanding, or writing after [`ak_request_close_send`], is refused with
+/// `AK_INVALID_STATE`.
+///
+/// # Safety
+///
+/// `request` must be a live handle from [`ak_request_start`], and `data` readable for `len` bytes
+/// for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn ak_request_write(
+    request: *const ak_request,
+    data: *const u8,
+    len: usize,
+) -> i32 {
+    crate::guard::catch_unwind_status_only(|| {
+        let request = match borrow(request) {
+            Ok(request) => request,
+            Err(status) => return status,
+        };
+        {
+            let mut send = request.send.lock().unwrap_or_else(PoisonError::into_inner);
+            if send.closed || send.armed {
+                return ak_status::AK_INVALID_STATE.code();
+            }
+            send.armed = true;
+        }
+
+        let chunk = if data.is_null() || len == 0 {
+            Bytes::new()
+        } else {
+            // SAFETY: forwarded from this function's contract.
+            Bytes::copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) })
+        };
+        post(&request, Command::Write(chunk))
+    })
+}
+
 /// End the request body.
 ///
-/// Refused with `AK_INVALID_STATE` if the body has already been ended.
+/// Refused with `AK_INVALID_STATE` while a write is still armed, and if the body has already been
+/// ended.
 ///
 /// # Safety
 ///
@@ -219,8 +282,12 @@ pub unsafe extern "C" fn ak_request_close_send(request: *const ak_request) -> i3
             Ok(request) => request,
             Err(status) => return status,
         };
-        if request.send_closed.swap(true, Ordering::AcqRel) {
-            return ak_status::AK_INVALID_STATE.code();
+        {
+            let mut send = request.send.lock().unwrap_or_else(PoisonError::into_inner);
+            if send.armed || send.closed {
+                return ak_status::AK_INVALID_STATE.code();
+            }
+            send.closed = true;
         }
         post(&request, Command::CloseSend)
     })
@@ -372,6 +439,7 @@ struct Task {
     client: Arc<ak_client>,
     sink: EventSink,
     read_armed: Arc<AtomicBool>,
+    send: Arc<Mutex<SendState>>,
 }
 
 /// What one turn of the driving loop resolved.
@@ -382,6 +450,7 @@ struct Task {
 enum Step {
     Command(Option<Command>),
     Response(Result<http::Response<ResponseBody>, LegacyError>),
+    Sent(Result<(), SendError>),
     Frame(Option<Result<http_body::Frame<Bytes>, HyperError>>),
 }
 
@@ -399,11 +468,19 @@ impl Task {
             client,
             sink,
             read_armed,
+            send,
         } = self;
 
-        let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> = Box::pin(
-            run(&client, &sink, &read_armed, request, body_sender, commands),
-        );
+        let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> =
+            Box::pin(run(
+                &client,
+                &sink,
+                &read_armed,
+                &send,
+                request,
+                body_sender,
+                commands,
+            ));
         let outcome = crate::guard::catch_unwind_future(inner).await;
 
         // The single point where the completion is emitted. Every path above arrives here, a panic
@@ -432,10 +509,12 @@ impl Task {
 }
 
 /// The driving loop: commands in, events out, one terminal outcome.
+#[allow(clippy::too_many_arguments)]
 async fn run(
     client: &ak_client,
     sink: &EventSink,
     read_armed_flag: &AtomicBool,
+    send_state: &Mutex<SendState>,
     request: http::Request<RequestBody>,
     body_sender: Sender<Bytes, Infallible>,
     mut commands: mpsc::UnboundedReceiver<Command>,
@@ -446,6 +525,10 @@ async fn run(
         Some(Box::pin(client.pool.request(request)));
     let mut body: Option<ResponseBody> = None;
     let mut sender: Option<Sender<Bytes, Infallible>> = Some(body_sender);
+    // The chunk of an armed write, kept until the send resolves. The send is restarted from it on
+    // every turn of the loop the write survives, which sends nothing twice: a queue slot is reserved
+    // and only filled once the future resolves, so a future dropped mid-way has queued nothing.
+    let mut pending_write: Option<Bytes> = None;
     let mut read_armed = false;
     let mut commands_open = true;
     // Whether the response has to be driven to its end with nothing armed.
@@ -467,6 +550,15 @@ async fn run(
             result = async { response.as_mut().expect("guarded by the precondition").await },
                 if response.is_some() => Step::Response(result),
 
+            result = async {
+                let chunk = pending_write.clone().expect("guarded by the precondition");
+                sender
+                    .as_mut()
+                    .expect("guarded by the precondition")
+                    .send_data(chunk)
+                    .await
+            }, if pending_write.is_some() && sender.is_some() => Step::Sent(result),
+
             frame = async { body.as_mut().expect("guarded by the precondition").frame().await },
                 if (read_armed || drain_response) && body.is_some() => Step::Frame(frame),
         };
@@ -480,6 +572,8 @@ async fn run(
                 commands_open = false;
                 drain_response = true;
             }
+
+            Step::Command(Some(Command::Write(chunk))) => pending_write = Some(chunk),
 
             Step::Command(Some(Command::CloseSend)) => {
                 // Dropping the sender is what ends the body: `hyper` then sends an empty END_STREAM
@@ -513,6 +607,29 @@ async fn run(
                     ak_status::AK_CONNECTION_FAILED.code(),
                     describe_transport(&error),
                 )
+            }
+
+            // Emitted here rather than from the body's `poll_frame`, which runs on `hyper`'s own
+            // tasks: this loop owns the sender, and one emitter is what makes delivery serialised
+            // per request without a lock.
+            Step::Sent(Ok(())) => {
+                pending_write = None;
+                // Cleared before the event, and the lock given up before it too: the caller is
+                // allowed to arm the next write from inside the callback, and would otherwise wait
+                // on a lock this task is still holding.
+                send_state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .armed = false;
+                sink.emit(ak_event::AK_EVENT_WRITE_DONE, &[], ak_status::AK_OK.code());
+            }
+
+            // The body was dropped on `hyper`'s side, which only happens once the request is over.
+            // No write event: the completion already on its way resolves the armed write, which is
+            // the general form of "nothing arrives unarmed".
+            Step::Sent(Err(_)) => {
+                pending_write = None;
+                drop(sender.take());
             }
 
             Step::Frame(Some(Ok(frame))) => match frame.into_data() {
