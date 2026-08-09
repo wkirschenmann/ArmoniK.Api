@@ -17,6 +17,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use armonik_transport::reexports::http;
 use bytes::{Buf, BufMut, Bytes};
@@ -31,6 +32,12 @@ use tower_service::Service;
 
 /// The one method path every [`TestService`] answers to.
 pub(crate) const METHOD_PATH: &str = "/armonik_transport_ffi.test.Raw/Call";
+
+/// How long [`Reply::AnswerThenAbandon`] leaves the call open before resetting it.
+///
+/// Long enough for a caller to fill the flow-control window and be left with a write it cannot get
+/// admitted, which is the state the reset has to land in.
+pub(crate) const ANSWER_THEN_ABANDON_DELAY: Duration = Duration::from_millis(500);
 
 /// Message-size ceiling for the test services.
 ///
@@ -102,6 +109,13 @@ enum Reply {
     /// and stays shut, so a chunk handed to the ABI is never admitted - which is what a cancellation
     /// before the response headers has to cope with.
     HangWithoutReading,
+    /// Answer with headers straight away, never read the request stream, and end the call a moment
+    /// later by dropping both halves of it.
+    ///
+    /// A peer that resets a stream the caller is still writing to. The window stays shut, so a chunk
+    /// handed to the ABI sits there armed; then the request stream is dropped, which resets it, and
+    /// the caller's request body dies under an outstanding write.
+    AnswerThenAbandon,
 }
 
 /// A `tonic`-servable, single-method gRPC service, driven entirely by a [`Reply`] plus optional
@@ -150,6 +164,11 @@ impl TestService {
     /// Never read the request and never answer.
     pub(crate) fn hang_without_reading() -> Self {
         Self::new(Reply::HangWithoutReading)
+    }
+
+    /// Answer without reading the request, then reset the stream after `ANSWER_THEN_ABANDON_DELAY`.
+    pub(crate) fn answer_then_abandon() -> Self {
+        Self::new(Reply::AnswerThenAbandon)
     }
 
     fn new(reply: Reply) -> Self {
@@ -270,6 +289,20 @@ impl Service<Request<Streaming<Bytes>>> for TestService {
                 return Ok(Response::new(Box::pin(ChannelStream(rx)) as ResponseStream));
             }
 
+            if matches!(service.reply, Reply::AnswerThenAbandon) {
+                // The response is opened at once and carries nothing, so the caller gets its headers
+                // and can start filling a window nobody is reading. Both halves are then dropped
+                // together: the request stream, which resets it, and the reply channel, which ends
+                // the response.
+                let (tx, rx) = mpsc::channel(1);
+                tokio::spawn(async move {
+                    tokio::time::sleep(ANSWER_THEN_ABANDON_DELAY).await;
+                    drop(stream);
+                    drop(tx);
+                });
+                return Ok(Response::new(Box::pin(ChannelStream(rx)) as ResponseStream));
+            }
+
             if matches!(service.reply, Reply::HangWithoutReading) {
                 // Deliberately never touching `stream`: dropping it would let the client's send side
                 // complete, which is the opposite of what this reply is for. Holding it and awaiting
@@ -312,7 +345,7 @@ impl Service<Request<Streaming<Bytes>>> for TestService {
 
             let items = match service.reply {
                 Reply::Canned(items) => items,
-                // `EchoEach` and both hangs returned above.
+                // `EchoEach`, both hangs and the abandoning reply returned above.
                 _ => unreachable!("every other reply is handled above"),
             };
             Ok(Response::new(

@@ -501,6 +501,66 @@ fn a_request_on_a_client_with_no_timeout_is_not_cut_off() {
 }
 
 #[test]
+fn a_peer_that_resets_under_an_outstanding_write_still_completes_the_request() {
+    // The state nothing else in this file reaches: a write armed and unadmitted, no read armed, and
+    // the request body dying under it. Nothing the caller armed can ever resolve on its own, so the
+    // completion is the only event that can come - and a driving loop that polled the response only
+    // while a read was armed would have nothing left to poll at all, and would park for ever on a
+    // caller waiting for a write event that is never coming.
+    let endpoint = serve(TestService::answer_then_abandon());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    assert_eq!(request.next_event().expect_http_status(), "200");
+
+    // The peer answers and then never reads, so the window shuts and a chunk stays armed. Which
+    // chunk that is depends on how much the connection took before it stopped, so this writes until
+    // one of them stops coming back.
+    let payload = vec![b'x'; 1024 * 1024];
+    let mut outstanding = false;
+    let mut terminal = None;
+    for _ in 0..16 {
+        assert_eq!(request.write(&payload), OK);
+        match request.try_next_event(Duration::from_millis(100)) {
+            Some(Event::WriteDone) => continue,
+            // The reset can land before the window has shut, which is the same defect seen from a
+            // slightly different angle: what matters is that an event arrives at all.
+            Some(event @ Event::Completed { .. }) => {
+                terminal = Some(event);
+                break;
+            }
+            Some(other) => panic!("expected a write event or the completion, got {other:?}"),
+            None => {
+                outstanding = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        outstanding || terminal.is_some(),
+        "the peer admitted 16 MiB it was never reading"
+    );
+
+    // No read is armed, and none will be: a caller in this state is waiting for its write.
+    let terminal = terminal.unwrap_or_else(|| request.next_event());
+    let (code, message) = terminal.expect_completed();
+    assert!(
+        // The set of acceptable outcomes rather than one of them, which is this contract's own rule
+        // for two events with no order between them: the response carried its trailers and the reset
+        // raced them. Either the trailers arrived first and the response ended cleanly, or the reset
+        // did and the stream is reported broken.
+        code == OK || code == ak_status::AK_TRANSPORT as i32,
+        "a reset under an armed write ended as {code}: {message}"
+    );
+    assert_eq!(
+        request.try_next_event(Duration::from_millis(200)),
+        None,
+        "the completion resolves the armed write; nothing follows it"
+    );
+}
+
+#[test]
 fn a_rate_limit_admits_only_its_own_number_of_requests_per_window() {
     // Two per half-second, four requests: the third opens the next window, so the four cannot be
     // over in less than one window however fast the server answers.

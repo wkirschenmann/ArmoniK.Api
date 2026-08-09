@@ -633,6 +633,18 @@ async fn run(
     let mut pending_write: Option<Bytes> = None;
     let mut read_armed = false;
     let mut commands_open = true;
+    // Whether the response has to be driven to its end with nothing armed.
+    //
+    // Set when the last thing that could otherwise bring this loop to an end goes away: the request
+    // body, which the peer dropped, or the command channel, which the caller released. The response
+    // is then the only thing left that can produce an outcome, and a loop that polled it only while
+    // a read was armed would park for ever - a task that never ends, and a caller waiting on an
+    // armed write for an event that is never coming.
+    //
+    // A frame read this way with nothing armed is discarded: the caller asked for no bytes, and
+    // handing it some would break the rule that nothing arrives unarmed. What is wanted from the
+    // response here is only how it ended.
+    let mut drain_response = false;
 
     loop {
         let step = tokio::select! {
@@ -655,13 +667,17 @@ async fn run(
             }, if pending_write.is_some() && sender.is_some() => Step::Sent(result),
 
             frame = async { body.as_mut().expect("guarded by the precondition").frame().await },
-                if read_armed && body.is_some() => Step::Frame(frame),
+                if (read_armed || drain_response) && body.is_some() => Step::Frame(frame),
         };
 
         match step {
             // The handle was released without this crate being told anything else; nothing more will
-            // ever be asked of the request, but the response still has to run to its end.
-            Step::Command(None) => commands_open = false,
+            // ever be asked of the request, so the response is run to its end rather than waiting to
+            // be read - there is no longer anyone to arm a read.
+            Step::Command(None) => {
+                commands_open = false;
+                drain_response = true;
+            }
 
             Step::Command(Some(Command::Write(chunk))) => pending_write = Some(chunk),
 
@@ -728,25 +744,35 @@ async fn run(
                 sink.emit(ak_event::AK_EVENT_WRITE_DONE, &[], ak_status::AK_OK.code());
             }
 
-            // The body was dropped on `hyper`'s side, which only happens once the request is over.
-            // No write event: the completion already on its way resolves the armed write, which is
-            // the general form of "nothing arrives unarmed".
+            // The body was dropped on `hyper`'s side, so no more of the request can go out: the peer
+            // reset the stream, or answered and closed it while this side was still writing.
+            //
+            // No write event. A chunk that was never admitted has not been sent, and saying it was
+            // is worse than saying nothing; what resolves the armed write is the completion, which
+            // resolves anything still armed. That completion is whatever the response turns out to
+            // have ended as, so the response is driven to its end from here rather than waiting for
+            // a read the caller - still waiting on its write - has no reason to arm.
             Step::Sent(Err(_)) => {
                 pending_write = None;
                 drop(sender.take());
+                drain_response = true;
             }
 
             Step::Frame(Some(Ok(frame))) => match frame.into_data() {
                 Ok(chunk) => {
-                    read_armed = false;
-                    // Cleared before the event, never after: the caller is allowed to arm the next
-                    // read from inside the callback.
-                    read_armed_flag.store(false, Ordering::Release);
-                    sink.emit(
-                        ak_event::AK_EVENT_READ_DONE,
-                        &chunk,
-                        ak_status::AK_OK.code(),
-                    );
+                    // Only when a read is armed. Otherwise this frame was read to find the end of
+                    // the response, and the caller, having armed nothing, is owed none of it.
+                    if read_armed {
+                        read_armed = false;
+                        // Cleared before the event, never after: the caller is allowed to arm the
+                        // next read from inside the callback.
+                        read_armed_flag.store(false, Ordering::Release);
+                        sink.emit(
+                            ak_event::AK_EVENT_READ_DONE,
+                            &chunk,
+                            ak_status::AK_OK.code(),
+                        );
+                    }
                 }
                 // Trailers end the response: `hyper` delivers data frames, then at most one trailers
                 // frame, then nothing.
