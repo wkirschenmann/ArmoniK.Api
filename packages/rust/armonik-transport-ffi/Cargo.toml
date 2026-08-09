@@ -63,8 +63,18 @@ armonik-transport = { workspace = true, features = ["schema"] }
 rcgen.workspace = true
 # `test-util` for a paused clock: it lets a rate limit be asserted on what it waited *for* rather
 # than on how long a test took, and `tokio` only advances a paused clock once every task is parked,
-# which is precisely the case a limiter that blocked its thread would hang in.
-tokio = { workspace = true, features = ["test-util"] }
+# which is precisely the case a limiter that blocked its thread would hang in. `net` and `macros`
+# for the test server, which listens on loopback and spawns a task per call.
+tokio = { workspace = true, features = ["macros", "net", "test-util"] }
+# The tests serve a gRPC service to call. `armonik` is deliberately absent: its protobuf codegen has
+# nothing to do with a transport-level ABI, and the test service speaks the same opaque bytes this
+# crate does. `server` for the handler machinery, `router` for the one service it is served through.
+tonic = { workspace = true, features = ["router", "server"] }
+# The test service is a `tower` service, which is what `tonic` serves.
+tower-service.workspace = true
+# `Stream`, which is what a `tonic` handler returns its responses as, and `stream::iter` for a
+# handler whose replies are all known before the first one goes out.
+futures.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

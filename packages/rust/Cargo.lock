@@ -126,9 +126,12 @@ dependencies = [
  "bytes",
  "cbindgen",
  "csbindgen",
+ "futures",
  "rcgen",
  "serde_json",
  "tokio",
+ "tonic",
+ "tower-service",
 ]
 
 [[package]]
