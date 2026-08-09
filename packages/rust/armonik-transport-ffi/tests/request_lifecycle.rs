@@ -168,7 +168,17 @@ fn a_write_and_an_end_of_body_racing_cannot_both_be_accepted() {
         let request = Request::start(&client, &headers(&url)).expect("start the request");
         let handle = request.raw();
 
-        let writing = std::thread::spawn(move || handle.write(b"chunk"));
+        // Both threads wait here, so they enter together rather than whenever the spawn happens to
+        // land. Left to chance the writer runs to completion first almost every time, and a test
+        // that never sees the two overlap cannot fail on a design that only breaks when they do.
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let theirs = std::sync::Arc::clone(&gate);
+
+        let writing = std::thread::spawn(move || {
+            theirs.wait();
+            handle.write(b"chunk")
+        });
+        gate.wait();
         let closed = request.close_send();
         let written = writing.join().expect("the writing thread should not crash");
 

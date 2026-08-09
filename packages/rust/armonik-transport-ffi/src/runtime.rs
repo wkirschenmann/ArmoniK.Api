@@ -23,9 +23,12 @@ pub(crate) fn handle() -> &'static Runtime {
 /// How many tasks are currently alive on the shared runtime.
 ///
 /// Not part of the C ABI - nothing here is `extern "C"`, so none of it reaches the generated header -
-/// and not something a consumer is meant to call. It exists because leak assertions have nothing
-/// else to look at: work that left a task parked forever is invisible from the outside, and "the
-/// tests passed" is not evidence that the runtime came back to rest.
+/// and not something a consumer is meant to call. It answers the one question the outside cannot:
+/// work that left a task parked forever is invisible from there, and "the tests passed" is not
+/// evidence that the runtime came back to rest.
+///
+/// A request that leaks is caught by its context instead, which the completion gives back and the
+/// completion is a task's last act. This counts what no request owns.
 #[doc(hidden)]
 pub fn alive_tasks() -> usize {
     handle().metrics().num_alive_tasks()
@@ -55,8 +58,8 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn an_idle_runtime_reports_no_alive_tasks() {
-        // The counter the leak assertions read. A runtime that has never been given work has to
-        // answer zero, or a batch comparison against it means nothing.
+        // A runtime that has never been given work has to answer zero, or nothing read from this
+        // counter afterwards means anything.
         handle().block_on(async {});
         assert_eq!(alive_tasks(), 0);
     }

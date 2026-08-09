@@ -62,8 +62,8 @@ mod test_support;
 
 pub mod event;
 pub mod status;
-// Public, and hidden, for exactly one reason: `runtime::alive_tasks` lets leak assertions check that
-// the runtime comes back to rest. Nothing in it is `extern "C"`, so none of it reaches the generated
+// Public, and hidden, for exactly one reason: `runtime::alive_tasks` lets a test ask whether the
+// runtime came back to rest. Nothing in it is `extern "C"`, so none of it reaches the generated
 // header, and so none of it is part of the ABI.
 #[doc(hidden)]
 pub mod runtime;
