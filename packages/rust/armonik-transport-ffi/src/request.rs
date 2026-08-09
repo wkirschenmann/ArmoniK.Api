@@ -643,10 +643,11 @@ async fn run(
     let deadline = timeout.map(|limit| tokio::time::Instant::now() + limit);
     // Whether the response has to be driven to its end with nothing armed.
     //
-    // Set when the caller lets go of the command channel: no read will ever be armed again, and a
-    // completion is owed on that path as on every other. A loop that polled the response only while
-    // a read was armed would have no branch left enabled at all - which is not a park but a panic,
-    // since a `select!` with every branch disabled has nothing to return.
+    // Set when the last thing that could otherwise bring this loop to an end goes away: the command
+    // channel, which the caller released, or the request body, which the peer dropped. A completion
+    // is owed on either path as on every other, and a loop that polled the response only while a
+    // read was armed would be left with nothing to drive it - no branch enabled at all, which is not
+    // a park but a panic, or an armed write whose event can never come.
     //
     // A frame read this way with nothing armed is discarded: the caller asked for no bytes, and
     // handing it some would break the rule that nothing arrives unarmed. What is wanted from the
@@ -766,12 +767,18 @@ async fn run(
                 sink.emit(ak_event::AK_EVENT_WRITE_DONE, &[], ak_status::AK_OK.code());
             }
 
-            // The body was dropped on `hyper`'s side, which only happens once the request is over.
-            // No write event: the completion already on its way resolves the armed write, which is
-            // the general form of "nothing arrives unarmed".
+            // The body was dropped on `hyper`'s side, so no more of the request can go out: the peer
+            // reset the stream, or answered and closed it while this side was still writing.
+            //
+            // No write event. A chunk that was never admitted has not been sent, and saying it was
+            // is worse than saying nothing; what resolves the armed write is the completion, which
+            // resolves anything still armed. That completion is whatever the response turns out to
+            // have ended as, so the response is driven to its end from here rather than waiting for
+            // a read the caller - still waiting on its write - has no reason to arm.
             Step::Sent(Err(_)) => {
                 pending_write = None;
                 drop(sender.take());
+                drain_response = true;
             }
 
             Step::Frame(Some(Ok(frame))) => match frame.into_data() {
