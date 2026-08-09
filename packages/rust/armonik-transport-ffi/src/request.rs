@@ -12,7 +12,6 @@ use armonik_transport::reexports::http;
 use armonik_transport::reexports::http_body_util::channel::{Channel, Sender};
 use armonik_transport::reexports::http_body_util::BodyExt;
 use armonik_transport::reexports::hyper::body::Incoming;
-use armonik_transport::reexports::hyper_util::client::legacy::ResponseFuture;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
@@ -60,6 +59,9 @@ type ResponseBody = Incoming;
 
 /// A failure raised by the client before any response header arrived.
 type LegacyError = armonik_transport::reexports::hyper_util::client::legacy::Error;
+
+/// What sending the request resolves to.
+type ResponseResult = Result<http::Response<ResponseBody>, LegacyError>;
 
 /// A failure raised on the response body, after the headers.
 type HyperError = armonik_transport::reexports::hyper::Error;
@@ -177,6 +179,9 @@ fn borrow(request: *const ak_request) -> Result<Arc<ak_request>, i32> {
 ///
 /// On `AK_OK` a completion event is guaranteed to follow, exactly once, and `ctx` may be given up
 /// when it arrives. On any other status no event ever arrives.
+///
+/// Returns without waiting for anything, a rate limit included: a client configured with one admits
+/// the request when its window allows, and the caller's thread is not the one that waits.
 ///
 /// # Safety
 ///
@@ -515,7 +520,7 @@ struct Task {
 /// has ended, not inside it.
 enum Step {
     Command(Option<Command>),
-    Response(Result<http::Response<ResponseBody>, LegacyError>),
+    Response(ResponseResult),
     Sent(Result<(), armonik_transport::reexports::http_body_util::channel::SendError>),
     Frame(Option<Result<http_body::Frame<Bytes>, HyperError>>),
 }
@@ -603,10 +608,23 @@ async fn run(
     body_sender: Sender<Bytes, AbortError>,
     mut commands: mpsc::UnboundedReceiver<Command>,
 ) -> Outcome {
+    // Taking the permit here, on the task, rather than in the entry point that posted the request:
+    // an ABI function that waited on a rate limit would hold a host application's thread for as long
+    // as that application's own configuration said to. The wait is a sleep on this runtime, so the
+    // thread that would have waited runs other work; and it is inside the request's own future, so a
+    // cancel arriving during it drops the wait along with the request that was never sent.
+    //
     // Boxed so that `&mut` is a future regardless of whether `ResponseFuture` is `Unpin`, which is
     // not something this crate should have to depend on.
-    let mut response: Option<std::pin::Pin<Box<ResponseFuture>>> =
-        Some(Box::pin(client.pool.request(request)));
+    let send = async {
+        if let Some(limiter) = client.rate_limit.as_ref() {
+            limiter.acquire().await;
+        }
+        client.pool.request(request).await
+    };
+    let mut response: Option<
+        std::pin::Pin<Box<dyn std::future::Future<Output = ResponseResult> + Send + '_>>,
+    > = Some(Box::pin(send));
     let mut body: Option<ResponseBody> = None;
     let mut sender: Option<Sender<Bytes, AbortError>> = Some(body_sender);
     // The chunk of an armed write, kept until the send resolves. The send is restarted from it on

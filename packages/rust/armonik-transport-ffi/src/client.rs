@@ -44,9 +44,6 @@ pub(crate) type RequestBody = BoxBody<Bytes, BodyError>;
 /// Handed to the caller as an opaque pointer. The registry owns it, and a request takes a counted
 /// reference for as long as it runs, so a pool outlives an [`ak_client_release`] that lands while
 /// work is still on it.
-///
-/// `rate_limit` is parsed and held, and nothing acts on it, which changes no behaviour on its own.
-/// `tests/schema.rs` says as much, and lists it among the options this library does not apply.
 // `dead_code` measures reachability from this crate's Rust API, which is not the surface this crate
 // offers.
 #[allow(dead_code)]
@@ -69,8 +66,8 @@ pub struct ak_client {
     /// `RateLimit`: how many requests a window admits, `None` for no limit.
     ///
     /// State the pool carries rather than a layer wrapped around it, because a permit belongs to one
-    /// request: it is taken by the sender, and one limiter serves every request on the client, which
-    /// is what "per client" means.
+    /// request: it is taken by the task driving one, and one limiter serves every request on the
+    /// client, which is what "per client" means.
     pub(crate) rate_limit: Option<RateLimiter>,
 }
 
