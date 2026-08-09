@@ -45,9 +45,9 @@ pub(crate) type RequestBody = BoxBody<Bytes, BodyError>;
 /// reference for as long as it runs, so a pool outlives an [`ak_client_release`] that lands while
 /// work is still on it.
 ///
-/// The last three fields are read by whoever sends a request, and nothing here does: they are
-/// parsed and held, which changes no behaviour on its own. `tests/schema.rs` says as much, and lists
-/// them among the options this library does not apply.
+/// `timeout` and `rate_limit` are parsed and held, and nothing acts on them, which changes no
+/// behaviour on its own. `tests/schema.rs` says as much, and lists them among the options this
+/// library does not apply.
 // `dead_code` measures reachability from this crate's Rust API, which is not the surface this crate
 // offers.
 #[allow(dead_code)]
@@ -63,6 +63,9 @@ pub struct ak_client {
     /// nothing below the sender of a request can time one out.
     pub(crate) timeout: Option<Duration>,
     /// `UserAgent`: the header value a request carries when it has none of its own, `None` for none.
+    ///
+    /// Set on the request rather than on the pool, because a caller's own `user-agent` header wins:
+    /// this is the default for a request that names none.
     pub(crate) user_agent: Option<HeaderValue>,
     /// `RateLimit`: how many requests a window admits, `None` for no limit.
     ///
@@ -207,8 +210,11 @@ pub unsafe extern "C" fn ak_client_release(client: *mut ak_client) {
 }
 
 /// A counted reference to a live client, or `None` when that address is not one.
-#[cfg(test)]
-fn get(client: *const ak_client) -> Option<std::sync::Arc<ak_client>> {
+///
+/// Counted rather than borrowed: the caller may release the client from another thread at any
+/// moment, and a request being started on it has to finish reading it either way - and then hold it
+/// for as long as the request runs.
+pub(crate) fn get(client: *const ak_client) -> Option<std::sync::Arc<ak_client>> {
     live().get(client)
 }
 

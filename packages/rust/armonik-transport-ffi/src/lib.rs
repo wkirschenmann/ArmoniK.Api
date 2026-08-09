@@ -23,6 +23,12 @@
 //! outcomes rather than a single one. And a handle is reference-counted: `_release` gives back one
 //! reference, so a call already under way when another thread releases the handle finishes normally.
 //!
+//! What makes the reactor's rules hold is one shape, in `request`: a request is a command channel
+//! and a task that reads it, and that task is the only thing that ever invokes the caller's
+//! callback. Every path it can take - a clean end, a failure, a panic - converges on one `match`
+//! that emits the completion, so "exactly once, and last" is true by construction rather than by
+//! discipline at each early return.
+//!
 //! # Safety discipline
 //!
 //! - Every entry point runs its body through one of the `guard` module's wrappers, so a panic can
@@ -50,9 +56,11 @@ mod guard;
 mod handle;
 #[allow(dead_code)]
 mod rate_limit;
+mod request;
 #[cfg(test)]
 mod test_support;
 
+pub mod event;
 pub mod status;
 // Public, and hidden, for exactly one reason: `runtime::alive_tasks` lets leak assertions check that
 // the runtime comes back to rest. Nothing in it is `extern "C"`, so none of it reaches the generated
@@ -62,6 +70,10 @@ pub mod runtime;
 
 pub use client::{ak_client, ak_client_create, ak_client_release};
 pub use error::{ak_bytes, ak_bytes_in, ak_bytes_release};
+pub use request::{
+    ak_request, ak_request_close_send, ak_request_on_event, ak_request_read, ak_request_release,
+    ak_request_start,
+};
 
 /// The revision of this ABI that this library implements.
 ///

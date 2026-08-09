@@ -126,6 +126,12 @@ pub(crate) enum FfiError {
     Connector(armonik_transport::ConnectionError),
     InvalidHandle,
     InvalidState(&'static str),
+    /// The request a caller described cannot be sent: a missing or malformed pseudo-header, a header
+    /// name or value HTTP will not carry, a relative `:url`.
+    ///
+    /// Carries an owned message rather than a `&'static str` because what is wrong is in the
+    /// caller's own blob, and quoting it back is most of the diagnosis.
+    InvalidRequest(String),
 }
 
 /// Render `error` and everything that caused it as the one message that crosses the ABI.
@@ -266,6 +272,7 @@ impl fmt::Display for FfiError {
             Self::Connector(source) => write!(f, "{}", describe(source)),
             Self::InvalidHandle => write!(f, "the handle is invalid or has already been released"),
             Self::InvalidState(reason) => write!(f, "{reason}"),
+            Self::InvalidRequest(reason) => write!(f, "{reason}"),
         }
     }
 }
@@ -285,7 +292,10 @@ impl FfiError {
                 ak_status::AK_INVALID_CONFIG.code()
             }
             Self::InvalidHandle => ak_status::AK_INVALID_HANDLE.code(),
-            Self::InvalidState(_) => ak_status::AK_INVALID_STATE.code(),
+            // A request the caller described wrongly is refused for the same reason a second armed
+            // read is: the object is not in a state that allows the operation. It is not a
+            // configuration failure - the client is fine, and every other request on it will go out.
+            Self::InvalidState(_) | Self::InvalidRequest(_) => ak_status::AK_INVALID_STATE.code(),
         }
     }
 

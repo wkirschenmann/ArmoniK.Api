@@ -157,17 +157,70 @@ typedef int32_t ak_status;
 #endif // __cplusplus
 
 /**
+ * What a request is reporting.
+ *
+ * Zero is not one of them, so a zeroed `kind` is never a valid event. A caller ignores a kind it
+ * does not know: the ABI is additive, and a library newer than its caller may report events that
+ * caller has never heard of.
+ */
+enum ak_event
+#if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+  : int32_t
+#endif // defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+ {
+  /**
+   * The response headers arrived. The payload is a key/value blob, with the HTTP status in it
+   * under the `:status` key as decimal ASCII, and the code is `AK_OK`.
+   *
+   * At most once per request, and before any other event that carries response data.
+   */
+  AK_EVENT_RESPONSE_HEADERS = 1,
+  /**
+   * The read armed by `ak_request_read` produced body bytes. The payload is the chunk, borrowed
+   * for the duration of the call, and the code is `AK_OK`.
+   *
+   * A chunk is whatever the connection delivered, not a message: there is no framing at this
+   * level, so a reader copes with any split.
+   */
+  AK_EVENT_READ_DONE = 2,
+  /**
+   * The request is over, and no further callback is made for it.
+   *
+   * The code is `AK_OK` when the response ended cleanly, and the payload is then the trailers as
+   * a key/value blob - possibly empty, which is what a clean end of stream without trailers looks
+   * like. Otherwise the code is one of the failures and the payload is that failure as a UTF-8
+   * message, with its whole cause chain flattened into it.
+   */
+  AK_EVENT_COMPLETED = 3,
+};
+#ifndef __cplusplus
+#if __STDC_VERSION__ >= 202311L
+typedef enum ak_event ak_event;
+#else
+typedef int32_t ak_event;
+#endif // __STDC_VERSION__ >= 202311L
+#endif // __cplusplus
+
+/**
  * A connection pool, and the options a request on it draws from.
  *
  * Handed to the caller as an opaque pointer. The registry owns it, and a request takes a counted
  * reference for as long as it runs, so a pool outlives an `ak_client_release` that lands while
  * work is still on it.
  *
- * The last three fields are read by whoever sends a request, and nothing here does: they are
- * parsed and held, which changes no behaviour on its own. `tests/schema.rs` says as much, and lists
- * them among the options this library does not apply.
+ * `timeout` and `rate_limit` are parsed and held, and nothing acts on them, which changes no
+ * behaviour on its own. `tests/schema.rs` says as much, and lists them among the options this
+ * library does not apply.
  */
 typedef struct ak_client ak_client;
+
+/**
+ * A request handle.
+ *
+ * The task owns everything that matters; this is the caller's end of the command channel plus the
+ * flags that say what is currently armed.
+ */
+typedef struct ak_request ak_request;
 
 /**
  * An owned buffer handed to the caller.
@@ -224,6 +277,20 @@ typedef struct ak_bytes_in {
    */
   size_t len;
 } ak_bytes_in;
+
+/**
+ * The event callback. One per request, invoked only from this library's own tasks.
+ *
+ * `payload` is **borrowed** for the duration of the call: copy what is needed before returning, and
+ * never release it. `code` is `AK_OK` on every event but a failed completion.
+ *
+ * The callback must not block, must not unwind, and must not re-enter this library for the request
+ * it is reporting on.
+ */
+typedef void (*ak_request_on_event)(void *ctx,
+                                    int32_t kind,
+                                    struct ak_bytes_in payload,
+                                    int32_t code);
 
 #ifdef __cplusplus
 extern "C" {
@@ -288,6 +355,78 @@ void ak_client_release(struct ak_client *client);
  * behaviour. The zeroed value is always safe to pass here.
  */
 void ak_bytes_release(struct ak_bytes bytes);
+
+/**
+ * Open a request on `client` and start driving it.
+ *
+ * `headers_blob` is a key/value blob. Two pseudo-keys are required and are not sent as headers:
+ *
+ * - `:method` - the HTTP method, for instance `POST`.
+ * - `:url` - the absolute request URL, scheme and authority included. The connection pool keys on
+ *   it, so a path-only form is refused.
+ *
+ * Every other key is sent as a request header, in the order given, duplicates included. A `-bin`
+ * value passes through untouched: base64 is the caller's convention, not this library's.
+ *
+ * On `AK_OK` a completion event is guaranteed to follow, exactly once, and `ctx` may be given up
+ * when it arrives. On any other status no event ever arrives.
+ *
+ * Safety:
+ *
+ * `client` must be a live handle from `ak_client_create`. `headers_blob` must point to
+ * `len` readable bytes for the duration of the call. `on_event` must remain callable, and `ctx`
+ * valid, until the completion event; releasing the handle does not end that, because events go on
+ * being delivered until the completion whatever the caller does with its reference. `out` must be
+ * a writable `ak_request*`, and receives a handle to be given up by exactly one
+ * `ak_request_release`. `out_err`, when non-null, must be a writable `ak_bytes` and receives a
+ * message to give up with `ak_bytes_release`.
+ */
+int32_t ak_request_start(const struct ak_client *client,
+                         const uint8_t *headers_blob,
+                         size_t len,
+                         ak_request_on_event on_event,
+                         void *ctx,
+                         struct ak_request **out,
+                         struct ak_bytes *out_err);
+
+/**
+ * End the request body.
+ *
+ * Refused with `AK_INVALID_STATE` if the body has already been ended.
+ *
+ * Safety:
+ *
+ * `request` must be a live handle from `ak_request_start`.
+ */
+int32_t ak_request_close_send(const struct ak_request *request);
+
+/**
+ * Arm one read.
+ *
+ * Exactly one event follows: a read event with a chunk of the response body, or the completion.
+ * Arming a second read while one is outstanding is refused with `AK_INVALID_STATE`.
+ *
+ * Safety:
+ *
+ * `request` must be a live handle from `ak_request_start`.
+ */
+int32_t ak_request_read(const struct ak_request *request);
+
+/**
+ * Give up the caller's reference to a request.
+ *
+ * Releasing before the completion is how a caller abandons a request it no longer wants. The
+ * driving task runs to its terminal state either way, and the completion still arrives: there is no
+ * second ownership rule for that path. Whatever was rooted for `ctx` is given back at the
+ * completion, on every path, and this is not that moment.
+ *
+ * Null is accepted and does nothing.
+ *
+ * Safety:
+ *
+ * `request` must be a handle from `ak_request_start` that has not been released, or null.
+ */
+void ak_request_release(struct ak_request *request);
 
 #ifdef __cplusplus
 }  // extern "C"

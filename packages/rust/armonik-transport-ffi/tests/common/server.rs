@@ -118,6 +118,8 @@ pub(crate) struct TestService {
     failure_trailers: MetadataMap,
     /// The request messages of every call, in arrival order.
     received: Arc<Mutex<Vec<Vec<Bytes>>>>,
+    /// The request headers of every call, in arrival order.
+    headers: Arc<Mutex<Vec<MetadataMap>>>,
 }
 
 impl TestService {
@@ -150,6 +152,7 @@ impl TestService {
             failure_code: Code::Unavailable,
             failure_trailers: MetadataMap::new(),
             received: Arc::new(Mutex::new(Vec::new())),
+            headers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -170,6 +173,11 @@ impl TestService {
     /// The request messages of every call so far, in arrival order.
     pub(crate) fn messages_received(&self) -> Vec<Vec<Bytes>> {
         self.received.lock().expect("received lock").clone()
+    }
+
+    /// The request headers of every call so far, in arrival order.
+    pub(crate) fn headers_received(&self) -> Vec<MetadataMap> {
+        self.headers.lock().expect("headers lock").clone()
     }
 }
 
@@ -208,6 +216,13 @@ impl Service<Request<Streaming<Bytes>>> for TestService {
         let service = self.clone();
 
         Box::pin(async move {
+            // Recorded before anything else, so that a reply which never reads the request stream
+            // still leaves its headers behind for a test to read.
+            service
+                .headers
+                .lock()
+                .expect("headers lock")
+                .push(request.metadata().clone());
             let mut stream = request.into_inner();
 
             // Emitted as messages arrive, so the two directions genuinely interleave.

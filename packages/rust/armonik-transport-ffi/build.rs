@@ -79,6 +79,8 @@ fn generate_csharp(crate_dir: &Path, bindings: &Path) {
         .input_extern_file(crate_dir.join("src").join("lib.rs"))
         .input_extern_file(crate_dir.join("src").join("client.rs"))
         .input_extern_file(crate_dir.join("src").join("error.rs"))
+        .input_extern_file(crate_dir.join("src").join("event.rs"))
+        .input_extern_file(crate_dir.join("src").join("request.rs"))
         .input_extern_file(crate_dir.join("src").join("status.rs"))
         .csharp_namespace("ArmoniK.Api.Client.Native")
         .csharp_class_name("NativeMethods")
@@ -88,7 +90,7 @@ fn generate_csharp(crate_dir: &Path, bindings: &Path) {
         .csharp_use_nint_types(false)
         // A type is emitted when a signature mentions it. These two are part of the contract without
         // being an argument to anything yet.
-        .always_included_types(["ak_status", "ak_bytes_in"])
+        .always_included_types(["ak_status", "ak_event", "ak_bytes_in"])
         // `AK_ABI_VERSION`, so a caller compares against a name rather than against a number it
         // copied. The result codes come across as an enum instead, which is the only form that
         // carries a negative value: a constant's value is read as a literal, and `-1` is not one.
