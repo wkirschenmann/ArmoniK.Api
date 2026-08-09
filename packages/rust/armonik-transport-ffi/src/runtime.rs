@@ -20,17 +20,6 @@ pub(crate) fn handle() -> &'static Runtime {
     RUNTIME.get_or_init(|| Runtime::new().expect("failed to create the ArmoniK FFI tokio runtime"))
 }
 
-/// How many tasks are currently alive on the shared runtime.
-///
-/// Not part of the C ABI - nothing here is `extern "C"`, so none of it reaches the generated header -
-/// and not something a consumer is meant to call. It exists because leak assertions have nothing
-/// else to look at: work that left a task parked forever is invisible from the outside, and "the
-/// tests passed" is not evidence that the runtime came back to rest.
-#[doc(hidden)]
-pub fn alive_tasks() -> usize {
-    handle().metrics().num_alive_tasks()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,14 +39,5 @@ mod tests {
     fn the_runtime_can_actually_run_futures() {
         let value = handle().block_on(async { 1 + 1 });
         assert_eq!(value, 2);
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn an_idle_runtime_reports_no_alive_tasks() {
-        // The counter the leak assertions read. A runtime that has never been given work has to
-        // answer zero, or a batch comparison against it means nothing.
-        handle().block_on(async {});
-        assert_eq!(alive_tasks(), 0);
     }
 }

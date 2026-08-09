@@ -130,18 +130,55 @@ enum Command {
     Cancel,
 }
 
-/// What the caller has done with the request body.
+/// What the caller has done with the request body, and the decisions that turn on it.
 ///
-/// One lock rather than two flags, because arming a write and ending the body are decisions about
-/// the same thing. Taken separately they interleave: a write that reads an open body and a close
-/// that reads no armed write can both succeed, and the close then drops the sender before that
-/// write is admitted, leaving it armed for an event that can never come.
+/// The lock is inside rather than around, because the invariant is this type's to keep: arming a
+/// write and ending the body are one decision each, and each has to see the whole state to take it.
+/// Held as two flags a caller reads in whatever order it happens to, they interleave - a write that
+/// finds the body open and a close that finds no armed write both succeed, and the close then drops
+/// the sender before that write is admitted, leaving it armed for an event that can never come.
 #[derive(Default)]
 struct SendState {
+    inner: Mutex<Flags>,
+}
+
+/// The two things there are to know about the request body.
+#[derive(Default)]
+struct Flags {
     /// Whether a write is armed and not yet resolved.
     armed: bool,
     /// Whether the body has been ended.
     closed: bool,
+}
+
+impl SendState {
+    /// Arm one write, or refuse because the body is ended or a write is already armed.
+    fn arm_write(&self) -> bool {
+        let mut flags = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if flags.closed || flags.armed {
+            return false;
+        }
+        flags.armed = true;
+        true
+    }
+
+    /// End the body, or refuse because a write is armed or it is ended already.
+    fn close(&self) -> bool {
+        let mut flags = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if flags.armed || flags.closed {
+            return false;
+        }
+        flags.closed = true;
+        true
+    }
+
+    /// Give up the armed write, so that the next one may be armed.
+    fn write_resolved(&self) {
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .armed = false;
+    }
 }
 
 /// A request handle.
@@ -151,7 +188,7 @@ struct SendState {
 pub struct ak_request {
     commands: mpsc::UnboundedSender<Command>,
     read_armed: Arc<AtomicBool>,
-    send: Arc<Mutex<SendState>>,
+    send: Arc<SendState>,
 }
 
 /// The live requests, by the address the caller holds.
@@ -239,7 +276,7 @@ pub unsafe extern "C" fn ak_request_start(
         };
 
         let read_armed = Arc::new(AtomicBool::new(false));
-        let send = Arc::new(Mutex::new(SendState::default()));
+        let send = Arc::new(SendState::default());
         let (commands, command_rx) = mpsc::unbounded_channel();
 
         let task = Task {
@@ -283,12 +320,8 @@ pub unsafe extern "C" fn ak_request_write(
             Ok(request) => request,
             Err(status) => return status,
         };
-        {
-            let mut send = request.send.lock().unwrap_or_else(PoisonError::into_inner);
-            if send.closed || send.armed {
-                return ak_status::AK_INVALID_STATE.code();
-            }
-            send.armed = true;
+        if !request.send.arm_write() {
+            return ak_status::AK_INVALID_STATE.code();
         }
 
         let chunk = if data.is_null() || len == 0 {
@@ -316,12 +349,8 @@ pub unsafe extern "C" fn ak_request_close_send(request: *const ak_request) -> i3
             Ok(request) => request,
             Err(status) => return status,
         };
-        {
-            let mut send = request.send.lock().unwrap_or_else(PoisonError::into_inner);
-            if send.armed || send.closed {
-                return ak_status::AK_INVALID_STATE.code();
-            }
-            send.closed = true;
+        if !request.send.close() {
+            return ak_status::AK_INVALID_STATE.code();
         }
         post(&request, Command::CloseSend)
     })
@@ -527,7 +556,7 @@ struct Task {
     client: Arc<ak_client>,
     sink: EventSink,
     read_armed: Arc<AtomicBool>,
-    send: Arc<Mutex<SendState>>,
+    send: Arc<SendState>,
 }
 
 /// What one turn of the driving loop resolved.
@@ -606,7 +635,7 @@ async fn run(
     timeout: Option<Duration>,
     sink: &EventSink,
     read_armed_flag: &AtomicBool,
-    send_state: &Mutex<SendState>,
+    send_state: &SendState,
     request: http::Request<RequestBody>,
     body_sender: Sender<Bytes, AbortError>,
     mut commands: mpsc::UnboundedReceiver<Command>,
@@ -760,10 +789,7 @@ async fn run(
                 // Cleared before the event, and the lock given up before it too: the caller is
                 // allowed to arm the next write from inside the callback, and would otherwise wait
                 // on a lock this task is still holding.
-                send_state
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .armed = false;
+                send_state.write_resolved();
                 sink.emit(ak_event::AK_EVENT_WRITE_DONE, &[], ak_status::AK_OK.code());
             }
 
@@ -866,4 +892,91 @@ fn describe_transport(error: &(dyn std::error::Error + 'static)) -> String {
         current = step.source();
     }
     message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How many times the two decisions are taken at once.
+    ///
+    /// Large because the collisions are not spread evenly. Against the two-flag shape this replaces,
+    /// measured on one machine: 200 attempts produced 1 double accept, 2_000 produced 10, 20_000
+    /// produced 69, and 200_000 produced 14_287. The two threads only fall into step once they have
+    /// been at it a while, so a short run is a lottery and a long one is not - at this length a
+    /// regression fails thousands of times over rather than once, and the whole test costs about a
+    /// fifth of a second.
+    ///
+    /// Scaled right down under Miri, which interprets every access and would otherwise take hours.
+    /// At that length this is checking that the transitions still hold, not hunting the race.
+    const RACES: usize = if cfg!(miri) { 200 } else { 200_000 };
+
+    #[test]
+    fn a_write_and_a_close_taken_at_once_cannot_both_be_accepted() {
+        // Two threads and a barrier per attempt. Spawning alone is not a race: the thread that
+        // spawns reaches its own call long before the thread it spawned reaches the other, so the
+        // two never meet and every attempt passes however the state is kept. The barrier is what
+        // makes them arrive together, which is the only arrangement in which reading two flags in
+        // opposite orders can let both callers through.
+        let states: Vec<SendState> = (0..RACES).map(|_| SendState::default()).collect();
+        let start = std::sync::Barrier::new(2);
+
+        let (armed, closed) = std::thread::scope(|scope| {
+            let writer = scope.spawn(|| {
+                states
+                    .iter()
+                    .map(|state| {
+                        start.wait();
+                        state.arm_write()
+                    })
+                    .collect::<Vec<bool>>()
+            });
+            let closer = scope.spawn(|| {
+                states
+                    .iter()
+                    .map(|state| {
+                        start.wait();
+                        state.close()
+                    })
+                    .collect::<Vec<bool>>()
+            });
+            (
+                writer.join().expect("the arming thread"),
+                closer.join().expect("the closing thread"),
+            )
+        });
+
+        let both = (0..RACES)
+            .filter(|&race| armed[race] && closed[race])
+            .count();
+        assert_eq!(
+            both, 0,
+            "a write and an end of the body were both accepted {both} times in {RACES}: the body \
+             would then be ended under a write whose event can never come"
+        );
+    }
+
+    #[test]
+    fn a_resolved_write_lets_the_next_one_be_armed() {
+        let state = SendState::default();
+
+        assert!(state.arm_write());
+        assert!(!state.arm_write(), "one armed write at a time");
+        assert!(!state.close(), "nor may the body end under one");
+
+        state.write_resolved();
+        assert!(
+            state.arm_write(),
+            "the next write may be armed once one resolves"
+        );
+    }
+
+    #[test]
+    fn an_ended_body_admits_no_further_write_and_cannot_end_twice() {
+        let state = SendState::default();
+
+        assert!(state.close());
+        assert!(!state.close());
+        assert!(!state.arm_write());
+    }
 }

@@ -155,31 +155,6 @@ fn ending_the_request_body_twice_is_refused() {
 }
 
 #[test]
-fn a_write_and_an_end_of_body_racing_cannot_both_be_accepted() {
-    // Two decisions about one thing, taken from two threads. Read as two flags, a write that finds
-    // the body open and a close that finds no armed write both succeed; the close then drops the
-    // sender before that write is admitted, and the write is left armed for an event that can never
-    // come. Whichever of them wins the race, only one of them may.
-    let endpoint = serve(TestService::hang_without_reading());
-    let url = format!("{endpoint}{METHOD_PATH}");
-
-    for _ in 0..64 {
-        let client = Client::new(&endpoint);
-        let request = Request::start(&client, &headers(&url)).expect("start the request");
-        let handle = request.raw();
-
-        let writing = std::thread::spawn(move || handle.write(b"chunk"));
-        let closed = request.close_send();
-        let written = writing.join().expect("the writing thread should not crash");
-
-        assert!(
-            written != OK || closed != OK,
-            "a write and an end of the request body were both accepted"
-        );
-    }
-}
-
-#[test]
 fn a_write_after_the_request_body_is_ended_is_refused() {
     let (_client, request) = call(TestService::echo_each(""), &[b"ping"]);
     assert_eq!(
@@ -817,8 +792,14 @@ fn a_request_released_from_another_thread_while_calls_are_in_flight_is_not_a_use
         let client = Client::new(&endpoint);
         let request = Request::start(&client, &headers(&url)).expect("start the request");
         let handle = request.raw();
+        // Both threads start together. Spawning and then releasing is not a race: the release
+        // usually lands before the spawned thread has made its first call, and every call then finds
+        // a handle that is already gone - which exercises the refusal, not the overlap this is for.
+        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let theirs = std::sync::Arc::clone(&start);
 
         let caller = std::thread::spawn(move || {
+            theirs.wait();
             for _ in 0..200 {
                 // Whatever these return - `AK_OK`, `AK_INVALID_STATE`, `AK_INVALID_HANDLE` - is
                 // fine. What is under test is that they return at all, rather than touching freed
@@ -830,6 +811,7 @@ fn a_request_released_from_another_thread_while_calls_are_in_flight_is_not_a_use
         });
 
         // Racing the loop above on purpose: this is the `ak_request_release`.
+        start.wait();
         drop(request);
         caller.join().expect("the caller thread should not crash");
     }
