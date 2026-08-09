@@ -483,6 +483,96 @@ fn cancelling_stops_the_server_waiting_on_the_request() {
 }
 
 #[test]
+fn a_server_that_never_answers_is_cut_off_by_the_configured_timeout() {
+    let endpoint = serve(TestService::hang());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::try_new(&format!(
+        r#"{{"Endpoint": "{endpoint}", "Timeout": "500ms"}}"#
+    ))
+    .expect("create the client");
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    assert_eq!(request.write(&frame(b"ping")), OK);
+    assert_eq!(request.next_event(), Event::WriteDone);
+    assert_eq!(request.close_send(), OK);
+
+    // `hang` reads the whole request and then never answers, so not even the headers arrive: the
+    // bound has to cover the wait for a response, not only the wait for a body.
+    let terminal = request.next_event();
+    let (code, message) = terminal.expect_completed();
+    assert_eq!(code, ak_status::AK_TIMEOUT as i32, "{message}");
+    assert!(
+        message.contains("Timeout"),
+        "the option to change has to be named: {message}"
+    );
+    assert_eq!(
+        request.try_next_event(Duration::from_millis(200)),
+        None,
+        "a timeout is one completion like any other, and nothing follows it"
+    );
+}
+
+#[test]
+fn a_timeout_stops_the_server_waiting_on_the_request() {
+    // A request whose time runs out while its body is still open has to stop the peer, or a server
+    // goes on working for a caller that is no longer listening. This client never ends its request
+    // body, so the handler's stream ending can only mean the peer went away - the same indirection
+    // the cancellation test needs, and for the same reason: a client reset is not observable as a
+    // reset. What this pins is that the peer stops, not which of the two halves stops it.
+    let service = TestService::echo_each("");
+    let endpoint = serve(service.clone());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::try_new(&format!(
+        r#"{{"Endpoint": "{endpoint}", "Timeout": "500ms"}}"#
+    ))
+    .expect("create the client");
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    // One message through and its reply read, so the call is established and the handler is parked
+    // on the next message - which is where the reset has to land.
+    assert_eq!(request.write(&frame(b"live")), OK);
+    assert_eq!(request.next_event(), Event::WriteDone);
+    assert_eq!(request.next_event().expect_http_status(), "200");
+    assert_eq!(request.read(), OK);
+    let Event::Read(_) = request.next_event() else {
+        panic!("expected the echoed reply");
+    };
+    assert!(
+        service.stream_ends().is_empty(),
+        "the handler is still reading"
+    );
+
+    let terminal = request.next_event();
+    let (code, message) = terminal.expect_completed();
+    assert_eq!(code, ak_status::AK_TIMEOUT as i32, "{message}");
+
+    // The reset travels on its own, so the handler is not expected to have noticed by the time this
+    // side has completed.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while service.stream_ends().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(
+        service.stream_ends(),
+        vec![None],
+        "the server was left working on a request that had run out of time"
+    );
+}
+
+#[test]
+fn a_request_on_a_client_with_no_timeout_is_not_cut_off() {
+    // The other half: the bound exists only when the option asks for one. A request against a server
+    // that never answers has to still be running when the same wait would have ended it above.
+    let endpoint = serve(TestService::hang());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+    assert_eq!(request.close_send(), OK);
+
+    assert_eq!(request.try_next_event(Duration::from_secs(1)), None);
+}
+
+#[test]
 fn a_request_released_before_it_completes_still_completes() {
     let endpoint = serve(TestService::hang());
     let url = format!("{endpoint}{METHOD_PATH}");

@@ -6,6 +6,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
 use armonik_transport::reexports::h2;
 use armonik_transport::reexports::http;
@@ -481,6 +482,30 @@ fn erase(body: RequestChannel) -> RequestBody {
     body.map_err(Into::into).boxed()
 }
 
+/// Reset the stream and let go of both halves of the request.
+///
+/// Both halves, because a stream has two. Aborting the body rather than dropping it is what chooses
+/// the RST_STREAM code: `hyper` reads the reason out of the error's cause chain, and a caller that
+/// gave up has to say CANCEL rather than have the body end as though it had finished sending.
+/// Dropping the response is what stops `hyper` waiting for the rest of it. Before the headers there
+/// is no response body to drop, and dropping the request future is what stops the attempt.
+///
+/// Shared by the two ways of giving up - the caller says so, or the time runs out - because the peer
+/// cannot tell them apart and should not have to: either way nobody is listening any more.
+fn give_up<R>(
+    sender: &mut Option<Sender<Bytes, AbortError>>,
+    pending_write: &mut Option<Bytes>,
+    response: &mut Option<R>,
+    body: &mut Option<ResponseBody>,
+) {
+    if let Some(sender) = sender.take() {
+        sender.abort(cancelled());
+    }
+    drop(pending_write.take());
+    drop(response.take());
+    drop(body.take());
+}
+
 /// How a request ended. Rendered into the one completion event by [`Task::drive`].
 enum Outcome {
     /// The response ended cleanly. The blob holds the trailers, and has no pairs in it when the
@@ -507,6 +532,8 @@ struct Task {
 /// has ended, not inside it.
 enum Step {
     Command(Option<Command>),
+    /// The configured `Timeout` elapsed.
+    Deadline,
     Response(Result<http::Response<ResponseBody>, LegacyError>),
     Sent(Result<(), SendError>),
     Frame(Option<Result<http_body::Frame<Bytes>, HyperError>>),
@@ -532,6 +559,7 @@ impl Task {
         let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> =
             Box::pin(run(
                 &client,
+                client.timeout,
                 &sink,
                 &read_armed,
                 &send,
@@ -570,6 +598,7 @@ impl Task {
 #[allow(clippy::too_many_arguments)]
 async fn run(
     client: &ak_client,
+    timeout: Option<Duration>,
     sink: &EventSink,
     read_armed_flag: &AtomicBool,
     send_state: &Mutex<SendState>,
@@ -589,6 +618,11 @@ async fn run(
     let mut pending_write: Option<Bytes> = None;
     let mut read_armed = false;
     let mut commands_open = true;
+    // `Timeout` bounds the whole life of a request, the wait for its headers included, because
+    // nothing below the sender of a request has a notion of one taking too long. Kept as an instant
+    // rather than a sleep held across the loop: the branch below rebuilds the sleep each turn, and
+    // sleeping to a fixed instant is the same wait however often it is restarted.
+    let deadline = timeout.map(|limit| tokio::time::Instant::now() + limit);
     // Whether the response has to be driven to its end with nothing armed.
     //
     // Set when the caller lets go of the command channel: no read will ever be armed again, and a
@@ -608,6 +642,10 @@ async fn run(
             biased;
 
             command = commands.recv(), if commands_open => Step::Command(command),
+
+            () = async {
+                tokio::time::sleep_until(deadline.expect("guarded by the precondition")).await
+            }, if deadline.is_some() => Step::Deadline,
 
             result = async { response.as_mut().expect("guarded by the precondition").await },
                 if response.is_some() => Step::Response(result),
@@ -646,20 +684,26 @@ async fn run(
             Step::Command(Some(Command::ArmRead)) => read_armed = true,
 
             Step::Command(Some(Command::Cancel)) => {
-                // Both halves have to go. Aborting the body is what puts CANCEL on the wire, and
-                // dropping the response is what stops `hyper` waiting for the rest of it; either one
-                // alone leaves the stream open as far as the peer is concerned. Before the headers
-                // there is no response body to drop, and dropping the request future is what stops
-                // the attempt.
-                if let Some(sender) = sender.take() {
-                    sender.abort(cancelled());
-                }
-                drop(pending_write.take());
-                drop(response.take());
-                drop(body.take());
+                give_up(&mut sender, &mut pending_write, &mut response, &mut body);
                 return Outcome::Failed(
                     ak_status::AK_CANCELLED.code(),
                     String::from("the request was cancelled"),
+                );
+            }
+
+            // The same teardown as a cancel, and said in one place rather than two: a request that
+            // ran out of time and one the caller gave up on leave the stream in the same state, and
+            // the peer has no way to tell them apart. Bounding the loop from outside instead would
+            // put a second teardown next to this one, reached by dropping rather than by aborting,
+            // and the request body would end as though the caller had finished sending.
+            Step::Deadline => {
+                give_up(&mut sender, &mut pending_write, &mut response, &mut body);
+                return Outcome::Failed(
+                    ak_status::AK_TIMEOUT.code(),
+                    format!(
+                        "the request did not complete within the configured Timeout ({limit:?})",
+                        limit = timeout.expect("a deadline only exists when the option does")
+                    ),
                 );
             }
 

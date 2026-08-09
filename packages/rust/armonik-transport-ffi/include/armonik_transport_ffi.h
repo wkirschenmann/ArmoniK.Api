@@ -216,9 +216,8 @@ typedef int32_t ak_event;
  * reference for as long as it runs, so a pool outlives an `ak_client_release` that lands while
  * work is still on it.
  *
- * `timeout` and `rate_limit` are parsed and held, and nothing acts on them, which changes no
- * behaviour on its own. `tests/schema.rs` says as much, and lists them among the options this
- * library does not apply.
+ * `rate_limit` is parsed and held, and nothing acts on it, which changes no behaviour on its own.
+ * `tests/schema.rs` says as much, and lists it among the options this library does not apply.
  */
 typedef struct ak_client ak_client;
 
