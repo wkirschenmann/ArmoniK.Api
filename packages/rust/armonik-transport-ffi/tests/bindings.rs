@@ -21,6 +21,7 @@ fn every_entry_point_is_declared_and_called_the_way_the_library_expects() {
         "ak_request_start",
         "ak_request_close_send",
         "ak_request_read",
+        "ak_request_write",
         "ak_request_release",
     ] {
         let declaration = format!(

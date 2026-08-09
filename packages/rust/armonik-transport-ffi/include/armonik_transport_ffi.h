@@ -192,6 +192,14 @@ enum ak_event
    * message, with its whole cause chain flattened into it.
    */
   AK_EVENT_COMPLETED = 3,
+  /**
+   * The chunk armed by `ak_request_write` has been handed to the connection. The payload is
+   * empty, and the code is `AK_OK`.
+   *
+   * It does not say the bytes reached the server, only that this library no longer needs them and
+   * one more write may be armed.
+   */
+  AK_EVENT_WRITE_DONE = 4,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -389,9 +397,25 @@ int32_t ak_request_start(const struct ak_client *client,
                          struct ak_bytes *out_err);
 
 /**
+ * Arm one write of `len` bytes.
+ *
+ * The bytes are copied before this returns, so the caller's buffer is free immediately. The write
+ * event says the chunk was accepted by the connection, and is what permits the next write: arming a
+ * second while one is outstanding, or writing after `ak_request_close_send`, is refused with
+ * `AK_INVALID_STATE`.
+ *
+ * Safety:
+ *
+ * `request` must be a live handle from `ak_request_start`, and `data` readable for `len` bytes
+ * for the duration of the call.
+ */
+int32_t ak_request_write(const struct ak_request *request, const uint8_t *data, size_t len);
+
+/**
  * End the request body.
  *
- * Refused with `AK_INVALID_STATE` if the body has already been ended.
+ * Refused with `AK_INVALID_STATE` while a write is still armed, and if the body has already been
+ * ended.
  *
  * Safety:
  *

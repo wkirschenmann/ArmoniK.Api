@@ -96,6 +96,9 @@ impl EventSink {
 
 /// What the caller asks the driving task to do next.
 enum Command {
+    /// Arm one write. The bytes are owned: the write event fires when the chunk is admitted, which
+    /// is long after the entry point returned, so the caller's own buffer cannot be the one sent.
+    Write(Bytes),
     /// End the request body cleanly.
     CloseSend,
     /// Arm one read.
@@ -110,6 +113,7 @@ pub struct ak_request {
     commands: mpsc::UnboundedSender<Command>,
     muted: Arc<AtomicBool>,
     read_armed: Arc<AtomicBool>,
+    write_armed: Arc<AtomicBool>,
     send_closed: AtomicBool,
 }
 
@@ -195,6 +199,7 @@ pub unsafe extern "C" fn ak_request_start(
 
         let muted = Arc::new(AtomicBool::new(false));
         let read_armed = Arc::new(AtomicBool::new(false));
+        let write_armed = Arc::new(AtomicBool::new(false));
         let (commands, command_rx) = mpsc::unbounded_channel();
 
         let task = Task {
@@ -205,6 +210,7 @@ pub unsafe extern "C" fn ak_request_start(
                 muted: Arc::clone(&muted),
             },
             read_armed: Arc::clone(&read_armed),
+            write_armed: Arc::clone(&write_armed),
         };
         crate::runtime::handle().spawn(task.drive(request, body_sender, command_rx));
 
@@ -212,6 +218,7 @@ pub unsafe extern "C" fn ak_request_start(
             commands,
             muted,
             read_armed,
+            write_armed,
             send_closed: AtomicBool::new(false),
         });
         // SAFETY: checked non-null above.
@@ -220,9 +227,53 @@ pub unsafe extern "C" fn ak_request_start(
     })
 }
 
+/// Arm one write of `len` bytes.
+///
+/// The bytes are copied before this returns, so the caller's buffer is free immediately. The write
+/// event says the chunk was accepted by the connection, and is what permits the next write: arming a
+/// second while one is outstanding, or writing after [`ak_request_close_send`], is refused with
+/// `AK_INVALID_STATE`.
+///
+/// # Safety
+///
+/// `request` must be a live handle from [`ak_request_start`], and `data` readable for `len` bytes
+/// for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn ak_request_write(
+    request: *const ak_request,
+    data: *const u8,
+    len: usize,
+) -> i32 {
+    crate::guard::catch_unwind_status_only(|| {
+        let request = match borrow(request) {
+            Ok(request) => request,
+            Err(status) => return status,
+        };
+        if request.send_closed.load(Ordering::Acquire) {
+            return ak_status::AK_INVALID_STATE.code();
+        }
+        if request
+            .write_armed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return ak_status::AK_INVALID_STATE.code();
+        }
+
+        let chunk = if data.is_null() || len == 0 {
+            Bytes::new()
+        } else {
+            // SAFETY: forwarded from this function's contract.
+            Bytes::copy_from_slice(unsafe { std::slice::from_raw_parts(data, len) })
+        };
+        post(&request, Command::Write(chunk))
+    })
+}
+
 /// End the request body.
 ///
-/// Refused with `AK_INVALID_STATE` if the body has already been ended.
+/// Refused with `AK_INVALID_STATE` while a write is still armed, and if the body has already been
+/// ended.
 ///
 /// # Safety
 ///
@@ -234,6 +285,9 @@ pub unsafe extern "C" fn ak_request_close_send(request: *const ak_request) -> i3
             Ok(request) => request,
             Err(status) => return status,
         };
+        if request.write_armed.load(Ordering::Acquire) {
+            return ak_status::AK_INVALID_STATE.code();
+        }
         if request.send_closed.swap(true, Ordering::AcqRel) {
             return ak_status::AK_INVALID_STATE.code();
         }
@@ -392,6 +446,7 @@ struct Task {
     client: Arc<ak_client>,
     sink: EventSink,
     read_armed: Arc<AtomicBool>,
+    write_armed: Arc<AtomicBool>,
 }
 
 /// What one turn of the driving loop resolved.
@@ -402,6 +457,7 @@ struct Task {
 enum Step {
     Command(Option<Command>),
     Response(Result<http::Response<ResponseBody>, LegacyError>),
+    Sent(Result<(), armonik_transport::reexports::http_body_util::channel::SendError>),
     Frame(Option<Result<http_body::Frame<Bytes>, HyperError>>),
 }
 
@@ -419,11 +475,19 @@ impl Task {
             client,
             sink,
             read_armed,
+            write_armed,
         } = self;
 
-        let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> = Box::pin(
-            run(&client, &sink, &read_armed, request, body_sender, commands),
-        );
+        let inner: std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>> =
+            Box::pin(run(
+                &client,
+                &sink,
+                &read_armed,
+                &write_armed,
+                request,
+                body_sender,
+                commands,
+            ));
         let outcome = crate::guard::catch_unwind_future(inner).await;
 
         // The single point where the completion is emitted. Every path above arrives here, a panic
@@ -452,10 +516,12 @@ impl Task {
 }
 
 /// The driving loop: commands in, events out, one terminal outcome.
+#[allow(clippy::too_many_arguments)]
 async fn run(
     client: &ak_client,
     sink: &EventSink,
     read_armed_flag: &AtomicBool,
+    write_armed_flag: &AtomicBool,
     request: http::Request<RequestBody>,
     body_sender: Sender<Bytes, Infallible>,
     mut commands: mpsc::UnboundedReceiver<Command>,
@@ -466,6 +532,10 @@ async fn run(
         Some(Box::pin(client.pool.request(request)));
     let mut body: Option<ResponseBody> = None;
     let mut sender: Option<Sender<Bytes, Infallible>> = Some(body_sender);
+    // The chunk of an armed write, kept until the send resolves. The send is restarted from it on
+    // every turn of the loop the write survives, which sends nothing twice: a queue slot is reserved
+    // and only filled once the future resolves, so a future dropped mid-way has queued nothing.
+    let mut pending_write: Option<Bytes> = None;
     let mut read_armed = false;
     let mut commands_open = true;
 
@@ -476,6 +546,15 @@ async fn run(
             result = async { response.as_mut().expect("guarded by the precondition").await },
                 if response.is_some() => Step::Response(result),
 
+            result = async {
+                let chunk = pending_write.clone().expect("guarded by the precondition");
+                sender
+                    .as_mut()
+                    .expect("guarded by the precondition")
+                    .send_data(chunk)
+                    .await
+            }, if pending_write.is_some() && sender.is_some() => Step::Sent(result),
+
             frame = async { body.as_mut().expect("guarded by the precondition").frame().await },
                 if read_armed && body.is_some() => Step::Frame(frame),
         };
@@ -484,6 +563,8 @@ async fn run(
             // The handle was released without this crate being told anything else; nothing more will
             // ever be asked of the request, but the response still has to run to its end.
             Step::Command(None) => commands_open = false,
+
+            Step::Command(Some(Command::Write(chunk))) => pending_write = Some(chunk),
 
             Step::Command(Some(Command::CloseSend)) => {
                 // Dropping the sender is what ends the body: `hyper` then sends an empty END_STREAM
@@ -517,6 +598,25 @@ async fn run(
                     ak_status::AK_CONNECTION_FAILED.code(),
                     describe_transport(&error),
                 )
+            }
+
+            // Emitted here rather than from the body's `poll_frame`, which runs on `hyper`'s own
+            // tasks: this loop owns the sender, and one emitter is what makes delivery serialised
+            // per request without a lock.
+            Step::Sent(Ok(())) => {
+                pending_write = None;
+                // Cleared before the event, never after: the caller is allowed to arm the next write
+                // from inside the callback.
+                write_armed_flag.store(false, Ordering::Release);
+                sink.emit(ak_event::AK_EVENT_WRITE_DONE, &[], ak_status::AK_OK.code());
+            }
+
+            // The body was dropped on `hyper`'s side, which only happens once the request is over.
+            // No write event: the completion already on its way resolves the armed write, which is
+            // the general form of "nothing arrives unarmed".
+            Step::Sent(Err(_)) => {
+                pending_write = None;
+                drop(sender.take());
             }
 
             Step::Frame(Some(Ok(frame))) => match frame.into_data() {
