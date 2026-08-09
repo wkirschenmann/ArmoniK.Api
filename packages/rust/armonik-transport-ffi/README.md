@@ -7,6 +7,12 @@ Configuration, TLS, mTLS and proxying all come from `armonik-transport`. This cr
 boundary: result codes, owned and borrowed buffers, reference-counted handles, panic guards, and the
 one key/value encoding every list of pairs travels in.
 
+[`PROTOCOL.md`](PROTOCOL.md) is the protocol itself, written for whoever implements the other side
+of it in another language. It explains what the header's preamble states tersely, and why: what
+level this ABI speaks, the event model and its arming rules, who owns what and until when, the
+ordering this contract does not promise, the errors, and what may change from one revision to the
+next. Read it before writing a binding; read the header for the contract as it stands.
+
 ## Artefacts
 
 Three files under `include/` are generated and committed, so that a change to the contract shows up
