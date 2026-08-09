@@ -137,17 +137,20 @@ const APPLIED: &[(&str, &str)] = &[
         "Timeout",
         "bounds the whole life of a request, the wait for its headers included",
     ),
+    (
+        "RateLimit",
+        "a request waits for a permit from it before it goes out",
+    ),
 ];
 
 /// Every option nothing in this library acts on, and why not.
 ///
-/// The other half, and the one that has to stay honest for either to be worth anything. Two reasons
-/// put an option here, and the note says which. Either the option belongs to a layer above this one,
-/// or the client holds the value and nothing reads it, which changes no behaviour.
+/// The other half, and the one that has to stay honest for either to be worth anything. What is left
+/// here belongs to a layer above this one, and the note says why this is the wrong layer to read it.
 ///
-/// Whoever makes something read the second group moves it across, and nothing but a reader will
-/// notice if they do not: the assertion below pins this list, so wiring an option up and leaving it
-/// here still passes.
+/// Whoever makes something read one of these moves it across, and nothing but a reader will notice
+/// if they do not: the assertion below pins this list, so wiring an option up and leaving it here
+/// still passes.
 const NOT_APPLIED: &[(&str, &str)] = &[
     (
         "MaxAttempts",
@@ -158,11 +161,6 @@ const NOT_APPLIED: &[(&str, &str)] = &[
     ("InitialBackOff", "the same schedule, for the same reason"),
     ("MaxBackOff", "likewise"),
     ("BackOffMultiplier", "likewise"),
-    (
-        "RateLimit",
-        "read onto the client as the limiter in `ak_client::rate_limit`, and no request takes a \
-         permit from it before going out",
-    ),
 ];
 
 /// Every property name the schema declares, wherever it declares it: at the top level, inside an
@@ -257,12 +255,11 @@ fn no_entry_of_either_list_has_left_the_vocabulary() {
 }
 
 #[test]
-fn what_is_left_unapplied_is_the_retry_schedule_and_what_a_request_carries() {
+fn what_is_left_unapplied_is_the_retry_schedule_and_nothing_else() {
     // The list spelled out, so that growing it is a decision somebody makes here rather than the
-    // path of least resistance when an option turns out to be inconvenient. Two groups, and no
-    // third: the retry schedule, which belongs to the gRPC stack above this library, and the one
-    // option the client holds and nothing acts on. Shortening this list is the work; nothing may
-    // lengthen it quietly.
+    // path of least resistance when an option turns out to be inconvenient. What is left is the
+    // retry schedule, which belongs to the gRPC stack above this library; every option this layer
+    // can act on, it now does. Nothing may lengthen this quietly.
     let left_alone: Vec<&str> = NOT_APPLIED.iter().map(|(name, _)| *name).collect();
 
     assert_eq!(
@@ -272,9 +269,8 @@ fn what_is_left_unapplied_is_the_retry_schedule_and_what_a_request_carries() {
             "InitialBackOff",
             "MaxBackOff",
             "BackOffMultiplier",
-            "RateLimit",
         ],
-        "an option outside those two groups is being left unapplied"
+        "an option outside the retry schedule is being left unapplied"
     );
 }
 

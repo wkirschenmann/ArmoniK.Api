@@ -215,9 +215,6 @@ typedef int32_t ak_event;
  * Handed to the caller as an opaque pointer. The registry owns it, and a request takes a counted
  * reference for as long as it runs, so a pool outlives an `ak_client_release` that lands while
  * work is still on it.
- *
- * `rate_limit` is parsed and held, and nothing acts on it, which changes no behaviour on its own.
- * `tests/schema.rs` says as much, and lists it among the options this library does not apply.
  */
 typedef struct ak_client ak_client;
 
@@ -377,6 +374,9 @@ void ak_bytes_release(struct ak_bytes bytes);
  *
  * On `AK_OK` a completion event is guaranteed to follow, exactly once, and `ctx` may be given up
  * when it arrives. On any other status no event ever arrives.
+ *
+ * Returns without waiting for anything, a rate limit included: a client configured with one admits
+ * the request when its window allows, and the caller's thread is not the one that waits.
  *
  * Safety:
  *

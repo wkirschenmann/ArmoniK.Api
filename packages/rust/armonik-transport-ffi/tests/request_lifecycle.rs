@@ -573,6 +573,65 @@ fn a_request_on_a_client_with_no_timeout_is_not_cut_off() {
 }
 
 #[test]
+fn a_rate_limit_admits_only_its_own_number_of_requests_per_window() {
+    // Two per half-second, four requests: the third opens the next window, so the four cannot be
+    // over in less than one window however fast the server answers.
+    let endpoint = serve(TestService::canned([Bytes::from_static(b"pong")]));
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::try_new(&format!(
+        r#"{{"Endpoint": "{endpoint}", "RateLimit": "2/500ms"}}"#
+    ))
+    .expect("create the client");
+
+    let started = std::time::Instant::now();
+    for _ in 0..4 {
+        let request = Request::start(&client, &headers(&url)).expect("start the request");
+        assert_eq!(request.close_send(), OK);
+        assert_eq!(request.next_event().expect_http_status(), "200");
+        assert_eq!(request.drain().1.expect_completed().0, OK);
+    }
+
+    assert!(
+        started.elapsed() >= Duration::from_millis(500),
+        "four requests through a limit of two per half-second went out in {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn starting_a_request_never_waits_for_a_rate_limit_permit() {
+    // The property that matters at an ABI boundary. One permit a minute, and the first request takes
+    // it: the second is one no window will admit for a long time, and starting it still has to
+    // return at once, because the thread it was called on belongs to the host application.
+    let endpoint = serve(TestService::canned([Bytes::from_static(b"pong")]));
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::try_new(&format!(
+        r#"{{"Endpoint": "{endpoint}", "RateLimit": "1/60s"}}"#
+    ))
+    .expect("create the client");
+
+    let first = Request::start(&client, &headers(&url)).expect("start the request");
+    assert_eq!(first.close_send(), OK);
+    assert_eq!(first.next_event().expect_http_status(), "200");
+    assert_eq!(first.drain().1.expect_completed().0, OK);
+
+    let started = std::time::Instant::now();
+    let second = Request::start(&client, &headers(&url)).expect("start the request");
+    assert_eq!(second.close_send(), OK);
+    let returned = started.elapsed();
+
+    assert!(
+        returned < Duration::from_secs(1),
+        "starting a request held the caller's thread for {returned:?}"
+    );
+    assert_eq!(
+        second.try_next_event(Duration::from_millis(300)),
+        None,
+        "the second request is waiting for a permit, so nothing has gone out for it yet"
+    );
+}
+
+#[test]
 fn a_request_released_before_it_completes_still_completes() {
     let endpoint = serve(TestService::hang());
     let url = format!("{endpoint}{METHOD_PATH}");
