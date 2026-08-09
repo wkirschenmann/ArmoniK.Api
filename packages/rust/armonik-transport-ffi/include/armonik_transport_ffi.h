@@ -437,12 +437,29 @@ int32_t ak_request_close_send(const struct ak_request *request);
 int32_t ak_request_read(const struct ak_request *request);
 
 /**
- * Give up the caller's reference to a request.
+ * Cancel the request.
+ *
+ * Resets the stream with CANCEL and finishes; a completion event carrying `AK_CANCELLED` follows
+ * unless the request had already completed, in which case this does nothing. Calling it more than
+ * once is harmless.
+ *
+ * Safety:
+ *
+ * `request` must be a live handle from `ak_request_start`.
+ */
+int32_t ak_request_cancel(const struct ak_request *request);
+
+/**
+ * Give up the caller's reference to a request, and cancel it.
  *
  * Releasing before the completion is how a caller abandons a request it no longer wants. The
- * driving task runs to its terminal state either way, and the completion still arrives: there is no
- * second ownership rule for that path. Whatever was rooted for `ctx` is given back at the
- * completion, on every path, and this is not that moment.
+ * request is cancelled, and the completion still arrives: there is no second ownership rule for
+ * that path. Whatever was rooted for `ctx` is given back at the completion, on every path, and this
+ * is not that moment.
+ *
+ * Never an abort of the task: the task is what resets the stream and lets the pool have its
+ * connection back, so stopping it where it stands is how a peer is left waiting on a call nobody
+ * is on the other end of - and how a caller is left waiting for a completion that never comes.
  *
  * Null is accepted and does nothing.
  *

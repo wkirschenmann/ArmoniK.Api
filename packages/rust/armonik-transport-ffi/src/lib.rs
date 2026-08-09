@@ -71,8 +71,8 @@ pub mod runtime;
 pub use client::{ak_client, ak_client_create, ak_client_release};
 pub use error::{ak_bytes, ak_bytes_in, ak_bytes_release};
 pub use request::{
-    ak_request, ak_request_close_send, ak_request_on_event, ak_request_read, ak_request_release,
-    ak_request_start, ak_request_write,
+    ak_request, ak_request_cancel, ak_request_close_send, ak_request_on_event, ak_request_read,
+    ak_request_release, ak_request_start, ak_request_write,
 };
 
 /// The revision of this ABI that this library implements.

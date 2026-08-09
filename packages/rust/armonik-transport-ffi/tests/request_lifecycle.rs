@@ -46,6 +46,19 @@ fn call(service: TestService, messages: &[&[u8]]) -> (Client, Request) {
     (client, request)
 }
 
+/// Open a request against `service` and leave the request body open.
+///
+/// What a test needs when the response must not be allowed to end on its own: an `echo_each` handler
+/// answers with headers straight away and then reads, so as long as this side never ends its request
+/// body, the handler stays parked and nothing arrives unasked.
+fn open(service: TestService) -> (Client, Request) {
+    let endpoint = serve(service);
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+    (client, request)
+}
+
 #[test]
 fn a_call_answers_with_headers_a_body_and_trailers() {
     let (_client, request) = call(
@@ -118,8 +131,9 @@ fn a_failing_call_reports_its_status_where_the_server_put_it() {
 #[test]
 fn a_second_read_armed_before_the_first_answers_is_refused() {
     // `echo_each` answers with headers before it has anything to say, so the response is open and
-    // the first read parks. `hang` would not do: it never returns a response at all.
-    let (_client, request) = call(TestService::echo_each(""), &[]);
+    // the first read parks. `hang` would not do: it never returns a response at all. The request
+    // body stays open, or the handler would end its reply and the first read would answer.
+    let (_client, request) = open(TestService::echo_each(""));
     assert_eq!(request.next_event().expect_http_status(), "200");
 
     assert_eq!(request.read(), OK);
@@ -370,30 +384,246 @@ fn a_request_that_cannot_connect_completes_with_the_reason() {
 }
 
 #[test]
+fn cancelling_after_the_headers_completes_the_request_once() {
+    // The request body is left open, so the handler is parked on the next message and the response
+    // cannot end on its own: what the completion reports can only be the cancellation.
+    let (_client, request) = open(TestService::echo_each(""));
+    assert_eq!(request.next_event().expect_http_status(), "200");
+
+    assert_eq!(request.read(), OK);
+    assert_eq!(request.cancel(), OK);
+
+    let terminal = request.next_event();
+    let (code, message) = terminal.expect_completed();
+    assert_eq!(code, ak_status::AK_CANCELLED as i32, "{message}");
+
+    assert_eq!(
+        request.try_next_event(Duration::from_millis(200)),
+        None,
+        "the completion is terminal: nothing may follow it"
+    );
+}
+
+#[test]
+fn cancelling_before_the_headers_completes_the_request_once() {
+    // Nothing has been answered, so there is no response body to drop: what stops the attempt is
+    // dropping the request future itself.
+    let endpoint = serve(TestService::hang_without_reading());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    assert_eq!(request.cancel(), OK);
+    let terminal = request.next_event();
+    assert_eq!(
+        terminal.expect_completed().0,
+        ak_status::AK_CANCELLED as i32
+    );
+    assert_eq!(request.try_next_event(Duration::from_millis(200)), None);
+}
+
+#[test]
+fn cancelling_a_request_that_has_already_completed_changes_nothing() {
+    let (_client, request) = call(
+        TestService::canned([Bytes::from_static(b"pong")]),
+        &[b"ping"],
+    );
+    assert_eq!(request.next_event().expect_http_status(), "200");
+    assert_eq!(request.drain().1.expect_completed().0, OK);
+
+    // The task is gone and its command channel with it, which is not an error: the request is over,
+    // which is what the caller was asking for.
+    assert_eq!(request.cancel(), OK);
+    assert_eq!(request.try_next_event(Duration::from_millis(200)), None);
+}
+
+#[test]
+fn cancelling_stops_the_server_waiting_on_the_request() {
+    // The peer's side of a cancellation, and the only form in which a handler can see it. `tonic`
+    // turns a client RST_STREAM(CANCEL) on a request stream into a clean end of stream on purpose,
+    // so what is observable is not the reason but the fact: the handler stops waiting. This client
+    // never ends its request body, so an end can only mean the peer went away.
+    let service = TestService::echo_each("");
+    let endpoint = serve(service.clone());
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+    let request = Request::start(&client, &headers(&url)).expect("start the request");
+
+    // One message through and its reply read, so the call is established and the handler is parked
+    // on the next message - which is where a reset has to land.
+    assert_eq!(request.write(&frame(b"live")), OK);
+    assert_eq!(request.next_event(), Event::WriteDone);
+    assert_eq!(request.next_event().expect_http_status(), "200");
+    assert_eq!(request.read(), OK);
+    let Event::Read(_) = request.next_event() else {
+        panic!("expected the echoed reply");
+    };
+    assert!(
+        service.stream_ends().is_empty(),
+        "the handler is still reading"
+    );
+
+    assert_eq!(request.cancel(), OK);
+    assert_eq!(
+        request.next_event().expect_completed().0,
+        ak_status::AK_CANCELLED as i32
+    );
+
+    // The reset travels on its own, so the handler is not expected to have noticed by the time this
+    // side has completed.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while service.stream_ends().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(
+        service.stream_ends(),
+        vec![None],
+        "the server was left waiting on a request nobody is on the other end of"
+    );
+}
+
+#[test]
 fn a_request_released_before_it_completes_still_completes() {
-    let endpoint = serve(TestService::canned([Bytes::from_static(b"pong")]));
+    let endpoint = serve(TestService::hang());
     let url = format!("{endpoint}{METHOD_PATH}");
     let client = Client::new(&endpoint);
     let request = Request::start(&client, &headers(&url)).expect("start the request");
     assert_eq!(request.close_send(), OK);
 
-    // A consumer giving up the handle before the request is over. There is one ownership rule and no
-    // exception to it: the driving task runs to its terminal state either way, the completion still
-    // arrives, and that is where the context goes back - which is exactly what the wrapper's
-    // callback does with it.
+    // A consumer giving up the handle on a request that will never answer. There is one ownership
+    // rule and no exception to it: the request is cancelled, the completion still arrives, and that
+    // is where the context goes back - which is exactly what the wrapper's callback does with it.
     request.release();
 
-    loop {
-        if let Event::Completed { code, .. } = request.next_event() {
-            assert_eq!(code, OK);
-            break;
-        }
-    }
+    let terminal = request.next_event();
+    assert_eq!(
+        terminal.expect_completed().0,
+        ak_status::AK_CANCELLED as i32
+    );
     assert_eq!(
         request.try_next_event(Duration::from_millis(200)),
         None,
         "the completion is terminal on this path as on every other"
     );
+}
+
+/// How many requests a batch makes.
+const BATCH: usize = 8;
+
+/// Wait for every request in `batch` to give its context back, and say whether they all did.
+///
+/// A context comes back inside the callback, just after the completion it carried, so one the test
+/// has already read may not have been given up at the instant it looks.
+fn all_contexts_returned(batch: &[Request]) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if batch.iter().all(Request::context_reclaimed) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    batch.iter().all(Request::context_reclaimed)
+}
+
+#[test]
+fn every_completed_request_ends_its_task_and_gives_its_context_back() {
+    // What a leaked request looks like, and the only thing that shows it. A driving task that never
+    // ends holds its context for ever, while every event it did deliver was correct - so nothing
+    // else in this file would notice.
+    //
+    // Counted per request, and never process-wide: the runtime is shared with every other test in
+    // this binary, so a count of what it holds is a fact about the binary rather than about this
+    // batch, and would go on passing while a real leak hid behind another test finishing.
+    let endpoint = serve(TestService::canned([Bytes::from_static(b"pong")]));
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+
+    let mut batch = Vec::new();
+    for _ in 0..BATCH {
+        let request = Request::start(&client, &headers(&url)).expect("start the request");
+        assert_eq!(request.write(&frame(b"ping")), OK);
+        assert_eq!(request.next_event(), Event::WriteDone);
+        assert_eq!(request.close_send(), OK);
+        assert_eq!(request.next_event().expect_http_status(), "200");
+        assert_eq!(request.drain().1.expect_completed().0, OK);
+        batch.push(request);
+    }
+
+    assert!(
+        all_contexts_returned(&batch),
+        "a completed request kept the context it was handed"
+    );
+}
+
+#[test]
+fn every_request_given_up_on_ends_its_task_and_gives_its_context_back() {
+    // The case that matters most: a request the caller stops wanting has to run its task to an end
+    // rather than park for ever on a stream nobody will answer. Half of these are cancelled and half
+    // released, which are the two ways of giving up, and the release path is the one with the most
+    // to prove - it is the one where the completion could most easily have gone missing.
+    let endpoint = serve(TestService::echo_each(""));
+    let url = format!("{endpoint}{METHOD_PATH}");
+    let client = Client::new(&endpoint);
+
+    let mut batch = Vec::new();
+    for index in 0..BATCH {
+        let request = Request::start(&client, &headers(&url)).expect("start the request");
+        assert_eq!(request.write(&frame(b"ping")), OK);
+        assert_eq!(request.next_event(), Event::WriteDone);
+        assert_eq!(request.next_event().expect_http_status(), "200");
+
+        if index % 2 == 0 {
+            assert_eq!(request.read(), OK);
+            assert_eq!(request.cancel(), OK);
+            // The armed read may answer before the cancel lands; either way the last event is the
+            // completion.
+            loop {
+                if let Event::Completed { .. } = request.next_event() {
+                    break;
+                }
+            }
+        } else {
+            request.release();
+        }
+        batch.push(request);
+    }
+
+    assert!(
+        all_contexts_returned(&batch),
+        "a request given up on kept the context it was handed"
+    );
+}
+
+#[test]
+fn a_request_released_from_another_thread_while_calls_are_in_flight_is_not_a_use_after_free() {
+    // The race a set of live addresses cannot close: the check that a handle is live and the use of
+    // what it points at are two moments, so a release landing between them would deallocate an
+    // object a call is halfway through. A host application whose UI thread abandons a request while
+    // a pool thread is still writing to it does exactly this. Run under a sanitiser, a regression
+    // here is a use-after-free; run plainly, it is at worst a crash.
+    let endpoint = serve(TestService::echo_each(""));
+    let url = format!("{endpoint}{METHOD_PATH}");
+
+    for _ in 0..64 {
+        let client = Client::new(&endpoint);
+        let request = Request::start(&client, &headers(&url)).expect("start the request");
+        let handle = request.raw();
+
+        let caller = std::thread::spawn(move || {
+            for _ in 0..200 {
+                // Whatever these return - `AK_OK`, `AK_INVALID_STATE`, `AK_INVALID_HANDLE` - is
+                // fine. What is under test is that they return at all, rather than touching freed
+                // memory.
+                let _ = handle.read();
+                let _ = handle.write(b"x");
+                let _ = handle.cancel();
+            }
+        });
+
+        // Racing the loop above on purpose: this is the `ak_request_release`.
+        drop(request);
+        caller.join().expect("the caller thread should not crash");
+    }
 }
 
 #[test]

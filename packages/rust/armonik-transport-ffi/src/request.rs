@@ -4,10 +4,10 @@
 //! the only thing that ever invokes the caller's event callback. That is what makes the three rules
 //! of the contract hold without a lock anywhere: one emitter, one channel, one terminal event.
 
-use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use armonik_transport::reexports::h2;
 use armonik_transport::reexports::http;
 use armonik_transport::reexports::http_body_util::channel::{Channel, Sender};
 use armonik_transport::reexports::http_body_util::BodyExt;
@@ -27,7 +27,33 @@ use crate::status::ak_status;
 /// Capacity one on purpose. `hyper` polls the body for chunk N+1 only once chunk N has been admitted
 /// under the HTTP/2 flow-control window, so one slot is what turns the peer's window into
 /// back-pressure the caller feels, with at most two chunks of this crate's memory in flight.
-type RequestChannel = Channel<Bytes, Infallible>;
+type RequestChannel = Channel<Bytes, AbortError>;
+
+/// The error a cancelled request aborts its body with.
+///
+/// Its whole job is to carry an `h2::Reason` in its cause chain: `hyper` looks for one there and
+/// uses it as the RST_STREAM code, falling back to INTERNAL_ERROR when it finds none. A cancelled
+/// call has to reset with CANCEL, which a server reads as "the client went away" rather than as "the
+/// client broke".
+#[derive(Debug)]
+struct AbortError(h2::Error);
+
+impl std::fmt::Display for AbortError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the request was cancelled")
+    }
+}
+
+impl std::error::Error for AbortError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+/// The abort a cancellation puts on the wire.
+fn cancelled() -> AbortError {
+    AbortError(h2::Error::from(h2::Reason::CANCEL))
+}
 
 /// The response body, as `hyper` hands it back.
 type ResponseBody = Incoming;
@@ -97,6 +123,8 @@ enum Command {
     CloseSend,
     /// Arm one read.
     ArmRead,
+    /// Reset the stream and finish.
+    Cancel,
 }
 
 /// What the caller has done with the request body.
@@ -198,7 +226,7 @@ pub unsafe extern "C" fn ak_request_start(
             Err(error) => return error.into_ffi_result(out_err),
         };
 
-        let (body_sender, body) = Channel::<Bytes, Infallible>::new(1);
+        let (body_sender, body) = Channel::<Bytes, AbortError>::new(1);
         let request = match build_request(&pairs, body, client.user_agent.as_ref()) {
             Ok(request) => request,
             Err(error) => return error.into_ffi_result(out_err),
@@ -319,12 +347,39 @@ pub unsafe extern "C" fn ak_request_read(request: *const ak_request) -> i32 {
     })
 }
 
-/// Give up the caller's reference to a request.
+/// Cancel the request.
+///
+/// Resets the stream with CANCEL and finishes; a completion event carrying `AK_CANCELLED` follows
+/// unless the request had already completed, in which case this does nothing. Calling it more than
+/// once is harmless.
+///
+/// # Safety
+///
+/// `request` must be a live handle from [`ak_request_start`].
+#[no_mangle]
+pub unsafe extern "C" fn ak_request_cancel(request: *const ak_request) -> i32 {
+    crate::guard::catch_unwind_status_only(|| {
+        let request = match borrow(request) {
+            Ok(request) => request,
+            Err(status) => return status,
+        };
+        // A closed channel means the task has already finished: the request is over, which is what
+        // the caller wanted.
+        let _ = request.commands.send(Command::Cancel);
+        ak_status::AK_OK.code()
+    })
+}
+
+/// Give up the caller's reference to a request, and cancel it.
 ///
 /// Releasing before the completion is how a caller abandons a request it no longer wants. The
-/// driving task runs to its terminal state either way, and the completion still arrives: there is no
-/// second ownership rule for that path. Whatever was rooted for `ctx` is given back at the
-/// completion, on every path, and this is not that moment.
+/// request is cancelled, and the completion still arrives: there is no second ownership rule for
+/// that path. Whatever was rooted for `ctx` is given back at the completion, on every path, and this
+/// is not that moment.
+///
+/// Never an abort of the task: the task is what resets the stream and lets the pool have its
+/// connection back, so stopping it where it stands is how a peer is left waiting on a call nobody
+/// is on the other end of - and how a caller is left waiting for a completion that never comes.
 ///
 /// Null is accepted and does nothing.
 ///
@@ -337,7 +392,10 @@ pub unsafe extern "C" fn ak_request_release(request: *mut ak_request) {
         if request.is_null() {
             return;
         }
-        drop(live().remove(request));
+        let Some(request) = live().remove(request) else {
+            return;
+        };
+        let _ = request.commands.send(Command::Cancel);
     });
 }
 
@@ -461,7 +519,7 @@ impl Task {
     async fn drive(
         self,
         request: http::Request<RequestBody>,
-        body_sender: Sender<Bytes, Infallible>,
+        body_sender: Sender<Bytes, AbortError>,
         commands: mpsc::UnboundedReceiver<Command>,
     ) {
         let Task {
@@ -516,7 +574,7 @@ async fn run(
     read_armed_flag: &AtomicBool,
     send_state: &Mutex<SendState>,
     request: http::Request<RequestBody>,
-    body_sender: Sender<Bytes, Infallible>,
+    body_sender: Sender<Bytes, AbortError>,
     mut commands: mpsc::UnboundedReceiver<Command>,
 ) -> Outcome {
     // Boxed so that `&mut` is a future regardless of whether `ResponseFuture` is `Unpin`, which is
@@ -524,7 +582,7 @@ async fn run(
     let mut response: Option<std::pin::Pin<Box<ResponseFuture>>> =
         Some(Box::pin(client.pool.request(request)));
     let mut body: Option<ResponseBody> = None;
-    let mut sender: Option<Sender<Bytes, Infallible>> = Some(body_sender);
+    let mut sender: Option<Sender<Bytes, AbortError>> = Some(body_sender);
     // The chunk of an armed write, kept until the send resolves. The send is restarted from it on
     // every turn of the loop the write survives, which sends nothing twice: a queue slot is reserved
     // and only filled once the future resolves, so a future dropped mid-way has queued nothing.
@@ -545,6 +603,10 @@ async fn run(
 
     loop {
         let step = tokio::select! {
+            // Commands first: a cancel that arrives at the same moment as a frame has to win, or the
+            // caller sees an event for a request it has already given up on.
+            biased;
+
             command = commands.recv(), if commands_open => Step::Command(command),
 
             result = async { response.as_mut().expect("guarded by the precondition").await },
@@ -582,6 +644,24 @@ async fn run(
             }
 
             Step::Command(Some(Command::ArmRead)) => read_armed = true,
+
+            Step::Command(Some(Command::Cancel)) => {
+                // Both halves have to go. Aborting the body is what puts CANCEL on the wire, and
+                // dropping the response is what stops `hyper` waiting for the rest of it; either one
+                // alone leaves the stream open as far as the peer is concerned. Before the headers
+                // there is no response body to drop, and dropping the request future is what stops
+                // the attempt.
+                if let Some(sender) = sender.take() {
+                    sender.abort(cancelled());
+                }
+                drop(pending_write.take());
+                drop(response.take());
+                drop(body.take());
+                return Outcome::Failed(
+                    ak_status::AK_CANCELLED.code(),
+                    String::from("the request was cancelled"),
+                );
+            }
 
             Step::Response(Ok(reply)) => {
                 let (parts, incoming) = reply.into_parts();
@@ -704,8 +784,6 @@ fn encode_response_headers(parts: &http::response::Parts) -> Result<Vec<u8>, Ffi
 /// ENHANCE_YOUR_CALM is not - and it sits in a cause that the flattened message would otherwise
 /// render as a bare "stream error".
 fn describe_transport(error: &(dyn std::error::Error + 'static)) -> String {
-    use armonik_transport::reexports::h2;
-
     let mut message = describe(error);
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
     while let Some(step) = current {

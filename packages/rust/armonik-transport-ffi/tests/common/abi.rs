@@ -8,15 +8,18 @@
 //! pushed into an ordinary channel, which the test blocks on; driving the ABI from inside an `async`
 //! block would mean occupying a thread the runtime also needs.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
+use std::sync::Arc;
 use std::time::Duration;
 
+use armonik_transport_ffi::ak_request_write;
 use armonik_transport_ffi::event::ak_event;
 use armonik_transport_ffi::status::ak_status;
 use armonik_transport_ffi::{ak_bytes, ak_bytes_in, ak_bytes_release};
 use armonik_transport_ffi::{ak_client, ak_client_create, ak_client_release};
-use armonik_transport_ffi::{ak_request, ak_request_close_send, ak_request_read};
-use armonik_transport_ffi::{ak_request_release, ak_request_start, ak_request_write};
+use armonik_transport_ffi::{ak_request, ak_request_cancel, ak_request_close_send};
+use armonik_transport_ffi::{ak_request_read, ak_request_release, ak_request_start};
 
 /// How long a test waits for an event before deciding one is not coming.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
@@ -60,28 +63,18 @@ impl Event {
     }
 }
 
-/// What the callback's `ctx` points at: the sending half of the test's event channel.
+/// What the callback's `ctx` points at: the sending half of the test's event channel, and the flag
+/// that says this context has been given back.
 #[derive(Debug)]
 struct Context {
     events: Sender<Event>,
+    reclaimed: Arc<AtomicBool>,
 }
-
-/// How many contexts have been given back, process-wide.
-///
-/// The ownership rule has nothing else to be observed by. A completion that never arrived, or one
-/// swallowed on its way out, leaves the context rooted for ever, and from the outside that looks
-/// exactly like a test that passed.
-static RECLAIMED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl Drop for Context {
     fn drop(&mut self) {
-        RECLAIMED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.reclaimed.store(true, Ordering::SeqCst);
     }
-}
-
-/// How many contexts have been given back so far.
-pub(crate) fn contexts_reclaimed() -> usize {
-    RECLAIMED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// The event callback itself.
@@ -129,9 +122,9 @@ extern "C" fn on_event(ctx: *mut std::ffi::c_void, kind: i32, payload: ak_bytes_
 
     if terminal {
         // Reclaimed here, and only here. The completion arrives on every path - a clean end, a
-        // failure, a release before either - and nothing is delivered for this request afterwards,
-        // so this is both the last use of the context and the only place that has to give it
-        // back.
+        // failure, a cancellation, a release before any of them - and nothing is delivered for this
+        // request afterwards, so this is both the last use of the context and the only place that
+        // has to give it back.
         // SAFETY: leaked exactly once in `start`, reclaimed exactly once here.
         drop(unsafe { Box::from_raw(ctx.cast::<Context>()) });
     }
@@ -237,6 +230,12 @@ pub(crate) struct Request {
     /// Whether the handle has been given back already, so that dropping the wrapper cannot do it a
     /// second time.
     released: std::cell::Cell<bool>,
+    /// Raised when this request's context is given back.
+    ///
+    /// One flag per request rather than a count for the process: an assertion about a batch has to
+    /// be about that batch, or a test added later - spawning its own requests on the same runtime -
+    /// quietly turns it into an assertion about the whole binary, with a green tick over it.
+    reclaimed: Arc<AtomicBool>,
     events: Receiver<Event>,
 }
 
@@ -249,7 +248,11 @@ impl Request {
     pub(crate) fn start(client: &Client, headers: &[(&str, &str)]) -> Result<Self, (i32, String)> {
         let (tx, rx) = std::sync::mpsc::channel();
         // Handed to the ABI, which keeps it valid until the completion and gives it back there.
-        let context = Box::into_raw(Box::new(Context { events: tx }));
+        let reclaimed = Arc::new(AtomicBool::new(false));
+        let context = Box::into_raw(Box::new(Context {
+            events: tx,
+            reclaimed: Arc::clone(&reclaimed),
+        }));
         let blob = encode_blob(headers);
 
         let mut raw: *mut ak_request = std::ptr::null_mut();
@@ -278,6 +281,7 @@ impl Request {
         Ok(Self {
             raw,
             released: std::cell::Cell::new(false),
+            reclaimed,
             events: rx,
         })
     }
@@ -300,12 +304,23 @@ impl Request {
         unsafe { ak_request_read(self.raw) }
     }
 
+    /// Cancel the request.
+    pub(crate) fn cancel(&self) -> i32 {
+        // SAFETY: `raw` is live.
+        unsafe { ak_request_cancel(self.raw) }
+    }
+
+    /// The bare handle, for a test that calls the ABI from another thread.
+    pub(crate) fn raw(&self) -> RawRequest {
+        RawRequest(self.raw)
+    }
+
     /// Give up the handle without waiting for the completion, the way a consumer abandoning a
     /// request does.
     ///
-    /// The wrapper stays alive because the events do: the driving task runs to its terminal state
-    /// either way, and its completion still arrives. Idempotent, so dropping the wrapper afterwards
-    /// gives nothing back twice.
+    /// The wrapper stays alive because the events do: releasing cancels the request, and its
+    /// completion still arrives. Idempotent, so dropping the wrapper afterwards gives nothing back
+    /// twice.
     pub(crate) fn release(&self) {
         if !self.released.replace(true) {
             // SAFETY: created by `ak_request_start` and released exactly once.
@@ -313,9 +328,12 @@ impl Request {
         }
     }
 
-    /// The bare handle, for a test that calls the ABI from another thread.
-    pub(crate) fn raw(&self) -> RawRequest {
-        RawRequest(self.raw)
+    /// Whether the context this request was started with has been given back.
+    ///
+    /// The callback gives it up at the completion, which is the driving task's last act, so a
+    /// context that has come back is a task that ended rather than one parked for ever.
+    pub(crate) fn context_reclaimed(&self) -> bool {
+        self.reclaimed.load(Ordering::SeqCst)
     }
 
     /// Wait for the next event.
@@ -363,10 +381,22 @@ unsafe impl Send for RawRequest {}
 unsafe impl Sync for RawRequest {}
 
 impl RawRequest {
+    /// Arm one read.
+    pub(crate) fn read(self) -> i32 {
+        // SAFETY: the handle is either live, or released and therefore refused by the ABI.
+        unsafe { ak_request_read(self.0) }
+    }
+
     /// Arm one write.
     pub(crate) fn write(self, data: &[u8]) -> i32 {
-        // SAFETY: the handle is either live, or released and therefore refused by the ABI.
+        // SAFETY: as above; `data` outlives the call.
         unsafe { ak_request_write(self.0, data.as_ptr(), data.len()) }
+    }
+
+    /// Cancel the request.
+    pub(crate) fn cancel(self) -> i32 {
+        // SAFETY: as above.
+        unsafe { ak_request_cancel(self.0) }
     }
 }
 

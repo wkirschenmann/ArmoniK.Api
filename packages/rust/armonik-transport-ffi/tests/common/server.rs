@@ -120,6 +120,13 @@ pub(crate) struct TestService {
     received: Arc<Mutex<Vec<Vec<Bytes>>>>,
     /// The request headers of every call, in arrival order.
     headers: Arc<Mutex<Vec<MetadataMap>>>,
+    /// How each request stream of an [`Reply::EchoEach`] call ended: `None` for a clean end of
+    /// stream, `Some(code)` for one the peer broke.
+    ///
+    /// The one thing a handler can say about a client that went away. `tonic` turns a client
+    /// RST_STREAM(CANCEL) on a request stream into a clean end of stream on purpose, so a
+    /// cancellation is not observable as a cancellation - only as an end.
+    stream_ends: Arc<Mutex<Vec<Option<Code>>>>,
 }
 
 impl TestService {
@@ -153,6 +160,7 @@ impl TestService {
             failure_trailers: MetadataMap::new(),
             received: Arc::new(Mutex::new(Vec::new())),
             headers: Arc::new(Mutex::new(Vec::new())),
+            stream_ends: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -178,6 +186,11 @@ impl TestService {
     /// The request headers of every call so far, in arrival order.
     pub(crate) fn headers_received(&self) -> Vec<MetadataMap> {
         self.headers.lock().expect("headers lock").clone()
+    }
+
+    /// How each request stream has ended so far: `None` for a clean end, `Some(code)` otherwise.
+    pub(crate) fn stream_ends(&self) -> Vec<Option<Code>> {
+        self.stream_ends.lock().expect("stream ends lock").clone()
     }
 }
 
@@ -229,26 +242,29 @@ impl Service<Request<Streaming<Bytes>>> for TestService {
             if let Reply::EchoEach(suffix) = &service.reply {
                 let suffix = suffix.clone();
                 let received = Arc::clone(&service.received);
+                let stream_ends = Arc::clone(&service.stream_ends);
                 let (tx, rx) = mpsc::channel(8);
                 tokio::spawn(async move {
                     let mut seen = Vec::new();
-                    loop {
+                    let end = loop {
                         match stream.message().await {
                             Ok(Some(message)) => {
                                 let mut buffer = message.to_vec();
                                 seen.push(message);
                                 buffer.extend_from_slice(&suffix);
                                 if tx.send(Ok(Bytes::from(buffer))).await.is_err() {
-                                    break;
+                                    break None;
                                 }
                             }
-                            Ok(None) => break,
+                            Ok(None) => break None,
                             Err(status) => {
+                                let code = status.code();
                                 let _ = tx.send(Err(status)).await;
-                                break;
+                                break Some(code);
                             }
                         }
-                    }
+                    };
+                    stream_ends.lock().expect("stream ends lock").push(end);
                     received.lock().expect("received lock").push(seen);
                 });
                 return Ok(Response::new(Box::pin(ChannelStream(rx)) as ResponseStream));
