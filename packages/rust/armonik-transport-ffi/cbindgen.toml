@@ -82,11 +82,11 @@ usize_is_size_t = true
 [parse]
 parse_deps = false
 
-# A type reaches the header when a signature mentions it. These two are part of the contract without
-# being an argument to anything yet: `ak_status` names the values an `int32_t` result may take, and
-# `ak_bytes_in` is the shape every borrowed buffer travels in.
+# A type reaches the header when a signature mentions it. These name the values an `int32_t`
+# argument may take, which is not something a signature can say: `ak_status` for a result, `ak_event`
+# for the kind an event callback is invoked with.
 [export]
-include = ["ak_status", "ak_bytes_in"]
+include = ["ak_status", "ak_event"]
 
 [enum]
 # The variants already carry the `AK_` prefix, so prefixing again would produce `AK_STATUS_AK_OK`.

@@ -40,6 +40,11 @@ fn every_entry_point_is_declared() {
         "ak_bytes_release",
         "ak_client_create",
         "ak_client_release",
+        "ak_request_start",
+        "ak_request_close_send",
+        "ak_request_read",
+        "ak_request_release",
+        "ak_request_on_event",
     ] {
         assert!(
             HEADER.contains(symbol),
@@ -57,9 +62,11 @@ fn every_type_of_the_contract_is_declared() {
         "typedef struct ak_bytes {",
         "typedef struct ak_bytes_in {",
         "enum ak_status",
+        "enum ak_event",
         // Opaque: a handle is an address the caller passes back, and its fields are none of a
         // caller's business. The typedef is what lets one be declared at all.
         "typedef struct ak_client ak_client;",
+        "typedef struct ak_request ak_request;",
     ] {
         assert!(
             HEADER.contains(declaration),
@@ -95,6 +102,33 @@ fn every_result_code_is_declared_with_its_value() {
     assert!(
         HEADER.contains("#define AK_ABI_VERSION "),
         "the ABI revision is missing from the generated header"
+    );
+}
+
+#[test]
+fn every_event_kind_is_declared_with_its_value() {
+    // A caller switches on these, and treats a kind it does not know as one to ignore. One that
+    // never reaches the header is a kind the other side has to hard-wire as a number.
+    for (name, value) in [
+        ("AK_EVENT_RESPONSE_HEADERS", 1),
+        ("AK_EVENT_READ_DONE", 2),
+        ("AK_EVENT_COMPLETED", 3),
+    ] {
+        assert!(
+            HEADER.contains(&format!("  {name} = {value},")),
+            "`{name} = {value}` is missing from the generated header"
+        );
+    }
+
+    let zeroed: Vec<&str> = HEADER
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("AK_EVENT_") && line.ends_with("= 0,"))
+        .collect();
+    assert!(
+        zeroed.is_empty(),
+        "zero is not an event kind, so that a zeroed callback argument is never a valid event: \
+         {zeroed:?}"
     );
 }
 

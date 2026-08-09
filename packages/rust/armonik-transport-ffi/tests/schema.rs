@@ -126,17 +126,21 @@ const APPLIED: &[(&str, &str)] = &[
     ),
     ("ProxyUsername", "authenticates that tunnel"),
     ("ProxyPassword", "likewise"),
+    (
+        "UserAgent",
+        "the `user-agent` header of a request that names none of its own",
+    ),
 ];
 
 /// Every option nothing in this library acts on, and why not.
 ///
 /// The other half, and the one that has to stay honest for either to be worth anything. Two reasons
 /// put an option here, and the note says which. Either the option belongs to a layer above this one,
-/// or it is applied per request and nothing here sends a request: the client holds the value, and
-/// holding a value changes no behaviour.
+/// or the client holds the value and nothing reads it, which changes no behaviour.
 ///
-/// Whoever makes this library send a request moves the second group across, and the ledger fails
-/// until they do. That is the ledger working, not a hole in it.
+/// Whoever makes something read the second group moves it across, and nothing but a reader will
+/// notice if they do not: the assertion below pins this list, so wiring an option up and leaving it
+/// here still passes.
 const NOT_APPLIED: &[(&str, &str)] = &[
     (
         "MaxAttempts",
@@ -149,18 +153,13 @@ const NOT_APPLIED: &[(&str, &str)] = &[
     ("BackOffMultiplier", "likewise"),
     (
         "Timeout",
-        "read onto the client as `ak_client::timeout`, and applied by whoever sends a request: \
-         nothing below the sender can time a request out, and nothing here sends one",
+        "read onto the client as `ak_client::timeout`, and nothing bounds a request by it: a \
+         request runs for as long as the peer keeps it open",
     ),
     (
         "RateLimit",
-        "read onto the client as the limiter in `ak_client::rate_limit`, whose permit is taken by \
-         whoever sends a request; nothing here takes one",
-    ),
-    (
-        "UserAgent",
-        "read onto the client as `ak_client::user_agent`, and set on a request by whoever builds \
-         one; nothing here builds one",
+        "read onto the client as the limiter in `ak_client::rate_limit`, and no request takes a \
+         permit from it before going out",
     ),
 ];
 
@@ -259,9 +258,9 @@ fn no_entry_of_either_list_has_left_the_vocabulary() {
 fn what_is_left_unapplied_is_the_retry_schedule_and_what_a_request_carries() {
     // The list spelled out, so that growing it is a decision somebody makes here rather than the
     // path of least resistance when an option turns out to be inconvenient. Two groups, and no
-    // third: the retry schedule, which belongs to the gRPC stack above this library, and the three
-    // options a request applies, which the client holds and nothing acts on because nothing here
-    // sends a request. Shortening this list is the work; nothing may lengthen it quietly.
+    // third: the retry schedule, which belongs to the gRPC stack above this library, and the two
+    // options the client holds and nothing acts on. Shortening this list is the work; nothing may
+    // lengthen it quietly.
     let left_alone: Vec<&str> = NOT_APPLIED.iter().map(|(name, _)| *name).collect();
 
     assert_eq!(
@@ -273,7 +272,6 @@ fn what_is_left_unapplied_is_the_retry_schedule_and_what_a_request_carries() {
             "BackOffMultiplier",
             "Timeout",
             "RateLimit",
-            "UserAgent",
         ],
         "an option outside those two groups is being left unapplied"
     );

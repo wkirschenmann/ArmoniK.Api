@@ -127,6 +127,7 @@ dependencies = [
  "cbindgen",
  "csbindgen",
  "futures",
+ "http-body-util",
  "rcgen",
  "serde_json",
  "tokio",
@@ -869,6 +870,7 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

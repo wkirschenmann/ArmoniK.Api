@@ -22,6 +22,9 @@ namespace ArmoniK.Api.Client.Native
         public const int AK_ABI_VERSION = 1;
 
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void ak_request_start_on_event_delegate(void* ctx, int kind, ak_bytes_in payload, int code);
+
 
 
         /// <summary>
@@ -85,6 +88,77 @@ namespace ArmoniK.Api.Client.Native
         [DllImport(__DllName, EntryPoint = "ak_bytes_release", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ak_bytes_release(ak_bytes bytes);
 
+        /// <summary>
+        ///  Open a request on `client` and start driving it.
+        ///
+        ///  `headers_blob` is a key/value blob. Two pseudo-keys are required and are not sent as headers:
+        ///
+        ///  - `:method` - the HTTP method, for instance `POST`.
+        ///  - `:url` - the absolute request URL, scheme and authority included. The connection pool keys on
+        ///    it, so a path-only form is refused.
+        ///
+        ///  Every other key is sent as a request header, in the order given, duplicates included. A `-bin`
+        ///  value passes through untouched: base64 is the caller's convention, not this library's.
+        ///
+        ///  On `AK_OK` a completion event is guaranteed to follow, exactly once, and `ctx` may be given up
+        ///  when it arrives. On any other status no event ever arrives.
+        ///
+        ///  Safety:
+        ///
+        ///  `client` must be a live handle from `ak_client_create`. `headers_blob` must point to
+        ///  `len` readable bytes for the duration of the call. `on_event` must remain callable, and `ctx`
+        ///  valid, until the completion event or an `ak_request_release`. `out` must be a writable
+        ///  `ak_request*`, and receives a handle to be given up by exactly one `ak_request_release`.
+        ///  `out_err`, when non-null, must be a writable `ak_bytes` and receives a message to give up with
+        ///  `ak_bytes_release`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_request_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int ak_request_start(ak_client* client, byte* headers_blob, System.UIntPtr len, ak_request_start_on_event_delegate on_event, void* ctx, ak_request** @out, ak_bytes* out_err);
+
+        /// <summary>
+        ///  End the request body.
+        ///
+        ///  Refused with `AK_INVALID_STATE` if the body has already been ended.
+        ///
+        ///  Safety:
+        ///
+        ///  `request` must be a live handle from `ak_request_start`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_request_close_send", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int ak_request_close_send(ak_request* request);
+
+        /// <summary>
+        ///  Arm one read.
+        ///
+        ///  Exactly one event follows: a read event with a chunk of the response body, or the completion.
+        ///  Arming a second read while one is outstanding is refused with `AK_INVALID_STATE`.
+        ///
+        ///  Safety:
+        ///
+        ///  `request` must be a live handle from `ak_request_start`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_request_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern int ak_request_read(ak_request* request);
+
+        /// <summary>
+        ///  Give up the caller's reference to a request.
+        ///
+        ///  Releasing once the completion has arrived is the ordinary case, and gives up nothing else.
+        ///
+        ///  Releasing before it is how a caller abandons a request whose `ctx` is about to become invalid:
+        ///  the callback is silenced, so no event reaches it afterwards - the completion included. Whatever
+        ///  was rooted for `ctx` is therefore given up by whoever releases early, since nothing will arrive
+        ///  to say it may be. A delivery already under way runs to its end, as with any other handle.
+        ///
+        ///  Null is accepted and does nothing.
+        ///
+        ///  Safety:
+        ///
+        ///  `request` must be a handle from `ak_request_start` that has not been released, or null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_request_release", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ak_request_release(ak_request* request);
+
 
     }
 
@@ -95,9 +169,9 @@ namespace ArmoniK.Api.Client.Native
     ///  reference for as long as it runs, so a pool outlives an `ak_client_release` that lands while
     ///  work is still on it.
     ///
-    ///  The last three fields are read by whoever sends a request, and nothing here does: they are
-    ///  parsed and held, which changes no behaviour on its own. `tests/schema.rs` says as much, and lists
-    ///  them among the options this library does not apply.
+    ///  `timeout` and `rate_limit` are parsed and held, and nothing acts on them, which changes no
+    ///  behaviour on its own. `tests/schema.rs` says as much, and lists them among the options this
+    ///  library does not apply.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe partial struct ak_client
@@ -164,6 +238,52 @@ namespace ArmoniK.Api.Client.Native
         public System.UIntPtr len;
     }
 
+    /// <summary>
+    ///  A request handle.
+    ///
+    ///  The task owns everything that matters; this is the caller's end of the command channel plus the
+    ///  flags that say what is currently armed.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe partial struct ak_request
+    {
+    }
+
+
+    /// <summary>
+    ///  What a request is reporting.
+    ///
+    ///  Zero is not one of them, so a zeroed `kind` is never a valid event. A caller ignores a kind it
+    ///  does not know: the ABI is additive, and a library newer than its caller may report events that
+    ///  caller has never heard of.
+    /// </summary>
+    public enum ak_event : int
+    {
+        /// <summary>
+        ///  The response headers arrived. The payload is a key/value blob, with the HTTP status in it
+        ///  under the `:status` key as decimal ASCII, and the code is `AK_OK`.
+        ///
+        ///  At most once per request, and before any other event that carries response data.
+        /// </summary>
+        AK_EVENT_RESPONSE_HEADERS = 1,
+        /// <summary>
+        ///  The read armed by `ak_request_read` produced body bytes. The payload is the chunk, borrowed
+        ///  for the duration of the call, and the code is `AK_OK`.
+        ///
+        ///  A chunk is whatever the connection delivered, not a message: there is no framing at this
+        ///  level, so a reader copes with any split.
+        /// </summary>
+        AK_EVENT_READ_DONE = 2,
+        /// <summary>
+        ///  The request is over, and no further callback is made for it.
+        ///
+        ///  The code is `AK_OK` when the response ended cleanly, and the payload is then the trailers as
+        ///  a key/value blob - possibly empty, which is what a clean end of stream without trailers looks
+        ///  like. Otherwise the code is one of the failures and the payload is that failure as a UTF-8
+        ///  message, with its whole cause chain flattened into it.
+        /// </summary>
+        AK_EVENT_COMPLETED = 3,
+    }
 
     /// <summary>
     ///  The result of a call: `AK_OK` on success, and a negative code otherwise.

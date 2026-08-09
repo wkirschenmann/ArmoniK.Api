@@ -18,6 +18,10 @@ fn every_entry_point_is_declared_and_called_the_way_the_library_expects() {
         "ak_bytes_release",
         "ak_client_create",
         "ak_client_release",
+        "ak_request_start",
+        "ak_request_close_send",
+        "ak_request_read",
+        "ak_request_release",
     ] {
         let declaration = format!(
             "[DllImport(__DllName, EntryPoint = \"{symbol}\", \
@@ -71,9 +75,11 @@ fn every_type_of_the_contract_is_declared() {
         "public unsafe partial struct ak_bytes",
         "public unsafe partial struct ak_bytes_in",
         "public enum ak_status : int",
+        "public enum ak_event : int",
         // Opaque on this side too: the struct carries no field, and exists only so that a handle
         // has a type to be a pointer to.
         "public unsafe partial struct ak_client",
+        "public unsafe partial struct ak_request",
     ] {
         assert!(
             BINDINGS.contains(declaration),
@@ -105,9 +111,10 @@ fn nothing_here_needs_a_language_version_the_consumer_does_not_have() {
 #[test]
 fn every_delegate_is_declared_with_the_calling_convention() {
     // A callback crossing this boundary is a delegate, and one marshalled with the platform default
-    // rather than Cdecl corrupts the stack on x86. There is nothing to check while the ABI takes no
-    // callback; when it does, this is what stops the attribute from being forgotten.
-    let delegates = BINDINGS.matches("delegate ").count();
+    // rather than Cdecl corrupts the stack on x86. Declarations are counted, not mentions: a
+    // delegate is also named by the signature of every entry point that takes one.
+    let delegates = BINDINGS.matches("public delegate ").count();
+    assert!(delegates > 0, "the event callback should be a delegate");
     let marked = BINDINGS
         .matches("[UnmanagedFunctionPointer(CallingConvention.Cdecl)]")
         .count();
