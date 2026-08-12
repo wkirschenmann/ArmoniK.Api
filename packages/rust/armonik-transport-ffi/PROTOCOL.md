@@ -166,8 +166,12 @@ everything at the boundary of its own callback. The library guards its side, and
 catches ends the request with `AK_INTERNAL_PANIC` rather than corrupting anything, but that is a
 diagnosis of a bug and not a way to signal one.
 
-Nor may a callback re-enter the library for the request it is reporting on. A binding that wants to
-arm the next read on receiving a chunk records the intention and arms it from its own thread.
+Re-entry is limited, rather than forbidden. A `READ_DONE` callback may call `ak_request_read` to arm
+the next read, and a `WRITE_DONE` callback may call `ak_request_write` to arm the next write. The
+corresponding armed flag is cleared, and its internal lock released, before the callback starts;
+the newly armed operation cannot emit until the current callback has returned. No other downcall
+for that request is permitted from its callback in this ABI revision. In particular, do not wait,
+release the request or its `ctx`, close the send side, or cancel reentrantly.
 
 ## Ordering
 
@@ -215,6 +219,31 @@ ships, not by how it calls.
 
 Treat an unknown result code as a failure, and an unknown event kind as one to ignore. Zero is never
 a valid event kind, so a zeroed callback argument is never a valid event.
+
+## Failure-containment limits in this revision
+
+This revision contains failures at an entry point or at one request; it does not implement a
+runtime-wide quarantine protocol. A rejected downcall returns a status. A panic caught while the
+request task is being driven reaches that request as a terminal `AK_INTERNAL_PANIC`. The panic
+guards keep an unwind on the side where it originated.
+
+The callback ABI has no central `operation_id`, owned event queue, runtime start gate, or shutdown
+barrier. If a binding can no longer resolve `ctx`, loses an event while translating it, or detects a
+shared invariant violation, there is no call in ABI version 1 that can atomically reject all new
+requests, fail every known request, and prove that the runtime is quiescent. Ignoring an unknown
+event kind is safe only under the additive-versioning rules above; it is not a general recovery
+rule for an unknown request, stale context, duplicate terminal event, or ownership contradiction.
+
+A binding must therefore keep every callback root valid until its request's real terminal event.
+It must not claim that a damaged runtime is safe to unload or recreate. A host that suspects a
+process-wide or memory-integrity failure needs a policy outside this ABI, up to process termination
+or process isolation. Malformed network input remains a request or connection failure; it must not
+be allowed to select callback contexts or native handle identities.
+
+The replacement design's quarantine, join and `FailedUnquiesced` protocol is specified for review
+in [`DESIGN.md`](DESIGN.md#410-protocole-de-sortie-sur-rupture-dinvariant); its insertion into the
+current PR stack is tracked in [`PR_REMEDIATION.md`](PR_REMEDIATION.md). Neither document turns it
+into a promise made by ABI version 1.
 
 ## The committed artefacts
 

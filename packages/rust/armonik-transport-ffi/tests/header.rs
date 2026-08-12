@@ -167,10 +167,12 @@ fn the_contract_the_signatures_cannot_carry_is_spelled_out() {
         "Never a callback during an inbound call",
         // The borrowed payload, whose cost is a use-after-free.
         "BORROWED for the duration of the invocation",
-        // What a callback may not do.
+        // What a callback may and may not do.
         "must not block",
         "must not throw",
-        "must not re-enter",
+        "Re-entry is limited",
+        "READ_DONE may arm the next read",
+        "no other downcall for that request is permitted before return",
         // No promised order between independent events.
         "Two simultaneous events have no promised order",
         // And what a version mismatch may and may not mean.

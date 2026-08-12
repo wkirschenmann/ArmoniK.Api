@@ -53,9 +53,10 @@
  *    returning; never release one. Nothing on the event path is owned by whoever receives it.
  *
  *  - The event callback runs on a foreign thread. It must not block, must not throw or otherwise
- *    unwind into this library, and must not re-enter this library for the same request. Deliveries
- *    for one request are serialised, so it is never entered twice at once for the same request; it
- *    may be entered concurrently for different ones. COMPLETED is terminal.
+ *    unwind into this library. Re-entry is limited: READ_DONE may arm the next read and WRITE_DONE
+ *    may arm the next write; no other downcall for that request is permitted before return.
+ *    Deliveries for one request are serialised, so it is never entered twice at once for the same
+ *    request; it may be entered concurrently for different ones. COMPLETED is terminal.
  *
  *  - Two simultaneous events have no promised order. This contract never promises an ordering
  *    between two independent events, so a caller that relies on one has read into it something that
@@ -288,8 +289,9 @@ typedef struct ak_bytes_in {
  * `payload` is **borrowed** for the duration of the call: copy what is needed before returning, and
  * never release it. `code` is `AK_OK` on every event but a failed completion.
  *
- * The callback must not block, must not unwind, and must not re-enter this library for the request
- * it is reporting on.
+ * The callback must not block or unwind. Re-entry is limited: after `READ_DONE` it may arm the next
+ * read, and after `WRITE_DONE` it may arm the next write. No other downcall for this request is
+ * permitted until the callback returns.
  */
 typedef void (*ak_request_on_event)(void *ctx,
                                     int32_t kind,

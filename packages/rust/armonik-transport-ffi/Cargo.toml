@@ -11,7 +11,7 @@ version.workspace = true
 # Nothing outside this workspace consumes this crate, and its ABI is not a contract anyone has been
 # offered yet.
 publish = false
-include = ["**/*.rs", "Cargo.toml", "README.md", "cbindgen.toml", "include/*"]
+include = ["**/*.rs", "Cargo.toml", "*.md", "cbindgen.toml", "include/*"]
 
 # Both are needed: `cdylib` is what a host application loads, `lib` is what the tests link against.
 [lib]

@@ -55,9 +55,10 @@ header = """
  *    returning; never release one. Nothing on the event path is owned by whoever receives it.
  *
  *  - The event callback runs on a foreign thread. It must not block, must not throw or otherwise
- *    unwind into this library, and must not re-enter this library for the same request. Deliveries
- *    for one request are serialised, so it is never entered twice at once for the same request; it
- *    may be entered concurrently for different ones. COMPLETED is terminal.
+ *    unwind into this library. Re-entry is limited: READ_DONE may arm the next read and WRITE_DONE
+ *    may arm the next write; no other downcall for that request is permitted before return.
+ *    Deliveries for one request are serialised, so it is never entered twice at once for the same
+ *    request; it may be entered concurrently for different ones. COMPLETED is terminal.
  *
  *  - Two simultaneous events have no promised order. This contract never promises an ordering
  *    between two independent events, so a caller that relies on one has read into it something that

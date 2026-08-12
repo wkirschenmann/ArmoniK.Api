@@ -75,8 +75,9 @@ type HyperError = armonik_transport::reexports::hyper::Error;
 /// `payload` is **borrowed** for the duration of the call: copy what is needed before returning, and
 /// never release it. `code` is `AK_OK` on every event but a failed completion.
 ///
-/// The callback must not block, must not unwind, and must not re-enter this library for the request
-/// it is reporting on.
+/// The callback must not block or unwind. Re-entry is limited: after `READ_DONE` it may arm the next
+/// read, and after `WRITE_DONE` it may arm the next write. No other downcall for this request is
+/// permitted until the callback returns.
 pub type ak_request_on_event =
     Option<extern "C" fn(ctx: *mut std::ffi::c_void, kind: i32, payload: ak_bytes_in, code: i32)>;
 

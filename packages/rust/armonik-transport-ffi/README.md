@@ -13,6 +13,26 @@ level this ABI speaks, the event model and its arming rules, who owns what and u
 ordering this contract does not promise, the errors, and what may change from one revision to the
 next. Read it before writing a binding; read the header for the contract as it stands.
 
+## Design material
+
+The current ABI is still experimental. The following French documents record the V1 design choice,
+its evidence and the work required before it becomes the normative contract:
+
+- [`STATE_OF_THE_ART.md`](STATE_OF_THE_ART.md) surveys native async FFI designs, execution models,
+  academic foundations, assumptions/guarantees, futures/streams, exception projection and their
+  limits.
+- [`DESIGN.md`](DESIGN.md) applies those results to ArmoniK, selects a MsQuic-style callback into an
+  official binding trampoline, specifies object lifecycles, and defines a four-viewpoint TLA+
+  composition and performance validation process.
+- [`BASELINE_COMPARISON.md`](BASELINE_COMPARISON.md) pins and compares the current Rust FFI, the C#
+  `RustHttpHandler` spike and the selected target, including their connection and memory lifecycles.
+- [`PR_REMEDIATION.md`](PR_REMEDIATION.md) maps the design to open PRs #743–#747, identifies what is
+  reusable, and gives the rewrite, closure, rebase and TLA+ plan for the reactor and each binding.
+
+These documents are non-normative until the replacement ABI is stabilized. The generated header and
+[`PROTOCOL.md`](PROTOCOL.md) remain the description of the implementation that exists on this branch,
+not of the selected future design.
+
 ## Artefacts
 
 Three files under `include/` are generated and committed, so that a change to the contract shows up
