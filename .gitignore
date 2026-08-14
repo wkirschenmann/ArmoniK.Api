@@ -410,3 +410,8 @@ target/
 # Documentation artifacts
 build/
 .venv-doc
+
+
+# TLA files
+**/.tlacache/
+**/tla/out/

@@ -1,0 +1,92 @@
+name: TLA+ Checks
+
+# First-pass verification of spec/armonik_grpc_ffi/tla: the declaration
+# contract between AbstractGrpcTheorems and its proofs module, SANY
+# parsing, and TLC model checking of the three configurations.
+# Path-filtered so it only runs when the TLA directory (or this workflow)
+# changes, and runs in parallel with the other workflows.
+#
+# The full TLAPS proof job is deliberately absent for now: building tlapm
+# with its backends is too long for PR CI. It will consume a prebuilt
+# distribution (release tarball or container image) once the team settles
+# on one; ci/verify_proofs.sh is ready for it.
+
+on:
+  pull_request:
+    paths:
+      - "spec/armonik_grpc_ffi/tla/**"
+      - ".github/workflows/tla-proofs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "spec/armonik_grpc_ffi/tla/**"
+      - ".github/workflows/tla-proofs.yml"
+
+concurrency:
+  group: tla-proofs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TLA_DIR: spec/armonik_grpc_ffi/tla
+  TLA2TOOLS_URL: https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+  TLA2TOOLS_KEY: v1.8.0
+
+jobs:
+  interface:
+    name: Interface consistency and SANY
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Cache tla2tools
+        id: tla2tools
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4
+        with:
+          path: ${{ env.TLA_DIR }}/tla2tools.jar
+          key: tla2tools-${{ env.TLA2TOOLS_KEY }}
+
+      - name: Download tla2tools
+        if: steps.tla2tools.outputs.cache-hit != 'true'
+        run: curl -sSfL -o "$TLA_DIR/tla2tools.jar" "$TLA2TOOLS_URL"
+
+      - name: Statement contract and SANY
+        run: bash "$TLA_DIR/ci/check.sh"
+
+  tlc:
+    name: TLC (${{ matrix.cfg }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg:
+          - AbstractGrpc_MC.cfg
+          - AbstractGrpc_MC2msg.cfg
+          - AbstractGrpc_MC2call.cfg
+          - AbstractGrpc_MC2rt.cfg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Cache tla2tools
+        id: tla2tools
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4
+        with:
+          path: ${{ env.TLA_DIR }}/tla2tools.jar
+          key: tla2tools-${{ env.TLA2TOOLS_KEY }}
+
+      - name: Download tla2tools
+        if: steps.tla2tools.outputs.cache-hit != 'true'
+        run: curl -sSfL -o "$TLA_DIR/tla2tools.jar" "$TLA2TOOLS_URL"
+
+      - name: Model check
+        run: bash "$TLA_DIR/ci/tlc.sh" "${{ matrix.cfg }}"
+
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tlc-${{ matrix.cfg }}-log
+          path: ${{ env.TLA_DIR }}/out/tlc-*.log
