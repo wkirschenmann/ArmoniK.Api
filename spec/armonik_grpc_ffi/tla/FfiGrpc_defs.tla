@@ -299,9 +299,11 @@ BufferStateInv ==
     /\ EverySendHasItsBuffer
     /\ SendsLiveInOneBuffer
 
-\* The shutdown signal discipline.  The last conjunct is the formal
-\* content of "SHUTDOWN_COMPLETE is the last callback": once emitted, the
-\* runtime is quiescent and stays so.
+\* The shutdown signal discipline.  The last conjunct is the formal content of
+\* "SHUTDOWN_COMPLETE is emitted from a drained runtime": every channel closed,
+\* no delivery callback on the host stack, every send acquitted.  That is the
+\* functional drain and no more - it says nothing about what the host still
+\* holds, which is what the release tag reports and what quiescence adds.
 ShutdownSignalCore ==
     \A rtId \in RuntimeIds :
         /\ (IsShutdownCallbackRunning(rtId) => IsShutdownEventEmitted(rtId))
@@ -322,9 +324,9 @@ ReleaseSignalInv ==
                 IsResourcesReleasedEmitted(rtId))
         /\ (IsResourcesReleasedEmitted(rtId) =>
                 /\ IsShutdownEventEmitted(rtId)
-                /\ IsShutdownReleasePending(rtId))
-        /\ (IsShutdownEventEmitted(rtId) /\ ~IsShutdownReleasePending(rtId) =>
-                IsRuntimeReclaimable(rtId))
+                /\ SecondEventOwed(rtId))
+        /\ (IsShutdownEventEmitted(rtId) /\ ~SecondEventOwed(rtId) =>
+                NoHostDebt(rtId))
 
 ShutdownSignalInv ==
     /\ ShutdownSignalCore
@@ -341,7 +343,7 @@ DestroyedRuntimeIsClean ==
     \A rtId \in RuntimeIds :
         IsRuntimeDestroyed(rtId) =>
             /\ IsReleasedRuntime(rtId)
-            /\ IsRuntimeReclaimable(rtId)
+            /\ NoHostDebt(rtId)
 
 StrongInv ==
     /\ L0!StrongInv

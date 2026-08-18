@@ -5,7 +5,10 @@
 (* message delivery as seen by a client.                                   *)
 (*                                                                         *)
 (* All state is modeled as total functions over finite identifier sets.    *)
-(* RELEASED is what the ABI publishes as AK_RUNTIME_QUIESCENT.             *)
+(* RELEASED is where a runtime ends.  Level 1 refines it into two          *)
+(* observable statuses - AK_RUNTIME_GRPC_STOPPED and AK_RUNTIME_QUIESCENT -*)
+(* whose difference is what the host still holds; that ownership question  *)
+(* does not exist at this level.                                           *)
 (***************************************************************************)
 
 EXTENDS AbstractGrpcState, Naturals, Sequences
@@ -267,7 +270,7 @@ ReceiveStatus(cId) ==
                    delivered, events_delivered, send_closed>>
 
 (***************************************************************************)
-(* ACTIONS - Event delivery                                                 *)
+(* ACTIONS - Event delivery                                                *)
 (***************************************************************************)
 
 DeliverInitialMetadata(cId) ==
@@ -317,7 +320,7 @@ CallCancel(cId) ==
                    call_channel, submitted, sent, received, delivered, send_closed>>
 
 (***************************************************************************)
-(* NEXT STATE RELATION                                                      *)
+(* NEXT STATE RELATION                                                     *)
 (***************************************************************************)
 
 Next ==
@@ -342,7 +345,7 @@ Next ==
     \/ \E cId \in CallIds : CallCancel(cId)
 
 (***************************************************************************)
-(* SAFETY INVARIANTS                                                        *)
+(* SAFETY INVARIANTS                                                       *)
 (***************************************************************************)
 
 MetadataFirst ==

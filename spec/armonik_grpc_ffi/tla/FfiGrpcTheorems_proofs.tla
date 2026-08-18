@@ -19,7 +19,7 @@ USE DEF IsAwaitingWriteDone, IsWriteDoneCallbackRunning, HasFreeSendSlot,
         HostHasDeliveryCredit, HostOwnsAtMostCredits,
         HostOwnsAtMostCreditsPlusOne, IsShutdownEventEmitted,
         IsShutdownCallbackRunning, IsStoppingRuntime, IsReleasedRuntime,
-        IsShutdownReleasePending, IsResourcesReleasedEmitted,
+        SecondEventOwed, IsResourcesReleasedEmitted,
         IsResourcesReleasedCallbackRunning,
         IsClosingChannel, IsClosedChannel, HasNoDeliveredEvents
 
@@ -336,7 +336,7 @@ LEMMA OnlyShutdownStepsWriteShutdownFlags ==
     PROVE  \/ \E rt \in RuntimeIds : EmitShutdownComplete(rt)
            \/ \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
            \/ UNCHANGED <<shutdown_event_emitted, shutdown_callback_running,
-                          shutdown_release_pending>>
+                          second_event_owed>>
 <1>1. CASE NextSafeRefining
     BY <1>1, SMTT(120)
     DEF NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
@@ -522,7 +522,7 @@ FfiTypes ==
     /\ cancel_requested \in [CallIds -> BOOLEAN]
     /\ shutdown_event_emitted \in [RuntimeIds -> BOOLEAN]
     /\ shutdown_callback_running \in [RuntimeIds -> BOOLEAN]
-    /\ shutdown_release_pending \in [RuntimeIds -> BOOLEAN]
+    /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
 
@@ -766,22 +766,22 @@ LEMMA RefiningPreservesFfiTypes ==
     <3>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
       BY <1>1, <2>0, <3>7, FS_AddElement, SMTT(120)
       DEF DeliverInitialMetadata, L0!DeliverInitialMetadata,
-          HandPayloadToHost, IsDeliverySlotFree, FfiTypes,
+          HandPayloadToHost, HasFreeDeliverySlot, FfiTypes,
           TypeOK, L0!TypeOK
     <3>8. CASE \E cId \in CallIds : DeliverMessage(cId)
       BY <1>1, <2>0, <3>8, FS_AddElement, SMTT(120)
       DEF DeliverMessage, L0!DeliverMessage,
-          HandPayloadToHost, IsDeliverySlotFree, FfiTypes,
+          HandPayloadToHost, HasFreeDeliverySlot, FfiTypes,
           TypeOK, L0!TypeOK
     <3>9. CASE \E cId \in CallIds : DeliverStatus(cId)
       BY <1>1, <2>0, <3>9, FS_AddElement, SMTT(120)
       DEF DeliverStatus, L0!DeliverStatus,
-          HandPayloadToHost, IsDeliverySlotFreeForTerminal, FfiTypes,
+          HandPayloadToHost, HasFreeDeliverySlotForTerminal, FfiTypes,
           TypeOK, L0!TypeOK
     <3>10. CASE \E cId \in CallIds : DeliverCancelled(cId)
       BY <1>1, <2>0, <3>10, FS_AddElement, SMTT(120)
       DEF DeliverCancelled, L0!CallCancel,
-          HandPayloadToHost, IsDeliverySlotFreeForTerminal, FfiTypes,
+          HandPayloadToHost, HasFreeDeliverySlotForTerminal, FfiTypes,
           TypeOK, L0!TypeOK
     <3>11. QED BY <1>1, <2>5, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>7,
                    <3>8, <3>9, <3>10 DEF NextSafeCallOnly
@@ -1700,11 +1700,11 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 <1>0. TypeOK
     BY Zenon DEF StrongInv
-<1>1. IsReleasedRuntime(rtId) /\ IsRuntimeReclaimable(rtId)
+<1>1. IsReleasedRuntime(rtId) /\ NoHostDebt(rtId)
     BY Zenon DEF StrongInv, DestroyedRuntimeIsClean
 \* The guard reclamation and the cancel request both read.
-<1>2. IsCallRuntimeDestroyed(cId)
-    BY Zenon DEF IsCallRuntimeDestroyed
+<1>2. IsRuntimeOfCallDestroyed(cId)
+    BY Zenon DEF IsRuntimeOfCallDestroyed
 <1>3. ~ReleaseCallHandle(cId) /\ ~RequestCallCancellation(cId)
     BY <1>2, Zenon DEF ReleaseCallHandle, RequestCallCancellation
 \* An active call hangs off an active channel, and an active channel
@@ -1718,7 +1718,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
         IsReleasedRuntime, TypeOK, L0!TypeOK, L0!ChannelStates,
         L0!CallStates, L0!RuntimeStates
 <1>5. HostHoldsNoBuffer(cId)
-    BY <1>1, Zenon DEF IsRuntimeReclaimable
+    BY <1>1, Zenon DEF NoHostDebt
 \* Lending and both level-0 send actions need an active call; giving a
 \* buffer back needs one to be lent, and none is - the count is zero and
 \* the bridge ties the count to the states.
@@ -2802,7 +2802,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
           BY <1>1, <4>1, SMT
-          DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree,
+          DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
@@ -2815,7 +2815,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>7, StatusKindsExpansion, SMTT(120)
-      DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
@@ -2826,7 +2826,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ PayloadsOwnedWithinCreditsPlusOne
            /\ ReleasesNeverExceedDeliveries)'
       BY <1>1, <2>7, DeliveryCreditsArePositive, SMTT(120)
-      DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ActiveCallPayloadsWithinCredits, PayloadsOwnedWithinCreditsPlusOne,
           ReleasesNeverExceedDeliveries,
@@ -2860,7 +2860,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>121. (/\ UnusedCallsAreFfiClean
                /\ TerminalCallHasNoSendInFlight)'
         BY <1>1, <2>7, <4>10, <4>11, SMTT(120)
-          DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree, L0!RuntimeVars, L0!ChannelVars,
+          DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
               TypeOK, L0!TypeOK, FfiCallInv,
               UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
               WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
@@ -2884,7 +2884,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
           BY <1>1, <4>1, SMT
-          DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree,
+          DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
@@ -2897,7 +2897,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>8, StatusKindsExpansion, SMTT(120)
-      DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
@@ -2908,7 +2908,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ PayloadsOwnedWithinCreditsPlusOne
            /\ ReleasesNeverExceedDeliveries)'
       BY <1>1, <2>8, DeliveryCreditsArePositive, SMTT(120)
-      DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ActiveCallPayloadsWithinCredits, PayloadsOwnedWithinCreditsPlusOne,
           ReleasesNeverExceedDeliveries,
@@ -2942,7 +2942,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>121. (/\ UnusedCallsAreFfiClean
                /\ TerminalCallHasNoSendInFlight)'
         BY <1>1, <2>8, <4>10, <4>11, SMTT(120)
-          DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree, L0!RuntimeVars, L0!ChannelVars,
+          DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
               TypeOK, L0!TypeOK, FfiCallInv,
               UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
               WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
@@ -2966,7 +2966,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
           BY <1>1, <4>1, SMT
-          DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+          DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
@@ -2979,7 +2979,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>9, StatusKindsExpansion, SMTT(120)
-      DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
@@ -2990,7 +2990,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ PayloadsOwnedWithinCreditsPlusOne
            /\ ReleasesNeverExceedDeliveries)'
       BY <1>1, <2>9, DeliveryCreditsArePositive, SMTT(120)
-      DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ActiveCallPayloadsWithinCredits, PayloadsOwnedWithinCreditsPlusOne,
           ReleasesNeverExceedDeliveries,
@@ -3024,7 +3024,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>121. (/\ UnusedCallsAreFfiClean
                /\ TerminalCallHasNoSendInFlight)'
         BY <1>1, <2>9, <4>10, <4>11, SMTT(120)
-          DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+          DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
               TypeOK, L0!TypeOK, FfiCallInv,
               UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
               WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
@@ -3048,7 +3048,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
           BY <1>1, <4>1, SMT
-          DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+          DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
@@ -3061,7 +3061,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>10, StatusKindsExpansion, SMTT(120)
-      DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
@@ -3072,7 +3072,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
            /\ PayloadsOwnedWithinCreditsPlusOne
            /\ ReleasesNeverExceedDeliveries)'
       BY <1>1, <2>10, DeliveryCreditsArePositive, SMTT(120)
-      DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+      DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
           ActiveCallPayloadsWithinCredits, PayloadsOwnedWithinCreditsPlusOne,
           ReleasesNeverExceedDeliveries,
@@ -3106,7 +3106,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>121. (/\ UnusedCallsAreFfiClean
                /\ TerminalCallHasNoSendInFlight)'
         BY <1>1, <2>10, <4>10, <4>11, SMTT(120)
-          DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+          DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
               TypeOK, L0!TypeOK, FfiCallInv,
               UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
               WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
@@ -4022,8 +4022,8 @@ LEMMA SafeKeepsNotFailed ==
 \* something a call carrying the whole invariant can arrange.
 LEMMA StutterKeepsReclaimable ==
     ASSUME NEW rtId \in RuntimeIds, UNCHANGED vars,
-           IsRuntimeReclaimable(rtId)
-    PROVE  (IsRuntimeReclaimable(rtId))'
+           NoHostDebt(rtId)
+    PROVE  (NoHostDebt(rtId))'
 <1>1. /\ call_channel' = call_channel
       /\ channel_runtime' = channel_runtime
       /\ events_delivered' = events_delivered
@@ -4033,11 +4033,11 @@ LEMMA StutterKeepsReclaimable ==
 <1>2. SUFFICES ASSUME NEW cId \in CallIds,
                       (call_channel[cId])' \in (L0!ChannelsOf(rtId))'
                PROVE  (HostOwnsNoPayload(cId))' /\ (HostHoldsNoBuffer(cId))'
-    BY Zenon DEF IsRuntimeReclaimable
+    BY Zenon DEF NoHostDebt
 <1>3. call_channel[cId] \in L0!ChannelsOf(rtId)
     BY <1>1, <1>2, Zenon DEF L0!ChannelsOf
 <1>4. HostOwnsNoPayload(cId) /\ HostHoldsNoBuffer(cId)
-    BY <1>3, Zenon DEF IsRuntimeReclaimable
+    BY <1>3, Zenon DEF NoHostDebt
 \* Pointwise before arithmetic: the last call should have no function
 \* extensionality left to do.
 <1>45. /\ (events_delivered[cId])' = events_delivered[cId]
@@ -4067,10 +4067,10 @@ LEMMA StutterPreservesShutdownSignal ==
                              IsResourcesReleasedEmitted(rtId))'
                       /\ (IsResourcesReleasedEmitted(rtId) =>
                              /\ IsShutdownEventEmitted(rtId)
-                             /\ IsShutdownReleasePending(rtId))'
+                             /\ SecondEventOwed(rtId))'
                       /\ (IsShutdownEventEmitted(rtId) /\
-                             ~IsShutdownReleasePending(rtId) =>
-                                 IsRuntimeReclaimable(rtId))'
+                             ~SecondEventOwed(rtId) =>
+                                 NoHostDebt(rtId))'
     BY Zenon DEF ShutdownSignalInv, ShutdownSignalCore, ReleaseSignalInv
 <1>2. /\ (IsShutdownCallbackRunning(rtId) => IsShutdownEventEmitted(rtId))'
       /\ (IsShutdownEventEmitted(rtId) =>
@@ -4082,7 +4082,7 @@ LEMMA StutterPreservesShutdownSignal ==
              IsResourcesReleasedEmitted(rtId))'
       /\ (IsResourcesReleasedEmitted(rtId) =>
              /\ IsShutdownEventEmitted(rtId)
-             /\ IsShutdownReleasePending(rtId))'
+             /\ SecondEventOwed(rtId))'
     BY <1>1, SMT DEF vars, l0_vars, L0!vars, ffi_vars, ShutdownSignalInv,
         ShutdownSignalCore, ReleaseSignalInv
 <1>3. (IsShutdownEventEmitted(rtId) => IsRuntimeDrained(rtId))'
@@ -4092,12 +4092,12 @@ LEMMA StutterPreservesShutdownSignal ==
         IsRuntimeDrained, L0!ChannelsOf
 \* The instance first, as a ground fact: carrying the whole invariant into a
 \* call that also expands the ledger is what put this one over budget.
-<1>35. IsShutdownEventEmitted(rtId) /\ ~IsShutdownReleasePending(rtId)
-           => IsRuntimeReclaimable(rtId)
+<1>35. IsShutdownEventEmitted(rtId) /\ ~SecondEventOwed(rtId)
+           => NoHostDebt(rtId)
     BY <1>1, Zenon DEF ShutdownSignalInv, ShutdownSignalCore,
         ReleaseSignalInv
-<1>4. (IsShutdownEventEmitted(rtId) /\ ~IsShutdownReleasePending(rtId) =>
-           IsRuntimeReclaimable(rtId))'
+<1>4. (IsShutdownEventEmitted(rtId) /\ ~SecondEventOwed(rtId) =>
+           NoHostDebt(rtId))'
     BY <1>1, <1>35, StutterKeepsReclaimable, SMT
     DEF vars, l0_vars, L0!vars, ffi_vars
 <1>5. QED BY <1>2, <1>3, <1>4
@@ -4367,14 +4367,14 @@ LEMMA EveryStepEitherLendsOrKeepsBuffers ==
 \* event satisfy them, by different routes, and neither route belongs here.
 LEMMA QuietRuntimeStaysReclaimable ==
     ASSUME TypeOK, Next, NEW rtId \in RuntimeIds,
-           IsRuntimeReclaimable(rtId),
+           NoHostDebt(rtId),
            \A c \in CallIds :
                call_channel[c] \in L0!ChannelsOf(rtId) =>
                    ~L0!IsActiveCall(c),
            \A c \in CallIds :
                (call_channel[c])' \in (L0!ChannelsOf(rtId))' =>
                    call_channel[c] \in L0!ChannelsOf(rtId)
-    PROVE  (IsRuntimeReclaimable(rtId))'
+    PROVE  (NoHostDebt(rtId))'
 <1>0. TypeOK
     OBVIOUS
 <1>01. \A c \in CallIds :
@@ -4383,7 +4383,7 @@ LEMMA QuietRuntimeStaysReclaimable ==
 <1>02. \A c \in CallIds :
            call_channel[c] \in L0!ChannelsOf(rtId) =>
                HostOwnsNoPayload(c) /\ HostHoldsNoBuffer(c)
-    BY Zenon DEF IsRuntimeReclaimable
+    BY Zenon DEF NoHostDebt
 <1>1. \A c \in CallIds :
           (call_channel[c])' \in (L0!ChannelsOf(rtId))' =>
               call_channel[c] \in L0!ChannelsOf(rtId)
@@ -4455,7 +4455,7 @@ LEMMA QuietRuntimeStaysReclaimable ==
     BY <2>0, <2>2, <2>3, Zenon DEF HostHoldsNoBuffer
 
 <1>3. QED
-    BY <1>1, <1>2, Zenon DEF IsRuntimeReclaimable
+    BY <1>1, <1>2, Zenon DEF NoHostDebt
 
 \* A released runtime cannot be handed a debt back.  Its calls are all
 \* terminal - an active call needs an open or closing channel, and a
@@ -4465,8 +4465,8 @@ LEMMA QuietRuntimeStaysReclaimable ==
 \* either: starting a call needs an open channel on a RUNNING runtime.
 LEMMA ReleasedRuntimeStaysClean ==
     ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
-           IsReleasedRuntime(rtId), IsRuntimeReclaimable(rtId)
-    PROVE  (IsReleasedRuntime(rtId))' /\ (IsRuntimeReclaimable(rtId))'
+           IsReleasedRuntime(rtId), NoHostDebt(rtId)
+    PROVE  (IsReleasedRuntime(rtId))' /\ (NoHostDebt(rtId))'
 <1>0. TypeOK
     BY Zenon DEF StrongInv
 \* An active call hangs off an active channel, and an active channel hangs
@@ -4483,7 +4483,7 @@ LEMMA ReleasedRuntimeStaysClean ==
 <1>02. \A c \in CallIds :
            call_channel[c] \in L0!ChannelsOf(rtId) =>
                HostOwnsNoPayload(c) /\ HostHoldsNoBuffer(c)
-    BY Zenon DEF IsRuntimeReclaimable
+    BY Zenon DEF NoHostDebt
 \* RELEASED is absorbing: every step that writes runtime_state demands a
 \* different prior state, and none of them creates a channel here either.
 <1>1. /\ (IsReleasedRuntime(rtId))'
@@ -4514,8 +4514,8 @@ LEMMA ReleasedRuntimeStaysClean ==
         L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
         vars, ffi_vars, RequestCancellationOfActiveCalls,
-        HandPayloadToHost, IsDeliverySlotFree,
-        IsDeliverySlotFreeForTerminal, IsRuntimeDrained,
+        HandPayloadToHost, HasFreeDeliverySlot,
+        HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         L0!ChannelsOf, IsReleasedRuntime, TypeOK, L0!TypeOK
 <1>2. QED
     BY <1>0, <1>01, <1>1, QuietRuntimeStaysReclaimable, Zenon
@@ -4553,8 +4553,8 @@ LEMMA NextPreservesFreshBuffers ==
         L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
         L0!NetworkReceive, L0!ReceiveStatus, L0!DeliverInitialMetadata,
         L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
-        HandPayloadToHost, IsDeliverySlotFree,
-        IsDeliverySlotFreeForTerminal, L0!IsActiveCall,
+        HandPayloadToHost, HasFreeDeliverySlot,
+        HasFreeDeliverySlotForTerminal, L0!IsActiveCall,
         L0!ActiveCallStates, L0!CallVars, L0!IsUnusedCall, L0!CallStates, TypeOK, L0!TypeOK
   <2>4. CASE NextSafeFfiOnly
     <3>1. UNCHANGED l0_vars
@@ -5121,10 +5121,10 @@ LEMMA NextPreservesDestroyedClean ==
 <1>1. SUFFICES ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
                       (IsRuntimeDestroyed(rtId))'
                PROVE  /\ (IsReleasedRuntime(rtId))'
-                      /\ (IsRuntimeReclaimable(rtId))'
+                      /\ (NoHostDebt(rtId))'
     BY Zenon DEF DestroyedRuntimeIsClean
 <1>2. CASE IsRuntimeDestroyed(rtId)
-  <2>1. IsReleasedRuntime(rtId) /\ IsRuntimeReclaimable(rtId)
+  <2>1. IsReleasedRuntime(rtId) /\ NoHostDebt(rtId)
     BY <1>1, <1>2, Zenon DEF StrongInv, DestroyedRuntimeIsClean
   <2>2. QED
     BY <1>1, <2>1, ReleasedRuntimeStaysClean
@@ -5157,10 +5157,10 @@ LEMMA NextPreservesDestroyedClean ==
         L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
         vars, ffi_vars, RequestCancellationOfActiveCalls,
-        HandPayloadToHost, IsDeliverySlotFree,
-        IsDeliverySlotFreeForTerminal, IsRuntimeDrained,
+        HandPayloadToHost, HasFreeDeliverySlot,
+        HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         IsRuntimeDestroyed, TypeOK, L0!TypeOK
-  <2>2. IsReleasedRuntime(rtId) /\ IsRuntimeReclaimable(rtId)
+  <2>2. IsReleasedRuntime(rtId) /\ NoHostDebt(rtId)
     BY <2>1, Zenon DEF RuntimeDestroy, IsRuntimeQuiescent
   <2>3. QED
     BY <1>1, <2>2, ReleasedRuntimeStaysClean
@@ -5251,8 +5251,8 @@ LEMMA OnlyCallStartWritesCallChannel ==
 \* needs its runtime RUNNING, and this one is past that.
 LEMMA EmittedRuntimeStaysReclaimable ==
     ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
-           IsShutdownEventEmitted(rtId), IsRuntimeReclaimable(rtId)
-    PROVE  (IsRuntimeReclaimable(rtId))'
+           IsShutdownEventEmitted(rtId), NoHostDebt(rtId)
+    PROVE  (NoHostDebt(rtId))'
 <1>1. TypeOK /\ L0!StrongInv
     BY Zenon DEF StrongInv
 <1>2. IsRuntimeDrained(rtId)
@@ -5299,10 +5299,10 @@ LEMMA NextPreservesReleaseSignal ==
                           (IsResourcesReleasedEmitted(rtId))'
                       /\ (IsResourcesReleasedEmitted(rtId))' =>
                           /\ (IsShutdownEventEmitted(rtId))'
-                          /\ (IsShutdownReleasePending(rtId))'
+                          /\ (SecondEventOwed(rtId))'
                       /\ ((IsShutdownEventEmitted(rtId))' /\
-                          ~(IsShutdownReleasePending(rtId))') =>
-                              (IsRuntimeReclaimable(rtId))'
+                          ~(SecondEventOwed(rtId))') =>
+                              (NoHostDebt(rtId))'
     BY Zenon DEF ReleaseSignalInv
 <1>2. TypeOK
     BY Zenon DEF StrongInv
@@ -5331,38 +5331,38 @@ LEMMA NextPreservesReleaseSignal ==
 \* flags, and once the event is out neither can move again.
 <1>4. (IsResourcesReleasedEmitted(rtId))' =>
           /\ (IsShutdownEventEmitted(rtId))'
-          /\ (IsShutdownReleasePending(rtId))'
+          /\ (SecondEventOwed(rtId))'
   <2>0. SUFFICES ASSUME (IsResourcesReleasedEmitted(rtId))'
                  PROVE  /\ (IsShutdownEventEmitted(rtId))'
-                        /\ (IsShutdownReleasePending(rtId))'
+                        /\ (SecondEventOwed(rtId))'
     OBVIOUS
   <2>1. ASSUME EmitResourcesReleased(rtId)
         PROVE  /\ (IsShutdownEventEmitted(rtId))'
-               /\ (IsShutdownReleasePending(rtId))'
+               /\ (SecondEventOwed(rtId))'
     BY <1>2, <2>1, SMT
     DEF EmitResourcesReleased, IsShutdownEventEmitted,
-        IsShutdownReleasePending, TypeOK, L0!TypeOK
+        SecondEventOwed, TypeOK, L0!TypeOK
 \* Not this step's flag, so the event was already out - and an emitted runtime
 \* cannot emit again, which is what freezes its tag.
   <2>2. ASSUME IsResourcesReleasedEmitted(rtId)
         PROVE  /\ (IsShutdownEventEmitted(rtId))'
-               /\ (IsShutdownReleasePending(rtId))'
-    <3>0. IsShutdownEventEmitted(rtId) /\ IsShutdownReleasePending(rtId)
+               /\ (SecondEventOwed(rtId))'
+    <3>0. IsShutdownEventEmitted(rtId) /\ SecondEventOwed(rtId)
       BY <2>2, Zenon
       DEF StrongInv, ShutdownSignalInv, ReleaseSignalInv
     <3>1. CASE \E rt \in RuntimeIds : EmitShutdownComplete(rt)
       BY <1>2, <3>0, <3>1, SMT
       DEF EmitShutdownComplete, IsShutdownEventEmitted,
-          IsShutdownReleasePending, TypeOK, L0!TypeOK
+          SecondEventOwed, TypeOK, L0!TypeOK
     <3>2. CASE \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
       BY <1>2, <3>0, <3>2, SMT
       DEF ShutdownCallbackReturns, IsShutdownEventEmitted,
-          IsShutdownReleasePending, TypeOK, L0!TypeOK
+          SecondEventOwed, TypeOK, L0!TypeOK
     <3>3. CASE UNCHANGED <<shutdown_event_emitted,
                            shutdown_callback_running,
-                           shutdown_release_pending>>
+                           second_event_owed>>
       BY <3>0, <3>3, SMT
-      DEF IsShutdownEventEmitted, IsShutdownReleasePending
+      DEF IsShutdownEventEmitted, SecondEventOwed
     <3>4. QED
       BY <3>1, <3>2, <3>3, OnlyShutdownStepsWriteShutdownFlags, Zenon
   <2>3. CASE \E rt \in RuntimeIds : EmitResourcesReleased(rt)
@@ -5403,31 +5403,31 @@ LEMMA NextPreservesReleaseSignal ==
 \* so the invariant already says the ledger was empty, and an emitted runtime
 \* cannot be handed a debt back.
 <1>5. ((IsShutdownEventEmitted(rtId))' /\
-       ~(IsShutdownReleasePending(rtId))') => (IsRuntimeReclaimable(rtId))'
+       ~(SecondEventOwed(rtId))') => (NoHostDebt(rtId))'
   <2>0. SUFFICES ASSUME (IsShutdownEventEmitted(rtId))',
-                        ~(IsShutdownReleasePending(rtId))'
-                 PROVE  (IsRuntimeReclaimable(rtId))'
+                        ~(SecondEventOwed(rtId))'
+                 PROVE  (NoHostDebt(rtId))'
     OBVIOUS
   <2>1. ASSUME EmitShutdownComplete(rtId)
-        PROVE  (IsRuntimeReclaimable(rtId))'
-    <3>1. IsRuntimeReclaimable(rtId)
+        PROVE  (NoHostDebt(rtId))'
+    <3>1. NoHostDebt(rtId)
       BY <1>2, <2>0, <2>1, SMT
-      DEF EmitShutdownComplete, IsShutdownReleasePending, TypeOK, L0!TypeOK
+      DEF EmitShutdownComplete, SecondEventOwed, TypeOK, L0!TypeOK
     <3>2. QED
       BY <1>2, <2>1, <3>1, SMT
-      DEF EmitShutdownComplete, IsRuntimeReclaimable, HostOwnsNoPayload,
+      DEF EmitShutdownComplete, NoHostDebt, HostOwnsNoPayload,
           HostHoldsNoBuffer, OwedPayloads, L0!ChannelsOf, l0_vars, L0!vars,
           L0!RuntimeVars, L0!ChannelVars, L0!CallVars, TypeOK, L0!TypeOK
 \* Anything else leaves this runtime's two flags where they were, so the
 \* invariant hands over an empty ledger and the runtime keeps it empty.
   <2>2. ASSUME shutdown_event_emitted'[rtId] = shutdown_event_emitted[rtId],
-               shutdown_release_pending'[rtId] =
-                   shutdown_release_pending[rtId]
-        PROVE  (IsRuntimeReclaimable(rtId))'
-    <3>1. IsShutdownEventEmitted(rtId) /\ ~IsShutdownReleasePending(rtId)
+               second_event_owed'[rtId] =
+                   second_event_owed[rtId]
+        PROVE  (NoHostDebt(rtId))'
+    <3>1. IsShutdownEventEmitted(rtId) /\ ~SecondEventOwed(rtId)
       BY <2>0, <2>2, Zenon
-      DEF IsShutdownEventEmitted, IsShutdownReleasePending
-    <3>2. IsRuntimeReclaimable(rtId)
+      DEF IsShutdownEventEmitted, SecondEventOwed
+    <3>2. NoHostDebt(rtId)
       BY <3>1, Zenon
       DEF StrongInv, ShutdownSignalInv, ReleaseSignalInv
     <3>3. QED
@@ -5440,8 +5440,8 @@ LEMMA NextPreservesReleaseSignal ==
 \* Another runtime's event moves only that runtime's entries.
     <3>3. CASE rt # rtId
       <4>1. /\ shutdown_event_emitted'[rtId] = shutdown_event_emitted[rtId]
-            /\ shutdown_release_pending'[rtId] =
-                   shutdown_release_pending[rtId]
+            /\ second_event_owed'[rtId] =
+                   second_event_owed[rtId]
         BY <1>2, <3>1, <3>3, SMT
         DEF EmitShutdownComplete, TypeOK, L0!TypeOK
       <4>2. QED
@@ -5450,16 +5450,16 @@ LEMMA NextPreservesReleaseSignal ==
       BY <3>2, <3>3
   <2>4. CASE \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
     <3>1. /\ shutdown_event_emitted'[rtId] = shutdown_event_emitted[rtId]
-          /\ shutdown_release_pending'[rtId] =
-                 shutdown_release_pending[rtId]
+          /\ second_event_owed'[rtId] =
+                 second_event_owed[rtId]
       BY <2>4, SMT DEF ShutdownCallbackReturns
     <3>2. QED
       BY <2>2, <3>1
   <2>5. CASE UNCHANGED <<shutdown_event_emitted, shutdown_callback_running,
-                         shutdown_release_pending>>
+                         second_event_owed>>
     <3>1. /\ shutdown_event_emitted'[rtId] = shutdown_event_emitted[rtId]
-          /\ shutdown_release_pending'[rtId] =
-                 shutdown_release_pending[rtId]
+          /\ second_event_owed'[rtId] =
+                 second_event_owed[rtId]
       BY <2>5, SMT
     <3>2. QED
       BY <2>2, <3>1
@@ -5736,7 +5736,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!CallStates
     <3>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
       BY <1>1, <3>7, SMTT(120)
-      DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree,
+      DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot,
           L0!RuntimeVars, L0!ChannelVars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
         StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
         L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
@@ -5753,7 +5753,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!CallStates
     <3>8. CASE \E cId \in CallIds : DeliverMessage(cId)
       BY <1>1, <3>8, SMTT(120)
-      DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree,
+      DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot,
           L0!RuntimeVars, L0!ChannelVars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
         StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
         L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
@@ -5770,7 +5770,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!CallStates
     <3>9. CASE \E cId \in CallIds : DeliverStatus(cId)
       BY <1>1, <3>9, SMTT(120)
-      DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+      DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
           L0!RuntimeVars, L0!ChannelVars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
         StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
         L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
@@ -5787,7 +5787,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!CallStates
     <3>10. CASE \E cId \in CallIds : DeliverCancelled(cId)
       BY <1>1, <3>10, SMTT(120)
-      DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+      DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
           L0!RuntimeVars, L0!ChannelVars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
         StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
         L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
@@ -6220,7 +6220,7 @@ LEMMA MetadataStepProjects ==
                <<L0!DeliverInitialMetadata(cId)>>_l0_vars
 <1>1. QED
     BY SMT DEF DeliverInitialMetadata, L0!DeliverInitialMetadata,
-        HandPayloadToHost, IsDeliverySlotFree, TypeOK, L0!TypeOK,
+        HandPayloadToHost, HasFreeDeliverySlot, TypeOK, L0!TypeOK,
         l0_vars, L0!vars, vars, ffi_vars, L0!RuntimeVars, L0!ChannelVars,
         L0!IsActiveCall, L0!ActiveCallStates
 
@@ -6256,7 +6256,7 @@ LEMMA MetadataEnabledBridge ==
                ENABLED <<DeliverInitialMetadata(cId)>>_vars
 <1>1. QED
     BY ExpandENABLED, FS_EmptySet, DeliveryCreditsArePositive, SMT
-    DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree,
+    DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot,
         NoDeliveryImpliesNoDebt, TypeOK, L0!TypeOK,
         l0_vars, L0!vars, vars, ffi_vars, L0!RuntimeVars, L0!ChannelVars,
         L0!IsActiveCall, L0!ActiveCallStates
@@ -6370,8 +6370,8 @@ LEMMA DeliverySubscriptCollapses ==
            /\ <<DeliverCancelled(cId)>>_vars <=> DeliverCancelled(cId)
 <1>1. QED
     BY SMT DEF DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        DeliverCancelled, HandPayloadToHost, IsDeliverySlotFree,
-        IsDeliverySlotFreeForTerminal, IsDeliveryCallbackRunning,
+        DeliverCancelled, HandPayloadToHost, HasFreeDeliverySlot,
+        HasFreeDeliverySlotForTerminal, IsDeliveryCallbackRunning,
         vars, ffi_vars, TypeOK
 
 \* The runtime-level pair, for the shutdown frames.
@@ -6427,7 +6427,7 @@ LEMMA CancelMonotone ==
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent,
         LendSendBuffer, HostReturnsBuffer, FreeReturnedBuffer,
-        RequestCancellationOfActiveCalls, HandPayloadToHost, IsDeliverySlotFree, IsDeliverySlotFreeForTerminal, IsRuntimeDrained,
+        RequestCancellationOfActiveCalls, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
         vars, ffi_vars, L0!ChannelsOf, L0!CallsOf,
         L0!IsActiveCall, L0!IsUnusedCall, L0!IsTerminalCall,
@@ -6523,7 +6523,7 @@ LEMMA CallbackFrame ==
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent,
         LendSendBuffer, HostReturnsBuffer, FreeReturnedBuffer,
-        RequestCancellationOfActiveCalls, HandPayloadToHost, IsDeliverySlotFree, IsDeliverySlotFreeForTerminal, IsRuntimeDrained,
+        RequestCancellationOfActiveCalls, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
         vars, ffi_vars, L0!ChannelsOf, L0!CallsOf,
         L0!IsActiveCall, L0!IsUnusedCall, L0!IsTerminalCall,
@@ -6885,7 +6885,7 @@ LEMMA DS1EnabledBridge ==
            => ENABLED <<DeliverStatus(cId)>>_vars
 <1>1. QED
     BY ExpandENABLED, SMT
-    DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         ActiveCallPayloadsWithinCredits, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, StatusReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -6903,7 +6903,7 @@ LEMMA DC1EnabledBridge ==
            => ENABLED <<DeliverCancelled(cId)>>_vars
 <1>1. QED
     BY ExpandENABLED, SMT
-    DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         ActiveCallPayloadsWithinCredits, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, StatusReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -6914,7 +6914,7 @@ LEMMA DS1StepProjects ==
     PROVE  TypeOK /\ <<DeliverStatus(cId)>>_vars =>
                <<L0!DeliverStatus(cId)>>_l0_vars
 <1>1. QED
-    BY SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    BY SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, StatusReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -6925,7 +6925,7 @@ LEMMA DS1Kills ==
     PROVE  TypeOK /\ <<DeliverStatus(cId)>>_vars =>
                (~StatusReady(cId))'
 <1>1. QED
-    BY SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    BY SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, StatusReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -6936,7 +6936,7 @@ LEMMA DC1Kills ==
     PROVE  TypeOK /\ <<DeliverCancelled(cId)>>_vars =>
                (~StatusReady(cId))'
 <1>1. QED
-    BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, StatusReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -6987,8 +6987,8 @@ LEMMA StatusReadyStable ==
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
             L0!NetworkSend, L0!NetworkReceive, L0!ReceiveStatus,
             L0!DeliverInitialMetadata, L0!DeliverMessage, L0!DeliverStatus,
-            L0!CallCancel, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+            L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
             L0!CallVars, L0!vars, l0_vars,
             StatusReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!HasStatus, L0!IsUnusedCall,
@@ -7110,23 +7110,23 @@ LEMMA StatusReadyDrainStable ==
           BY <1>2, <5>1, Zenon DEF IsDeliveryCallbackRunning
       <4>2. CASE \E c \in CallIds : DeliverInitialMetadata(c)
         BY <1>2, <2>1, <2>2, <4>2, SMT
-        DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, IsDeliveryCallbackRunning,
+        DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, IsDeliveryCallbackRunning,
             TypeOK, L0!TypeOK
       <4>3. CASE \E c \in CallIds : DeliverMessage(c)
         BY <1>2, <2>1, <2>2, <4>3, SMT
-        DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, IsDeliveryCallbackRunning,
+        DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, IsDeliveryCallbackRunning,
             TypeOK, L0!TypeOK
       <4>4. CASE \E c \in CallIds : DeliverStatus(c)
         BY <1>2, <2>1, <2>2, <4>4, SMT
-        DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, IsDeliveryCallbackRunning,
+        DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, IsDeliveryCallbackRunning,
             TypeOK, L0!TypeOK
       <4>5. CASE \E c \in CallIds : DeliverCancelled(c)
         BY <1>2, <2>1, <2>2, <4>5, SMT
-        DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, IsDeliveryCallbackRunning,
+        DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, IsDeliveryCallbackRunning,
             TypeOK, L0!TypeOK
       <4>6. QED
         BY <3>2, <4>1, <4>2, <4>3, <4>4, <4>5 DEF NextSafeCallOnly
@@ -7762,8 +7762,8 @@ LEMMA DeliveriesAreNotStutter ==
 <1>2. QED
     BY <1>1, SMT
     DEF DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        DeliverCancelled, HandPayloadToHost, IsDeliverySlotFree,
-        IsDeliverySlotFreeForTerminal, vars, l0_vars, L0!vars, ffi_vars
+        DeliverCancelled, HandPayloadToHost, HasFreeDeliverySlot,
+        HasFreeDeliverySlotForTerminal, vars, l0_vars, L0!vars, ffi_vars
 
 \* The debt only shrinks while no delivery refills it.
 LEMMA DebtShrinksUnderNoDeliveries ==
@@ -8169,7 +8169,7 @@ LEMMA DM1EnabledBridge ==
            => ENABLED <<DeliverMessage(cId)>>_vars
 <1>1. QED
     BY ExpandENABLED, SMT
-    DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree,
+    DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, MsgReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -8180,7 +8180,7 @@ LEMMA DM1StepProjects ==
     PROVE  TypeOK /\ <<DeliverMessage(cId)>>_vars =>
                <<L0!DeliverMessage(cId)>>_l0_vars
 <1>1. QED
-    BY SMT DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, IsDeliverySlotFree,
+    BY SMT DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, MsgReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -8191,7 +8191,7 @@ LEMMA DC1KillsMsg ==
     PROVE  TypeOK /\ <<DeliverCancelled(cId)>>_vars =>
                (~MsgReady(cId))'
 <1>1. QED
-    BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, MsgReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -8202,7 +8202,7 @@ LEMMA NoDSUnderMsgReady ==
     ASSUME NEW cId \in CallIds
     PROVE  TypeOK /\ MsgReady(cId) => ~<<DeliverStatus(cId)>>_vars
 <1>1. QED
-    BY SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    BY SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, MsgReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -8252,8 +8252,8 @@ LEMMA MsgReadyStable ==
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
             L0!NetworkSend, L0!NetworkReceive, L0!ReceiveStatus,
             L0!DeliverInitialMetadata, L0!DeliverMessage, L0!DeliverStatus,
-            L0!CallCancel, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+            L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
             L0!CallVars, L0!vars, l0_vars,
             MsgReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!HasStatus, L0!StatusKinds,
@@ -8304,7 +8304,7 @@ LEMMA SlotFreeStableUnderCancel ==
       DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
           NetworkSend, NetworkReceive, ReceiveStatus,
           DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-          DeliverCancelled, HandPayloadToHost, IsDeliverySlotFree, IsDeliverySlotFreeForTerminal,
+          DeliverCancelled, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal,
           L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
           L0!NetworkReceive, L0!ReceiveStatus,
           L0!DeliverInitialMetadata, L0!DeliverMessage,
@@ -8353,7 +8353,7 @@ LEMMA NoDIMUnderMsgReady ==
     PROVE  TypeOK /\ MsgReady(cId) => ~<<DeliverInitialMetadata(cId)>>_vars
 <1>1. QED
     BY SMT DEF DeliverInitialMetadata, L0!DeliverInitialMetadata,
-        HandPayloadToHost, IsDeliverySlotFree, vars, l0_vars, L0!vars, ffi_vars,
+        HandPayloadToHost, HasFreeDeliverySlot, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, MsgReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!StatusKinds, L0!EventKinds
@@ -8365,7 +8365,7 @@ LEMMA DCRequiresCancel ==
                IsCancelRequested(cId)
 <1>1. QED
     BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost,
-        IsDeliverySlotFreeForTerminal, vars, l0_vars, L0!vars, ffi_vars,
+        HasFreeDeliverySlotForTerminal, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus
 
@@ -8702,7 +8702,7 @@ LEMMA DCDeactivates ==
     PROVE  TypeOK /\ <<DeliverCancelled(cId)>>_vars =>
                (~L0!IsActiveCall(cId))'
 <1>1. QED
-    BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFreeForTerminal,
+    BY SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars, L0!RuntimeVars, L0!ChannelVars,
         TypeOK, L0!TypeOK, L0!IsActiveCall, L0!ActiveCallStates,
         L0!HasStatus
@@ -8750,7 +8750,7 @@ LEMMA DIMBreaksEmpty ==
                (events_delivered[cId] # <<>>)'
 <1>1. QED
     BY SMT DEF DeliverInitialMetadata, L0!DeliverInitialMetadata,
-        HandPayloadToHost, IsDeliverySlotFree, vars, l0_vars, L0!vars, ffi_vars,
+        HandPayloadToHost, HasFreeDeliverySlot, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates
 
@@ -8788,8 +8788,8 @@ LEMMA EventsMonotone ==
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
             L0!NetworkSend, L0!NetworkReceive, L0!ReceiveStatus,
             L0!DeliverInitialMetadata, L0!DeliverMessage, L0!DeliverStatus,
-            L0!CallCancel, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+            L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
             L0!CallVars, L0!vars, l0_vars,
             TypeOK, L0!TypeOK, L0!CallStates
       <4>4. QED BY <3>1, <4>1, <4>2, <4>3 DEF NextSafeRefining
@@ -8824,7 +8824,7 @@ LEMMA NoDIMWhenNonEmpty ==
                ~<<DeliverInitialMetadata(cId)>>_vars
 <1>1. QED
     BY SMT DEF DeliverInitialMetadata, L0!DeliverInitialMetadata,
-        HandPayloadToHost, IsDeliverySlotFree, vars, l0_vars, L0!vars, ffi_vars,
+        HandPayloadToHost, HasFreeDeliverySlot, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, L0!IsActiveCall,
         L0!ActiveCallStates
 
@@ -9055,8 +9055,8 @@ LEMMA OffOrDeadStable ==
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
             L0!NetworkSend, L0!NetworkReceive, L0!ReceiveStatus,
             L0!DeliverInitialMetadata, L0!DeliverMessage, L0!DeliverStatus,
-            L0!CallCancel, HandPayloadToHost, IsDeliverySlotFree,
-            IsDeliverySlotFreeForTerminal, L0!RuntimeVars, L0!ChannelVars,
+            L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlot,
+            HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
             L0!CallVars, L0!vars, l0_vars,
             IsClosingChannel, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!ChannelStates, L0!CallStates
@@ -9418,7 +9418,7 @@ LEMMA NoDeliveryWhenInactive ==
 <1>1. QED
     BY SMT DEF DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, L0!DeliverInitialMetadata, L0!DeliverMessage,
-        L0!DeliverStatus, L0!CallCancel, HandPayloadToHost, IsDeliverySlotFree, IsDeliverySlotFreeForTerminal,
+        L0!DeliverStatus, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal,
         vars, l0_vars, L0!vars, ffi_vars, L0!RuntimeVars, L0!ChannelVars,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus
 
@@ -12057,7 +12057,7 @@ LEMMA BufferStateFrame ==
 \* The first rung in the shape a fairness argument needs: a lent buffer
 \* either stays lent or is already returned.  The send is why the second
 \* disjunct is there - committing the buffer returns it just as
-\* ak_release_call_buffer would, so a send cannot break the rung, only
+\* ak_return_call_buffer would, so a send cannot break the rung, only
 \* finish it early.
 LEMMA LentStaysOrIsReturned ==
     ASSUME NEW cId \in CallIds, NEW b \in BufferIds
@@ -12738,12 +12738,12 @@ THEOREM BufferEventuallyFreedHolds == Spec => BufferEventuallyFreed
 LEMMA ReleaseEnabled ==
     ASSUME NEW cId \in CallIds
     PROVE  TypeOK /\ L0!IsTerminalCall(cId) /\ ~IsHandleReleased(cId) /\
-               ~IsCallRuntimeDestroyed(cId) /\ HostOwnsNoPayload(cId) /\
+               ~IsRuntimeOfCallDestroyed(cId) /\ HostOwnsNoPayload(cId) /\
                HostHoldsNoBuffer(cId) /\ ~IsDeliveryCallbackRunning(cId) /\
                (\A b \in BufferIds : ~IsReturnedBuffer(cId, b)) =>
                    ENABLED <<ReleaseCallHandle(cId)>>_vars
 <1>1. SUFFICES ASSUME TypeOK, L0!IsTerminalCall(cId), ~IsHandleReleased(cId),
-                      ~IsCallRuntimeDestroyed(cId), HostOwnsNoPayload(cId),
+                      ~IsRuntimeOfCallDestroyed(cId), HostOwnsNoPayload(cId),
                       HostHoldsNoBuffer(cId), ~IsDeliveryCallbackRunning(cId),
                       \A b \in BufferIds : ~IsReturnedBuffer(cId, b)
                PROVE  ENABLED <<ReleaseCallHandle(cId)>>_vars
@@ -13488,14 +13488,14 @@ THEOREM TerminalCallReclaims ==
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
            /\ BufferFairnessFor(cId)
-           => <>(IsHandleReleased(cId) \/ IsCallRuntimeDestroyed(cId))
+           => <>(IsHandleReleased(cId) \/ IsRuntimeOfCallDestroyed(cId))
 <1>1. [](TypeOK /\ L0!IsTerminalCall(cId) /\ ~IsHandleReleased(cId) /\
-              ~IsCallRuntimeDestroyed(cId) /\ HostOwnsNoPayload(cId) /\
+              ~IsRuntimeOfCallDestroyed(cId) /\ HostOwnsNoPayload(cId) /\
               HostHoldsNoBuffer(cId) /\ ~IsDeliveryCallbackRunning(cId) /\
               (\A b \in BufferIds : ~IsReturnedBuffer(cId, b)) =>
                   ENABLED <<ReleaseCallHandle(cId)>>_vars)
   <2>1. TypeOK /\ L0!IsTerminalCall(cId) /\ ~IsHandleReleased(cId) /\
-            ~IsCallRuntimeDestroyed(cId) /\ HostOwnsNoPayload(cId) /\
+            ~IsRuntimeOfCallDestroyed(cId) /\ HostOwnsNoPayload(cId) /\
             HostHoldsNoBuffer(cId) /\ ~IsDeliveryCallbackRunning(cId) /\
             (\A b \in BufferIds : ~IsReturnedBuffer(cId, b)) =>
                 ENABLED <<ReleaseCallHandle(cId)>>_vars
@@ -13526,7 +13526,7 @@ THEOREM TerminalCallReclaims ==
              WF_vars(EmitWriteDone(cId)),
              WF_vars(WriteDoneReturns(cId)),
              BufferFairnessFor(cId)
-      PROVE  <>(IsHandleReleased(cId) \/ IsCallRuntimeDestroyed(cId))
+      PROVE  <>(IsHandleReleased(cId) \/ IsRuntimeOfCallDestroyed(cId))
   <2>0. /\ []TypeOK
         /\ [](TypeOK /\ FfiCallInv)
     BY <1>4, PTL
@@ -13587,7 +13587,7 @@ THEOREM TerminalCallReclaimsFrom ==
            /\ BufferFairnessFor(cId)
            => []([](L0!IsTerminalCall(cId)) =>
                      <>(IsHandleReleased(cId) \/
-                            IsCallRuntimeDestroyed(cId)))
+                            IsRuntimeOfCallDestroyed(cId)))
 <1>2. ASSUME [](TypeOK /\ FfiCallInv /\ BufferStateInv),
              []LentCountMatchesBufferStates,
              [][Next]_vars,
@@ -13599,7 +13599,7 @@ THEOREM TerminalCallReclaimsFrom ==
              BufferFairnessFor(cId)
       PROVE  []([](L0!IsTerminalCall(cId)) =>
                     <>(IsHandleReleased(cId) \/
-                           IsCallRuntimeDestroyed(cId)))
+                           IsRuntimeOfCallDestroyed(cId)))
 \* Every hypothesis in the form the temporal backend can read at any suffix,
 \* then the theorem itself: tlapm necessitates a cited theorem, and only a
 \* cited theorem - routing the same fact through a proof step leaves it
@@ -13623,7 +13623,7 @@ THEOREM TerminalCallReclaimsFrom ==
 THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 <1>1. ASSUME Spec, NEW cId \in CallIds
       PROVE  L0!IsTerminalCall(cId) ~>
-                 (IsHandleReleased(cId) \/ IsCallRuntimeDestroyed(cId))
+                 (IsHandleReleased(cId) \/ IsRuntimeOfCallDestroyed(cId))
   <2>0. /\ Init
         /\ [][Next]_vars
         /\ Fairness
@@ -13646,7 +13646,7 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
                (L0!IsTerminalCall(cId))')
     BY TerminalCallStaysTerminal, PTL
   <2>45. []([](L0!IsTerminalCall(cId)) =>
-                <>(IsHandleReleased(cId) \/ IsCallRuntimeDestroyed(cId)))
+                <>(IsHandleReleased(cId) \/ IsRuntimeOfCallDestroyed(cId)))
     BY <2>0, <2>2, <2>3, TerminalCallReclaimsFrom
   <2>5. QED
     BY <2>0, <2>2, <2>4, <2>45, PTL
@@ -13855,10 +13855,10 @@ LEMMA BoxedCallDrainFairness ==
 \* Reclaimable is exactly the conjunction of the per-call predicates.
 LEMMA ReclaimableIsAllQuiet ==
     ASSUME NEW rtId \in RuntimeIds
-    PROVE  IsRuntimeReclaimable(rtId) <=>
+    PROVE  NoHostDebt(rtId) <=>
                (\A cId \in CallIds : CallQuietFor(rtId, cId))
 <1>1. QED
-    BY Zenon DEF IsRuntimeReclaimable, CallQuietFor
+    BY Zenon DEF NoHostDebt, CallQuietFor
 
 \* The finite lift over the calls, free of behavioural hypotheses.
 THEOREM AllCallsQuietFor ==
@@ -13908,10 +13908,10 @@ THEOREM ReleasedRuntimeReclaims ==
            /\ []IndInv
            /\ []CallDrainFairness
            => []( ([](IsReleasedRuntime(rtId)) /\ [](L0!NotFailed))
-                      => <>[]IsRuntimeReclaimable(rtId) )
-<1>1. [](IsRuntimeReclaimable(rtId) <=>
+                      => <>[]NoHostDebt(rtId) )
+<1>1. [](NoHostDebt(rtId) <=>
               (\A cId \in CallIds : CallQuietFor(rtId, cId)))
-  <2>1. IsRuntimeReclaimable(rtId) <=>
+  <2>1. NoHostDebt(rtId) <=>
             (\A cId \in CallIds : CallQuietFor(rtId, cId))
     BY ReclaimableIsAllQuiet, Zenon
   <2>2. QED BY <2>1, PTL
@@ -13926,7 +13926,7 @@ THEOREM ReleasedRuntimeReclaims ==
              []CallDrainFairness,
              [](IsReleasedRuntime(rtId)),
              [](L0!NotFailed)
-      PROVE  <>[]IsRuntimeReclaimable(rtId)
+      PROVE  <>[]NoHostDebt(rtId)
   <2>0. []L0!StrongInv
     BY <1>2, <1>3, PTL
   <2>1. CallDrainFairness
@@ -14167,7 +14167,7 @@ THEOREM ReleasedRuntimeSettles ==
            /\ []IndInv
            /\ []CallSettleFairness
            => []( ([](IsReleasedRuntime(rtId)) /\ [](L0!NotFailed))
-                      => <>[](IsRuntimeReclaimable(rtId) /\
+                      => <>[](NoHostDebt(rtId) /\
                                   RuntimeHoldsNoReturnedBytes(rtId)) )
 <1>1. [](RuntimeHoldsNoReturnedBytes(rtId) <=>
               (\A cId \in CallIds : CallBytesFreeFor(rtId, cId)))
@@ -14186,13 +14186,13 @@ THEOREM ReleasedRuntimeSettles ==
              []CallSettleFairness,
              [](IsReleasedRuntime(rtId)),
              [](L0!NotFailed)
-      PROVE  <>[](IsRuntimeReclaimable(rtId) /\
+      PROVE  <>[](NoHostDebt(rtId) /\
                       RuntimeHoldsNoReturnedBytes(rtId))
   <2>0. []L0!StrongInv
     BY <1>2, <1>3, PTL
   <2>01. []CallDrainFairness
     BY <1>3, SettleFairnessIncludesDrain, PTL
-  <2>1. <>[]IsRuntimeReclaimable(rtId)
+  <2>1. <>[]NoHostDebt(rtId)
     BY <1>3, <2>01, ReleasedRuntimeReclaims, PTL
   <2>2. CallSettleFairness
     BY <1>3, PTL
@@ -14229,14 +14229,14 @@ LEMMA EmittedRuntimeTagFrozen ==
     ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
            IsShutdownEventEmitted(rtId)
     PROVE  /\ (IsShutdownEventEmitted(rtId))'
-           /\ (IsShutdownReleasePending(rtId))' =
-                  IsShutdownReleasePending(rtId)
+           /\ (SecondEventOwed(rtId))' =
+                  SecondEventOwed(rtId)
 <1>1. CASE \E rt \in RuntimeIds : EmitShutdownComplete(rt)
     BY <1>1, SMT DEF EmitShutdownComplete, TypeOK, L0!TypeOK
 <1>2. CASE \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
     BY <1>2, SMT DEF ShutdownCallbackReturns, TypeOK, L0!TypeOK
 <1>3. CASE UNCHANGED <<shutdown_event_emitted, shutdown_callback_running,
-                       shutdown_release_pending>>
+                       second_event_owed>>
     BY <1>3, SMT
 <1>4. QED
     BY <1>1, <1>2, <1>3, OnlyShutdownStepsWriteShutdownFlags, Zenon
@@ -14279,10 +14279,10 @@ LEMMA ReleaseRunningOffForGood ==
 \* and both ledgers empty.
 LEMMA EmitResourcesReleasedEnabled ==
     ASSUME NEW rtId \in RuntimeIds, TypeOK,
-           IsShutdownEventEmitted(rtId), IsShutdownReleasePending(rtId),
+           IsShutdownEventEmitted(rtId), SecondEventOwed(rtId),
            ~IsResourcesReleasedEmitted(rtId),
            ~IsShutdownCallbackRunning(rtId),
-           IsRuntimeReclaimable(rtId), RuntimeHoldsNoReturnedBytes(rtId)
+           NoHostDebt(rtId), RuntimeHoldsNoReturnedBytes(rtId)
     PROVE  ENABLED <<EmitResourcesReleased(rtId)>>_vars
 <1>1. QED
     BY ExpandENABLED, SMT
@@ -14304,9 +14304,9 @@ LEMMA QuiescentFromParts ==
            IsReleasedRuntime(rtId),
            ~IsShutdownCallbackRunning(rtId),
            ~IsResourcesReleasedCallbackRunning(rtId),
-           IsShutdownReleasePending(rtId) =>
+           SecondEventOwed(rtId) =>
                IsResourcesReleasedEmitted(rtId),
-           IsRuntimeReclaimable(rtId),
+           NoHostDebt(rtId),
            RuntimeHoldsNoReturnedBytes(rtId)
     PROVE  IsRuntimeQuiescent(rtId)
 <1>1. QED
@@ -14345,33 +14345,33 @@ THEOREM ReleasedRuntimeQuiesces ==
   <2>2. QED BY <2>1, PTL
 \* And what the release invariant says about the second one.
 <1>3. [](StrongInv /\ IsResourcesReleasedCallbackRunning(rtId) =>
-              IsShutdownReleasePending(rtId))
+              SecondEventOwed(rtId))
   <2>1. StrongInv /\ IsResourcesReleasedCallbackRunning(rtId) =>
-            IsShutdownReleasePending(rtId)
+            SecondEventOwed(rtId)
     BY Zenon DEF StrongInv, ShutdownSignalInv, ReleaseSignalInv
   <2>2. QED BY <2>1, PTL
 \* Two implications rather than the equality they add up to: an equality
 \* between two booleans is one opaque atom to the temporal backend.
 <1>4. /\ [](TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
-                IsShutdownReleasePending(rtId) =>
-                    (IsShutdownReleasePending(rtId))')
+                SecondEventOwed(rtId) =>
+                    (SecondEventOwed(rtId))')
       /\ [](TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
-                ~IsShutdownReleasePending(rtId) =>
-                    (~IsShutdownReleasePending(rtId))')
+                ~SecondEventOwed(rtId) =>
+                    (~SecondEventOwed(rtId))')
   <2>1. TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
-            IsShutdownReleasePending(rtId) =>
-                (IsShutdownReleasePending(rtId))'
+            SecondEventOwed(rtId) =>
+                (SecondEventOwed(rtId))'
     BY EmittedRuntimeTagFrozen, Zenon
   <2>2. TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
-            ~IsShutdownReleasePending(rtId) =>
-                (~IsShutdownReleasePending(rtId))'
+            ~SecondEventOwed(rtId) =>
+                (~SecondEventOwed(rtId))'
     BY EmittedRuntimeTagFrozen, Zenon
   <2>3. QED BY <2>1, <2>2, PTL
 <1>5. /\ [](TypeOK /\ IsShutdownEventEmitted(rtId) /\
-                IsShutdownReleasePending(rtId) /\
+                SecondEventOwed(rtId) /\
                 ~IsResourcesReleasedEmitted(rtId) /\
                 ~IsShutdownCallbackRunning(rtId) /\
-                IsRuntimeReclaimable(rtId) /\
+                NoHostDebt(rtId) /\
                 RuntimeHoldsNoReturnedBytes(rtId) =>
                     ENABLED <<EmitResourcesReleased(rtId)>>_vars)
       /\ [](TypeOK /\ <<EmitResourcesReleased(rtId)>>_vars =>
@@ -14379,10 +14379,10 @@ THEOREM ReleasedRuntimeQuiesces ==
       /\ [](TypeOK /\ [Next]_vars /\ IsResourcesReleasedEmitted(rtId) =>
                 (IsResourcesReleasedEmitted(rtId))')
   <2>1. TypeOK /\ IsShutdownEventEmitted(rtId) /\
-            IsShutdownReleasePending(rtId) /\
+            SecondEventOwed(rtId) /\
             ~IsResourcesReleasedEmitted(rtId) /\
             ~IsShutdownCallbackRunning(rtId) /\
-            IsRuntimeReclaimable(rtId) /\
+            NoHostDebt(rtId) /\
             RuntimeHoldsNoReturnedBytes(rtId) =>
                 ENABLED <<EmitResourcesReleased(rtId)>>_vars
     BY EmitResourcesReleasedEnabled, Zenon
@@ -14414,16 +14414,16 @@ THEOREM ReleasedRuntimeQuiesces ==
   <2>4. QED BY <2>1, <2>2, <2>3, PTL
 <1>7. [](IsReleasedRuntime(rtId) /\ ~IsShutdownCallbackRunning(rtId) /\
               ~IsResourcesReleasedCallbackRunning(rtId) /\
-              (IsShutdownReleasePending(rtId) =>
+              (SecondEventOwed(rtId) =>
                    IsResourcesReleasedEmitted(rtId)) /\
-              IsRuntimeReclaimable(rtId) /\
+              NoHostDebt(rtId) /\
               RuntimeHoldsNoReturnedBytes(rtId) =>
                   IsRuntimeQuiescent(rtId))
   <2>1. IsReleasedRuntime(rtId) /\ ~IsShutdownCallbackRunning(rtId) /\
             ~IsResourcesReleasedCallbackRunning(rtId) /\
-            (IsShutdownReleasePending(rtId) =>
+            (SecondEventOwed(rtId) =>
                  IsResourcesReleasedEmitted(rtId)) /\
-            IsRuntimeReclaimable(rtId) /\
+            NoHostDebt(rtId) /\
             RuntimeHoldsNoReturnedBytes(rtId) =>
                 IsRuntimeQuiescent(rtId)
     BY QuiescentFromParts, Zenon
@@ -14444,23 +14444,23 @@ THEOREM ReleasedRuntimeQuiesces ==
   <2>1. /\ []IsShutdownEventEmitted(rtId)
         /\ []~IsShutdownCallbackRunning(rtId)
     BY <1>2, <1>8, <2>0, PTL
-  <2>2. <>[](IsRuntimeReclaimable(rtId) /\
+  <2>2. <>[](NoHostDebt(rtId) /\
                  RuntimeHoldsNoReturnedBytes(rtId))
     BY <1>8, ReleasedRuntimeSettles, PTL
 \* The tag never moves again, so it is one way for the whole suffix.
-  <2>3. []IsShutdownReleasePending(rtId) \/
-            []~IsShutdownReleasePending(rtId)
+  <2>3. []SecondEventOwed(rtId) \/
+            []~SecondEventOwed(rtId)
     BY <1>4, <1>8, <2>0, <2>1, PTL
 \* Nothing owed: the invariant forbids the callback outright, and the
 \* implication is vacuous.
-  <2>4. CASE []~IsShutdownReleasePending(rtId)
+  <2>4. CASE []~SecondEventOwed(rtId)
     <3>1. []~IsResourcesReleasedCallbackRunning(rtId)
       BY <1>3, <1>8, <2>0, <2>4, PTL
     <3>2. QED
       BY <1>7, <1>8, <2>1, <2>2, <2>4, <3>1, PTL
 \* Something was owed: the step is enabled once the ledgers are empty, so it
 \* fires, and then its callback returns for good.
-  <2>5. CASE []IsShutdownReleasePending(rtId)
+  <2>5. CASE []SecondEventOwed(rtId)
     <3>1. <>[]IsResourcesReleasedEmitted(rtId)
       BY <1>5, <1>8, <2>0, <2>1, <2>2, <2>5, PTL
     <3>2. <>[]~IsResourcesReleasedCallbackRunning(rtId)
@@ -14508,6 +14508,105 @@ THEOREM RuntimeEventuallyQuiescentHolds ==
        ReleasedRuntimeQuiesces, PTL
 <1>2. QED BY <1>1, Zenon DEF RuntimeEventuallyQuiescent
 
+\* The four boxed facts the promise below needs.  Each is hoisted to a lemma of
+\* its own because a step proved inside a context that holds Spec cannot be
+\* necessitated: the temporal backend reads a boxed goal only from a boxed
+\* statement, and a top-level lemma is where a state fact can still become one.
+LEMMA EmittedTagFrozenBoxed ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
+                  SecondEventOwed(rtId) =>
+                      (IsShutdownEventEmitted(rtId))' /\
+                          (SecondEventOwed(rtId))')
+<1>1. TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
+          SecondEventOwed(rtId) =>
+              (IsShutdownEventEmitted(rtId))' /\ (SecondEventOwed(rtId))'
+    BY EmittedRuntimeTagFrozen
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmittedRuntimeIsStoppingOrReleasedBoxed ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](IndInv /\ L0!NotFailed /\ IsShutdownEventEmitted(rtId) =>
+                  IsStoppingRuntime(rtId) \/ IsReleasedRuntime(rtId))
+<1>1. IndInv /\ L0!NotFailed /\ IsShutdownEventEmitted(rtId) =>
+          IsStoppingRuntime(rtId) \/ IsReleasedRuntime(rtId)
+    BY UmbrellaAt, Zenon
+    DEF StrongInv, ShutdownSignalInv, ShutdownSignalCore
+<1>2. QED BY <1>1, PTL
+
+\* The level-0 shutdown vocabulary against the level-1 one, so the temporal
+\* step sees a single pair of names.
+LEMMA ShutdownVocabularyBoxed ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ [](L0!ShutdownWaiting(rtId) <=> IsStoppingRuntime(rtId))
+           /\ [](L0!ShutdownSettled(rtId) =>
+                     IsReleasedRuntime(rtId) \/ ~L0!NotFailed)
+<1>1. L0!ShutdownWaiting(rtId) <=> IsStoppingRuntime(rtId)
+    BY Zenon DEF L0!ShutdownWaiting
+<1>2. L0!ShutdownSettled(rtId) => IsReleasedRuntime(rtId) \/ ~L0!NotFailed
+    BY SMT DEF L0!ShutdownSettled, L0!NotFailed
+<1>3. QED BY <1>1, <1>2, PTL
+
+LEMMA QuiescentWithOwedIsEmittedBoxed ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](IsRuntimeQuiescent(rtId) /\ SecondEventOwed(rtId) =>
+                  IsResourcesReleasedEmitted(rtId))
+<1>1. IsRuntimeQuiescent(rtId) /\ SecondEventOwed(rtId) =>
+          IsResourcesReleasedEmitted(rtId)
+    BY Zenon DEF IsRuntimeQuiescent
+<1>2. QED BY <1>1, PTL
+
+\* The release tag's own promise, named so a level-2 binding can refine it
+\* rather than re-derive it: a host that was told to give memory back is told
+\* when the runtime is done with what came back.
+THEOREM ResourcesReleasedEventuallyHolds ==
+    Spec => ResourcesReleasedEventually
+<1>1. SUFFICES ASSUME Spec, NEW rtId \in RuntimeIds
+      PROVE  (IsShutdownEventEmitted(rtId) /\ SecondEventOwed(rtId)) ~>
+                 (IsResourcesReleasedEmitted(rtId) \/ ~L0!NotFailed)
+    BY Zenon DEF ResourcesReleasedEventually
+<1>2. /\ Init
+      /\ [][Next]_vars
+      /\ Fairness
+    BY <1>1 DEF Spec
+<1>3. []IndInv
+    BY <1>2, BehaviorEstablishesIndInv, PTL
+<1>4. []TypeOK
+    BY <1>3, IndInvParts, PTL
+<1>45. [][Next]_vars
+    BY <1>2, PTL
+\* The antecedent is stable: the event is a latch and the tag it carried never
+\* moves again, so what the promise is owed to does not expire under it.
+<1>5. [](TypeOK /\ [Next]_vars /\ IsShutdownEventEmitted(rtId) /\
+              SecondEventOwed(rtId) =>
+                  (IsShutdownEventEmitted(rtId))' /\ (SecondEventOwed(rtId))')
+    BY EmittedTagFrozenBoxed
+\* An emitted runtime is stopping or released; there is nowhere else to be.
+<1>6. [](IndInv /\ L0!NotFailed /\ IsShutdownEventEmitted(rtId) =>
+              IsStoppingRuntime(rtId) \/ IsReleasedRuntime(rtId))
+    BY EmittedRuntimeIsStoppingOrReleasedBoxed
+\* The level-0 shutdown settles, inherited through the refinement.
+<1>7. IsStoppingRuntime(rtId) ~> (IsReleasedRuntime(rtId) \/ ~L0!NotFailed)
+  <2>1. L0!LivenessProperties
+    BY <1>1, InheritedLivenessTheorem
+  <2>2. L0!ShutdownWaiting(rtId) ~> L0!ShutdownSettled(rtId)
+    BY <2>1, Isa DEF L0!LivenessProperties, L0!EventualShutdown
+  <2>3. QED BY <2>2, ShutdownVocabularyBoxed, PTL
+\* And from released, the runtime quiesces - which with the tag set is exactly
+\* the second event having gone out.
+<1>8. IsReleasedRuntime(rtId) ~> (IsRuntimeQuiescent(rtId) \/ ~L0!NotFailed)
+  <2>1. RuntimeEventuallyQuiescent
+    BY <1>1, RuntimeEventuallyQuiescentHolds
+  <2>2. QED BY <2>1, Isa DEF RuntimeEventuallyQuiescent
+<1>9. [](IsRuntimeQuiescent(rtId) /\ SecondEventOwed(rtId) =>
+              IsResourcesReleasedEmitted(rtId))
+    BY QuiescentWithOwedIsEmittedBoxed
+\* Failure is sticky, so the escape disjunct settles for good once taken.
+<1>10. [](TypeOK /\ ~L0!NotFailed /\ [Next]_vars => (~L0!NotFailed)')
+    BY UnfailedSticky, PTL
+<1>11. QED
+    BY <1>3, <1>4, <1>45, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, PTL
+
 THEOREM LivenessTheorem == Spec => LivenessProperties
 <1>1. QED
     BY CancellationCompletesHolds, SendsEventuallyAcquittedHolds,
@@ -14516,6 +14615,7 @@ THEOREM LivenessTheorem == Spec => LivenessProperties
        ShutdownCallbacksReturnHolds,
        ResourcesReleasedCallbacksReturnHolds, BufferEventuallyFreedHolds,
        CallEventuallyReclaimedHolds, RuntimeEventuallyQuiescentHolds,
+       ResourcesReleasedEventuallyHolds,
        Zenon DEF LivenessProperties
 
 =============================================================================

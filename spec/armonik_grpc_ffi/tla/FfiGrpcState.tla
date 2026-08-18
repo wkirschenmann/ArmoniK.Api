@@ -91,7 +91,7 @@ VARIABLES
 \* observable statuses refine one level-0 RELEASED: STOPPED when something is
 \* still out, QUIESCENT when nothing is - and the difference lives here, level 1
 \* never writing level-0 state.
-    shutdown_release_pending,    \* per runtime: the tag SHUTDOWN_COMPLETE carried
+    second_event_owed,    \* per runtime: the tag SHUTDOWN_COMPLETE carried
     resources_released_emitted,  \* per runtime: RESOURCES_RELEASED went out
     resources_released_callback_running \* per runtime: its callback on stack
 

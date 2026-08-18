@@ -21,9 +21,13 @@
 (* PayloadsEventuallyConsumed; the second drains the send arena and feeds  *)
 (* BufferEventuallyFreed and the two reclamation results.  Every other     *)
 (* fairness conjunct is a promise                                          *)
-(* of binding-owned threads; in particular the shutdown chain              *)
-(* (ShutdownEventEmitted, the RuntimeRelease lift) never depends on the    *)
-(* host, which discharges the level-0 directive on ShutdownFairness.       *)
+(* of binding-owned threads.  The shutdown chain depends on no ownership   *)
+(* return - neither HostConsumesEvent nor HostReturnsBuffer appears in     *)
+(* ShutdownEventEmitted or the RuntimeRelease lift - which is what         *)
+(* discharges the level-0 directive on ShutdownFairness.  It does depend   *)
+(* on the callbacks already dispatched returning: the lift consumes        *)
+(* ShutdownCallbackReturns and DeliveryCallbackReturns, and                *)
+(* ShutdownEmitFairnessRequirement consumes WriteDoneReturns too.          *)
 (* RuntimeEventuallyQuiescent is the one guarantee past that chain that    *)
 (* does depend on the host: nothing can report that the last callback      *)
 (* returned except the host returning it.                                  *)
@@ -50,8 +54,10 @@ THEOREM NominalBehaviorEstablishesStrongInv ==
 
 THEOREM SafetyTheorem == Spec => []SafetyInvariant
 
-\* The notification is honest: WRITE_DONE really hands a slot back, so a
-\* host woken by one and asking for a buffer is never refused.  Nothing
+\* The notification is honest: WRITE_DONE really hands a slot back, so no
+\* allocation is refused for want of a slot.  It does not say a lend is
+\* enabled - cancellation, a closed send side or a retired handle each refuse
+\* one on their own grounds, and none of those is a slot shortage.  Nothing
 \* forced this to be stated - the send side is host-driven, so no fairness
 \* lift needed it - and its absence is exactly what let the slot
 \* accounting drift from the ABI it documents.
@@ -91,7 +97,7 @@ THEOREM RefinesSafeNext == [NextSafe]_vars => [L0!NextSafe]_l0_vars
 (***************************************************************************)
 (* REFINEMENT - the fairness half: the seven lifts                         *)
 (* Stated on whole behaviors ([]IndInv, [][Next]_vars): a level-0 WF       *)
-(* constrains the behavior after a failure too, and the send and delivery *)
+(* constrains the behavior after a failure too, and the send and delivery  *)
 (* disciplines (FfiCallInv) hold there by guards alone.                    *)
 (***************************************************************************)
 
@@ -132,7 +138,7 @@ THEOREM MessageDeliveryLift ==
            /\ WF_vars(WriteDoneReturns(cId))
            => WF_l0_vars(L0!DeliverMessage(cId))
 
-\* IsDeliverySlotFreeForTerminal tolerates spent credits, so the
+\* HasFreeDeliverySlotForTerminal tolerates spent credits, so the
 \* terminal does not need HostConsumesEvent; it waits only for the
 \* callback and the send drain.
 THEOREM StatusDeliveryLift ==
@@ -278,7 +284,7 @@ THEOREM PayloadsEventuallyConsumedHolds == Spec => PayloadsEventuallyConsumed
 
 THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
 
-\* The three callback-return guarantees.  Each is one step of the fairness
+\* The four callback-return guarantees.  Each is one step of the fairness
 \* it rests on, and each turns an obligation the ABI imposes on the host
 \* into something named that the manifest can check.
 THEOREM DeliveryCallbacksReturnHolds == Spec => DeliveryCallbacksReturn
@@ -300,6 +306,12 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 
 THEOREM RuntimeEventuallyQuiescentHolds ==
     Spec => RuntimeEventuallyQuiescent
+
+\* The release tag's own promise, named so a level-2 binding can refine it
+\* rather than re-derive it: a host that was told to give memory back is told
+\* when the runtime is done with what came back.
+THEOREM ResourcesReleasedEventuallyHolds ==
+    Spec => ResourcesReleasedEventually
 
 THEOREM LivenessTheorem == Spec => LivenessProperties
 

@@ -75,7 +75,7 @@ ffi_vars == <<buffers_held_by_host,
               handle_released, cancel_requested,
               shutdown_event_emitted, shutdown_callback_running,
               runtime_destroyed, buffer_state, buffer_send,
-              shutdown_release_pending, resources_released_emitted,
+              second_event_owed, resources_released_emitted,
               resources_released_callback_running>>
 
 \* The level-0 state, under a local name for the stuttering actions.  TLC
@@ -89,7 +89,7 @@ vars == <<l0_vars, ffi_vars>>
 \* --- DOMAIN-DRIVEN GROUPINGS ---
 RuntimeVars == <<runtime_state, shutdown_event_emitted,
                  shutdown_callback_running, runtime_destroyed,
-                 shutdown_release_pending, resources_released_emitted,
+                 second_event_owed, resources_released_emitted,
                  resources_released_callback_running>>
 ChannelVars == <<channel_state, channel_runtime>>
 CallVars    == <<call_state, call_channel, handle_released,
@@ -208,7 +208,7 @@ IsShutdownCallbackRunning(rtId) == shutdown_callback_running[rtId]
 \* tag was set.  Recorded rather than recomputed, because the promise is about
 \* what was true at the emission: a host told nothing is owed is owed no
 \* second callback, whatever happens later.
-IsShutdownReleasePending(rtId) == shutdown_release_pending[rtId]
+SecondEventOwed(rtId) == second_event_owed[rtId]
 IsResourcesReleasedEmitted(rtId) == resources_released_emitted[rtId]
 IsResourcesReleasedCallbackRunning(rtId) ==
     resources_released_callback_running[rtId]
@@ -227,13 +227,13 @@ HasNoDeliveredEvents(cId) == events_delivered[cId] = <<>>
 
 \* The delivery slot is open: no callback on the host stack and at least
 \* one credit left.  Guards metadata and message delivery (backpressure).
-IsDeliverySlotFree(cId) ==
+HasFreeDeliverySlot(cId) ==
     /\ ~IsDeliveryCallbackRunning(cId)
     /\ HostHasDeliveryCredit(cId)
 
 \* The relaxed form terminals use: a terminal may go out with every
 \* credit spent, so a terminal is never blocked by unread messages.
-IsDeliverySlotFreeForTerminal(cId) ==
+HasFreeDeliverySlotForTerminal(cId) ==
     /\ ~IsDeliveryCallbackRunning(cId)
     /\ HostOwnsAtMostCredits(cId)
 
@@ -266,7 +266,7 @@ RequestCancellationOfActiveCalls(chs) ==
 \* runtime state, so every downcall on it is refused - AK_HANDLE_STALE
 \* at the ABI, not enabled here.  False on an unused call, which has no
 \* owner yet.
-IsCallRuntimeDestroyed(cId) ==
+IsRuntimeOfCallDestroyed(cId) ==
     \E rtId \in RuntimeIds :
         /\ call_channel[cId] \in L0!ChannelsOf(rtId)
         /\ IsRuntimeDestroyed(rtId)
@@ -275,7 +275,7 @@ IsCallRuntimeDestroyed(cId) ==
 \* consumed or a buffer not given back.  This is what the tag reports, because
 \* it is what the host can act on - a buffer already given back is the
 \* runtime's, and the host could do nothing about it.
-IsRuntimeReclaimable(rtId) ==
+NoHostDebt(rtId) ==
     \A cId \in CallIds :
         call_channel[cId] \in L0!ChannelsOf(rtId) =>
             /\ HostOwnsNoPayload(cId)
@@ -298,15 +298,16 @@ IsRuntimeQuiescent(rtId) ==
     /\ IsReleasedRuntime(rtId)
     /\ ~IsShutdownCallbackRunning(rtId)
     /\ ~IsResourcesReleasedCallbackRunning(rtId)
-    /\ (IsShutdownReleasePending(rtId) => IsResourcesReleasedEmitted(rtId))
-    /\ IsRuntimeReclaimable(rtId)
+    /\ (SecondEventOwed(rtId) => IsResourcesReleasedEmitted(rtId))
+    /\ NoHostDebt(rtId)
     /\ RuntimeHoldsNoReturnedBytes(rtId)
 
 \* The runtime has nothing left to run: every channel closed (their calls
 \* are then terminal by the level-0 invariant), no delivery callback on
 \* the host stack, every send side drained.  SHUTDOWN_COMPLETE is emitted
-\* only from here, which is what makes it the last callback.  Unconsumed
-\* payloads do not block quiescence: the host may consume them later.
+\* only from here, which is what makes it the last callback of the functional
+\* shutdown.  Unconsumed payloads do not block that drain: the host may consume
+\* them later, and what they do block is the quiescence the status reports.
 IsRuntimeDrained(rtId) ==
     /\ \A chId \in L0!ChannelsOf(rtId) : IsClosedChannel(chId)
     /\ \A cId \in CallIds :
@@ -332,7 +333,7 @@ TypeOK ==
     /\ runtime_destroyed \in [RuntimeIds -> BOOLEAN]
     /\ buffer_state \in [CallIds -> [BufferIds -> BufferStates]]
     /\ buffer_send \in [CallIds -> [BufferIds -> Nat]]
-    /\ shutdown_release_pending \in [RuntimeIds -> BOOLEAN]
+    /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
 
@@ -352,7 +353,7 @@ Init ==
            [cId \in CallIds |-> [b \in BufferIds |-> "none"]]
     /\ buffer_send =
            [cId \in CallIds |-> [b \in BufferIds |-> 0]]
-    /\ shutdown_release_pending = [rtId \in RuntimeIds |-> FALSE]
+    /\ second_event_owed = [rtId \in RuntimeIds |-> FALSE]
     /\ resources_released_emitted = [rtId \in RuntimeIds |-> FALSE]
     /\ resources_released_callback_running =
            [rtId \in RuntimeIds |-> FALSE]
@@ -391,7 +392,7 @@ RuntimeBeginShutdown(rtId) ==
                    payloads_consumed_by_host, handle_released,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 EmitShutdownComplete(rtId) ==
@@ -405,9 +406,9 @@ EmitShutdownComplete(rtId) ==
 \* The tag: whether the host still holds memory of this runtime.  Recording it
 \* here is what makes the second event owed or not owed, and what lets a host
 \* unload on this callback instead of arming another wait.
-    /\ shutdown_release_pending' =
-           [shutdown_release_pending EXCEPT ![rtId] =
-                ~IsRuntimeReclaimable(rtId)]
+    /\ second_event_owed' =
+           [second_event_owed EXCEPT ![rtId] =
+                ~NoHostDebt(rtId)]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running,
@@ -429,11 +430,14 @@ ShutdownCallbackReturns(rtId) ==
                    payloads_consumed_by_host, handle_released,
                    cancel_requested, shutdown_event_emitted,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
-\* Release happens after the SHUTDOWN_COMPLETE callback has returned:
-\* the trampoline thread exits, then the state moves to RELEASED.
+\* Release happens after the SHUTDOWN_COMPLETE callback has returned, and it
+\* publishes AK_RUNTIME_GRPC_STOPPED: the gRPC machinery - channels,
+\* connections, transport - is done.  The dispatch thread is not: it may still
+\* have RESOURCES_RELEASED to carry, which is why the status and not this step
+\* is the gate for unloading.
 RuntimeRelease(rtId) ==
     /\ IsShutdownEventEmitted(rtId)
     /\ ~IsShutdownCallbackRunning(rtId)
@@ -459,21 +463,21 @@ RuntimeDestroy(rtId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* The second signal: the host has given everything back and the runtime has
 \* released it.  Owed only when SHUTDOWN_COMPLETE said so, because a host told
-\* nothing was outstanding is waiting for nothing.  It fires while the runtime
-\* is already STOPPED - the trampoline thread stays for this one last delivery
-\* rather than exiting at the functional shutdown - and its return is what
+\* nothing was outstanding is waiting for nothing.  Its order against
+\* RuntimeRelease is free - the guard waits for the first event and its
+\* callback, not for the state - and its return is what
 \* makes the status QUIESCENT.
 EmitResourcesReleased(rtId) ==
     /\ IsShutdownEventEmitted(rtId)
-    /\ IsShutdownReleasePending(rtId)
+    /\ SecondEventOwed(rtId)
     /\ ~IsResourcesReleasedEmitted(rtId)
     /\ ~IsShutdownCallbackRunning(rtId)
-    /\ IsRuntimeReclaimable(rtId)
+    /\ NoHostDebt(rtId)
     /\ RuntimeHoldsNoReturnedBytes(rtId)
     /\ resources_released_emitted' =
            [resources_released_emitted EXCEPT ![rtId] = TRUE]
@@ -485,7 +489,7 @@ EmitResourcesReleased(rtId) ==
                    payloads_consumed_by_host, handle_released,
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
-                   buffer_state, buffer_send, shutdown_release_pending>>
+                   buffer_state, buffer_send, second_event_owed>>
 
 ResourcesReleasedCallbackReturns(rtId) ==
     /\ IsResourcesReleasedCallbackRunning(rtId)
@@ -497,7 +501,7 @@ ResourcesReleasedCallbackReturns(rtId) ==
                    payloads_consumed_by_host, handle_released,
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
-                   buffer_state, buffer_send, shutdown_release_pending,
+                   buffer_state, buffer_send, second_event_owed,
                    resources_released_emitted>>
 
 RuntimeFail(rtId) ==
@@ -531,7 +535,7 @@ ChannelStartClosing(chId) ==
                    payloads_consumed_by_host, handle_released,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* At level 1 the close completes only once every call has terminated on
@@ -558,7 +562,7 @@ CallStart(cId, chId) ==
 RequestCallCancellation(cId) ==
     /\ ~L0!IsUnusedCall(cId)
     /\ ~IsHandleReleased(cId)
-    /\ ~IsCallRuntimeDestroyed(cId)
+    /\ ~IsRuntimeOfCallDestroyed(cId)
     /\ cancel_requested' = [cancel_requested EXCEPT ![cId] = TRUE]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -567,7 +571,7 @@ RequestCallCancellation(cId) ==
                    payloads_consumed_by_host, handle_released,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* Reclaiming a call is the runtime's own step, not a downcall: the ABI has
@@ -584,7 +588,7 @@ ReleaseCallHandle(cId) ==
     /\ ~L0!IsUnusedCall(cId)
     /\ ~L0!IsActiveCall(cId)
     /\ ~IsHandleReleased(cId)
-    /\ ~IsCallRuntimeDestroyed(cId)
+    /\ ~IsRuntimeOfCallDestroyed(cId)
     /\ HostOwnsNoPayload(cId)
     /\ HostHoldsNoBuffer(cId)
     \* Both are conditions only the runtime can read: the host cannot see
@@ -601,7 +605,7 @@ ReleaseCallHandle(cId) ==
                    cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 (***************************************************************************)
@@ -632,10 +636,10 @@ LendSendBuffer(cId, b) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed,
                    buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
-\* ak_release_call_buffer: the host gives a buffer back unused.  Legal on
+\* ak_return_call_buffer: the host gives a buffer back unused.  Legal on
 \* a cancelled or terminal call - it is the only exit for a buffer whose
 \* send is refused, and reclamation waits for it.
 HostReturnsBuffer(cId, b) ==
@@ -654,7 +658,7 @@ HostReturnsBuffer(cId, b) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed,
                    buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* The runtime releases the bytes of a buffer the host has given back.
@@ -679,7 +683,7 @@ FreeReturnedBuffer(cId, b) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed,
                    buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* ak_call_send_message commits a buffer the host already holds, so the
@@ -712,7 +716,7 @@ SendMessage(cId, msg, b) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 EndSend(cId) ==
@@ -737,7 +741,7 @@ EmitWriteDone(cId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 WriteDoneReturns(cId) ==
@@ -750,7 +754,7 @@ WriteDoneReturns(cId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 (***************************************************************************)
@@ -774,7 +778,7 @@ ReceiveStatus(cId) ==
 (***************************************************************************)
 
 DeliverInitialMetadata(cId) ==
-    /\ IsDeliverySlotFree(cId)
+    /\ HasFreeDeliverySlot(cId)
     /\ L0!DeliverInitialMetadata(cId)
     /\ HandPayloadToHost(cId)
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -782,11 +786,11 @@ DeliverInitialMetadata(cId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 DeliverMessage(cId) ==
-    /\ IsDeliverySlotFree(cId)
+    /\ HasFreeDeliverySlot(cId)
     /\ ~IsCancelRequested(cId)
     /\ L0!DeliverMessage(cId)
     /\ HandPayloadToHost(cId)
@@ -795,15 +799,15 @@ DeliverMessage(cId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* Terminals wait for the send side to drain: WRITE_DONE precedes the
 \* terminal, so the terminal is the last callback of the call and the
-\* call ctx lifetime ends there.  IsDeliverySlotFreeForTerminal lets
+\* call ctx lifetime ends there.  HasFreeDeliverySlotForTerminal lets
 \* them out with every credit spent.
 DeliverStatus(cId) ==
-    /\ IsDeliverySlotFreeForTerminal(cId)
+    /\ HasFreeDeliverySlotForTerminal(cId)
     /\ ~IsCancelRequested(cId)
     /\ HasNoSendInFlight(cId)
     /\ L0!DeliverStatus(cId)
@@ -813,13 +817,13 @@ DeliverStatus(cId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* Cancellation completes as a delivered CANCELLED terminal.  Refines
 \* L0!CallCancel: the callback is the cancellation.
 DeliverCancelled(cId) ==
-    /\ IsDeliverySlotFreeForTerminal(cId)
+    /\ HasFreeDeliverySlotForTerminal(cId)
     /\ IsCancelRequested(cId)
     /\ HasNoSendInFlight(cId)
     /\ L0!CallCancel(cId)
@@ -829,7 +833,7 @@ DeliverCancelled(cId) ==
                    handle_released, cancel_requested,
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 DeliveryCallbackReturns(cId) ==
@@ -843,7 +847,7 @@ DeliveryCallbackReturns(cId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 \* ak_event_consumed: frees the oldest payload the host still holds and
@@ -862,7 +866,7 @@ HostConsumesEvent(cId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send,
-                   shutdown_release_pending, resources_released_emitted,
+                   second_event_owed, resources_released_emitted,
                    resources_released_callback_running>>
 
 (***************************************************************************)
@@ -991,7 +995,7 @@ BufferEventuallyFreed ==
 CallEventuallyReclaimed ==
     \A cId \in CallIds :
         L0!IsTerminalCall(cId) ~>
-            (IsHandleReleased(cId) \/ IsCallRuntimeDestroyed(cId))
+            (IsHandleReleased(cId) \/ IsRuntimeOfCallDestroyed(cId))
 
 \* And the runtime-level image: a runtime that has stopped running becomes
 \* quiescent, which is to say destructible, unloadable and replaceable.  Note
@@ -1008,6 +1012,15 @@ RuntimeEventuallyQuiescent ==
     \A rtId \in RuntimeIds :
         IsReleasedRuntime(rtId) ~>
             (IsRuntimeQuiescent(rtId) \/ ~L0!NotFailed)
+\* The second event arrives when it was owed.  This is the promise the release
+\* tag makes, and the reason a host told AK_HOST_MUST_RETURN may wait for the
+\* callback rather than poll: the wait terminates.  Stated on the tag rather
+\* than on the runtime state because the tag is what the host reads.
+ResourcesReleasedEventually ==
+    \A rtId \in RuntimeIds :
+        (IsShutdownEventEmitted(rtId) /\ SecondEventOwed(rtId)) ~>
+            (IsResourcesReleasedEmitted(rtId) \/ ~L0!NotFailed)
+
 
 LivenessProperties ==
     /\ CancellationCompletes
@@ -1021,28 +1034,31 @@ LivenessProperties ==
     /\ BufferEventuallyFreed
     /\ CallEventuallyReclaimed
     /\ RuntimeEventuallyQuiescent
+    /\ ResourcesReleasedEventually
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)
 (*                                                                         *)
-(* Seventeen action families under WF, all individual, and which side owes *)
+(* Nineteen action families under WF, all individual, and which side owes  *)
 (* each one is what the three groups below record.                         *)
 (*                                                                         *)
-(* The Rust runtime owes eight: NetworkSend, ReceiveStatus, EmitWriteDone, *)
-(* RuntimeRelease, EmitShutdownComplete, ChannelFinishClosing,             *)
-(* FreeReturnedBuffer and ReleaseCallHandle.  These are its own threads    *)
-(* and its own allocator, so nothing outside the library can stall them.   *)
+(* The Rust runtime owes nine: NetworkSend, ReceiveStatus, EmitWriteDone,  *)
+(* RuntimeRelease, EmitShutdownComplete, EmitResourcesReleased,            *)
+(* ChannelFinishClosing, FreeReturnedBuffer and ReleaseCallHandle.  These  *)
+(* are its own threads and its own allocator, so nothing outside the       *)
+(* library can stall them.                                                 *)
 (*                                                                         *)
 (* The FFI layer owes four, the upcall dispatches: DeliverInitialMetadata, *)
 (* DeliverMessage, DeliverStatus and DeliverCancelled.  An event that      *)
 (* reaches the queue reaches the host.                                     *)
 (*                                                                         *)
 (* The host - binding and application, indistinguishable at this level -   *)
-(* owes five: DeliveryCallbackReturns, WriteDoneReturns,                   *)
-(* ShutdownCallbackReturns, HostConsumesEvent and HostReturnsBuffer.  The  *)
-(* first three say a callback returns, which is what a callback contract   *)
-(* means; the last two say the host gives back what it borrows.  These are *)
-(* the five hypotheses a level-2 binding has to discharge.  One            *)
+(* owes six: DeliveryCallbackReturns, WriteDoneReturns,                    *)
+(* ShutdownCallbackReturns, ResourcesReleasedCallbackReturns,              *)
+(* HostConsumesEvent and HostReturnsBuffer.  The first four say a callback *)
+(* returns, which is what a callback contract means; the last two say the  *)
+(* host gives back what it borrows.  These are the six hypotheses a        *)
+(* level-2 binding has to discharge.  One                                  *)
 (* HostConsumesEvent per call is enough because release is FIFO, whereas   *)
 (* buffer returns are unordered and so need one per buffer.                *)
 (*                                                                         *)
