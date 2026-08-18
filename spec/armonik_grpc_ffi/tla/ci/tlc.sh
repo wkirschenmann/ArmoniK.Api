@@ -6,10 +6,16 @@ cfg="$1"
 cd "$(dirname "$0")/.."
 TLA2TOOLS="${TLA2TOOLS:-tla2tools.jar}"
 mkdir -p out
-log="out/tlc-$(basename "$cfg" .cfg).log"
+base="$(basename "$cfg" .cfg)"
+# <Module>_MC*.cfg runs against <Module>_MC.tla
+mod="${base%%_MC*}_MC.tla"
+log="out/tlc-$base.log"
+# gzip halves the on-disk state pools; liveness checking writes a lot.
 java -XX:+UseParallelGC -jar "$TLA2TOOLS" \
-     -config "$cfg" -metadir "out/$(basename "$cfg" .cfg)" -workers auto \
-     -deadlock AbstractGrpc_MC.tla > "$log" 2>&1
+     -config "$cfg" -metadir "out/$base" -workers auto \
+     -gzip -deadlock "$mod" > "$log" 2>&1
+rc=$?
+rm -rf "out/$base"
 if grep -q "Model checking completed. No error has been found." "$log"; then
   grep -E "distinct states|Finished in" "$log" | tail -2
   echo "TLC ok: $cfg"

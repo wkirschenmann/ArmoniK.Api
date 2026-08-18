@@ -1,38 +1,19 @@
 --------------------------- MODULE AbstractGrpc ----------------------------
 (***************************************************************************)
-(* Level 0 — Abstract specification for ArmoniK gRPC FFI.                  *)
+(* Level 0 - Abstract specification for ArmoniK gRPC FFI.                  *)
 (* Models the observable behavior of the runtime, channels, calls, and     *)
 (* message delivery as seen by a client.                                   *)
 (*                                                                         *)
 (* All state is modeled as total functions over finite identifier sets.    *)
-(* DRAINING is a Level 1 (FFI) concept — not present at this level.        *)
+(* RELEASED is what the ABI publishes as AK_RUNTIME_QUIESCENT.             *)
 (***************************************************************************)
 
-EXTENDS Naturals, Sequences, FiniteSets
+EXTENDS AbstractGrpcState, Naturals, Sequences
 
 (***************************************************************************)
-(* CONSTANTS                                                               *)
+(* The constants, their assumptions and the twelve state variables are     *)
+(* declared once in AbstractGrpcState, shared with the refinement levels.  *)
 (***************************************************************************)
-
-CONSTANTS
-    Messages,       \* The universe of possible messages
-    CallIds,        \* Finite set of call identifiers
-    ChannelIds,     \* Finite set of channel identifiers
-    RuntimeIds      \* Finite set of runtime identifiers (typically singleton)
-
-(***************************************************************************)
-(* ASSUMPTIONS                                                             *)
-(* "none" must not be a member of any identifier set — it is used as a     *)
-(* sentinel value for uninitialized ownership fields.                      *)
-(***************************************************************************)
-
-ASSUME NoneNotInRuntimeIds == "none" \notin RuntimeIds
-ASSUME NoneNotInChannelIds == "none" \notin ChannelIds
-ASSUME NoneNotInCallIds == "none" \notin CallIds
-
-ASSUME FiniteCallIds == IsFiniteSet(CallIds)
-ASSUME FiniteChannelIds == IsFiniteSet(ChannelIds)
-ASSUME FiniteRuntimeIds == IsFiniteSet(RuntimeIds)
 
 (***************************************************************************)
 (* Derived constants                                                       *)
@@ -43,24 +24,6 @@ ChannelStates == {"none", "open", "closing", "closed"}
 CallStates    == {"none", "started", "sending", "half_closed", "terminal"}
 StatusKinds   == {"COMPLETED", "CANCELLED"}
 EventKinds    == {"INITIAL_METADATA", "MESSAGE"} \union StatusKinds
-
-(***************************************************************************)
-(* STATE VARIABLES                                                         *)
-(***************************************************************************)
-
-VARIABLES
-    runtime_state,      \* [RuntimeIds -> RuntimeStates]
-    channel_state,      \* [ChannelIds -> ChannelStates]
-    channel_runtime,    \* [ChannelIds -> RuntimeIds \union {"none"}]
-    call_state,         \* [CallIds -> CallStates]
-    call_channel,       \* [CallIds -> ChannelIds \union {"none"}]
-    submitted,          \* [CallIds -> Seq(Messages)]
-    sent,               \* [CallIds -> Seq(Messages)]
-    received,           \* [CallIds -> Seq(Messages)]
-    delivered,          \* [CallIds -> Seq(Messages)]
-    events_delivered,   \* [CallIds -> Seq(EventKinds)]
-    send_closed,        \* [CallIds -> BOOLEAN]
-    status_pending      \* [CallIds -> BOOLEAN]
 
 \* --- DOMAIN-DRIVEN GROUPINGS ---
 RuntimeVars == <<runtime_state>>
@@ -107,7 +70,7 @@ IsCancelled(cId) ==
 
 IsTerminalCall(cId) == call_state[cId] = "terminal"
 
-\* No runtime is in a failed state — when this is false, no property holds
+\* No runtime is in a failed state - when this is false, no property holds
 NotFailed == \A rtId \in RuntimeIds : runtime_state[rtId] # "FAILED_UNQUIESCED"
 
 \* Channels owned by a runtime
@@ -153,7 +116,7 @@ Init ==
     /\ status_pending = [cId \in CallIds |-> FALSE]
 
 (***************************************************************************)
-(* ACTIONS — Runtime lifecycle                                             *)
+(* ACTIONS - Runtime lifecycle                                             *)
 (***************************************************************************)
 
 RuntimeCreate(rtId) ==
@@ -201,7 +164,7 @@ RemainReleased ==
     /\ UNCHANGED vars
 
 (***************************************************************************)
-(* ACTIONS — Channel lifecycle                                             *)
+(* ACTIONS - Channel lifecycle                                             *)
 (***************************************************************************)
 
 ChannelCreate(chId, rtId) ==
@@ -240,7 +203,7 @@ ChannelFinishClosing(chId) ==
                    call_channel, submitted, sent, received, delivered, send_closed>>
 
 (***************************************************************************)
-(* ACTIONS — Call lifecycle                                                *)
+(* ACTIONS - Call lifecycle                                                *)
 (***************************************************************************)
 
 CallStart(cId, chId) ==
@@ -274,7 +237,7 @@ EndSend(cId) ==
                    events_delivered, status_pending>>
 
 (***************************************************************************)
-(* ACTIONS — Network (internal progress)                                   *)
+(* ACTIONS - Network (internal progress)                                   *)
 (***************************************************************************)
 
 NetworkSend(cId) ==
@@ -304,7 +267,7 @@ ReceiveStatus(cId) ==
                    delivered, events_delivered, send_closed>>
 
 (***************************************************************************)
-(* ACTIONS — Event delivery                                                 *)
+(* ACTIONS - Event delivery                                                 *)
 (***************************************************************************)
 
 DeliverInitialMetadata(cId) ==

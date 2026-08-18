@@ -11,12 +11,18 @@ EXTENDS AbstractGrpc_defs, SequenceTheorems, NaturalsInduction,
 
 \* The split event sets, re-enumerated: gives SMT flat memberships
 \* instead of union reasoning inside large obligations.
+\* Where a step names a time budget - SMTT, IsaT - it is because the default
+\* one closes it with no margin, so it passes on a quiet machine and fails on
+\* a busy one.  The figures are five times what the solver was measured to
+\* need, and they are stated per step rather than obtained by raising
+\* --stretch, which would hide the next such step instead of fixing this one.
+
 THEOREM StatusKindsExpansion ==
     /\ StatusKinds = {"COMPLETED", "CANCELLED"}
     /\ EventKinds = {"INITIAL_METADATA", "MESSAGE", "COMPLETED", "CANCELLED"}
     /\ {"MESSAGE"} \union StatusKinds = {"MESSAGE", "COMPLETED", "CANCELLED"}
 <1>1. QED
-    BY DEF StatusKinds, EventKinds
+    BY SMTT(90) DEF StatusKinds, EventKinds
 
 (***************************************************************************)
 (* FOOTPRINT DECOMPOSITION AND FRAME FACTS                                 *)
@@ -32,12 +38,12 @@ THEOREM NextDecomposition == Next <=> NextByFootprint
 THEOREM NextSafeRuntimeOnlyFrame ==
     NextSafeRuntimeOnly => UNCHANGED <<ChannelVars, CallVars>>
 <1>1. QED
-    BY DEF NextSafeRuntimeOnly, RuntimeCreate, RuntimeRelease
+    BY SMTT(90) DEF NextSafeRuntimeOnly, RuntimeCreate, RuntimeRelease
 
 THEOREM NextSafeRuntimeChannelFrame ==
     NextSafeRuntimeChannel => UNCHANGED CallVars
 <1>1. QED
-    BY DEF NextSafeRuntimeChannel, RuntimeBeginShutdown
+    BY SMTT(90) DEF NextSafeRuntimeChannel, RuntimeBeginShutdown
 
 THEOREM NextSafeChannelOnlyFrame ==
     NextSafeChannelOnly => UNCHANGED <<RuntimeVars, CallVars>>
@@ -55,11 +61,6 @@ THEOREM NextSafeCallOnlyFrame ==
     BY DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
            NetworkSend, NetworkReceive, ReceiveStatus,
            DeliverInitialMetadata, DeliverMessage, DeliverStatus, CallCancel
-
-THEOREM NextFailFrame ==
-    NextFail => UNCHANGED <<ChannelVars, CallVars>>
-<1>1. QED
-    BY DEF NextFail, RuntimeFail
 
 THEOREM NextExplicitStutterFrame ==
     NextExplicitStutter => UNCHANGED vars
@@ -151,7 +152,7 @@ THEOREM AppendTerminalKeepsShape ==
     BY SMT DEF EventKinds, StatusKinds
 <1>3. Len(es) >= 2 => es[Len(es)] = "MESSAGE"
     BY SMT DEF EventKinds, StatusKinds
-<1>4. QED BY <1>1, <1>2, <1>3, SMT DEF EventKinds, StatusKinds
+<1>4. QED BY <1>1, <1>2, <1>3, SMTT(90) DEF EventKinds, StatusKinds
 
 THEOREM StutteringPreservesIndInv == IndInv /\ UNCHANGED vars => IndInv'
 <1>1. ASSUME IndInv, UNCHANGED vars
@@ -173,16 +174,6 @@ THEOREM StutteringPreservesIndInv == IndInv /\ UNCHANGED vars => IndInv'
 (* FOUNDATIONAL IMPLICATIONS                                               *)
 (***************************************************************************)
 
-THEOREM StrongInvImpliesPendingStatusPhase ==
-    StrongInv => PendingStatusPhase
-<1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, TypeOK, CallStates,
-               ActiveCallStates, CallLifecycleInv, MessageFlowInv,
-               ReceivedPrefixOfDelivered, IsPrefix, UsedCalls, ActiveCalls,
-               IsActiveCall, IsUnusedCall, ReceiveDebt,
-               NeedsInitialMetadata, HasMessageBacklog,
-               ReadyToDeliverStatus, PendingStatusPhase
-
 THEOREM EventStreamShapeImpliesMetadataFirst ==
     EventStreamShape => MetadataFirst
 <1>1. QED
@@ -191,7 +182,7 @@ THEOREM EventStreamShapeImpliesMetadataFirst ==
 THEOREM EventStreamShapeImpliesNoEventAfterStatus ==
     TypeOK /\ EventStreamShape => NoEventAfterStatus
 <1>1. QED
-    BY SMT DEF TypeOK, EventStreamShape, NoEventAfterStatus,
+    BY SMTT(90) DEF TypeOK, EventStreamShape, NoEventAfterStatus,
                UsedCalls, EventKinds, StatusKinds
 
 THEOREM ChannelLifecycleInvImpliesChannelSafety ==
@@ -228,7 +219,7 @@ THEOREM CallLifecycleInvImpliesClosedChannelNoCalls ==
         ClosedChannelNoCalls
 <1>1. USE NoneNotInChannelIds
 <1>2. QED
-    BY SMT DEF TypeOK, ChannelStates, CallStates,
+    BY SMTT(90) DEF TypeOK, ChannelStates, CallStates,
                CallSentinelEquivalence, CallLifecycleInv,
                ClosedChannelNoCalls, UsedChannels, ActiveChannelStates,
                ActiveChannels, UsedCalls, ActiveCallStates, ActiveCalls,
@@ -248,7 +239,7 @@ THEOREM CallLifecycleInvImpliesCallSafety ==
           CallLifecycleInvImpliesSendAfterEndSend,
           CallLifecycleInvImpliesClosedChannelNoCalls
 <1>2. QED
-    BY SMT DEF TypeOK, RuntimeStates, ChannelStates, CallStates,
+    BY SMTT(90) DEF TypeOK, RuntimeStates, ChannelStates, CallStates,
                CallSentinelEquivalence, ChannelLifecycleInv,
                CallLifecycleInv, TerminalStatusEquivalence, HasStatus,
                SendAfterEndSend, CallOwnership,
@@ -273,7 +264,7 @@ THEOREM StructuralInvImpliesLifecycleSafety ==
 <1>1. USE ChannelLifecycleInvImpliesChannelSafety,
           CallLifecycleInvImpliesCallSafety
 <1>2. QED
-    BY DEF StructuralInv
+    BY SMTT(90) DEF StructuralInv
 
 THEOREM StrongInvImpliesSafetyCore == StrongInv => SafetyCore
 <1>1. USE EventStreamShapeImpliesMetadataFirst,
@@ -316,7 +307,7 @@ THEOREM ChannelOnlyPreservesTypeOK ==
 THEOREM ChannelCallPreservesTypeOK ==
     TypeOK /\ NextSafeChannelCall => TypeOK'
 <1>1. QED
-    BY StatusKindsExpansion, SMT
+    BY StatusKindsExpansion, SMTT(90)
     DEF NextSafeChannelCall, ChannelFinishClosing,
                RuntimeVars, ChannelVars, CallVars,
                TypeOK, RuntimeStates, ChannelStates, CallStates, EventKinds, StatusKinds
@@ -326,52 +317,52 @@ THEOREM CallOnlyPreservesTypeOK ==
 <1>1. ASSUME TypeOK, NextSafeCallOnly
       PROVE TypeOK'
   <2>1. CASE \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
-    BY <1>1, <2>1, StatusKindsExpansion, SMT
+    BY <1>1, <2>1, StatusKindsExpansion, SMTT(90)
     DEF CallStart, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>2. CASE \E cId \in CallIds, msg \in Messages : SendMessage(cId, msg)
-    BY <1>1, <2>2, StatusKindsExpansion, SMT
+    BY <1>1, <2>2, StatusKindsExpansion, SMTT(90)
     DEF SendMessage, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>3. CASE \E cId \in CallIds : EndSend(cId)
-    BY <1>1, <2>3, StatusKindsExpansion, SMT
+    BY <1>1, <2>3, StatusKindsExpansion, SMTT(90)
     DEF EndSend, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>4. CASE \E cId \in CallIds : NetworkSend(cId)
-    BY <1>1, <2>4, StatusKindsExpansion, SMT
+    BY <1>1, <2>4, StatusKindsExpansion, SMTT(90)
     DEF NetworkSend, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>5. CASE \E cId \in CallIds, msg \in Messages : NetworkReceive(cId, msg)
-    BY <1>1, <2>5, StatusKindsExpansion, SMT
+    BY <1>1, <2>5, StatusKindsExpansion, SMTT(90)
     DEF NetworkReceive, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>6. CASE \E cId \in CallIds : ReceiveStatus(cId)
-    BY <1>1, <2>6, StatusKindsExpansion, SMT
+    BY <1>1, <2>6, StatusKindsExpansion, SMTT(90)
     DEF ReceiveStatus, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
-    BY <1>1, <2>7, StatusKindsExpansion, SMT
+    BY <1>1, <2>7, StatusKindsExpansion, SMTT(90)
     DEF DeliverInitialMetadata, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>8. CASE \E cId \in CallIds : DeliverMessage(cId)
-    BY <1>1, <2>8, StatusKindsExpansion, SMT
+    BY <1>1, <2>8, StatusKindsExpansion, SMTT(90)
     DEF DeliverMessage, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>9. CASE \E cId \in CallIds : DeliverStatus(cId)
-    BY <1>1, <2>9, StatusKindsExpansion, SMT
+    BY <1>1, <2>9, StatusKindsExpansion, SMTT(90)
     DEF DeliverStatus, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
   <2>10. CASE \E cId \in CallIds : CallCancel(cId)
-    BY <1>1, <2>10, StatusKindsExpansion, SMT
+    BY <1>1, <2>10, StatusKindsExpansion, SMTT(90)
     DEF CallCancel, RuntimeVars, ChannelVars, CallVars,
         TypeOK, RuntimeStates, ChannelStates, CallStates,
         EventKinds, StatusKinds
@@ -404,7 +395,7 @@ THEOREM NextPreservesTypeOK == TypeOK /\ Next => TypeOK'
     BY <1>1, <2>7, NextExplicitStutterFrame, VarsFramePreservesTypeOK
   <2>8. QED
     BY <1>1, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7,
-       NextDecomposition DEF NextByFootprint, NextSafe
+       NextDecomposition, SMTT(90) DEF NextByFootprint, NextSafe
 <1>2. QED BY <1>1
 
 (***************************************************************************)
@@ -444,7 +435,7 @@ THEOREM RuntimeOnlyPreservesStrongInv ==
     BY <1>1, <2>1, CallFramePreservesEventTrace, CallFramePreservesMessageFlow
        DEF StrongInv, ChannelVars, CallVars
   <2>3. StructuralInv' /\ NotFailed'
-    BY <1>1, <2>1, SMT
+    BY <1>1, <2>1, SMTT(90)
     DEF NextSafeRuntimeOnly, RuntimeCreate, RuntimeRelease,
         RuntimeVars, ChannelVars, CallVars,
         StrongInv, StructuralInv, TypeOK, RuntimeStates, ChannelStates,
@@ -469,7 +460,7 @@ THEOREM RuntimeChannelPreservesStrongInv ==
     BY <1>1, <2>1, CallFramePreservesEventTrace, CallFramePreservesMessageFlow
        DEF StrongInv
   <2>3. StructuralInv' /\ NotFailed'
-    BY <1>1, SMT
+    BY <1>1, SMTT(90)
     DEF NextSafeRuntimeChannel, RuntimeBeginShutdown,
         RuntimeVars, ChannelVars, CallVars,
         StrongInv, StructuralInv, TypeOK, RuntimeStates, ChannelStates,
@@ -493,7 +484,7 @@ THEOREM ChannelOnlyPreservesStrongInv ==
     BY <1>1, <2>1, CallFramePreservesEventTrace, CallFramePreservesMessageFlow
        DEF StrongInv, RuntimeVars, CallVars
   <2>3. StructuralInv' /\ NotFailed'
-    BY <1>1, <2>1, SMT
+    BY <1>1, <2>1, SMTT(90)
     DEF NextSafeChannelOnly, ChannelCreate, ChannelStartClosing,
         RuntimeVars, ChannelVars, CallVars,
         StrongInv, StructuralInv, TypeOK, RuntimeStates, ChannelStates,
@@ -527,7 +518,7 @@ THEOREM ChannelCallPreservesStrongInv ==
                 /\ call_state'[c] = call_state[c]
                 /\ events_delivered'[c] = events_delivered[c]
                 /\ status_pending'[c] = status_pending[c]
-    BY <1>1, <2>1, SMT
+    BY <1>1, <2>1, SMTT(90)
     DEF ChannelFinishClosing, StrongInv, StructuralInv, TypeOK,
         IsActiveCall, ActiveCallStates, HasStatus
   \* An affected call is cancelled: an active call carries no status yet
@@ -552,29 +543,29 @@ THEOREM ChannelCallPreservesStrongInv ==
   <2>7. TypeOK'
     BY <1>1, ChannelCallPreservesTypeOK DEF StrongInv, StructuralInv
   <2>8a. SingleRuntime' /\ ChannelSentinelEquivalence' /\ ChannelLifecycleInv'
-    BY <1>1, <2>2, <2>3, <2>4, SMT
+    BY <1>1, <2>2, <2>3, <2>4, SMTT(90)
     DEF RuntimeVars, StrongInv, StructuralInv, TypeOK, RuntimeStates,
         ChannelStates, SingleRuntime, ChannelSentinelEquivalence,
         ChannelLifecycleInv, UsedChannels, ActiveChannelStates,
         ActiveChannels
   <2>8b. CallSentinelEquivalence' /\ UnusedCallsAreEmpty' /\ CallLifecycleInv'
-    BY <1>1, <2>3, <2>4, <2>5, <2>6, <2>7, SMT
+    BY <1>1, <2>3, <2>4, <2>5, <2>6, <2>7, SMTT(90)
     DEF StrongInv, StructuralInv, TypeOK, ChannelStates, CallStates,
         EventKinds, StatusKinds, CallSentinelEquivalence, UnusedCallsAreEmpty,
         CallLifecycleInv, TerminalStatusEquivalence, HasStatus,
         UsedChannels, UsedCalls, ActiveChannels, ActiveChannelStates,
         ActiveCallStates, IsUnusedCall, IsActiveCall, IsTerminalCall
   <2>8. StructuralInv'
-    BY <2>7, <2>8a, <2>8b DEF StructuralInv
+    BY <2>7, <2>8a, <2>8b, SMTT(90) DEF StructuralInv
   <2>9. EventTraceInv'
     BY <1>1, <2>3, <2>5, <2>6, <2>7, AppendTerminalKeepsShape,
-       StatusKindsExpansion, SMT
+       StatusKindsExpansion, SMTT(90)
     DEF StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
         EventKinds, StatusKinds, EventStreamShape, CallLifecycleInv,
         TerminalStatusEquivalence, HasStatus, UsedCalls, ActiveCallStates,
         IsUnusedCall, IsActiveCall, IsTerminalCall
   <2>10. MessageFlowInv'
-    BY <1>1, <2>3, <2>5, <2>6, <2>7, SMT
+    BY <1>1, <2>3, <2>5, <2>6, <2>7, SMTT(90)
     DEF StrongInv, StructuralInv, MessageFlowInv, TypeOK, CallStates,
         EventKinds, StatusKinds, SubmittedPrefixOfSent, ReceivedPrefixOfDelivered,
         CompleteDelivery, IsPrefix, TerminalStatusEquivalence, HasStatus,
@@ -605,7 +596,7 @@ THEOREM CallOnlyPreservesStrongInv ==
         UsedChannels, ActiveChannelStates, ActiveChannels
   <2>4. CallSentinelEquivalence' /\ UnusedCallsAreEmpty' /\ CallLifecycleInv'
     <3>1. CASE \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
-      BY <1>1, <2>1, <3>1, SMT
+      BY <1>1, <2>1, <3>1, SMTT(90)
       DEF CallStart,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
@@ -614,7 +605,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedChannels, UsedCalls, ActiveChannels, ActiveChannelStates,
           ActiveCallStates, IsUnusedCall, IsActiveCall, IsTerminalCall
     <3>2. CASE \E cId \in CallIds, msg \in Messages : SendMessage(cId, msg)
-      BY <1>1, <2>1, <3>2, SMT
+      BY <1>1, <2>1, <3>2, SMTT(90)
       DEF SendMessage,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
@@ -659,7 +650,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedChannels, UsedCalls, ActiveChannels, ActiveChannelStates,
           ActiveCallStates, IsUnusedCall, IsActiveCall, IsTerminalCall
     <3>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
-      BY <1>1, <2>1, <3>7, SMT
+      BY <1>1, <2>1, <3>7, SMTT(90)
       DEF DeliverInitialMetadata,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
@@ -668,7 +659,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedChannels, UsedCalls, ActiveChannels, ActiveChannelStates,
           ActiveCallStates, IsUnusedCall, IsActiveCall, IsTerminalCall
     <3>8. CASE \E cId \in CallIds : DeliverMessage(cId)
-      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMT
+      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMTT(90)
       DEF DeliverMessage,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
@@ -677,7 +668,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedChannels, UsedCalls, ActiveChannels, ActiveChannelStates,
           ActiveCallStates, IsUnusedCall, IsActiveCall, IsTerminalCall
     <3>9. CASE \E cId \in CallIds : DeliverStatus(cId)
-      BY <1>1, <2>1, <3>9, SMT
+      BY <1>1, <2>1, <3>9, SMTT(90)
       DEF DeliverStatus,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
@@ -724,7 +715,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
           IsTerminalCall
     <3>4. CASE \E cId \in CallIds : NetworkSend(cId)
-      BY <1>1, <2>1, <3>4, SMT
+      BY <1>1, <2>1, <3>4, SMTT(90)
       DEF NetworkSend,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
@@ -751,7 +742,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
           IsTerminalCall
     <3>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
-      BY <1>1, <2>1, <3>7, SMT
+      BY <1>1, <2>1, <3>7, SMTT(90)
       DEF DeliverInitialMetadata,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
@@ -760,7 +751,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
           IsTerminalCall
     <3>8. CASE \E cId \in CallIds : DeliverMessage(cId)
-      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMT
+      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMTT(90)
       DEF DeliverMessage,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
@@ -779,7 +770,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>10. CASE \E cId \in CallIds : CallCancel(cId)
       BY <1>1, <2>1, <3>10, AppendTerminalKeepsShape,
-         StatusKindsExpansion, SMT
+         StatusKindsExpansion, SMTT(90)
       DEF CallCancel,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
@@ -800,7 +791,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsCancelled, UsedCalls, ActiveCallStates, IsUnusedCall,
           IsActiveCall, IsTerminalCall
     <3>2. CASE \E cId \in CallIds, msg \in Messages : SendMessage(cId, msg)
-      BY <1>1, <2>1, <3>2, SMT
+      BY <1>1, <2>1, <3>2, SMTT(90)
       DEF SendMessage,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, MessageFlowInv, TypeOK, CallStates,
@@ -820,7 +811,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsCancelled, UsedCalls, ActiveCallStates, IsUnusedCall,
           IsActiveCall, IsTerminalCall
     <3>4. CASE \E cId \in CallIds : NetworkSend(cId)
-      BY <1>1, <2>1, <3>4, SMT
+      BY <1>1, <2>1, <3>4, SMTT(90)
       DEF NetworkSend,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, MessageFlowInv, TypeOK, CallStates,
@@ -878,7 +869,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsCancelled, UsedCalls, ActiveCallStates, IsUnusedCall,
           IsActiveCall, IsTerminalCall
     <3>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
-      BY <1>1, <2>1, <3>7, SMT
+      BY <1>1, <2>1, <3>7, SMTT(90)
       DEF DeliverInitialMetadata,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, MessageFlowInv, TypeOK, CallStates,
@@ -888,7 +879,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsCancelled, UsedCalls, ActiveCallStates, IsUnusedCall,
           IsActiveCall, IsTerminalCall
     <3>8. CASE \E cId \in CallIds : DeliverMessage(cId)
-      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMT
+      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMTT(90)
       DEF DeliverMessage,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, MessageFlowInv, TypeOK, CallStates,
@@ -964,9 +955,9 @@ THEOREM FailedRegionPreserved ==
         TypeOK, RuntimeStates, SingleRuntime, NotFailed
   <2>2. CASE NextSafeChannelOnly \/ NextSafeChannelCall \/ NextSafeCallOnly
     BY <2>2, NextSafeChannelOnlyFrame, NextSafeChannelCallFrame,
-       NextSafeCallOnlyFrame DEF RuntimeVars
+       NextSafeCallOnlyFrame, SMTT(90) DEF RuntimeVars
   <2>3. CASE NextExplicitStutter
-    BY <2>3, NextExplicitStutterFrame DEF vars
+    BY <2>3, NextExplicitStutterFrame, SMTT(90) DEF vars
   <2>4. QED
     BY <2>1, <2>2, <2>3, NextDecomposition DEF NextByFootprint, NextSafe
 <1>3. SingleRuntime' /\ ~NotFailed'
@@ -1049,7 +1040,7 @@ THEOREM NextFailEntersFailedRegion ==
   <2>1. PICK rtId \in RuntimeIds : RuntimeFail(rtId)
     BY <1>1 DEF NextFail
   <2>2. runtime_state'[rtId] = "FAILED_UNQUIESCED"
-    BY <1>1, <2>1 DEF TypeOK, RuntimeFail
+    BY <1>1, <2>1, SMTT(90) DEF TypeOK, RuntimeFail
   <2>3. QED BY <2>1, <2>2 DEF NotFailed
 <1>2. QED BY <1>1
 
@@ -1143,7 +1134,7 @@ THEOREM MetadataWaitingUnlessDone ==
         StrongInv /\ MetadataWaiting(cId) /\ [NextSafe]_vars =>
             MetadataWaiting(cId)' \/ MetadataDelivered(cId)'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
+    BY SMTT(90) DEF StrongInv, StructuralInv, TypeOK, CallStates, ChannelStates,
                EventKinds, StatusKinds,
                NextSafe, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
                NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
@@ -1301,7 +1292,7 @@ THEOREM StoppingChannelFacts ==
           (channel_runtime[c] = rtId =>
                channel_state[c] = "closing" \/
                channel_state[c] = "closed")
-    BY SMT DEF StrongInv, StructuralInv, TypeOK, RuntimeStates,
+    BY SMTT(90) DEF StrongInv, StructuralInv, TypeOK, RuntimeStates,
         ChannelStates, ShutdownWaiting, ChannelSentinelEquivalence,
         ChannelLifecycleInv, UsedChannels
 <1>2. StrongInv /\ ShutdownWaiting(rtId) /\
@@ -1368,7 +1359,7 @@ THEOREM StoppingChannelFactsBoxed ==
 <1>3. StrongInv /\ ShutdownWaiting(rtId) /\ [NextSafe]_vars =>
           (channel_runtime[chId] = rtId =>
                (channel_runtime[chId] = rtId)')
-    BY StoppingChannelFacts, SMT
+    BY StoppingChannelFacts, SMTT(90)
 <1>4. StrongInv /\ ShutdownWaiting(rtId) /\ [NextSafe]_vars =>
           (channel_state[chId] = "closed" =>
                (channel_state[chId] = "closed")')
@@ -1391,26 +1382,37 @@ THEOREM ChannelSettlesFor ==
              []ShutdownWaiting(rtId)
       PROVE <>[](channel_runtime[chId] = rtId =>
                      channel_state[chId] = "closed")
-  <2>1. /\ [](channel_runtime[chId] = rtId =>
-                  channel_state[chId] = "closing" \/
-                  channel_state[chId] = "closed")
-        /\ [](channel_runtime[chId] # rtId =>
-                  (channel_runtime[chId] # rtId)')
-        /\ [](channel_runtime[chId] = rtId =>
-                  (channel_runtime[chId] = rtId)')
-        /\ [](channel_state[chId] = "closed" =>
-                  (channel_state[chId] = "closed")')
-    BY <1>1, StoppingChannelFactsBoxed
+  <2>11. [](channel_runtime[chId] = rtId =>
+                channel_state[chId] = "closing" \/
+                channel_state[chId] = "closed")
+    BY <1>1, StoppingChannelFactsBoxed, PTL
+  <2>12. [](channel_runtime[chId] # rtId =>
+                (channel_runtime[chId] # rtId)')
+    BY <1>1, StoppingChannelFactsBoxed, PTL
+  <2>13. [](channel_runtime[chId] = rtId =>
+                (channel_runtime[chId] = rtId)')
+    BY <1>1, StoppingChannelFactsBoxed, PTL
+  <2>14. [](channel_state[chId] = "closed" =>
+                (channel_state[chId] = "closed")')
+    BY <1>1, StoppingChannelFactsBoxed, PTL
+  <2>21. /\ []StrongInv
+         /\ [][NextSafe]_vars
+         /\ WF_vars(ChannelFinishClosing(chId))
+         => ((channel_state[chId] = "closing") ~>
+                 (channel_state[chId] = "closed"))
+    \* Instantiates the schema before any propositional-temporal step:
+    \* LS4 cannot instantiate a cited ASSUME NEW theorem itself.
+    BY ChannelClosesFor, IsaT(600)
   <2>2. (channel_state[chId] = "closing") ~>
             (channel_state[chId] = "closed")
-    BY <1>1, ChannelClosesFor, PTL
+    BY <1>1, <2>21, PTL
   <2>3. <>(channel_state[chId] = "closed") =>
             <>[](channel_runtime[chId] = rtId =>
                      channel_state[chId] = "closed")
-    BY <2>1, PTL
+    BY <2>12, <2>13, <2>14, PTL
   <2>4. [](channel_runtime[chId] = rtId =>
                <>(channel_state[chId] = "closed"))
-    BY <2>1, <2>2, PTL
+    BY <2>11, <2>13, <2>2, PTL
   <2>5. QED BY <2>3, <2>4, PTL
 <1>2. QED BY <1>1, PTL
 
@@ -1426,7 +1428,7 @@ THEOREM BoxedChannelFairness ==
       PROVE [](WF_vars(ChannelFinishClosing(chId)))
             <=> WF_vars(ChannelFinishClosing(chId))
     BY PTL
-<1>3. QED BY <1>1, <1>2, Isa
+<1>3. QED BY <1>1, <1>2, IsaT(600)
 
 \* Finite accumulation: the per-channel eventually-stable facts combine
 \* into one eventually-always over the whole constant channel set.
@@ -1469,7 +1471,7 @@ THEOREM AllChannelsSettle ==
   <2>3. QED BY <1>2, <2>1, <2>2, PTL
 <1> HIDE DEF I
 <1>3. I(ChannelIds)
-    BY <1>1, <1>2, FS_Induction, IsaM("blast")
+    BY <1>1, <1>2, FS_Induction, IsaT(600)
 <1>4. QED BY <1>3, Zenon DEF I
 
 THEOREM ReleaseReaches ==
@@ -1486,7 +1488,7 @@ THEOREM ShutdownWaitingUnlessReleasedSafe ==
     PROVE  StrongInv /\ ShutdownWaiting(rtId) /\ [NextSafe]_vars =>
                ShutdownWaiting(rtId)' \/ ShutdownReleased(rtId)'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, TypeOK, RuntimeStates,
+    BY SMTT(90) DEF StrongInv, StructuralInv, TypeOK, RuntimeStates,
         ShutdownWaiting, ShutdownReleased,
         NextSafe, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
@@ -1522,7 +1524,7 @@ THEOREM ReleaseFactsBoxed ==
                       ShutdownReleased(rtId)')
   <2>1. StrongInv /\ ShutdownWaiting(rtId) /\ [NextSafe]_vars =>
             ShutdownWaiting(rtId)' \/ ShutdownReleased(rtId)'
-    BY ShutdownWaitingUnlessReleasedSafe
+    BY ShutdownWaitingUnlessReleasedSafe, SMTT(90)
   <2>2. StrongInv /\ ShutdownWaiting(rtId) /\
             (\A chId \in ChannelIds :
                  channel_runtime[chId] = rtId =>
@@ -1534,11 +1536,11 @@ THEOREM ReleaseFactsBoxed ==
                        channel_state[chId] = "closed") =>
               \A chId \in ChannelsOf(rtId) :
                   channel_state[chId] = "closed"
-      BY SMT DEF ChannelsOf
+      BY SMTT(90) DEF ChannelsOf
     <3>2. QED BY <3>1, AllClosedEnablesRelease
   <2>3. StrongInv /\ <<RuntimeRelease(rtId)>>_vars =>
             ShutdownReleased(rtId)'
-    BY ReleaseReaches
+    BY ReleaseReaches, SMTT(90)
   <2>4. QED BY <1>1, <2>1, <2>2, <2>3, PTL
 <1>2. QED BY <1>1, PTL
 
@@ -1574,21 +1576,61 @@ THEOREM ShutdownPersistentWaitingReleases ==
             /\ WF_vars(ChannelFinishClosing(chId))
             /\ []SW
             => <>[]G(chId)
-    BY ChannelSettlesFor DEF ShutdownWaiting
+    BY ChannelSettlesFor, IsaT(600) DEF ShutdownWaiting
   <2>3. (\A chId \in ChannelIds : <>[]G(chId)) => <>[]AllG
-    BY AllChannelsSettle
+    BY AllChannelsSettle, SMTT(90)
   <2>4. /\ []StrongInv
         /\ [][NextSafe]_vars
         /\ (\A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId)))
         /\ []SW
         => \A chId \in ChannelIds : <>[]G(chId)
-    BY <2>2, Isa
+    BY <2>2, IsaT(600)
   <2>5. /\ [](SW => SW' \/ SR')
         /\ [](SW /\ AllG => ENABLED <<RuntimeRelease(rtId)>>_vars)
         /\ [](<<RuntimeRelease(rtId)>>_vars => SR')
-    BY <1>1, ReleaseFactsBoxed
+    BY <1>1, ReleaseFactsBoxed, IsaT(600)
   <2>6. QED BY <1>1, <2>1, <2>3, <2>4, <2>5, PTL
 <1>2. QED BY <1>1, PTL
+
+\* The persistent-waiting fact, pre-boxed in a context free of unboxed
+\* hypotheses: inside the consuming proof the raw WF atoms block the
+\* necessitation, so it happens here where every hypothesis is boxed.
+THEOREM ShutdownPersistentWaitingReleasesBoxed ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ []StrongInv
+           /\ [][NextSafe]_vars
+           /\ []WF_vars(RuntimeRelease(rtId))
+           /\ [](\A chId \in ChannelIds :
+                     WF_vars(ChannelFinishClosing(chId)))
+           => []([]ShutdownWaiting(rtId) => <>ShutdownReleased(rtId))
+<1>1. ASSUME []StrongInv,
+             [][NextSafe]_vars,
+             []WF_vars(RuntimeRelease(rtId)),
+             [](\A chId \in ChannelIds :
+                    WF_vars(ChannelFinishClosing(chId)))
+      PROVE  []([]ShutdownWaiting(rtId) => <>ShutdownReleased(rtId))
+  <2>1. [][]StrongInv
+    BY <1>1, PTL
+  <2>2. [][][NextSafe]_vars
+    BY <1>1, PTL
+  <2>3. [][]WF_vars(RuntimeRelease(rtId))
+    BY <1>1, PTL
+  <2>4. [][](\A chId \in ChannelIds :
+                 WF_vars(ChannelFinishClosing(chId)))
+    BY <1>1, BoxedChannelFairness, PTL
+  <2>45. /\ []StrongInv
+         /\ [][NextSafe]_vars
+         /\ WF_vars(RuntimeRelease(rtId))
+         /\ [](\A chId \in ChannelIds :
+                   WF_vars(ChannelFinishClosing(chId)))
+         /\ []ShutdownWaiting(rtId)
+         => <>ShutdownReleased(rtId)
+    \* Instantiates the schema before the boxed modus ponens below.
+    BY ShutdownPersistentWaitingReleases, IsaT(600)
+  <2>5. QED
+    BY <2>1, <2>2, <2>3, <2>4, <2>45, PTL
+<1>2. QED
+    BY <1>1
 
 THEOREM ShutdownProgressSafeFor ==
     ASSUME NEW rtId \in RuntimeIds
@@ -1605,14 +1647,14 @@ THEOREM ShutdownProgressSafeFor ==
              \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
       PROVE SW ~> SR
   <2>1. [](\A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId)))
-    BY <1>1, BoxedChannelFairness
+    BY <1>1, BoxedChannelFairness, IsaT(600)
   <2>2. /\ [](SW => SW' \/ SR')
         /\ [](SW /\ (\A chId \in ChannelIds :
                          channel_runtime[chId] = rtId =>
                              channel_state[chId] = "closed") =>
                   ENABLED <<RuntimeRelease(rtId)>>_vars)
         /\ [](<<RuntimeRelease(rtId)>>_vars => SR')
-    BY <1>1, ReleaseFactsBoxed
+    BY <1>1, ReleaseFactsBoxed, IsaT(600)
   <2>3. []WF_vars(RuntimeRelease(rtId))
     BY <1>1, PTL
   <2>4. /\ []StrongInv
@@ -1622,11 +1664,11 @@ THEOREM ShutdownProgressSafeFor ==
                   WF_vars(ChannelFinishClosing(chId)))
         /\ []SW
         => <>SR
-    BY ShutdownPersistentWaitingReleases
+    BY ShutdownPersistentWaitingReleases, IsaT(600)
   <2>5. [](SW => SW' \/ SR') => [](SW => (<>SR \/ []SW))
     BY PTL
   <2>6. []([]SW => <>SR)
-    BY <1>1, <2>1, <2>3, ShutdownPersistentWaitingReleases, PTL
+    BY <1>1, <2>1, <2>3, ShutdownPersistentWaitingReleasesBoxed, PTL
   <2>7. QED BY <2>2, <2>5, <2>6, PTL
 <1>2. QED BY <1>1, PTL
 
@@ -1638,7 +1680,7 @@ THEOREM ShutdownWaitingImpliesNotFailed ==
     \A rtId \in RuntimeIds :
         SingleRuntime /\ ShutdownWaiting(rtId) => NotFailed
 <1>1. QED
-    BY SMT DEF SingleRuntime, ShutdownWaiting, NotFailed
+    BY SMTT(90) DEF SingleRuntime, ShutdownWaiting, NotFailed
 
 THEOREM ShutdownWaitingUnlessSettled ==
     ASSUME NEW rtId \in RuntimeIds
@@ -1685,7 +1727,7 @@ THEOREM ShutdownSettledStable ==
     BY <1>1, <2>4 DEF vars, ShutdownSettled
   <2>5. QED
     BY <1>1, <2>1, <2>2, <2>3, <2>4,
-       NextDecomposition DEF NextByFootprint, NextSafe
+       NextDecomposition, SMTT(90) DEF NextByFootprint, NextSafe
 <1>2. QED BY <1>1
 
 (***************************************************************************)
@@ -1716,33 +1758,94 @@ THEOREM ShutdownSettledStable ==
 THEOREM DeliveryWaitingIsActive ==
     ASSUME NEW cId \in CallIds, NEW i \in PositiveNaturals
     PROVE  StrongInv /\ DeliveryWaitingAt(cId, i) => IsActiveCall(cId)
-<1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, TypeOK,
-        CallStates, PositiveNaturals, DeliveryWaitingAt,
-        UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
-        CompleteDelivery, ReceivedPrefixOfDelivered, IsPrefix,
-        HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
-        IsUnusedCall, IsActiveCall, IsTerminalCall
+<1>1. SUFFICES ASSUME StrongInv, DeliveryWaitingAt(cId, i)
+               PROVE  IsActiveCall(cId)
+    OBVIOUS
+<1>2. received[cId] # <<>>
+    BY <1>1, SMTT(90) DEF StrongInv, StructuralInv, TypeOK,
+        PositiveNaturals, DeliveryWaitingAt
+<1>3. ~IsUnusedCall(cId)
+    BY <1>1, <1>2, SMT DEF StrongInv, StructuralInv,
+        UnusedCallsAreEmpty, IsUnusedCall
+<1>4. ~IsTerminalCall(cId)
+    BY <1>1, <1>3, SMT DEF StrongInv, StructuralInv, MessageFlowInv,
+        TypeOK, PositiveNaturals, DeliveryWaitingAt, CompleteDelivery,
+        IsCancelled, HasStatus, UsedCalls, IsUnusedCall, IsTerminalCall
+<1>5. QED
+    BY <1>1, <1>3, <1>4, SMT DEF StrongInv, StructuralInv, TypeOK,
+        CallStates, IsUnusedCall, IsTerminalCall, IsActiveCall,
+        ActiveCallStates
 
 THEOREM DeliveryWaitingUnlessDone ==
     ASSUME NEW cId \in CallIds, NEW i \in PositiveNaturals
     PROVE  StrongInv /\ DeliveryWaitingAt(cId, i) /\ [NextSafe]_vars =>
                DeliveryWaitingAt(cId, i)' \/ DeliveryDoneAt(cId, i)'
-<1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv,
+<1>0. SUFFICES ASSUME StrongInv, DeliveryWaitingAt(cId, i), [NextSafe]_vars
+               PROVE  DeliveryWaitingAt(cId, i)' \/ DeliveryDoneAt(cId, i)'
+    OBVIOUS
+<1>1. CASE NextSafeRuntimeOnly
+    BY <1>0, <1>1, SMT DEF StrongInv, StructuralInv, MessageFlowInv,
         TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
         PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
         UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
         CompleteDelivery, ReceivedPrefixOfDelivered,
         IsPrefix, HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
         IsUnusedCall, IsActiveCall, IsTerminalCall,
-        NextSafe, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
-        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
-        RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
-        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive,
-        ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
-        DeliverStatus, CallCancel, RuntimeVars, ChannelVars, CallVars, vars
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeRuntimeOnly, RuntimeCreate, RuntimeRelease
+<1>2. CASE NextSafeRuntimeChannel
+    BY <1>0, <1>2, SMT DEF StrongInv, StructuralInv, MessageFlowInv,
+        TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
+        CompleteDelivery, ReceivedPrefixOfDelivered,
+        IsPrefix, HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeRuntimeChannel, RuntimeBeginShutdown
+<1>3. CASE NextSafeChannelOnly
+    BY <1>0, <1>3, SMT DEF StrongInv, StructuralInv, MessageFlowInv,
+        TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
+        CompleteDelivery, ReceivedPrefixOfDelivered,
+        IsPrefix, HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeChannelOnly, ChannelCreate, ChannelStartClosing
+<1>4. CASE NextSafeChannelCall
+    BY <1>0, <1>4, SMT DEF StrongInv, StructuralInv, MessageFlowInv,
+        TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
+        CompleteDelivery, ReceivedPrefixOfDelivered,
+        IsPrefix, HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeChannelCall, ChannelFinishClosing
+<1>5. CASE NextSafeCallOnly
+    BY <1>0, <1>5, SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv,
+        TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
+        CompleteDelivery, ReceivedPrefixOfDelivered,
+        IsPrefix, HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeCallOnly, CallStart, SendMessage, EndSend,
+        NetworkSend, NetworkReceive, ReceiveStatus,
+        DeliverInitialMetadata, DeliverMessage, DeliverStatus, CallCancel
+<1>6. CASE UNCHANGED vars
+    BY <1>0, <1>6, SMT DEF StrongInv, StructuralInv, MessageFlowInv,
+        TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
+        CompleteDelivery, ReceivedPrefixOfDelivered,
+        IsPrefix, HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars
+<1>7. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6 DEF NextSafe
 
 THEOREM DeliveryBacklogEnablesDeliver ==
     ASSUME NEW cId \in CallIds, NEW i \in PositiveNaturals
@@ -1751,7 +1854,7 @@ THEOREM DeliveryBacklogEnablesDeliver ==
 <1>1. StrongInv /\ DeliveryWaitingAt(cId, i) => IsActiveCall(cId)
     BY DeliveryWaitingIsActive
 <1>2. QED
-    BY <1>1, ExpandENABLED, SMT
+    BY <1>1, ExpandENABLED, SMTT(90)
     DEF StrongInv, StructuralInv, EventTraceInv, EventStreamShape,
         MessageFlowInv, TypeOK, CallStates, EventKinds, StatusKinds, PositiveNaturals,
         DeliveryWaitingAt, MetadataDelivered, CallLifecycleInv,
@@ -1785,7 +1888,11 @@ THEOREM DeliveryDescentFor ==
                    /\ MetadataDelivered(cId)
                    /\ i - Len(delivered[cId]) = n
 <1>1. StrongInv /\ P /\ [NextSafe]_vars => P' \/ Q'
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+  <2>0. SUFFICES ASSUME StrongInv, P, [NextSafe]_vars
+                 PROVE  P' \/ Q'
+      OBVIOUS
+  <2>1. CASE NextSafeRuntimeOnly
+      BY <2>0, <2>1, SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
         EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
         PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
         MetadataDelivered, UnusedCallsAreEmpty, CallLifecycleInv,
@@ -1793,13 +1900,66 @@ THEOREM DeliveryDescentFor ==
         ReceivedPrefixOfDelivered, SubmittedPrefixOfSent, IsPrefix,
         HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
         IsUnusedCall, IsActiveCall, IsTerminalCall,
-        NextSafe, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
-        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
-        RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
-        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive,
-        ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
-        DeliverStatus, CallCancel, RuntimeVars, ChannelVars, CallVars, vars
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeRuntimeOnly, RuntimeCreate, RuntimeRelease
+  <2>2. CASE NextSafeRuntimeChannel
+      BY <2>0, <2>2, SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+        EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        MetadataDelivered, UnusedCallsAreEmpty, CallLifecycleInv,
+        TerminalStatusEquivalence, CompleteDelivery,
+        ReceivedPrefixOfDelivered, SubmittedPrefixOfSent, IsPrefix,
+        HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeRuntimeChannel, RuntimeBeginShutdown
+  <2>3. CASE NextSafeChannelOnly
+      BY <2>0, <2>3, SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+        EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        MetadataDelivered, UnusedCallsAreEmpty, CallLifecycleInv,
+        TerminalStatusEquivalence, CompleteDelivery,
+        ReceivedPrefixOfDelivered, SubmittedPrefixOfSent, IsPrefix,
+        HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeChannelOnly, ChannelCreate, ChannelStartClosing
+  <2>4. CASE NextSafeChannelCall
+      BY <2>0, <2>4, SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+        EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        MetadataDelivered, UnusedCallsAreEmpty, CallLifecycleInv,
+        TerminalStatusEquivalence, CompleteDelivery,
+        ReceivedPrefixOfDelivered, SubmittedPrefixOfSent, IsPrefix,
+        HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeChannelCall, ChannelFinishClosing
+  <2>5. CASE NextSafeCallOnly
+      BY <2>0, <2>5, SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+        EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        MetadataDelivered, UnusedCallsAreEmpty, CallLifecycleInv,
+        TerminalStatusEquivalence, CompleteDelivery,
+        ReceivedPrefixOfDelivered, SubmittedPrefixOfSent, IsPrefix,
+        HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars,
+        NextSafeCallOnly, CallStart, SendMessage, EndSend,
+        NetworkSend, NetworkReceive, ReceiveStatus,
+        DeliverInitialMetadata, DeliverMessage, DeliverStatus, CallCancel
+  <2>6. CASE UNCHANGED vars
+      BY <2>0, <2>6, SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+        EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
+        PositiveNaturals, DeliveryWaitingAt, DeliveryDoneAt,
+        MetadataDelivered, UnusedCallsAreEmpty, CallLifecycleInv,
+        TerminalStatusEquivalence, CompleteDelivery,
+        ReceivedPrefixOfDelivered, SubmittedPrefixOfSent, IsPrefix,
+        HasStatus, IsCancelled, UsedCalls, ActiveCallStates,
+        IsUnusedCall, IsActiveCall, IsTerminalCall,
+        RuntimeVars, ChannelVars, CallVars, vars
+  <2>7. QED
+      BY <2>0, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6 DEF NextSafe
 <1>2. StrongInv /\ P => ENABLED <<DeliverMessage(cId)>>_vars
     BY DeliveryBacklogEnablesDeliver
 <1>3. StrongInv /\ P /\ <<DeliverMessage(cId)>>_vars => Q'
@@ -1859,7 +2019,7 @@ THEOREM DeliveryProgressSafeFor ==
       /\ [][NextSafe]_vars
       /\ WF_vars(DeliverInitialMetadata(cId))
       => (MetadataWaiting(cId) ~> MetadataDelivered(cId))
-    BY MetadataProgressSafeFor
+    BY MetadataProgressSafeFor, IsaT(600)
 <1>4. /\ []StrongInv
       /\ [][NextSafe]_vars
       /\ WF_vars(DeliverInitialMetadata(cId))
@@ -1884,7 +2044,7 @@ THEOREM DeliveryProgressSafeFor ==
                         [][NextSafe]_vars,
                         WF_vars(DeliverMessage(cId))
         PROVE (P /\ M <= n + 1) ~> DeliveryDoneAt(cId, i)
-    OBVIOUS
+    BY IsaT(600)
   <2>2. (P /\ M = n + 1) ~> (DeliveryDoneAt(cId, i) \/ (P /\ M = n))
     BY <2>s, DeliveryDescentFor, PTL
   <2>4. (P /\ M <= n) ~> DeliveryDoneAt(cId, i)
@@ -1896,7 +2056,7 @@ THEOREM DeliveryProgressSafeFor ==
   <2>7. QED BY <2>2, <2>4, <2>5, <2>6, PTL
 <1> HIDE DEF Ind
 <1>8. \A n \in Nat : Ind(n)
-    BY <1>6, <1>7, NatInduction, Isa
+    BY <1>6, <1>7, NatInduction, IsaT(600)
 <1>9. Ind(i)
     BY <1>8 DEF PositiveNaturals
 <1>10. QED BY <1>4, <1>5, <1>9, PTL DEF Ind, StrongInv, StructuralInv
@@ -1913,7 +2073,7 @@ THEOREM PendingUnlessDone ==
                  /\ received'[cId] = received[cId]
               \/ HasStatus(cId)'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+    BY SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
         EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
         UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
         CompleteDelivery, ReceivedPrefixOfDelivered, SubmittedPrefixOfSent,
@@ -1937,7 +2097,7 @@ THEOREM PendingUnlessDonePlain ==
            => \/ IsActiveCall(cId)' /\ status_pending'[cId]
               \/ HasStatus(cId)'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+    BY SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
         EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
         UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
         CompleteDelivery, ReceivedPrefixOfDelivered, SubmittedPrefixOfSent,
@@ -1973,7 +2133,7 @@ THEOREM DeliverStatusReaches ==
     ASSUME NEW cId \in CallIds
     PROVE  StrongInv /\ <<DeliverStatus(cId)>>_vars => HasStatus(cId)'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, TypeOK, EventKinds, StatusKinds, CallStates,
+    BY SMTT(90) DEF StrongInv, StructuralInv, TypeOK, EventKinds, StatusKinds, CallStates,
         DeliverStatus, HasStatus, RuntimeVars, ChannelVars, CallVars, vars
 
 \* The guards of ReadyEnablesDeliverStatus, derived from the invariant.
@@ -1990,7 +2150,7 @@ THEOREM ReadyGuardsFromInv ==
               /\ ~HasStatus(cId)
               /\ Len(delivered[cId]) = Len(received[cId])
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, EventTraceInv, EventStreamShape,
+    BY SMTT(90) DEF StrongInv, StructuralInv, EventTraceInv, EventStreamShape,
         MessageFlowInv, ReceivedPrefixOfDelivered, IsPrefix, TypeOK,
         CallStates, EventKinds, StatusKinds, CallLifecycleInv, TerminalStatusEquivalence,
         MetadataDelivered, ReceiveDebt, HasStatus, UsedCalls,
@@ -2028,7 +2188,7 @@ THEOREM PendingProgressSafeFor ==
         /\ [][NextSafe]_vars
         /\ WF_vars(DeliverInitialMetadata(cId))
         => (MetadataWaiting(cId) ~> MD)
-    BY MetadataProgressSafeFor
+    BY MetadataProgressSafeFor, IsaT(600)
   <2>4. W ~> ((W /\ MD) \/ R)
     BY <1>1, <2>1, <2>2, <2>3, PTL
   \* Phase two: the receive stream is frozen while the status is latched;
@@ -2051,11 +2211,11 @@ THEOREM PendingProgressSafeFor ==
             DeliverStatus, CallCancel, IsActiveCall, ActiveCallStates,
             IsUnusedCall, HasStatus,
             RuntimeVars, ChannelVars, CallVars, vars
-      <4>2. QED BY <4>1, PendingUnlessDone
+      <4>2. QED BY <4>1, PendingUnlessDone, SMTT(90)
     <3>2. StrongInv /\ P =>
               \/ W /\ MD /\ ReceiveDebt(cId) = 0
               \/ DeliveryWaitingAt(cId, i)
-      BY StatusKindsExpansion, SMT
+      BY StatusKindsExpansion, SMTT(90)
       DEF StrongInv, StructuralInv, MessageFlowInv,
           ReceivedPrefixOfDelivered, IsPrefix, CompleteDelivery, TypeOK,
           CallStates, PositiveNaturals, DeliveryWaitingAt, ReceiveDebt,
@@ -2067,7 +2227,7 @@ THEOREM PendingProgressSafeFor ==
           /\ WF_vars(DeliverInitialMetadata(cId))
           /\ WF_vars(DeliverMessage(cId))
           => (DeliveryWaitingAt(cId, i) ~> DeliveryDoneAt(cId, i))
-      BY DeliveryProgressSafeFor
+      BY DeliveryProgressSafeFor, IsaT(600)
     <3>4. StrongInv /\ P /\ DeliveryDoneAt(cId, i) =>
               (W /\ MD /\ ReceiveDebt(cId) = 0) \/ R
       BY StatusKindsExpansion, SMT
@@ -2118,7 +2278,7 @@ THEOREM PendingProgressSafeFor ==
     <3> DEFINE P == W /\ MD /\ ReceiveDebt(cId) = 0
     <3>1. StrongInv /\ P /\ [NextSafe]_vars => P' \/ R'
       <4>1. StrongInv /\ MD /\ [NextSafe]_vars /\ IsActiveCall(cId)' => MD'
-        BY SMT DEF StrongInv, StructuralInv, TypeOK, CallStates,
+        BY SMTT(90) DEF StrongInv, StructuralInv, TypeOK, CallStates,
             EventKinds, StatusKinds, MetadataDelivered,
             NextSafe, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
             NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
@@ -2131,7 +2291,7 @@ THEOREM PendingProgressSafeFor ==
             RuntimeVars, ChannelVars, CallVars, vars
       <4>2. StrongInv /\ P /\ [NextSafe]_vars =>
                 (W /\ ReceiveDebt(cId) = 0)' \/ R'
-        BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+        BY SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
             EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
             UnusedCallsAreEmpty, CallLifecycleInv,
             TerminalStatusEquivalence, CompleteDelivery,
@@ -2173,7 +2333,7 @@ THEOREM ActiveUnlessDone ==
     PROVE  StrongInv /\ IsActiveCall(cId) /\ [NextSafe]_vars =>
                IsActiveCall(cId)' \/ HasStatus(cId)'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+    BY SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
         EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
         UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
         CompleteDelivery, ReceivedPrefixOfDelivered, SubmittedPrefixOfSent,
@@ -2192,7 +2352,7 @@ THEOREM ReceiveStatusLatches ==
     PROVE  StrongInv /\ IsActiveCall(cId) /\ <<ReceiveStatus(cId)>>_vars =>
                (IsActiveCall(cId) /\ status_pending[cId])'
 <1>1. QED
-    BY SMT DEF StrongInv, StructuralInv, TypeOK, CallStates, EventKinds, StatusKinds,
+    BY SMTT(90) DEF StrongInv, StructuralInv, TypeOK, CallStates, EventKinds, StatusKinds,
         ReceiveStatus, IsActiveCall, ActiveCallStates,
         RuntimeVars, ChannelVars, CallVars, vars
 
@@ -2241,7 +2401,7 @@ THEOREM TerminalProgressSafeFor ==
         /\ WF_vars(DeliverMessage(cId))
         /\ WF_vars(DeliverStatus(cId))
         => ((IsActiveCall(cId) /\ status_pending[cId]) ~> HasStatus(cId))
-    BY PendingProgressSafeFor
+    BY IsaT(180), PendingProgressSafeFor
   <2>7. QED BY <1>1, <2>1, <2>5, <2>6, PTL
        DEF TerminalWaiting, TerminalReached
 <1>2. QED BY <1>1, PTL
@@ -2307,7 +2467,7 @@ THEOREM SubmitDescentFor ==
                 \/ /\ SubmitWaitingAt(cId, i)
                    /\ status_pending[cId]
 <1>1. StrongInv /\ P /\ [NextSafe]_vars => P' \/ Q'
-    BY SMT DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
+    BY SMTT(90) DEF StrongInv, StructuralInv, MessageFlowInv, EventTraceInv,
         EventStreamShape, TypeOK, CallStates, ChannelStates, EventKinds, StatusKinds,
         PositiveNaturals, SubmitWaitingAt, SubmitDoneAt,
         UnusedCallsAreEmpty, CallLifecycleInv, TerminalStatusEquivalence,
@@ -2391,7 +2551,7 @@ THEOREM SubmitProgressSafeFor ==
           /\ WF_vars(DeliverMessage(cId))
           /\ WF_vars(DeliverStatus(cId))
           => ((IsActiveCall(cId) /\ status_pending[cId]) ~> HasStatus(cId))
-      BY PendingProgressSafeFor
+      BY IsaT(180), PendingProgressSafeFor
     <3>3. StrongInv /\ HasStatus(cId) => SubmitDoneAt(cId, i)
       BY SMT DEF StrongInv, StructuralInv, TypeOK, CallStates, EventKinds, StatusKinds,
           SubmitDoneAt, UnusedCallsAreEmpty, CallLifecycleInv,
@@ -2427,7 +2587,7 @@ THEOREM SubmitProgressSafeFor ==
     <3>6. QED BY <2>3, <3>2, <3>5, PTL
   <2> HIDE DEF Ind
   <2>4. \A n \in Nat : Ind(n)
-    BY <2>2, <2>3, NatInduction, Isa
+    BY <2>2, <2>3, NatInduction, IsaT(180)
   <2>5. Ind(i)
     BY <2>4 DEF PositiveNaturals
   <2>6. StrongInv /\ SubmitWaitingAt(cId, i) => (P /\ M <= i) \/ L
@@ -2528,7 +2688,7 @@ THEOREM SubmitFairnessRequirement ==
            /\ WF_vars(DeliverStatus(cId))
            => (SubmitWaitingAt(cId, i) ~> SubmitDoneAt(cId, i))
 <1>1. Init /\ [][NextSafe]_vars => []StrongInv
-    BY NominalBehaviorEstablishesStrongInv
+    BY NominalBehaviorEstablishesStrongInv, SMTT(90)
 <1>2. QED BY <1>1, SubmitProgressSafeFor, PTL
 
 \* The caller alone, plus the head that gates message delivery.
@@ -2557,7 +2717,12 @@ THEOREM EventualMetadataHolds == Spec => EventualMetadata
     BY DEF EventualMetadata
 <1>. DEFINE F(c) == WF_vars(DeliverInitialMetadata(c))
 <1>2. Fairness => \A c \in CallIds : F(c)
-    BY DEF Fairness
+\* Only Isabelle can read a WF conjunct: SMT calls the expression unsupported
+\* and Zenon calls the operator unsupported, both immediately.  Opening the
+\* bundle takes it about twenty-five seconds, so the budget is stated rather
+\* than left to the default and a stretch factor - at the default it closes
+\* with no margin, which is a step that fails on a busy machine.
+    BY IsaT(120) DEF Fairness
 <1>. HIDE DEF F
 <1>3. Fairness => F(cId)
     BY <1>2
@@ -2578,7 +2743,12 @@ THEOREM EventualTerminalHolds == Spec => EventualTerminal
                     /\ WF_vars(DeliverMessage(c))
                     /\ WF_vars(DeliverStatus(c))
 <1>2. Fairness => \A c \in CallIds : F(c)
-    BY DEF Fairness
+\* Only Isabelle can read a WF conjunct: SMT calls the expression unsupported
+\* and Zenon calls the operator unsupported, both immediately.  Opening the
+\* bundle takes it about twenty-five seconds, so the budget is stated rather
+\* than left to the default and a stretch factor - at the default it closes
+\* with no margin, which is a step that fails on a busy machine.
+    BY IsaT(120) DEF Fairness
 <1>. HIDE DEF F
 <1>3. Fairness => F(cId)
     BY <1>2
@@ -2602,7 +2772,12 @@ THEOREM SubmitProgressHolds == Spec => SubmitProgress
                     /\ WF_vars(DeliverMessage(c))
                     /\ WF_vars(DeliverStatus(c))
 <1>2. Fairness => \A c \in CallIds : F(c)
-    BY DEF Fairness
+\* Only Isabelle can read a WF conjunct: SMT calls the expression unsupported
+\* and Zenon calls the operator unsupported, both immediately.  Opening the
+\* bundle takes it about twenty-five seconds, so the budget is stated rather
+\* than left to the default and a stretch factor - at the default it closes
+\* with no margin, which is a step that fails on a busy machine.
+    BY IsaT(120) DEF Fairness
 <1>. HIDE DEF F
 <1>3. Fairness => F(cId)
     BY <1>2
@@ -2624,7 +2799,12 @@ THEOREM DeliveryProgressHolds == Spec => DeliveryProgress
 <1>. DEFINE F(c) == /\ WF_vars(DeliverInitialMetadata(c))
                     /\ WF_vars(DeliverMessage(c))
 <1>2. Fairness => \A c \in CallIds : F(c)
-    BY DEF Fairness
+\* Only Isabelle can read a WF conjunct: SMT calls the expression unsupported
+\* and Zenon calls the operator unsupported, both immediately.  Opening the
+\* bundle takes it about twenty-five seconds, so the budget is stated rather
+\* than left to the default and a stretch factor - at the default it closes
+\* with no margin, which is a step that fails on a busy machine.
+    BY IsaT(120) DEF Fairness
 <1>. HIDE DEF F
 <1>3. Fairness => F(cId)
     BY <1>2
@@ -2648,7 +2828,7 @@ THEOREM EventualShutdownHolds == Spec => EventualShutdown
 <1>. DEFINE F(r) == WF_vars(RuntimeRelease(r))
             G == \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
 <1>2a. Fairness => (\A r \in RuntimeIds : F(r)) /\ G
-    BY DEF Fairness
+    BY IsaT(120) DEF Fairness
 <1>. HIDE DEF F, G
 <1>2. Fairness => F(rtId) /\ G
     BY <1>2a
@@ -2669,7 +2849,7 @@ THEOREM EventualShutdownHolds == Spec => EventualShutdown
 <1>7. ShutdownReleased(rtId) => ShutdownSettled(rtId)
     BY DEF ShutdownReleased, ShutdownSettled
 <1>8. IndInv => TypeOK
-    BY DEF IndInv
+    BY SMTT(90) DEF IndInv
 <1>9. QED
     BY SpecLiftingFacts, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8,
        PTL DEF Spec, F, G

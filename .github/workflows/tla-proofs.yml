@@ -1,8 +1,8 @@
 name: TLA+ Checks
 
 # First-pass verification of spec/armonik_grpc_ffi/tla: the declaration
-# contract between AbstractGrpcTheorems and its proofs module, SANY
-# parsing, and TLC model checking of the three configurations.
+# contract between the Theorems interfaces and their proofs modules, SANY
+# parsing, and TLC model checking of every configuration of both levels.
 # Path-filtered so it only runs when the TLA directory (or this workflow)
 # changes, and runs in parallel with the other workflows.
 #
@@ -66,6 +66,11 @@ jobs:
           - AbstractGrpc_MC2msg.cfg
           - AbstractGrpc_MC2call.cfg
           - AbstractGrpc_MC2rt.cfg
+          - FfiGrpc_MC.cfg
+          - FfiGrpc_MC2msg.cfg
+          - FfiGrpc_MC2call.cfg
+          - FfiGrpc_MC2rt.cfg
+          - FfiGrpc_MCpipe.cfg
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
