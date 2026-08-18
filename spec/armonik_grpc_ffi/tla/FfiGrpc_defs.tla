@@ -327,6 +327,13 @@ ReleaseSignalInv ==
                 /\ SecondEventOwed(rtId))
         /\ (IsShutdownEventEmitted(rtId) /\ ~SecondEventOwed(rtId) =>
                 NoHostDebt(rtId))
+\* What the event means, and not only when it may go out: once RESOURCES_RELEASED
+\* has been emitted, nothing of the runtime is in the host's hands and nothing
+\* the host gave back is still waiting to be freed.  Without this the proof says
+\* the event arrives and says nothing about what it announces.
+        /\ (IsResourcesReleasedEmitted(rtId) =>
+                /\ NoHostDebt(rtId)
+                /\ RuntimeHoldsNoReturnedBytes(rtId))
 
 ShutdownSignalInv ==
     /\ ShutdownSignalCore
@@ -341,9 +348,7 @@ ShutdownSignalInv ==
 \* keeps it.
 DestroyedRuntimeIsClean ==
     \A rtId \in RuntimeIds :
-        IsRuntimeDestroyed(rtId) =>
-            /\ IsReleasedRuntime(rtId)
-            /\ NoHostDebt(rtId)
+        IsRuntimeDestroyed(rtId) => IsRuntimeQuiescent(rtId)
 
 StrongInv ==
     /\ L0!StrongInv

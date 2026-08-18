@@ -579,7 +579,7 @@ the answer.
 
 That count is why the order matters. A host that waits for QUIESCENT before releasing
 waits for a condition it is itself the only obstacle to, which is a deadlock - so the
-release field on `AK_EVENT_SHUTDOWN_COMPLETE` tells it, at that moment, whether the ball
+host-debt field on `AK_EVENT_SHUTDOWN_COMPLETE` tells it, at that moment, whether the ball
 is in its court. `AK_EVENT_RESOURCES_RELEASED` then says its part is done. Neither event
 is the guarantee: a callback runs on the runtime's own thread, so it cannot report that
 the thread is gone. `ak_runtime_status` returning QUIESCENT is the guarantee, and from
@@ -613,7 +613,7 @@ failure envelope, so the send and delivery counts and the buffer identities hold
 happens. The fairness lifts need those disciplines on the whole behaviour, failure
 included, so moving them under the envelope would break the refinement.
 
-Four *liveness* guarantees are also stated without a failure escape, and that is a claim
+Six *liveness* guarantees are also stated without a failure escape, and that is a claim
 worth reading twice: the four callback returns, `BufferEventuallyFreed` and
 `CallEventuallyReclaimed` promise progress even after a failure. They can, because every
 action they rest on is untouched by one - returning a buffer, freeing its bytes and
@@ -641,7 +641,7 @@ refinement.
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
 | `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
-| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer` |
+| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. That downcall has a second linearization: exhausting the runtime's global byte ceiling is `RuntimeFail`, not a refusal |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
@@ -661,7 +661,7 @@ refinement.
 | `ResourcesReleasedCallbackReturns` | that callback returns, which is what makes the status `AK_RUNTIME_QUIESCENT` |
 | `RuntimeDestroy` | `ak_runtime_destroy` accepts, its precondition checked |
 | `NetworkSend` / `NetworkReceive` / `ReceiveStatus` | internal to `armonik-grpc-channel`, not observable at the ABI |
-| `RuntimeFail` | any unrecoverable runtime fault; the model leaves the state that follows unconstrained |
+| `RuntimeFail` | any unrecoverable runtime fault, including exhaustion of the global byte ceiling in `ak_get_call_buffer`; the model leaves the state that follows unconstrained |
 | `RemainFailed` / `RemainReleased` | explicit stutter, so a terminal runtime state has a step and the temporal proofs need no special case |
 
 #### Which ABI argument becomes what
@@ -720,7 +720,10 @@ The schema is committed at `packages/rust/armonik-grpc-channel-ffi/include/chann
 
 ```c
 // === Status ===
-// Every entry point returns one of these. One prefix for the whole enum: a
+// Returned by every entry point that can fail. The exceptions are ak_event_consumed
+// and ak_return_call_buffer, which are void because a wrong token is a host bug the
+// ABI cannot report anywhere useful, and ak_runtime_status and ak_abi_version, which
+// return their answer. One prefix for the whole enum: a
 // value called AK_RUNTIME_BUSY would read as an ak_runtime_state member, and a
 // value called SLOT_BUSY would read as nothing at all.
 typedef enum {
@@ -737,8 +740,9 @@ typedef enum {
 
 // Creates a runtime. Synchronous. The runtime transitions to RUNNING.
 // callback + runtime_ctx remain valid until the last event of the runtime:
-// AK_EVENT_SHUTDOWN_COMPLETE when its release field says AK_HOST_NOTHING_TO_RETURN,
-// AK_EVENT_RESOURCES_RELEASED otherwise.
+// AK_EVENT_SHUTDOWN_COMPLETE when host_debt says AK_HOST_NOTHING_TO_RETURN,
+// AK_EVENT_RESOURCES_RELEASED otherwise. A binding may hold it longer - see the
+// callback typedef - but not shorter.
 ak_status ak_runtime_create(const ak_runtime_config *config,
                             ak_callback callback,
                             void *runtime_ctx,
@@ -1012,8 +1016,8 @@ typedef enum {
 //
 // The host reaches QUIESCENT by acting, not by waiting: while it still holds
 // something the status stays STOPPED, and the AK_EVENT_SHUTDOWN_COMPLETE
-// callback says so through its release field. Polling for QUIESCENT before
-// releasing is therefore a deadlock, and the release field is what stops a host
+// callback says so through its host_debt field. Polling for QUIESCENT before
+// returning what it holds is therefore a deadlock, and that field is what stops a host
 // from writing one.
 //
 // There is no DRAINING between STOPPING and STOPPED. It had no observable
@@ -1061,14 +1065,15 @@ typedef enum {
 // AK_HOST_NOTHING_TO_RETURN does not even mean everything is freed: it is
 // computed from what the host holds, and the runtime may still be releasing the
 // bytes of buffers returned earlier.
-// AK_EVENT_RESOURCES_RELEASED is emitted only when the release field said
-// PENDING. When it said COMPLETE there is nothing left to announce, and the
+// AK_EVENT_RESOURCES_RELEASED is emitted only when host_debt said
+// AK_HOST_MUST_RETURN. When it said AK_HOST_NOTHING_TO_RETURN there is nothing
+// left to announce, and the
 // host has already been told everything it needs.
 //
 // It is a distinct kind rather than a second AK_EVENT_SHUTDOWN_COMPLETE because
-// runtime_ctx has a documented lifetime that ends at the last event: a host that
-// frees its context on the first of two identically-tagged events would hand
-// the second a dangling pointer.
+// a host has to be able to tell the two apart to know when its context may go:
+// one that freed on the first of two identically-tagged events would hand the
+// second a dangling pointer.
 // WRITE_DONE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED carry no payload. The
 // field is still present and is the empty, unowned value: ptr == NULL,
 // len == 0, owner == NULL.
@@ -1093,10 +1098,14 @@ typedef struct {
 
 // === Callback ===
 // Lifecycle of the function pointer: must remain valid for the runtime's lifetime.
-// Lifecycle of runtime_ctx: managed by the host (GCHandle), must remain valid until
-// the last event of the runtime - AK_EVENT_SHUTDOWN_COMPLETE when its release field
-// says COMPLETE, AK_EVENT_RESOURCES_RELEASED when it says PENDING. Freeing it on the
-// shutdown event without reading that field is a use-after-free.
+// Lifecycle of runtime_ctx, as the ABI requires it: valid until the last event of
+// the runtime - AK_EVENT_SHUTDOWN_COMPLETE when host_debt says
+// AK_HOST_NOTHING_TO_RETURN, AK_EVENT_RESOURCES_RELEASED when it says
+// AK_HOST_MUST_RETURN. Freeing it on the shutdown event without reading that field
+// is a use-after-free. That is the minimum; the .NET binding holds it longer and
+// releases it after ak_runtime_destroy returns, which needs no reasoning about
+// which event was last. Both satisfy the ABI - the rule here is the floor, not
+// the policy.
 typedef void (*ak_callback)(
     void *runtime_ctx,
     void *call_ctx,
@@ -1208,7 +1217,7 @@ so in the event rather than leaving it to be discovered.
 `SHUTDOWN_COMPLETE` is emitted only once every channel is closed, every delivery callback
 has returned and every accepted send has had its WRITE_DONE delivered and that callback
 returned too: it is the last callback of the functional shutdown, and the last one
-outright when its release field says `AK_HOST_NOTHING_TO_RETURN`. A buffer merely lent and never committed is not an accepted send and holds
+outright when its `host_debt` field says `AK_HOST_NOTHING_TO_RETURN`. A buffer merely lent and never committed is not an accepted send and holds
 nothing back here - it holds back the call's reclamation, and through it
 `ak_runtime_destroy`.
 
@@ -1256,15 +1265,29 @@ retained for replay - and neither has to be traded against the other.
 **A global ceiling above the per-call budgets.** `max_buffer_size` bounds one call, and
 `MaxSendsInFlight` bounds one call's outstanding buffers; nothing bounded their product across
 the calls a process carries. The runtime therefore holds a byte budget shared by every channel,
-handed out by `ak_get_call_buffer` and refused when exhausted - the same `AK_STATUS_SLOT_BUSY` the
-per-call bound already produces, so the host has one refusal to handle rather than two.
+handed out by `ak_get_call_buffer`.
 
-Refusing more often than the model permits is sound by construction: `LendSendBuffer` is a
-downcall with no fairness, so the implementation taking fewer steps than the specification
-allows is a subset of its behaviours and no proved liveness depends on the action being
-enabled. The alternative shapes - admission control that silently commits a call rather than
-refusing it, or a pool whose exhaustion is the ceiling - were rejected because they change the
-contract instead of narrowing it. See T8.1.
+**Exhausting it is a failure, not a refusal.** The runtime transitions to
+`AK_RUNTIME_FAILED_UNQUIESCED` and the downcall returns `AK_STATUS_INTERNAL`; it does not
+return `AK_STATUS_SLOT_BUSY`. The reason is that the ceiling is a process-wide allocation
+limit, and a process that cannot allocate a send buffer has no reason to believe it can
+allocate anything else - a retry path, a queue entry, the string a log line needs. There is
+nothing to back-pressure against, because there is no evidence that waiting helps.
+
+That keeps `AK_STATUS_SLOT_BUSY` to one meaning - the per-call send window is full - and
+WRITE_DONE is exactly its wake-up. Sharing the code between the two causes would have been
+worse than a naming problem: a call refused for the global ceiling has no send in flight, so
+no WRITE_DONE can ever arrive for it, and a host waiting on its send signal would wait
+forever. One refusal, one cause, one wake-up.
+
+The model needs nothing new for this: `RuntimeFail` is guarded on a running or stopping
+runtime and leaves the state that follows unconstrained, so ceiling exhaustion linearizes
+onto it. What the host may still rely on afterwards is what the failure envelope says, and
+that is not empty - returning a buffer and freeing its bytes are steps a failed runtime does
+not disable, so `BufferEventuallyFreed` still holds and the memory already out can still come
+back. The alternative shapes - admission control that silently commits a call, or a pool whose
+exhaustion is the ceiling - were rejected because they change the contract instead of
+narrowing it. See T8.1.
 
 ---
 
@@ -1430,7 +1453,9 @@ of a fault. It is also the obligation that lost its synchronous check when
 `ak_call_debt_of` is what puts that check back, in tests and assertions rather than on the
 hot path, and `BufferEventuallyFreed` is what the model asks of the host in exchange.
 
-A refusal (`AK_STATUS_SLOT_BUSY`) surfaces as backpressure on the write stream; it is not an error.
+A refusal (`AK_STATUS_SLOT_BUSY`) surfaces as backpressure on the write stream; it is not an
+error, and it has exactly one cause - this call's window - so WRITE_DONE is a wake-up the host
+can rely on.
 `MaxSendsInFlight = 1`, the default, degenerates to "one outstanding write per call",
 which is what the current managed client already does.
 
@@ -1551,11 +1576,12 @@ rules make that hold, and they are the level-2 proof obligations:
   The native side never re-issues an index, so a payload freed twice could only come from
   the host - and that is the one failure the ABI cannot detect.
 
-No callback may resolve `call_ctx` after `SelfHandle` is freed, and none does: the
-terminal callback frees it, and it is the last. Inside any callback the strong local keeps
-the object alive whatever happens to the root, which is what makes the rule checkable
-rather than a matter of timing. That is `ShutdownSignalInv`'s managed counterpart, stated
-at level 2 as `RootSurvivesCallbacks`.
+No callback may resolve a context after its root is freed, and none does. The two roots
+have different lives: a call's is freed by that call's terminal callback, which is its
+last; the runtime's is freed after `ak_runtime_destroy` returns, later than every event of
+every kind. Inside any callback the strong local keeps the object alive whatever happens to
+the root, which is what makes the rule checkable rather than a matter of timing. That is
+`ShutdownSignalInv`'s managed counterpart, stated at level 2 as `RootSurvivesCallbacks`.
 
 ### NativeCallInvoker — CallInvoker mapping
 
@@ -1763,7 +1789,8 @@ escape.
   (under: scheduler fairness, network progresses)
 - **EventualTerminal**: a started call eventually reaches STATUS. Applied to a stopping
   runtime this is what drains it: closing latches cancellation on the channel's active
-  calls, so no host action is needed
+  calls, so the drain asks the host for no ownership return - though it does need the
+  callbacks already dispatched to return
   (under: scheduler fairness, network progresses, client and server each produce a
   finite number of messages)
 - **EventualShutdown**: runtime STOPPING ⇒ ◇ RELEASED
@@ -1952,16 +1979,21 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   different arguments. `ShutdownSignalCore` says SHUTDOWN_COMPLETE is emitted exactly
   once, from a drained runtime, and that release waits for its callback to return.
   `ReleaseSignalInv` says the second event is owed before it is sent, its callback
-  never outlives it, and the tag is accurate: a runtime whose event said nothing was
-  outstanding really had an empty ledger. That last conjunct is the one that needs a
-  drained runtime's ledger not to grow, which is why the split keeps each preservation
-  obligation the size it was
-- **DestroyedRuntimeIsClean**: a destroyed runtime was quiescent and owed the host
-  nothing, and stays that way. The runtime-level image of `ReleasedCallIsClean`, and the
-  formal content of the unload condition. It is kept apart from `ShutdownSignalInv`
-  because it is the only runtime-level conjunct that reaches into the calls; its
-  persistence comes from a released runtime having no active call, and both handing a
-  payload over and lending a buffer needing one
+  never outlives it, the tag is accurate - a runtime whose event said nothing was
+  outstanding really had an empty ledger - and the second event is honest: once
+  `AK_EVENT_RESOURCES_RELEASED` has gone out, nothing of the runtime is in the host's
+  hands and nothing the host gave back is still waiting to be freed. That last conjunct
+  is what makes the event mean what the ABI says it means rather than only arrive; the
+  two that read a ledger are the ones that need a drained runtime's ledger not to grow,
+  which is why the split keeps each preservation obligation the size it was
+- **DestroyedRuntimeIsClean**: a destroyed runtime is quiescent, and stays quiescent -
+  the whole gate, not half of it, so the invariant's name and `ak_runtime_destroy`'s
+  precondition are the same sentence. Quiescence is absorbing for six separate reasons:
+  RELEASED is a level-0 end state, neither runtime callback can be re-entered because
+  the conjunct forbidding it is also what its writer's guard demands, the tag is frozen
+  and the second event is a latch, and neither ledger can refill once the calls are
+  quiet. It is kept apart from `ShutdownSignalInv` because it is the only runtime-level
+  conjunct that reaches into the calls
 
 Usability, proved of the ABI itself and assuming nothing of the host - what it permits it
 does not then withdraw, and what it withdraws it withdraws completely:
@@ -1978,7 +2010,9 @@ does not then withdraw, and what it withdraws it withdraws completely:
   memory outstanding. This is the formal content of "destroy invalidates every handle of
   the runtime", which until now the document asserted and nothing checked
 - **WriteDoneFreesASlot**: `EmitWriteDone(c) ⇒ HasFreeSendSlot(c)'`. A host woken by a
-  WRITE_DONE and asking for a buffer is never refused. Nothing forced this to be stated -
+  WRITE_DONE and asking for a buffer is never refused for want of a slot - cancellation, a
+  closed send side or a retired handle each still refuse one on their own grounds. Nothing
+  forced this to be stated -
   the send side is host-driven, so no fairness lift needed it - and its absence is what
   let the slot accounting drift from the ABI it documents. The receive side has the same
   property and got it by accident, because the `DeliverMessage` lift needed it
@@ -2051,7 +2085,8 @@ The remaining downcalls (`CallStart`, `LendSendBuffer`, `SendMessage`, `EndSend`
 the model never promises the host acts, only what follows when it does. `ReleaseCallHandle`
 is not among them, because it is not a downcall - the runtime reclaims a settled call
 itself, which is what removing `ak_call_release` from the ABI buys. Runtime shutdown
-completes without any host action, which discharges the level-0 directive on
+completes without any ownership return from the host, which discharges the level-0
+directive on
 `ShutdownFairness`.
 
 Level-0 safety and the five level-0 liveness guarantees are not re-proved: the
@@ -2070,11 +2105,13 @@ Added variables:
 - `runtime_dispose_state`: for the invoker, active | destroying | destroyed
 
 Additional invariants:
-- **RootSurvivesCallbacks**: ∀ callback in flight, its `call_ctx` (or `runtime_ctx` for
-  the shutdown one) resolves to a live object for the whole callback. Two facts carry it:
-  the root exists until the terminal callback frees it, and inside any callback a strong
-  local holds the object regardless of the root. Stated on the callback rather than on the
-  call being active, because the runtime may already have reclaimed the call
+- **RootSurvivesCallbacks**: for every callback in flight, its `call_ctx` - or its
+  `runtime_ctx`, which both runtime events carry - resolves to a live object for the whole
+  callback. Two facts carry it, one per root: a call's root exists until that call's
+  terminal callback frees it, the runtime's until after `ak_runtime_destroy` returns, and
+  inside any callback a strong local holds the object regardless of either. Stated on the
+  callback rather than on the call being active, because the runtime may already have
+  reclaimed the call
 - **TokenPublishedBeforeStart**: ∀ call: GCHandle(call_ctx) allocated before ak_call_start
 - **ContinuationsAsync**: no completion runs a continuation on the callback's thread —
   every TCS is `RunContinuationsAsynchronously` and every signal is latched auto-reset.
@@ -2178,7 +2215,7 @@ the artefact rather than left to rot:
 | Level 1, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 9938 obligations proved over 49 windows in 16m31s, this revision. That factor is a fifth of the one the gate uses, so a step closing with no room fails here rather than on a busy machine |
 | Level 1, one pass, no windows | 9927 obligations, 95 minutes. The exact count: the windowed figures exceed it by the steps two adjacent windows both cover. No memory kill, which retires the claim in `verify_proofs.sh` that a single pass over this module gets one |
 | Window size is the dominant cost | The same module at `STRETCH=5` takes about 15 minutes in 300-line windows and 81 in 2000-line ones. More obligations in flight per invocation means the worker threads contend, and wall-clock per obligation inflates about fourfold; the repeated elaboration that penalises small windows is dwarfed by it |
-| `ci/check_theorem_statements.py` | 64 declarations, each restated verbatim in its proofs module |
+| `ci/check_theorem_statements.py` | 65 declarations, each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |

@@ -1701,7 +1701,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 <1>0. TypeOK
     BY Zenon DEF StrongInv
 <1>1. IsReleasedRuntime(rtId) /\ NoHostDebt(rtId)
-    BY Zenon DEF StrongInv, DestroyedRuntimeIsClean
+    BY Zenon DEF StrongInv, DestroyedRuntimeIsClean, IsRuntimeQuiescent
 \* The guard reclamation and the cancel request both read.
 <1>2. IsRuntimeOfCallDestroyed(cId)
     BY Zenon DEF IsRuntimeOfCallDestroyed
@@ -4071,6 +4071,9 @@ LEMMA StutterPreservesShutdownSignal ==
                       /\ (IsShutdownEventEmitted(rtId) /\
                              ~SecondEventOwed(rtId) =>
                                  NoHostDebt(rtId))'
+                      /\ (IsResourcesReleasedEmitted(rtId) =>
+                             /\ NoHostDebt(rtId)
+                             /\ RuntimeHoldsNoReturnedBytes(rtId))'
     BY Zenon DEF ShutdownSignalInv, ShutdownSignalCore, ReleaseSignalInv
 <1>2. /\ (IsShutdownCallbackRunning(rtId) => IsShutdownEventEmitted(rtId))'
       /\ (IsShutdownEventEmitted(rtId) =>
@@ -4100,7 +4103,21 @@ LEMMA StutterPreservesShutdownSignal ==
            NoHostDebt(rtId))'
     BY <1>1, <1>35, StutterKeepsReclaimable, SMT
     DEF vars, l0_vars, L0!vars, ffi_vars
-<1>5. QED BY <1>2, <1>3, <1>4
+\* The fourth release conjunct is frozen twice over: nothing the stutter leaves
+\* alone is what it reads.
+<1>45. IsResourcesReleasedEmitted(rtId) =>
+           /\ NoHostDebt(rtId)
+           /\ RuntimeHoldsNoReturnedBytes(rtId)
+    BY <1>1, Zenon DEF ShutdownSignalInv, ShutdownSignalCore,
+        ReleaseSignalInv
+<1>46. (IsResourcesReleasedEmitted(rtId) =>
+            /\ NoHostDebt(rtId)
+            /\ RuntimeHoldsNoReturnedBytes(rtId))'
+    BY <1>1, <1>45, StutterKeepsReclaimable, SMT
+    DEF vars, l0_vars, L0!vars, ffi_vars, RuntimeHoldsNoReturnedBytes,
+        IsReturnedBuffer, L0!ChannelsOf, L0!RuntimeVars, L0!ChannelVars,
+        L0!CallVars
+<1>5. QED BY <1>2, <1>3, <1>4, <1>46
 
 \* A released runtime cannot be handed a debt back.  Its calls are all
 \* terminal (L0!ReleasedNoCalls), and the two steps that can raise what
@@ -5112,67 +5129,8 @@ LEMMA NextPreservesLentCountBridge ==
        Zenon
 <1>2. QED BY <1>1
 
-\* Both cases end the same way.  Either the runtime was already destroyed,
-\* and the invariant hands over what it needs; or it is being destroyed
-\* now, and the guard does.  From there the step is any step, and the
-\* previous lemma carries it.
-LEMMA NextPreservesDestroyedClean ==
-    StrongInv /\ Next => DestroyedRuntimeIsClean'
-<1>1. SUFFICES ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
-                      (IsRuntimeDestroyed(rtId))'
-               PROVE  /\ (IsReleasedRuntime(rtId))'
-                      /\ (NoHostDebt(rtId))'
-    BY Zenon DEF DestroyedRuntimeIsClean
-<1>2. CASE IsRuntimeDestroyed(rtId)
-  <2>1. IsReleasedRuntime(rtId) /\ NoHostDebt(rtId)
-    BY <1>1, <1>2, Zenon DEF StrongInv, DestroyedRuntimeIsClean
-  <2>2. QED
-    BY <1>1, <2>1, ReleasedRuntimeStaysClean
-\* Only ak_runtime_destroy sets the flag, and only for its own runtime.
-<1>3. CASE ~IsRuntimeDestroyed(rtId)
-  <2>0. runtime_destroyed \in [RuntimeIds -> BOOLEAN]
-    BY <1>1, Zenon DEF StrongInv, TypeOK
-  <2>1. RuntimeDestroy(rtId)
-    BY <1>1, <1>3, <2>0, SMT
-    DEF Next, NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
-        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
-        NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
-        NextFail, NextExplicitStutter,
-        RuntimeCreate, RuntimeBeginShutdown, EmitShutdownComplete,
-        ShutdownCallbackReturns, EmitResourcesReleased,
-        ResourcesReleasedCallbackReturns, RuntimeRelease, RuntimeDestroy,
-        RuntimeFail, RemainFailed, RemainReleased,
-        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, RequestCallCancellation, ReleaseCallHandle,
-        LendSendBuffer, HostReturnsBuffer, FreeReturnedBuffer,
-        SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
-        NetworkSend, NetworkReceive, ReceiveStatus,
-        DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent,
-        L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
-        L0!RuntimeFail, L0!RemainFailed, L0!RemainReleased,
-        L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
-        L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
-        L0!NetworkReceive, L0!ReceiveStatus, L0!DeliverInitialMetadata,
-        L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
-        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
-        vars, ffi_vars, RequestCancellationOfActiveCalls,
-        HandPayloadToHost, HasFreeDeliverySlot,
-        HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
-        IsRuntimeDestroyed, TypeOK, L0!TypeOK
-  <2>2. IsReleasedRuntime(rtId) /\ NoHostDebt(rtId)
-    BY <2>1, Zenon DEF RuntimeDestroy, IsRuntimeQuiescent
-  <2>3. QED
-    BY <1>1, <2>2, ReleasedRuntimeStaysClean
-<1>4. QED
-    BY <1>2, <1>3
 
-LEMMA StutterPreservesDestroyedClean ==
-    DestroyedRuntimeIsClean /\ UNCHANGED vars => DestroyedRuntimeIsClean'
-<1>1. QED
-    BY StutterKeepsReclaimable, SMT
-    DEF vars, l0_vars, L0!vars, ffi_vars, DestroyedRuntimeIsClean,
-        IsRuntimeDestroyed, IsReleasedRuntime, L0!ChannelsOf
+
 
 \* A call on a channel of a drained runtime is not running: the level-0
 \* invariant puts an active call on an open or closing channel, and a drained
@@ -5244,6 +5202,67 @@ LEMMA OnlyCallStartWritesCallChannel ==
     BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, NextDecomposition
     DEF NextByFootprint, NextSafe, NextSafeRefining
 
+\* Released is where a runtime ends.  Read at level 0 for the same reason as
+\* the terminal call: the level-0 machinery is the only writer of a runtime
+\* state, and none of its writers names RELEASED as the state it leaves.
+LEMMA ReleasedRuntimeStaysReleased ==
+    ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
+           IsReleasedRuntime(rtId)
+    PROVE  (IsReleasedRuntime(rtId))'
+<1>0. runtime_state \in [RuntimeIds -> L0!RuntimeStates]
+    BY Zenon DEF TypeOK, L0!TypeOK
+<1>1. [L0!Next]_l0_vars
+    BY RefinesNext
+<1>2. CASE L0!Next
+    BY <1>0, <1>2, SMTT(60)
+    DEF L0!Next, L0!RuntimeCreate, L0!RuntimeBeginShutdown,
+        L0!RuntimeRelease, L0!RuntimeFail, L0!RemainFailed,
+        L0!RemainReleased, L0!ChannelCreate, L0!ChannelStartClosing,
+        L0!ChannelFinishClosing, L0!CallStart, L0!SendMessage, L0!EndSend,
+        L0!NetworkSend, L0!NetworkReceive, L0!ReceiveStatus,
+        L0!DeliverInitialMetadata, L0!DeliverMessage, L0!DeliverStatus,
+        L0!CallCancel,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars,
+        IsReleasedRuntime, L0!RuntimeStates
+<1>3. CASE UNCHANGED l0_vars
+    BY <1>0, <1>3, SMT
+    DEF l0_vars, L0!vars, L0!RuntimeVars, IsReleasedRuntime
+<1>4. QED BY <1>1, <1>2, <1>3
+
+\* The tag is frozen once the event is out: only EmitShutdownComplete writes
+\* it, and that step demands an event not yet emitted.
+LEMMA EmittedRuntimeTagFrozen ==
+    ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
+           IsShutdownEventEmitted(rtId)
+    PROVE  /\ (IsShutdownEventEmitted(rtId))'
+           /\ (SecondEventOwed(rtId))' =
+                  SecondEventOwed(rtId)
+<1>1. CASE \E rt \in RuntimeIds : EmitShutdownComplete(rt)
+    BY <1>1, SMT DEF EmitShutdownComplete, TypeOK, L0!TypeOK
+<1>2. CASE \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
+    BY <1>2, SMT DEF ShutdownCallbackReturns, TypeOK, L0!TypeOK
+<1>3. CASE UNCHANGED <<shutdown_event_emitted, shutdown_callback_running,
+                       second_event_owed>>
+    BY <1>3, SMT
+<1>4. QED
+    BY <1>1, <1>2, <1>3, OnlyShutdownStepsWriteShutdownFlags, Zenon
+
+\* The second event is a latch: only its own step writes the flag, and that
+\* step raises it.
+LEMMA ResourcesEmittedStable ==
+    ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
+           IsResourcesReleasedEmitted(rtId)
+    PROVE  (IsResourcesReleasedEmitted(rtId))'
+<1>1. CASE \E rt \in RuntimeIds : EmitResourcesReleased(rt)
+    BY <1>1, SMT DEF EmitResourcesReleased, TypeOK, L0!TypeOK
+<1>2. CASE \E rt \in RuntimeIds : ResourcesReleasedCallbackReturns(rt)
+    BY <1>2, SMT DEF ResourcesReleasedCallbackReturns, TypeOK, L0!TypeOK
+<1>3. CASE UNCHANGED <<resources_released_emitted,
+                       resources_released_callback_running>>
+    BY <1>3, SMT
+<1>4. QED
+    BY <1>1, <1>2, <1>3, OnlyReleaseStepsWriteReleaseFlags, Zenon
+
 \* Once the shutdown event is out, the runtime's ledger can only fall.  The
 \* event is emitted from a drained runtime, whose calls are all terminal, and
 \* the two steps that raise what the host owes - a delivery and a lend - both
@@ -5287,6 +5306,107 @@ LEMMA EmittedRuntimeStaysReclaimable ==
 <1>7. QED
     BY <1>1, <1>3, <1>6, QuietRuntimeStaysReclaimable, Zenon
 
+\* The counter reads the states in the direction NoLentMeansNoneHeld does not:
+\* a zero count is an empty set of lent buffers.
+LEMMA NoneHeldMeansNoLent ==
+    ASSUME TypeOK, LentCountMatchesBufferStates, NEW cId \in CallIds,
+           HostHoldsNoBuffer(cId), NEW b \in BufferIds
+    PROVE  ~IsLentBuffer(cId, b)
+<1>1. Cardinality({e \in BufferIds : IsLentBuffer(cId, e)}) = 0
+    BY Zenon DEF LentCountMatchesBufferStates, HostHoldsNoBuffer
+<1>2. IsFiniteSet({e \in BufferIds : IsLentBuffer(cId, e)})
+    BY BufferIdsAreAFiniteNonemptySet, FS_Subset, Zenon
+    DEF BufferIdsAreAFiniteNonemptySet
+<1>3. {e \in BufferIds : IsLentBuffer(cId, e)} = {}
+    BY <1>1, <1>2, FS_EmptySet, Zenon
+<1>4. QED
+    BY <1>3, Zenon
+
+\* And the runtime acquires no new returned buffer either.  The three steps that
+\* write "returned" are a lend it cannot make, a give-back of a buffer it has not
+\* lent, and a commit that needs an active call - so the state a runtime owes
+\* itself only shrinks once its calls are quiet.
+LEMMA QuietRuntimeKeepsNoReturnedBytes ==
+    ASSUME TypeOK, LentCountMatchesBufferStates, Next,
+           NEW rtId \in RuntimeIds,
+           NoHostDebt(rtId), RuntimeHoldsNoReturnedBytes(rtId),
+           \A c \in CallIds :
+               call_channel[c] \in L0!ChannelsOf(rtId) => ~L0!IsActiveCall(c),
+           \A c \in CallIds :
+               (call_channel[c])' \in (L0!ChannelsOf(rtId))' =>
+                   call_channel[c] \in L0!ChannelsOf(rtId)
+    PROVE  (RuntimeHoldsNoReturnedBytes(rtId))'
+<1>1. SUFFICES ASSUME NEW c \in CallIds, NEW b \in BufferIds,
+                      (call_channel[c])' \in (L0!ChannelsOf(rtId))'
+               PROVE  ~(IsReturnedBuffer(c, b))'
+    BY Zenon DEF RuntimeHoldsNoReturnedBytes
+<1>2. /\ call_channel[c] \in L0!ChannelsOf(rtId)
+      /\ ~L0!IsActiveCall(c)
+      /\ HostHoldsNoBuffer(c)
+      /\ ~IsReturnedBuffer(c, b)
+    BY <1>1, Zenon DEF NoHostDebt, RuntimeHoldsNoReturnedBytes
+<1>3. \A e \in BufferIds : ~IsLentBuffer(c, e)
+    BY <1>2, NoneHeldMeansNoLent, Zenon
+<1>4. CASE \E d \in CallIds, e \in BufferIds : LendSendBuffer(d, e)
+    BY <1>2, <1>4, SMT
+    DEF LendSendBuffer, IsReturnedBuffer, L0!IsActiveCall,
+        L0!ActiveCallStates, TypeOK, L0!TypeOK
+<1>5. CASE \E d \in CallIds, e \in BufferIds : HostReturnsBuffer(d, e)
+    BY <1>2, <1>3, <1>5, SMT
+    DEF HostReturnsBuffer, IsReturnedBuffer, IsLentBuffer, TypeOK, L0!TypeOK
+<1>6. CASE \E d \in CallIds, m \in Messages, e \in BufferIds :
+              SendMessage(d, m, e)
+    BY <1>2, <1>3, <1>6, SMT
+    DEF SendMessage, L0!SendMessage, IsReturnedBuffer, IsLentBuffer,
+        L0!IsActiveCall, L0!ActiveCallStates, TypeOK, L0!TypeOK
+<1>7. CASE \E d \in CallIds, e \in BufferIds : FreeReturnedBuffer(d, e)
+    BY <1>2, <1>7, SMT
+    DEF FreeReturnedBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
+<1>8. CASE UNCHANGED buffer_state
+    BY <1>2, <1>8, Zenon DEF IsReturnedBuffer
+<1>9. QED
+    BY <1>4, <1>5, <1>6, <1>7, <1>8, OnlyBufferStepsWriteBufferStates, Zenon
+
+\* Both halves of what an emitted runtime owes nobody, in one citable fact.
+LEMMA EmittedRuntimeStaysDebtFree ==
+    ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
+           IsShutdownEventEmitted(rtId),
+           NoHostDebt(rtId), RuntimeHoldsNoReturnedBytes(rtId)
+    PROVE  /\ (NoHostDebt(rtId))'
+           /\ (RuntimeHoldsNoReturnedBytes(rtId))'
+<1>1. TypeOK /\ L0!StrongInv /\ LentCountMatchesBufferStates
+    BY Zenon DEF StrongInv, BufferStateInv
+<1>2. (NoHostDebt(rtId))'
+    BY EmittedRuntimeStaysReclaimable
+<1>3. IsRuntimeDrained(rtId)
+    BY Zenon DEF StrongInv, ShutdownSignalInv, ShutdownSignalCore
+<1>4. \A c \in CallIds :
+          call_channel[c] \in L0!ChannelsOf(rtId) => ~L0!IsActiveCall(c)
+    BY <1>1, <1>3, DrainedRuntimeCallNotActive, Zenon
+<1>5. runtime_state[rtId] # "RUNNING"
+    BY Zenon DEF StrongInv, ShutdownSignalInv, ShutdownSignalCore,
+        IsStoppingRuntime, IsReleasedRuntime
+<1>6. (L0!ChannelsOf(rtId))' \subseteq L0!ChannelsOf(rtId)
+  <2>1. CASE UNCHANGED channel_runtime
+    BY <2>1, Zenon DEF L0!ChannelsOf
+  <2>2. CASE \E ch \in ChannelIds, rt \in RuntimeIds : ChannelCreate(ch, rt)
+    BY <1>1, <1>5, <2>2, SMT
+    DEF ChannelCreate, L0!ChannelCreate, L0!ChannelsOf, TypeOK, L0!TypeOK
+  <2>3. QED
+    BY <1>1, <2>1, <2>2, OnlyChannelCreateWritesOwnership, Zenon
+<1>7. \A c \in CallIds :
+          (call_channel[c])' \in (L0!ChannelsOf(rtId))' =>
+              call_channel[c] \in L0!ChannelsOf(rtId)
+  <2>1. CASE UNCHANGED call_channel
+    BY <1>6, <2>1, Zenon
+  <2>2. CASE \E c2 \in CallIds, ch \in ChannelIds : CallStart(c2, ch)
+    BY <1>1, <1>5, <1>6, <2>2, SMT
+    DEF CallStart, L0!CallStart, L0!ChannelsOf, TypeOK, L0!TypeOK
+  <2>3. QED
+    BY <1>1, <2>1, <2>2, OnlyCallStartWritesCallChannel, Zenon
+<1>8. QED
+    BY <1>1, <1>2, <1>4, <1>7, QuietRuntimeKeepsNoReturnedBytes, Zenon
+
 \* The release signal, conjunct by conjunct.  The first two are framing: only
 \* the two release steps write those flags, and the step that raises the
 \* emitted flag demands the shutdown tag it points at.  The third is the tag's
@@ -5303,6 +5423,9 @@ LEMMA NextPreservesReleaseSignal ==
                       /\ ((IsShutdownEventEmitted(rtId))' /\
                           ~(SecondEventOwed(rtId))') =>
                               (NoHostDebt(rtId))'
+                      /\ (IsResourcesReleasedEmitted(rtId))' =>
+                          /\ (NoHostDebt(rtId))'
+                          /\ (RuntimeHoldsNoReturnedBytes(rtId))'
     BY Zenon DEF ReleaseSignalInv
 <1>2. TypeOK
     BY Zenon DEF StrongInv
@@ -5465,8 +5588,208 @@ LEMMA NextPreservesReleaseSignal ==
       BY <2>2, <3>1
   <2>6. QED
     BY <2>3, <2>4, <2>5, OnlyShutdownStepsWriteShutdownFlags, Zenon
+\* And what the event announces holds while it is out: the step reads both
+\* ledgers in its guard and moves neither, and an emitted runtime acquires no
+\* new debt of either kind afterwards.
+<1>6. (IsResourcesReleasedEmitted(rtId))' =>
+          /\ (NoHostDebt(rtId))'
+          /\ (RuntimeHoldsNoReturnedBytes(rtId))'
+  <2>0. SUFFICES ASSUME (IsResourcesReleasedEmitted(rtId))'
+                 PROVE  /\ (NoHostDebt(rtId))'
+                        /\ (RuntimeHoldsNoReturnedBytes(rtId))'
+    OBVIOUS
+  <2>1. ASSUME EmitResourcesReleased(rtId)
+        PROVE  /\ (NoHostDebt(rtId))'
+               /\ (RuntimeHoldsNoReturnedBytes(rtId))'
+    BY <1>2, <2>1, SMT
+    DEF EmitResourcesReleased, NoHostDebt, RuntimeHoldsNoReturnedBytes,
+        HostHoldsNoBuffer, IsReturnedBuffer, L0!ChannelsOf, l0_vars, L0!vars,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, TypeOK, L0!TypeOK
+  <2>2. ASSUME IsResourcesReleasedEmitted(rtId)
+        PROVE  /\ (NoHostDebt(rtId))'
+               /\ (RuntimeHoldsNoReturnedBytes(rtId))'
+    <3>1. /\ IsShutdownEventEmitted(rtId)
+          /\ NoHostDebt(rtId)
+          /\ RuntimeHoldsNoReturnedBytes(rtId)
+      BY <2>2, Zenon
+      DEF StrongInv, ShutdownSignalInv, ReleaseSignalInv
+    <3>2. QED
+      BY <3>1, EmittedRuntimeStaysDebtFree, Zenon
+  <2>3. CASE \E rt \in RuntimeIds : EmitResourcesReleased(rt)
+    <3>1. PICK rt \in RuntimeIds : EmitResourcesReleased(rt)
+      BY <2>3
+    <3>2. CASE rt = rtId
+      BY <2>1, <3>1, <3>2
+    <3>3. CASE rt # rtId
+      <4>1. resources_released_emitted'[rtId] =
+                resources_released_emitted[rtId]
+        BY <1>2, <3>1, <3>3, SMT
+        DEF EmitResourcesReleased, TypeOK, L0!TypeOK
+      <4>2. IsResourcesReleasedEmitted(rtId)
+        BY <2>0, <4>1, Zenon
+      <4>3. QED
+        BY <2>2, <4>2
+    <3>4. QED
+      BY <3>2, <3>3
+  <2>4. CASE \E rt \in RuntimeIds : ResourcesReleasedCallbackReturns(rt)
+    <3>1. resources_released_emitted' = resources_released_emitted
+      BY <2>4, SMT DEF ResourcesReleasedCallbackReturns
+    <3>2. IsResourcesReleasedEmitted(rtId)
+      BY <2>0, <3>1, Zenon
+    <3>3. QED
+      BY <2>2, <3>2
+  <2>5. CASE UNCHANGED <<resources_released_emitted,
+                         resources_released_callback_running>>
+    <3>1. resources_released_emitted' = resources_released_emitted
+      BY <2>5, SMT
+    <3>2. IsResourcesReleasedEmitted(rtId)
+      BY <2>0, <3>1, Zenon
+    <3>3. QED
+      BY <2>2, <3>2
+  <2>6. QED
+    BY <2>3, <2>4, <2>5, OnlyReleaseStepsWriteReleaseFlags, Zenon
+<1>7. QED
+    BY <1>3, <1>4, <1>5, <1>6
+
+\* Both cases end the same way.  Either the runtime was already destroyed,
+\* and the invariant hands over what it needs; or it is being destroyed
+\* now, and the guard does.  From there the step is any step, and the
+\* previous lemma carries it.
+\* Quiescence is absorbing.  Each of its six conjuncts is either an absorbing
+\* level-0 state, a callback whose only re-entry the conjunct itself forbids, a
+\* latch, or a ledger an emitted runtime cannot refill.  This is what lets the
+\* destroy flag carry the whole gate rather than half of it.
+LEMMA QuiescentRuntimeStaysQuiescent ==
+    ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
+           IsRuntimeQuiescent(rtId)
+    PROVE  (IsRuntimeQuiescent(rtId))'
+<1>0. TypeOK
+    BY Zenon DEF StrongInv
+<1>01. /\ IsReleasedRuntime(rtId)
+       /\ ~IsShutdownCallbackRunning(rtId)
+       /\ ~IsResourcesReleasedCallbackRunning(rtId)
+       /\ (SecondEventOwed(rtId) => IsResourcesReleasedEmitted(rtId))
+       /\ NoHostDebt(rtId)
+       /\ RuntimeHoldsNoReturnedBytes(rtId)
+    BY Zenon DEF IsRuntimeQuiescent
+\* Released implies the event went out, which is what freezes the flags below.
+<1>02. IsShutdownEventEmitted(rtId)
+    BY <1>01, Zenon DEF StrongInv, ShutdownSignalInv, ShutdownSignalCore
+<1>1. (IsReleasedRuntime(rtId))'
+    BY <1>0, <1>01, ReleasedRuntimeStaysReleased
+\* The shutdown callback cannot be re-entered: its only writer demands an event
+\* not yet emitted, and this one is.
+<1>2. (~IsShutdownCallbackRunning(rtId))'
+  <2>1. CASE \E rt \in RuntimeIds : EmitShutdownComplete(rt)
+    BY <1>0, <1>01, <1>02, <2>1, SMT
+    DEF EmitShutdownComplete, TypeOK, L0!TypeOK
+  <2>2. CASE \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
+    BY <1>0, <1>01, <2>2, SMT
+    DEF ShutdownCallbackReturns, TypeOK, L0!TypeOK
+  <2>3. CASE UNCHANGED <<shutdown_event_emitted, shutdown_callback_running,
+                         second_event_owed>>
+    BY <1>01, <2>3, SMT
+  <2>4. QED
+    BY <2>1, <2>2, <2>3, OnlyShutdownStepsWriteShutdownFlags, Zenon
+\* And the release callback cannot either: it needs the tag set and the event
+\* not yet out, and quiescence says those two cannot both hold.
+<1>3. (~IsResourcesReleasedCallbackRunning(rtId))'
+  <2>1. CASE \E rt \in RuntimeIds : EmitResourcesReleased(rt)
+    BY <1>0, <1>01, <2>1, SMT
+    DEF EmitResourcesReleased, TypeOK, L0!TypeOK
+  <2>2. CASE \E rt \in RuntimeIds : ResourcesReleasedCallbackReturns(rt)
+    BY <1>0, <1>01, <2>2, SMT
+    DEF ResourcesReleasedCallbackReturns, TypeOK, L0!TypeOK
+  <2>3. CASE UNCHANGED <<resources_released_emitted,
+                         resources_released_callback_running>>
+    BY <1>01, <2>3, SMT
+  <2>4. QED
+    BY <2>1, <2>2, <2>3, OnlyReleaseStepsWriteReleaseFlags, Zenon
+\* The tag is frozen and the event is a latch, so the implication between them
+\* cannot become false.
+<1>4. ((SecondEventOwed(rtId) => IsResourcesReleasedEmitted(rtId)))'
+  <2>1. (SecondEventOwed(rtId))' = SecondEventOwed(rtId)
+    BY <1>0, <1>02, EmittedRuntimeTagFrozen, Zenon
+  <2>2. CASE SecondEventOwed(rtId)
+    <3>1. IsResourcesReleasedEmitted(rtId)
+      BY <1>01, <2>2, Zenon
+    <3>2. QED
+      BY <1>0, <3>1, ResourcesEmittedStable, Zenon
+  <2>3. CASE ~SecondEventOwed(rtId)
+    BY <2>1, <2>3, Zenon
+  <2>4. QED
+    BY <2>2, <2>3
+<1>5. (NoHostDebt(rtId))' /\ (RuntimeHoldsNoReturnedBytes(rtId))'
+    BY <1>01, <1>02, EmittedRuntimeStaysDebtFree
 <1>6. QED
-    BY <1>3, <1>4, <1>5
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, Zenon DEF IsRuntimeQuiescent
+
+LEMMA NextPreservesDestroyedClean ==
+    StrongInv /\ Next => DestroyedRuntimeIsClean'
+<1>1. SUFFICES ASSUME StrongInv, Next, NEW rtId \in RuntimeIds,
+                      (IsRuntimeDestroyed(rtId))'
+               PROVE  (IsRuntimeQuiescent(rtId))'
+    BY Zenon DEF DestroyedRuntimeIsClean
+<1>2. CASE IsRuntimeDestroyed(rtId)
+  <2>1. IsRuntimeQuiescent(rtId)
+    BY <1>1, <1>2, Zenon DEF StrongInv, DestroyedRuntimeIsClean
+  <2>2. QED
+    BY <1>1, <2>1, QuiescentRuntimeStaysQuiescent
+\* Only ak_runtime_destroy sets the flag, and only for its own runtime.
+<1>3. CASE ~IsRuntimeDestroyed(rtId)
+  <2>0. runtime_destroyed \in [RuntimeIds -> BOOLEAN]
+    BY <1>1, Zenon DEF StrongInv, TypeOK
+  <2>1. RuntimeDestroy(rtId)
+    BY <1>1, <1>3, <2>0, SMT
+    DEF Next, NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
+        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
+        NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
+        NextFail, NextExplicitStutter,
+        RuntimeCreate, RuntimeBeginShutdown, EmitShutdownComplete,
+        ShutdownCallbackReturns, EmitResourcesReleased,
+        ResourcesReleasedCallbackReturns, RuntimeRelease, RuntimeDestroy,
+        RuntimeFail, RemainFailed, RemainReleased,
+        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
+        CallStart, RequestCallCancellation, ReleaseCallHandle,
+        LendSendBuffer, HostReturnsBuffer, FreeReturnedBuffer,
+        SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
+        NetworkSend, NetworkReceive, ReceiveStatus,
+        DeliverInitialMetadata, DeliverMessage, DeliverStatus,
+        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent,
+        L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
+        L0!RuntimeFail, L0!RemainFailed, L0!RemainReleased,
+        L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
+        L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
+        L0!NetworkReceive, L0!ReceiveStatus, L0!DeliverInitialMetadata,
+        L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
+        vars, ffi_vars, RequestCancellationOfActiveCalls,
+        HandPayloadToHost, HasFreeDeliverySlot,
+        HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
+        IsRuntimeDestroyed, TypeOK, L0!TypeOK
+  <2>2. IsRuntimeQuiescent(rtId)
+    BY <2>1, Zenon DEF RuntimeDestroy
+  <2>3. QED
+    BY <1>1, <2>2, QuiescentRuntimeStaysQuiescent
+<1>4. QED
+    BY <1>2, <1>3
+
+LEMMA StutterPreservesDestroyedClean ==
+    DestroyedRuntimeIsClean /\ UNCHANGED vars => DestroyedRuntimeIsClean'
+<1>1. SUFFICES ASSUME DestroyedRuntimeIsClean, UNCHANGED vars,
+                      NEW rtId \in RuntimeIds, (IsRuntimeDestroyed(rtId))'
+               PROVE  (IsRuntimeQuiescent(rtId))'
+    BY Zenon DEF DestroyedRuntimeIsClean
+<1>2. IsRuntimeQuiescent(rtId)
+    BY <1>1, SMT
+    DEF vars, l0_vars, L0!vars, ffi_vars, DestroyedRuntimeIsClean,
+        IsRuntimeDestroyed
+<1>3. QED
+    BY <1>1, <1>2, SMT
+    DEF vars, l0_vars, L0!vars, ffi_vars, IsRuntimeQuiescent, IsReleasedRuntime,
+        NoHostDebt, RuntimeHoldsNoReturnedBytes, HostHoldsNoBuffer,
+        IsReturnedBuffer, L0!ChannelsOf, L0!RuntimeVars, L0!ChannelVars,
+        L0!CallVars
 
 LEMMA NextPreservesShutdownSignal ==
     StrongInv /\ Next /\ L0!NotFailed' => ShutdownSignalCore'
@@ -13659,32 +13982,6 @@ CallQuietFor(rtId, cId) ==
         /\ HostOwnsNoPayload(cId)
         /\ HostHoldsNoBuffer(cId)
 
-\* Released is where a runtime ends.  Read at level 0 for the same reason as
-\* the terminal call: the level-0 machinery is the only writer of a runtime
-\* state, and none of its writers names RELEASED as the state it leaves.
-LEMMA ReleasedRuntimeStaysReleased ==
-    ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
-           IsReleasedRuntime(rtId)
-    PROVE  (IsReleasedRuntime(rtId))'
-<1>0. runtime_state \in [RuntimeIds -> L0!RuntimeStates]
-    BY Zenon DEF TypeOK, L0!TypeOK
-<1>1. [L0!Next]_l0_vars
-    BY RefinesNext
-<1>2. CASE L0!Next
-    BY <1>0, <1>2, SMTT(60)
-    DEF L0!Next, L0!RuntimeCreate, L0!RuntimeBeginShutdown,
-        L0!RuntimeRelease, L0!RuntimeFail, L0!RemainFailed,
-        L0!RemainReleased, L0!ChannelCreate, L0!ChannelStartClosing,
-        L0!ChannelFinishClosing, L0!CallStart, L0!SendMessage, L0!EndSend,
-        L0!NetworkSend, L0!NetworkReceive, L0!ReceiveStatus,
-        L0!DeliverInitialMetadata, L0!DeliverMessage, L0!DeliverStatus,
-        L0!CallCancel,
-        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars,
-        IsReleasedRuntime, L0!RuntimeStates
-<1>3. CASE UNCHANGED l0_vars
-    BY <1>0, <1>3, SMT
-    DEF l0_vars, L0!vars, L0!RuntimeVars, IsReleasedRuntime
-<1>4. QED BY <1>1, <1>2, <1>3
 
 \* The boxed form, so a consumer under a temporal hypothesis can use it: a
 \* parameterised lemma is not lifted into a box at the point of use, and the
@@ -14223,39 +14520,7 @@ THEOREM ReleasedRuntimeSettles ==
 (* one said it was owed.                                                   *)
 (***************************************************************************)
 
-\* The tag is frozen once the event is out: only EmitShutdownComplete writes
-\* it, and that step demands an event not yet emitted.
-LEMMA EmittedRuntimeTagFrozen ==
-    ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
-           IsShutdownEventEmitted(rtId)
-    PROVE  /\ (IsShutdownEventEmitted(rtId))'
-           /\ (SecondEventOwed(rtId))' =
-                  SecondEventOwed(rtId)
-<1>1. CASE \E rt \in RuntimeIds : EmitShutdownComplete(rt)
-    BY <1>1, SMT DEF EmitShutdownComplete, TypeOK, L0!TypeOK
-<1>2. CASE \E rt \in RuntimeIds : ShutdownCallbackReturns(rt)
-    BY <1>2, SMT DEF ShutdownCallbackReturns, TypeOK, L0!TypeOK
-<1>3. CASE UNCHANGED <<shutdown_event_emitted, shutdown_callback_running,
-                       second_event_owed>>
-    BY <1>3, SMT
-<1>4. QED
-    BY <1>1, <1>2, <1>3, OnlyShutdownStepsWriteShutdownFlags, Zenon
 
-\* The second event is a latch: only its own step writes the flag, and that
-\* step raises it.
-LEMMA ResourcesEmittedStable ==
-    ASSUME NEW rtId \in RuntimeIds, TypeOK, [Next]_vars,
-           IsResourcesReleasedEmitted(rtId)
-    PROVE  (IsResourcesReleasedEmitted(rtId))'
-<1>1. CASE \E rt \in RuntimeIds : EmitResourcesReleased(rt)
-    BY <1>1, SMT DEF EmitResourcesReleased, TypeOK, L0!TypeOK
-<1>2. CASE \E rt \in RuntimeIds : ResourcesReleasedCallbackReturns(rt)
-    BY <1>2, SMT DEF ResourcesReleasedCallbackReturns, TypeOK, L0!TypeOK
-<1>3. CASE UNCHANGED <<resources_released_emitted,
-                       resources_released_callback_running>>
-    BY <1>3, SMT
-<1>4. QED
-    BY <1>1, <1>2, <1>3, OnlyReleaseStepsWriteReleaseFlags, Zenon
 
 \* And once it is out, nothing puts that callback back on the stack: the only
 \* step that would is guarded on the flag it just raised.
