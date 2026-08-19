@@ -2282,6 +2282,15 @@ Additional invariants:
   schedules no retry at all. The refusal is permanent by construction - `len > ceiling` is a
   property of the request and not of the moment - so a binding that retried it would poll
   forever against a condition no return by anyone can change
+- **RetryingCallHoldsNoBuffer**: a call waiting on the budget holds no lent buffer, and its
+  poll runs on neither the callback thread nor the consumer's. This is the obligation the byte
+  accounting was reached for and did not deliver. The cycle it forbids is real and level 1
+  cannot see it: capacity comes back only when someone returns a buffer, level 1 has that as
+  `WF(HostReturnsBuffer)` - a hypothesis on the host, not a promise of the runtime - and a
+  binding whose retry loop owns a lease, or blocks the thread that drains deliveries, is
+  exactly the host that never discharges it. Waiting for capacity while holding capacity is a
+  deadlock no invariant over `bytes_used` would have found, because every number in it stays
+  consistent throughout
 - **RetainedBytesAreEventuallyFreed**: a buffer the runtime keeps past its send's acquittal,
   for replay, is freed in the end. Level 1's `FreeReturnedBuffer` is enabled as soon as the
   send is acquitted and is weakly fair, so an implementation that holds the bytes until the
@@ -2382,19 +2391,33 @@ the artefact rather than left to rot:
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
-| The two memory observers' normative invariants | **Not covered by TLA+.** The coherence of a snapshot and `bytes_host_lent + bytes_send_in_flight + bytes_runtime_held == bytes_used <= ceiling` are safety properties of state neither level carries: no charge, no byte count and no ceiling appears in `FfiGrpc`. They are implementation obligations, discharged by the ABI tests, and the paragraph after this table says what covering them would cost |
+| The two memory observers' normative invariants | **Not covered by TLA+.** The coherence of a snapshot and `bytes_host_lent + bytes_send_in_flight + bytes_runtime_held == bytes_used <= ceiling` are safety properties of state neither level carries: no charge, no byte count and no ceiling appears in `FfiGrpc`. They are implementation obligations, discharged by the ABI tests; the paragraph after this table says why modelling them would add nothing |
 | Level 2 | Specified, not modelled, not proved |
 
-The observers' row is a deliberate boundary rather than an oversight, so here is the shape of
-closing it. Level 1 would gain one variable - `buffer_charge`, recorded per buffer at the lend
-- and four definitions: `bytes_used` as the sum of `buffer_charge` over the buffers that are
-neither `"none"` nor `"freed"`, and the three categories as that same sum restricted by
-`buffer_state` and by acquittal. The sum invariant would then not be a property to preserve
-across twenty actions but an identity about a partition of a finite set, true by construction,
-and the ceiling bound would need only `LendSendBuffer`'s guard. The cost is real all the same,
-because sums over sets are where these proofs get expensive rather than merely long. Until it
-is done this document does not claim the two observers are proved, and the row above is what a
-reader should believe. Adding them is a local extension of level 1 and needs no further level.
+The observers' row is a decision and not an oversight, and the reason is worth stating because
+the obvious repair is the wrong one. Carrying the accounting would mean a `buffer_charge`
+variable and `bytes_used` as a sum over the buffers that are neither `"none"` nor `"freed"`,
+with the three categories as that same sum restricted by `buffer_state` and by acquittal. The
+sum invariant would then be an identity about a partition of a finite set - **true by
+construction**, which is the objection rather than the selling point. There is no way to write
+the model in which it is false, so it discriminates no design and catches no defect; it would
+cost the expensive part of these proofs, sums over sets, to prove a tautology. Whether the one
+CAS on the counter is correct is a question for a code invariant and a concurrency test.
+
+The refusal itself needs no modelling either, because it is already there. `LendSendBuffer`
+carries no fairness, so a refused lend is a stuttering step: every proved property crosses it
+unchanged, and that includes the only thing a ceiling could plausibly wedge - the runtime's
+state does not move, so `RuntimeEventuallyQuiescent` and `ResourcesReleasedEventually` are
+untouched. A runtime-level `RESOURCE_EXHAUSTED` state would be the same mistake as the fatal
+ceiling that preceded this design: **a refusal is not a state of the runtime, it is the
+absence of a transition**, and promoting it to a state is what made the runtime undestroyable.
+
+What does deserve a model is the retry protocol, and it is level 2's because it is about the
+binding's own scheduling rather than about bytes. One boolean per call - retrying or not -
+carries `BudgetCancellationStopsRetry` and `MessageTooLargeIsNotRetried` with no counter
+anywhere, and it carries the deadlock that level 1 cannot see: level 1 *assumes* the host
+gives back what it holds, so a host blocked polling for capacity while holding a lent buffer
+is admitted there and fatal in practice. See `RetryingCallHoldsNoBuffer`.
 
 Nothing above is `OMITTED`, and both obligation counts were measured on the model as it
 stands here rather than carried over. The level-1 count grew from 5208 because the send
