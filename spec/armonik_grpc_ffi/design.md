@@ -744,6 +744,10 @@ typedef enum {
                                   // send after the terminal, a second end_send. A
                                   // guard refused, which is not a fault - calling it
                                   // INTERNAL would blame the runtime
+    AK_STATUS_MESSAGE_TOO_LARGE = 7,  // the request cannot be satisfied at any
+                                  // moment: len exceeds the ceiling itself, so no
+                                  // return by anyone will ever make room. Permanent
+                                  // where BUDGET_BUSY is transient - do not retry
 } ak_status;
 
 // === Runtime lifecycle ===
@@ -832,8 +836,13 @@ ak_status ak_call_start(ak_channel_handle channel,
 // unrelated refusal is AK_STATUS_BUDGET_BUSY: the runtime-wide byte ceiling is
 // reached because other calls hold the capacity. No event of this call can clear
 // that one, so the host polls ak_runtime_memory_usage and retries. Neither is an
-// error. A genuine allocator failure is neither refusal: it is AK_STATUS_INTERNAL
-// and the runtime fails.
+// error.
+// Retrying only makes sense while the request could ever fit. If len exceeds the
+// ceiling itself, no return by anyone will ever make room, and the refusal is
+// AK_STATUS_MESSAGE_TOO_LARGE - permanent, and not to be retried. In every refusal
+// no buffer is lent and *out is untouched.
+// A genuine allocator failure is none of these: it is AK_STATUS_INTERNAL and the
+// runtime fails.
 // Refused with AK_STATUS_INVALID_STATE once the call is over - a terminal call has
 // nothing left to send -
 // once cancellation has been requested, and once the call is reclaimed. Being
@@ -938,23 +947,60 @@ typedef struct {
 
 ak_status ak_call_debt_of(ak_call_handle call, ak_call_debt *out);
 
-// What the runtime-wide byte ceiling is holding, for a host that was refused with
-// AK_STATUS_BUDGET_BUSY and needs to know whether waiting helps. Synchronous,
-// non-blocking, observational: it changes nothing the model carries.
+// What the runtime-wide byte ceiling is holding. Both forms are synchronous,
+// non-blocking and observational: they change nothing the model carries.
 //
-// Three numbers rather than one because the host's next move differs. bytes_lent
-// falling means another call gave something back. bytes_retained falling means the
-// runtime released bytes it was still holding for replay. If the ceiling is reached
-// with nothing retained, the host is waiting on sends that have not been acquitted -
-// its own or another call's - and a WRITE_DONE will move it. A single aggregate
-// cannot tell those apart.
+// The base form is what a retry needs, and it needs nothing else. A buffer occupies
+// the ceiling from ak_get_call_buffer until the runtime frees its bytes, and
+// committing it with ak_call_send_message does not free anything - it hands the same
+// bytes from the host to the runtime. So only a fall in the total proves capacity
+// came back, and a single number carries that.
 typedef struct {
-    uint64_t bytes_lent;      // handed out, not yet given back
-    uint64_t bytes_retained;  // given back, not yet freed - the replay budget
-    uint64_t ceiling;         // the configured limit both count against
+    uint64_t bytes_used;      // occupied against the ceiling, atomic snapshot
+    uint64_t ceiling;         // the configured limit
 } ak_memory_usage;
 
 ak_status ak_runtime_memory_usage(ak_runtime_handle runtime, ak_memory_usage *out);
+
+// The detailed form is for observability, not for progress: it says why the ceiling
+// is held, so an operator can tell a stuck host from a slow network. The three
+// categories are the buffer lifecycle, and each says who has to move next:
+//
+//   bytes_host_lent      the host holds these and has neither committed nor
+//                        returned them. No runtime step will move them; the host's
+//                        own code must.
+//   bytes_send_in_flight committed, and the send they carry is not acquitted yet.
+//                        The transport still needs the bytes; a WRITE_DONE moves
+//                        them to the next category.
+//   bytes_replay_retained given back, and freeable - returned unused, or carrying a
+//                        send already acquitted. The runtime frees these on its own
+//                        and FreeReturnedBuffer is weakly fair, so this category
+//                        drains without anyone doing anything.
+//
+// The first two fields of ak_memory_usage_detailed are the base struct's, in the
+// same order, so a host upgrades by changing the call and the type and re-reading
+// nothing.
+//
+// Normative: the snapshot is coherent - all five numbers are read from one instant
+// of the runtime's accounting - and
+//     bytes_host_lent + bytes_send_in_flight + bytes_replay_retained == bytes_used
+//     bytes_used <= ceiling
+// hold exactly on every returned snapshot, not merely eventually. A host may
+// therefore compare fields across categories without a second call.
+typedef struct {
+    uint64_t bytes_used;
+    uint64_t ceiling;
+    uint64_t bytes_host_lent;
+    uint64_t bytes_send_in_flight;
+    uint64_t bytes_replay_retained;
+} ak_memory_usage_detailed;
+
+ak_status ak_runtime_memory_usage_detailed(ak_runtime_handle runtime,
+                                           ak_memory_usage_detailed *out);
+
+// Both answer on a failed runtime - a host wants the accounting there most of all -
+// and both return AK_STATUS_HANDLE_STALE after ak_runtime_destroy, the handle
+// naming nothing by then.
 
 // === Utilities ===
 
@@ -1319,13 +1365,23 @@ refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached
 not this call's fault and which no WRITE_DONE of this call can clear. Only a genuine
 allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
 
-Three refusals need three wake-ups, and the third one is the reason
-`ak_runtime_memory_usage` exists: a call refused for the ceiling has no send in flight, so
-nothing of its own can wake it, and the host polls the runtime's accounting instead. That is
-a poll and not a signal on purpose, for now - a signal would have to fire at the moment the
-native budget is genuinely recredited rather than when the host hands something back, and
-getting that edge wrong reintroduces the lost wake-up this replaces. A signal or an epoch can
-be added later without changing the contract, since the poll remains correct in its presence.
+Two of the refusals are transient and each needs its own wake-up. `AK_STATUS_SLOT_BUSY`
+has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has none of its own - a call refused for the
+ceiling has no send in flight, so nothing of that call can wake it - and that is why
+`ak_runtime_memory_usage` exists: the host polls the runtime's accounting instead. The third
+refusal, `AK_STATUS_MESSAGE_TOO_LARGE`, needs no wake-up because waiting cannot help, and
+`AK_STATUS_INVALID_STATE` needs none either: it reports a guard, not a shortage.
+
+The budget wake-up is a poll and not a signal on purpose, for now. A signal would have to
+fire at the moment the native budget is genuinely recredited rather than when the host hands
+something back - committing a buffer moves bytes from the host to the runtime without
+freeing any - and getting that edge wrong reintroduces the lost wake-up this replaces. A
+signal or an epoch can be added later without changing the contract, since the poll remains
+correct in its presence. What the poll does *not* give on its own is freedom from
+starvation: another call can win the capacity between the observation and the retry. Level 2
+owes the honest contract there - retry until cancellation or deadline, or a queue if
+acquisition under recurring capacity is to be promised - along with the cadence, the backoff
+and the cancellation of the poll itself.
 
 Making the ceiling fatal was the previous shape and it was wrong, not merely pessimistic:
 `AK_RUNTIME_FAILED_UNQUIESCED` is absorbing and `ak_runtime_destroy` is refused from it
@@ -2177,6 +2233,14 @@ Additional invariants:
   (`DestroyedRuntimeRejectsHandles`); this is the binding's side of it, and it is an
   ordering obligation on dispose, not a safety net - the invoker drains and disposes every
   call it still holds before it destroys, so no downcall is left to race the teardown
+- **BudgetRetryTerminates**: a lend refused with `AK_STATUS_BUDGET_BUSY` is retried on a
+  timed poll of `ak_runtime_memory_usage`, and the retry loop ends - on acquisition, on
+  cancellation, or on the deadline. Never on `AK_STATUS_MESSAGE_TOO_LARGE`, which is
+  permanent and must not be retried. What level 2 does **not** promise is freedom from
+  starvation: another call can win the capacity between the observation and the retry, and
+  level 1 promises nothing before a send is accepted. Promising acquisition under recurring
+  capacity would need a queue or a fairness hypothesis stronger than concurrent polling;
+  the cadence, the backoff and the cancellation of the poll are part of this obligation
 - **RingNeverOverflows**: `head - tail ≤ DeliveryCredits + 1`. Inherited, not re-proved:
   it is level 1's `PayloadsOwnedWithinCreditsPlusOne` read through the mapping, and it is
   what lets the trampoline publish without a fullness test
