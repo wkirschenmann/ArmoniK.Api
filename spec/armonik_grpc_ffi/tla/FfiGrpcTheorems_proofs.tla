@@ -291,6 +291,113 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
     BY <1>1, <1>2, <1>3, <1>4, <1>5, NextDecomposition
     DEF NextByFootprint, NextSafe
 
+\* The budget has exactly two writers: the lend that may exhaust it and the
+\* free that may relieve it.  Every other step leaves it alone, which is what
+\* lets the interlock be read off one framing fact instead of an action
+\* alphabet.  Lend and free stay opaque here - they are the disjuncts being
+\* proved - so the case that expands NextSafeCallFfi has seven actions to
+\* look at and two to hand back.
+LEMMA OnlyBudgetStepsWriteBudget ==
+    ASSUME [Next]_vars
+    PROVE  \/ \E c \in CallIds, b \in BufferIds : LendSendBuffer(c, b)
+           \/ \E c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
+           \/ UNCHANGED memory_cap_exhausted
+<1>1. CASE NextSafeRefining
+    BY <1>1, SMTT(120)
+    DEF NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
+        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
+        RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
+        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        NetworkSend, NetworkReceive, ReceiveStatus,
+        DeliverInitialMetadata, DeliverMessage, DeliverStatus,
+        DeliverCancelled, HandPayloadToHost,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars,
+        l0_vars, ffi_vars
+<1>2. CASE NextSafeFfiOnly
+    BY <1>2, SMTT(120)
+    DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
+        EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
+        ResourcesReleasedCallbackReturns, RuntimeDestroy,
+        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        HostReturnsBuffer, WriteDoneReturns, DeliveryCallbackReturns,
+        HostConsumesEvent, l0_vars, L0!vars
+<1>3. CASE NextFail \/ NextExplicitStutter
+    BY <1>3, SMTT(120)
+    DEF NextFail, NextExplicitStutter, RuntimeFail, RemainFailed,
+        RemainReleased, IsRuntimeDrained, ffi_vars,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars
+<1>4. CASE UNCHANGED vars
+    BY <1>4, SMT DEF vars, l0_vars, L0!vars, ffi_vars
+<1>5. QED
+    BY <1>1, <1>2, <1>3, <1>4, NextDecomposition
+    DEF NextByFootprint, NextSafe
+
+\* The interlock survives every step.  Four actions write a buffer's state and
+\* only one of them takes a buffer out of the outstanding pair: the lend puts
+\* one in, the return and the commit move a buffer between two states that are
+\* both outstanding, and the free is the one that removes - which is why the
+\* free is where the clause lives.  Everything else leaves both the budget and
+\* the buffer states alone, so the hypothesis carries across.
+LEMMA NextPreservesBudgetInterlock ==
+    ASSUME TypeOK, BudgetExhaustedMeansBufferOut, [Next]_vars
+    PROVE  BudgetExhaustedMeansBufferOut'
+<1>0. SUFFICES ASSUME memory_cap_exhausted'
+               PROVE  SomeBufferOutstanding'
+    BY Zenon DEF BudgetExhaustedMeansBufferOut
+<1>1. CASE \E c \in CallIds, b \in BufferIds : LendSendBuffer(c, b)
+  <2>1. PICK c \in CallIds, b \in BufferIds : LendSendBuffer(c, b)
+    BY <1>1
+  <2>2. IsLentBuffer(c, b)'
+    BY <2>1, SMT DEF LendSendBuffer, IsLentBuffer, TypeOK, L0!TypeOK
+  <2>3. QED
+    BY <2>2, Zenon DEF SomeBufferOutstanding, BufferOutstanding
+<1>2. CASE \E c \in CallIds, b \in BufferIds : HostReturnsBuffer(c, b)
+  <2>1. PICK c \in CallIds, b \in BufferIds : HostReturnsBuffer(c, b)
+    BY <1>2
+  <2>2. IsReturnedBuffer(c, b)'
+    BY <2>1, SMT DEF HostReturnsBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
+  <2>3. QED
+    BY <2>2, Zenon DEF SomeBufferOutstanding, BufferOutstanding
+<1>3. CASE \E c \in CallIds, m \in Messages, b \in BufferIds :
+              SendMessage(c, m, b)
+  <2>1. PICK c \in CallIds, m \in Messages, b \in BufferIds :
+            SendMessage(c, m, b)
+    BY <1>3
+  <2>2. IsReturnedBuffer(c, b)'
+    BY <2>1, SMT DEF SendMessage, IsReturnedBuffer, TypeOK, L0!TypeOK
+  <2>3. QED
+    BY <2>2, Zenon DEF SomeBufferOutstanding, BufferOutstanding
+<1>4. CASE \E c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
+\* The goal is the action's own clause: a free may leave the budget exhausted
+\* only while something is still out.
+  <2>1. PICK c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
+    BY <1>4
+\* The action names another buffer that is out now; freeing this one leaves
+\* that one alone, so it is still out afterwards.
+  <2>2. PICK c2 \in CallIds, b2 \in BufferIds :
+            /\ <<c2, b2>> # <<c, b>>
+            /\ BufferOutstanding(c2, b2)
+    BY <1>0, <2>1, Zenon DEF FreeReturnedBuffer, AnotherBufferOutstanding
+  <2>3. BufferOutstanding(c2, b2)'
+    BY <2>1, <2>2, SMTT(120)
+    DEF FreeReturnedBuffer, BufferOutstanding, IsLentBuffer,
+        IsReturnedBuffer, TypeOK, L0!TypeOK
+  <2>4. QED
+    BY <2>3, Zenon DEF SomeBufferOutstanding
+<1>5. CASE UNCHANGED <<memory_cap_exhausted, buffer_state>>
+  <2>1. memory_cap_exhausted
+    BY <1>0, <1>5, Zenon
+  <2>2. SomeBufferOutstanding
+    BY <2>1, Zenon DEF BudgetExhaustedMeansBufferOut
+  <2>3. QED
+    BY <1>5, <2>2, Zenon
+    DEF SomeBufferOutstanding, BufferOutstanding, IsLentBuffer,
+        IsReturnedBuffer
+<1>6. QED
+    BY <1>1, <1>2, <1>3, <1>4, <1>5,
+       OnlyBufferStepsWriteBufferStates, OnlyBudgetStepsWriteBudget, Zenon
+
 \* The shutdown signal has exactly two writers.
 \* Only the two release steps write the release flags, which is what lets the
 \* callback's stability be read off one framing fact.
@@ -525,6 +632,7 @@ FfiTypes ==
     /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
+    /\ memory_cap_exhausted \in BOOLEAN
 
 \* Kept apart from FfiTypes on purpose: the nested function space is the
 \* only awkward typing in the state, and mixing it with ten flat conjuncts
@@ -6228,6 +6336,8 @@ THEOREM InitEstablishesIndInv == Init => IndInv
     BY <1>1, <1>2, <1>25, TypeOKSplit DEF L0!IndInv
 \* Nothing is lent yet, so every lent set is empty and its cardinality is
 \* zero - the one place the bridge needs the empty-set fact.
+<1>26. BudgetExhaustedMeansBufferOut
+    BY <1>0, Zenon DEF Init, BudgetExhaustedMeansBufferOut
 <1>28. BufferStateInv
   <2>1. \A c \in CallIds : {x \in BufferIds : buffer_state[c][x] = "lent"} = {}
     BY <1>0, Zenon DEF Init
@@ -6299,7 +6409,7 @@ THEOREM InitEstablishesIndInv == Init => IndInv
 <1>50. DestroyedRuntimeIsClean
     BY <1>0, SMT DEF Init, DestroyedRuntimeIsClean, IsRuntimeDestroyed
 <1>6. QED
-    BY <1>0, <1>1, <1>28, <1>3, <1>4, <1>5, <1>50
+    BY <1>0, <1>1, <1>26, <1>28, <1>3, <1>4, <1>5, <1>50, Zenon
     DEF IndInv, StrongInv, L0!IndInv
 
 THEOREM IndInvPreserved == IndInv /\ [Next]_vars => IndInv'
@@ -6349,6 +6459,11 @@ THEOREM IndInvPreserved == IndInv /\ [Next]_vars => IndInv'
           SendsLiveInOneBuffer
     <3>4. QED BY <3>2, <3>3, <3>35, Zenon DEF BufferStateInv
   <2>3. QED BY <1>0, <2>1, <2>2
+<1>26. BudgetExhaustedMeansBufferOut'
+  <2>1. TypeOK /\ BudgetExhaustedMeansBufferOut
+    BY <1>0, Zenon DEF IndInv
+  <2>2. QED
+    BY <1>0, <2>1, NextPreservesBudgetInterlock
 <1>3. TypeOK'
     BY <1>1, <1>2, <1>25, SMT DEF TypeOK, FfiTypes, BufferTypes, L0!IndInv
 <1>4. ASSUME L0!NotFailed' PROVE StrongInv'
@@ -6376,9 +6491,10 @@ THEOREM IndInvPreserved == IndInv /\ [Next]_vars => IndInv'
       BY <2>2, <3>2, StutterPreservesDestroyedClean DEF StrongInv
     <3>3. QED BY <1>0, <3>1, <3>2
   <2>5. QED
-    BY <1>2, <1>25, <1>3, <2>3, <2>4, <2>40 DEF StrongInv
+    BY <1>2, <1>25, <1>26, <1>3, <2>3, <2>4, <2>40 DEF StrongInv
 <1>5. QED
-    BY <1>1, <1>2, <1>25, <1>3, <1>4 DEF IndInv, L0!IndInv, StrongInv
+    BY <1>1, <1>2, <1>25, <1>26, <1>3, <1>4
+    DEF IndInv, L0!IndInv, StrongInv
 
 THEOREM IndInvImpliesSafetyInvariant == IndInv => SafetyInvariant
 <1>1. IndInv => L0!SafetyInvariant
@@ -6492,8 +6608,16 @@ LEMMA SafeStepPreservesHealthyStrongInv ==
 <1>8. TypeOK'
     BY <1>5, <1>6, <1>75, SMT
     DEF TypeOK, FfiTypes, BufferTypes, L0!StrongInv, L0!StructuralInv
+<1>85. BudgetExhaustedMeansBufferOut'
+  <2>1. BudgetExhaustedMeansBufferOut
+    BY <1>0, Zenon DEF StrongInv
+\* SafeIsNext is declared further down; the decomposition is in scope here.
+  <2>2. [Next]_vars
+    BY <1>0, NextDecomposition, Zenon DEF NextByFootprint
+  <2>3. QED
+    BY <1>1, <2>1, <2>2, NextPreservesBudgetInterlock
 <1>9. QED
-    BY <1>2, <1>5, <1>6, <1>7, <1>70, <1>75, <1>8 DEF StrongInv
+    BY <1>2, <1>5, <1>6, <1>7, <1>70, <1>75, <1>8, <1>85 DEF StrongInv
 
 LEMMA InitHealthy == Init => StrongInv /\ L0!NotFailed
 <1>1. Init => IndInv
@@ -9547,7 +9671,7 @@ THEOREM BoxedWRFairness ==
       PROVE [](WF_vars(WriteDoneReturns(cId)))
             <=> WF_vars(WriteDoneReturns(cId))
     BY PTL
-<1>3. QED BY <1>1, <1>2, Isa
+<1>3. QED BY <1>1, <1>2, Isa, PTL
 
 \* The collected drain: while the channel keeps closing, every call ends
 \* off it or inactive, jointly.
@@ -9582,7 +9706,7 @@ THEOREM AllCallsDrainFor ==
           /\ [](IsClosingChannel(chId))
           => <>[](call_channel[cId] = chId => ~L0!IsActiveCall(cId))
       BY CallLeavesChannelFor, PTL
-    <3>2. QED BY <1>1, <3>1, Isa
+    <3>2. QED BY <1>1, <3>1, Isa, PTL
   <2>2. \A cId \in CallIds :
             <>[](call_channel[cId] = chId => ~L0!IsActiveCall(cId))
     BY <2>1
@@ -9693,7 +9817,7 @@ THEOREM ChannelCloseLift ==
        BoxedEWFairness, BoxedWRFairness, PTL
   <2>4. QED
     BY <1>1, <2>1, <2>3, <1>10, <1>11, <1>12, <1>13, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 (***************************************************************************)
 (* THE RUNTIME-RELEASE LIFT                                                *)
@@ -9962,7 +10086,7 @@ THEOREM CallQuietsFor ==
     BY <1>1, IndInvParts, PTL
   <2>2. QED
     BY <1>1, <2>1, <1>10, <1>11, <1>12, <1>13, <1>15, <1>17, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM AllCallsQuiet ==
     ASSUME NEW rtId \in RuntimeIds
@@ -10049,7 +10173,7 @@ THEOREM RuntimeQuiesces ==
           /\ [](ReleaseReady(rtId))
           => <>[](call_channel[cId] \in L0!ChannelsOf(rtId) =>
                       ~IsDeliveryCallbackRunning(cId))
-      BY CallQuietsFor
+      BY CallQuietsFor, PTL
     <3>2. QED BY <1>1, <3>1, Isa
   <2>3. \A cId \in CallIds :
             <>[](call_channel[cId] \in L0!ChannelsOf(rtId) =>
@@ -10061,7 +10185,7 @@ THEOREM RuntimeQuiesces ==
     BY <2>3, AllCallsQuiet
   <2>5. QED
     BY <1>1, <2>1, <2>4, <1>10, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM RuntimeQuiescesBoxed ==
     ASSUME NEW rtId \in RuntimeIds
@@ -10084,7 +10208,7 @@ THEOREM RuntimeQuiescesBoxed ==
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](ReleaseReady(rtId))
         => <>[]IsRuntimeDrained(rtId)
-    BY RuntimeQuiesces
+    BY RuntimeQuiesces, PTL
   <2>5. QED
     BY <2>1, <2>2, <2>3, <2>4, PTL
 <1>2. QED BY <1>1
@@ -10356,7 +10480,7 @@ THEOREM ReleaseLift ==
   <2>4. QED
     BY <1>1, <2>1, <2>3, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15,
        <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 (***************************************************************************)
 (* REFINEMENT, ASSEMBLED                                                   *)
@@ -10385,7 +10509,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ [][Next]_vars
           /\ WF_vars(NetworkSend(cId))
           => WF_l0_vars(L0!NetworkSend(cId))
-      BY NetworkSendLift
+      BY NetworkSendLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>5. ASSUME NEW cId \in CallIds
         PROVE  WF_l0_vars(L0!ReceiveStatus(cId))
@@ -10395,7 +10519,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ [][Next]_vars
           /\ WF_vars(ReceiveStatus(cId))
           => WF_l0_vars(L0!ReceiveStatus(cId))
-      BY ReceiveStatusLift
+      BY ReceiveStatusLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>6. ASSUME NEW cId \in CallIds
         PROVE  WF_l0_vars(L0!DeliverInitialMetadata(cId))
@@ -10405,7 +10529,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ [][Next]_vars
           /\ WF_vars(DeliverInitialMetadata(cId))
           => WF_l0_vars(L0!DeliverInitialMetadata(cId))
-      BY MetadataDeliveryLift
+      BY MetadataDeliveryLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>7. ASSUME NEW cId \in CallIds
         PROVE  WF_l0_vars(L0!DeliverMessage(cId))
@@ -10427,7 +10551,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
           => WF_l0_vars(L0!DeliverMessage(cId))
-      BY MessageDeliveryLift
+      BY MessageDeliveryLift, Isa
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>8. ASSUME NEW cId \in CallIds
         PROVE  WF_l0_vars(L0!DeliverStatus(cId))
@@ -10445,7 +10569,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(WriteDoneReturns(cId))
           /\ WF_vars(DeliverCancelled(cId))
           => WF_l0_vars(L0!DeliverStatus(cId))
-      BY StatusDeliveryLift
+      BY StatusDeliveryLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>9. ASSUME NEW rtId \in RuntimeIds
         PROVE  WF_l0_vars(L0!RuntimeRelease(rtId))
@@ -10461,7 +10585,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(ShutdownCallbackReturns(rtId))
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           => WF_l0_vars(L0!RuntimeRelease(rtId))
-      BY ReleaseLift
+      BY ReleaseLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>10. ASSUME NEW chId \in ChannelIds
          PROVE  WF_l0_vars(L0!ChannelFinishClosing(chId))
@@ -10479,7 +10603,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
           => WF_l0_vars(L0!ChannelFinishClosing(chId))
-      BY ChannelCloseLift
+      BY ChannelCloseLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, Isa
   <2>11. L0!Fairness
     BY <2>4, <2>5, <2>6, <2>7, <2>8, <2>9, <2>10, Isa
@@ -10561,9 +10685,9 @@ THEOREM CancellationProgressSafeFor ==
         /\ WF_vars(WriteDoneReturns(cId))
         => ((L0!IsActiveCall(cId) /\ IsCancelRequested(cId)) ~>
                 ~L0!IsActiveCall(cId))
-    BY CancelledCallDies
+    BY CancelledCallDies, PTL
   <2>4. QED BY <1>1, <2>1, <2>2, <2>3, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM CancellationFairnessRequirement ==
     ASSUME NEW cId \in CallIds
@@ -10798,7 +10922,7 @@ THEOREM SendDescentFor ==
   <2>2. QED
     BY <1>1, <2>1, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16,
        <1>17, <1>18, <1>19, <1>20, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 \* The bound splits of the acquittal ladder, standalone: the induction
 \* hypothesis in the consumer's scope bans necessitation there.
@@ -10901,7 +11025,7 @@ THEOREM SendAcquittedFor ==
   <2>7. [](TypeOK /\ FfiCallInv)
     BY <1>1, PTL
   <2>8. QED BY <1>1, <2>5, <2>6, <2>7, PTL DEF Ind
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM SendAcquittalProgressSafeFor ==
     ASSUME NEW cId \in CallIds, NEW k \in L0!PositiveNaturals
@@ -10926,9 +11050,9 @@ THEOREM SendAcquittalProgressSafeFor ==
         /\ WF_vars(EmitWriteDone(cId))
         /\ WF_vars(WriteDoneReturns(cId))
         => ((HasAcceptedSendAt(cId, k)) ~> (IsSendAcquittedAt(cId, k)))
-    BY SendAcquittedFor
+    BY SendAcquittedFor, PTL
   <2>2. QED BY <1>1, <1>10, <1>11, <2>1, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM SendAcquittalFairnessRequirement ==
     ASSUME NEW cId \in CallIds, NEW k \in L0!PositiveNaturals
@@ -10976,9 +11100,9 @@ THEOREM PayloadsProgressSafeFor ==
         /\ WF_vars(HostConsumesEvent(cId))
         => ((HostOwnsPayload(cId, k)) ~>
                 (~HostOwnsPayload(cId, k)))
-    BY PayloadConsumedFor
+    BY PayloadConsumedFor, PTL
   <2>2. QED BY <1>1, <1>10, <1>11, <2>1, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM PayloadsFairnessRequirement ==
     ASSUME NEW cId \in CallIds, NEW k \in PayloadIndices
@@ -11134,7 +11258,7 @@ THEOREM ChannelEventuallyCloses ==
       BY <1>1, <2>1, <2>4, <3>1, <3>2, <1>11, <1>14, PTL
   <2>5. QED
     BY <2>4, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 \* Ownership by a non-running runtime is stable, and a stopping runtime
 \* keeps no open channel.
@@ -11282,11 +11406,11 @@ THEOREM ChannelSettlesForL1 ==
           /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
           => ((IsClosingChannel(chId)) ~>
                   (IsClosedChannel(chId)))
-      BY ChannelEventuallyCloses
+      BY ChannelEventuallyCloses, Isa
     <3>2. QED BY <1>1, <3>1, PTL
   <2>3. QED
     BY <1>1, <2>1, <2>2, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM AllChannelsSettleL1 ==
     ASSUME NEW rtId \in RuntimeIds
@@ -11466,7 +11590,7 @@ THEOREM BoxedCFCFairness ==
       PROVE [](WF_vars(ChannelFinishClosing(chId)))
             <=> WF_vars(ChannelFinishClosing(chId))
     BY PTL
-<1>3. QED BY <1>1, <1>2, Isa
+<1>3. QED BY <1>1, <1>2, Isa, PTL
 
 \* Under a stopping runtime every channel settles closed, jointly.
 THEOREM AllChannelsSettleCollected ==
@@ -11509,14 +11633,14 @@ THEOREM AllChannelsSettleCollected ==
           /\ [](IsStoppingRuntime(rtId))
           => <>[](channel_runtime[chId] = rtId =>
                       IsClosedChannel(chId))
-      BY ChannelSettlesForL1
-    <3>2. QED BY <1>1, <3>1, Isa
+      BY ChannelSettlesForL1, PTL
+    <3>2. QED BY <1>1, <3>1, Isa, PTL
   <2>2. \A chId \in ChannelIds :
             <>[](channel_runtime[chId] = rtId =>
                      IsClosedChannel(chId))
     BY <2>1
   <2>3. QED BY <2>2, AllChannelsSettleL1
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM AllChannelsSettleBoxed ==
     ASSUME NEW rtId \in RuntimeIds
@@ -11575,7 +11699,7 @@ THEOREM AllChannelsSettleBoxed ==
         => <>[](\A chId \in ChannelIds :
                     channel_runtime[chId] = rtId =>
                         IsClosedChannel(chId))
-    BY AllChannelsSettleCollected
+    BY AllChannelsSettleCollected, PTL
   <2>10. QED
     BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9, PTL
 <1>2. QED BY <1>1
@@ -11695,7 +11819,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
       BY <1>1, <2>3, <2>8, <3>1, <3>4, <1>14, <1>15, PTL
   <2>9. QED
     BY <2>8, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 THEOREM ShutdownEmitFairnessRequirement ==
     ASSUME NEW rtId \in RuntimeIds
@@ -11741,7 +11865,7 @@ THEOREM CancellationCompletesHolds == Spec => CancellationCompletes
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
-      BY <2>0, Isa DEF Fairness
+      BY <2>0, Isa, PTL DEF Fairness
     <3>2. /\ []IndInv
           /\ [][Next]_vars
           /\ WF_vars(DeliverCancelled(cId))
@@ -11750,13 +11874,13 @@ THEOREM CancellationCompletesHolds == Spec => CancellationCompletes
           /\ WF_vars(WriteDoneReturns(cId))
           => ((L0!IsActiveCall(cId) /\ IsCancelRequested(cId)) ~>
                   ~L0!IsActiveCall(cId))
-      BY CancelledCallDies
+      BY CancelledCallDies, PTL
     <3>3. (L0!IsActiveCall(cId) /\ IsCancelRequested(cId)) ~>
               ~L0!IsActiveCall(cId)
       BY <2>0, <2>1, <3>1, <3>2, PTL
     <3>4. QED BY <3>3, PTL
   <2>3. QED
-    BY <2>2, Isa DEF CancellationCompletes
+    BY <2>2, Isa, PTL DEF CancellationCompletes
 <1>2. QED BY <1>1
 
 THEOREM SendsEventuallyAcquittedHolds == Spec => SendsEventuallyAcquitted
@@ -11775,18 +11899,18 @@ THEOREM SendsEventuallyAcquittedHolds == Spec => SendsEventuallyAcquitted
                    (IsSendAcquittedAt(cId, k) \/ ~L0!NotFailed)
     <3>1. /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
-      BY <2>0, Isa DEF Fairness
+      BY <2>0, Isa, PTL DEF Fairness
     <3>2. /\ [](TypeOK /\ FfiCallInv)
           /\ [][Next]_vars
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
           => ((HasAcceptedSendAt(cId, k)) ~> (IsSendAcquittedAt(cId, k)))
-      BY SendAcquittedFor
+      BY SendAcquittedFor, PTL
     <3>3. (HasAcceptedSendAt(cId, k)) ~> (IsSendAcquittedAt(cId, k))
       BY <2>0, <2>10, <3>1, <3>2, PTL
     <3>4. QED BY <3>3, PTL
   <2>3. QED
-    BY <2>2, Isa DEF SendsEventuallyAcquitted, SendAcquittedAt
+    BY <2>2, Isa, PTL DEF SendsEventuallyAcquitted, SendAcquittedAt
 <1>2. QED BY <1>1
 
 THEOREM PayloadsEventuallyConsumedHolds == Spec => PayloadsEventuallyConsumed
@@ -11804,17 +11928,17 @@ THEOREM PayloadsEventuallyConsumedHolds == Spec => PayloadsEventuallyConsumed
         PROVE  (HostOwnsPayload(cId, k) /\ L0!NotFailed) ~>
                    (~HostOwnsPayload(cId, k) \/ ~L0!NotFailed)
     <3>1. WF_vars(HostConsumesEvent(cId))
-      BY <2>0, Isa DEF Fairness
+      BY <2>0, Isa, PTL DEF Fairness
     <3>2. /\ []TypeOK
           /\ [][Next]_vars
           /\ WF_vars(HostConsumesEvent(cId))
           => ((HostOwnsPayload(cId, k)) ~> (~HostOwnsPayload(cId, k)))
-      BY PayloadConsumedFor
+      BY PayloadConsumedFor, PTL
     <3>3. (HostOwnsPayload(cId, k)) ~> (~HostOwnsPayload(cId, k))
       BY <2>0, <2>10, <3>1, <3>2, PTL
     <3>4. QED BY <3>3, PTL
   <2>3. QED
-    BY <2>2, Isa DEF PayloadsEventuallyConsumed, PayloadConsumedAt
+    BY <2>2, Isa, PTL DEF PayloadsEventuallyConsumed, PayloadConsumedAt
 <1>2. QED BY <1>1
 
 \* Failure is absorbing on the whole system.
@@ -11945,7 +12069,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
-      BY <2>0, Isa DEF Fairness
+      BY <2>0, Isa, PTL DEF Fairness
     <3>10. [](TypeOK /\ ~L0!NotFailed /\ [Next]_vars =>
                   (~L0!NotFailed)')
       BY UnfailedSticky, PTL
@@ -12023,7 +12147,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
     <3>2. QED
       BY <3>1, PTL
   <2>4. QED
-    BY <2>3, Isa DEF ShutdownEventEmitted
+    BY <2>3, Isa, PTL DEF ShutdownEventEmitted
 <1>2. QED BY <1>1
 
 \* The three callback-return guarantees.  Each is one step of the fairness
@@ -12072,7 +12196,7 @@ THEOREM DeliveryCallbacksReturnHolds == Spec => DeliveryCallbacksReturn
   <2>1. []TypeOK
     BY <2>0, BehaviorEstablishesIndInv, IndInvParts, PTL
   <2>2. WF_vars(DeliveryCallbackReturns(cId))
-    BY <2>0, Isa DEF Fairness
+    BY <2>0, Isa, PTL DEF Fairness
   <2>3. QED
     BY <1>0, <2>0, <2>1, <2>2, PTL
 <1>2. QED BY <1>1, Zenon DEF DeliveryCallbacksReturn
@@ -12192,7 +12316,7 @@ THEOREM ResourcesReleasedCallbacksReturnHolds ==
   <2>1. []TypeOK
     BY <2>0, BehaviorEstablishesIndInv, IndInvParts, PTL
   <2>2. WF_vars(ResourcesReleasedCallbackReturns(rtId))
-    BY <2>0, Isa DEF Fairness
+    BY <2>0, Isa, PTL DEF Fairness
   <2>3. QED
     BY <1>0, <2>0, <2>1, <2>2, PTL
 <1>2. QED BY <1>1, Zenon DEF ResourcesReleasedCallbacksReturn
@@ -12257,10 +12381,32 @@ LEMMA FreeBufferEnabled ==
     PROVE  TypeOK /\ IsReturnedBuffer(cId, b) /\
                CarriesNoUnacquittedSend(cId, b) =>
                    ENABLED <<FreeReturnedBuffer(cId, b)>>_vars
+\* The hypotheses come off first: the prover then faces the existential
+\* alone, and the witness it needs for the budget is the first disjunct.
+<1>0. SUFFICES ASSUME TypeOK, IsReturnedBuffer(cId, b),
+                      CarriesNoUnacquittedSend(cId, b)
+               PROVE  ENABLED <<FreeReturnedBuffer(cId, b)>>_vars
+    OBVIOUS
+\* The step changes the state, said without a prime so it survives into the
+\* expanded ENABLED as a hypothesis.  Without it the solver has to rebuild the
+\* nested EXCEPT read-back inside an existential over every primed variable,
+\* and it does not: with the budget unconstrained it took the free route of
+\* varying the budget instead, which is why this only became necessary once
+\* the free started writing it.
+<1>05. [buffer_state EXCEPT ![cId][b] = "freed"] # buffer_state
+  <2>1. buffer_state[cId][b] = "returned"
+    BY <1>0, Zenon DEF IsReturnedBuffer
+  <2>2. [buffer_state EXCEPT ![cId][b] = "freed"][cId][b] = "freed"
+    BY <1>0, SMT DEF TypeOK, L0!TypeOK
+  <2>3. QED
+    BY <2>1, <2>2, Zenon
+\* AnotherBufferOutstanding stays opaque here: the witness lives in the other
+\* branch of the budget clause, and unfolding this one would only hand the
+\* solver an existential it has no reason to satisfy.
 <1>1. QED
-    BY ExpandENABLED, SMT
+    BY <1>0, <1>05, ExpandENABLED, SMTT(120)
     DEF FreeReturnedBuffer, IsReturnedBuffer, CarriesNoUnacquittedSend,
-        TypeOK, L0!TypeOK, l0_vars, L0!vars, vars, ffi_vars
+        BufferStates, TypeOK, L0!TypeOK, l0_vars, L0!vars, vars, ffi_vars
 
 \* The entry of one buffer of one call moves only under a step that names
 \* it: lending it, giving it back, releasing it, or a send committing it.
@@ -12757,7 +12903,7 @@ THEOREM ReturnedBufferDescent ==
   <2>3. QED
     BY <1>1, <2>1, <2>2, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15,
        <1>16, <1>17, <1>18, <1>19, <1>20, PTL
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 \* The bound splits of the buffer ladder, standalone: the induction hypothesis
 \* in the consumer's scope bans necessitation there.
@@ -12866,7 +13012,7 @@ THEOREM ReturnedBufferAcquits ==
   <2>7. [](TypeOK /\ FfiCallInv /\ BufferStateInv)
     BY <1>1, PTL
   <2>8. QED BY <1>1, <2>5, <2>6, <2>7, PTL DEF Ind
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 \* A cited lemma may be necessitated where a step proved under a temporal
 \* hypothesis may not, which is the only reason this is a lemma.
@@ -13042,7 +13188,7 @@ THEOREM BufferEventuallyFreedHolds == Spec => BufferEventuallyFreed
 \* release will not fire without it.
   <2>55. IsReturnedBuffer(cId, b) ~>
              (CarriesNoUnacquittedSend(cId, b) \/ IsFreedBuffer(cId, b))
-    BY <2>0, <2>45, ReturnedBufferAcquits
+    BY <2>0, <2>45, ReturnedBufferAcquits, PTL
   <2>56. (IsReturnedBuffer(cId, b) /\ CarriesNoUnacquittedSend(cId, b))
              ~> IsFreedBuffer(cId, b)
     BY <1>0, <2>0, <2>2, <2>4, PTL
@@ -13316,7 +13462,7 @@ THEOREM TerminalCallBuffersSettle ==
     <3>1. WF_vars(HostReturnsBuffer(cId, b))
       BY <1>1, Isa DEF BufferFairnessFor
     <3>2. IsLentBuffer(cId, b) ~> ~IsLentBuffer(cId, b)
-      BY <1>1, <3>1, TerminalBufferReturns
+      BY <1>1, <3>1, TerminalBufferReturns, PTL
     <3>3. QED
       BY <1>0, <1>1, <3>2, PTL
   <2>2. QED BY <2>1, AllBuffersSettle
@@ -13575,7 +13721,7 @@ THEOREM TerminalPayloadsDrain ==
         DEF HostOwnsNoPayload, OwedPayloads, TypeOK, L0!TypeOK
     <3>2. QED BY <3>1, PTL
   <2>8. QED BY <1>1, <2>5, <2>6, <2>7, PTL DEF Ind
-<1>2. QED BY <1>1
+<1>2. QED BY <1>1, PTL
 
 \* Off the lent state a buffer never becomes returned: both writers of that
 \* state - the host giving it back and a send committing it - need it lent.
@@ -13718,12 +13864,12 @@ THEOREM ReturnedBufferFreedFor ==
       PROVE  IsReturnedBuffer(cId, b) ~> IsFreedBuffer(cId, b)
   <2>1. IsReturnedBuffer(cId, b) ~>
             (CarriesNoUnacquittedSend(cId, b) \/ IsFreedBuffer(cId, b))
-    BY <1>6, ReturnedBufferAcquits
+    BY <1>6, ReturnedBufferAcquits, PTL
   <2>2. (IsReturnedBuffer(cId, b) /\ CarriesNoUnacquittedSend(cId, b))
             ~> IsFreedBuffer(cId, b)
     BY <1>1, <1>2, <1>3, <1>6, PTL
   <2>3. QED BY <1>4, <1>5, <1>6, <2>1, <2>2, PTL
-<1>7. QED BY <1>6
+<1>7. QED BY <1>6, PTL
 
 \* So on a terminal call no buffer stays given back: it is lent at most until
 \* the host hands it over, and given back at most until the runtime releases
@@ -13773,14 +13919,14 @@ THEOREM TerminalBufferUnreturned ==
   <2>0. []TypeOK
     BY <1>5, PTL
   <2>1. IsLentBuffer(cId, b) ~> ~IsLentBuffer(cId, b)
-    BY <1>5, <2>0, TerminalBufferReturns
+    BY <1>5, <2>0, TerminalBufferReturns, PTL
   <2>2. <>[]~IsLentBuffer(cId, b)
     BY <1>1, <1>5, <2>0, <2>1, PTL
   <2>3. IsReturnedBuffer(cId, b) ~> IsFreedBuffer(cId, b)
-    BY <1>5, ReturnedBufferFreedFor
+    BY <1>5, ReturnedBufferFreedFor, PTL
   <2>4. QED
     BY <1>2, <1>3, <1>4, <1>5, <2>0, <2>2, <2>3, PTL
-<1>6. QED BY <1>5
+<1>6. QED BY <1>5, PTL
 
 \* The counter side of the buffer states: nothing lent means nothing held.
 LEMMA NoLentMeansNoneHeld ==
@@ -13854,11 +14000,11 @@ THEOREM TerminalCallReclaims ==
         /\ [](TypeOK /\ FfiCallInv)
     BY <1>4, PTL
   <2>1. <>[]HostOwnsNoPayload(cId)
-    BY <1>4, <2>0, TerminalPayloadsDrain
+    BY <1>4, <2>0, TerminalPayloadsDrain, PTL
   <2>2. <>[]~IsDeliveryCallbackRunning(cId)
-    BY <1>4, <2>0, TerminalDeliveryQuiets
+    BY <1>4, <2>0, TerminalDeliveryQuiets, PTL
   <2>3. <>[](\A b \in BufferIds : ~IsLentBuffer(cId, b))
-    BY <1>4, <2>0, TerminalCallBuffersSettle
+    BY <1>4, <2>0, TerminalCallBuffersSettle, PTL
   <2>4. <>[]HostHoldsNoBuffer(cId)
     BY <1>3, <1>4, <2>0, <2>3, PTL
   <2>5. \A b \in BufferIds : <>[]~IsReturnedBuffer(cId, b)
@@ -13868,13 +14014,13 @@ THEOREM TerminalCallReclaims ==
             /\ WF_vars(FreeReturnedBuffer(cId, b))
         BY <1>4, Isa DEF BufferFairnessFor
       <4>2. QED
-        BY <1>4, <4>1, TerminalBufferUnreturned
+        BY <1>4, <4>1, TerminalBufferUnreturned, PTL
     <3>2. QED BY <3>1
   <2>6. <>[](\A b \in BufferIds : ~IsReturnedBuffer(cId, b))
     BY <2>5, AllBuffersUnreturned
   <2>7. QED
     BY <1>1, <1>2, <1>4, <2>0, <2>1, <2>2, <2>4, <2>6, PTL
-<1>5. QED BY <1>4
+<1>5. QED BY <1>4, PTL
 
 \* Quantified weak fairness is invariant, per buffer family: the same
 \* three-move as the per-call ones, over the buffer identity space.
@@ -13938,10 +14084,10 @@ THEOREM TerminalCallReclaimsFrom ==
          /\ []WF_vars(WriteDoneReturns(cId))
     BY <1>2, PTL
   <2>18. []BufferFairnessFor(cId)
-    BY <1>2, BoxedBufferFairness
+    BY <1>2, BoxedBufferFairness, PTL
   <2>2. QED
     BY <2>16, <2>17, <2>18, TerminalCallReclaims, PTL
-<1>3. QED BY <1>2
+<1>3. QED BY <1>2, PTL
 
 THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 <1>1. ASSUME Spec, NEW cId \in CallIds
@@ -13970,7 +14116,7 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
     BY TerminalCallStaysTerminal, PTL
   <2>45. []([](L0!IsTerminalCall(cId)) =>
                 <>(IsHandleReleased(cId) \/ IsRuntimeOfCallDestroyed(cId)))
-    BY <2>0, <2>2, <2>3, TerminalCallReclaimsFrom
+    BY <2>0, <2>2, <2>3, TerminalCallReclaimsFrom, PTL
   <2>5. QED
     BY <2>0, <2>2, <2>4, <2>45, PTL
 <1>2. QED BY <1>1, Zenon DEF CallEventuallyReclaimed
@@ -14236,7 +14382,7 @@ THEOREM ReleasedRuntimeReclaims ==
     <3>2. []WF_vars(HostConsumesEvent(cId))
       BY <3>1, PTL
     <3>3. []BufferFairnessFor(cId)
-      BY <3>1, BoxedBufferFairness
+      BY <3>1, BoxedBufferFairness, PTL
     <3>4. QED
       BY <1>3, <2>0, <3>2, <3>3, ReleasedCallQuiets
   <2>3. <>[](\A cId \in CallIds : CallQuietFor(rtId, cId))
@@ -14345,7 +14491,7 @@ THEOREM ReleasedCallBytesFree ==
         <5>1. BufferFairnessFor(cId) =>
                   /\ WF_vars(HostReturnsBuffer(cId, b))
                   /\ WF_vars(FreeReturnedBuffer(cId, b))
-          BY Isa DEF BufferFairnessFor
+          BY Isa, PTL DEF BufferFairnessFor
         <5>2. QED BY <1>7, <5>1, PTL
 \* The drain, instantiated on this buffer as a step of its own.  The temporal
 \* backend does not instantiate a cited theorem, and it is the step below that
@@ -14359,7 +14505,7 @@ THEOREM ReleasedCallBytesFree ==
             /\ WF_vars(EmitWriteDone(cId))
             /\ WF_vars(WriteDoneReturns(cId))
             => <>[]~IsReturnedBuffer(cId, b)
-        BY TerminalBufferUnreturned
+        BY TerminalBufferUnreturned, PTL
       <4>3. QED
         BY <1>7, <3>1, <4>1, <4>2, PTL
     <3>3. <>[](\A b \in BufferIds : ~IsReturnedBuffer(cId, b))
@@ -14428,7 +14574,7 @@ CallSettleFairness ==
 LEMMA SettleFairnessIncludesDrain ==
     CallSettleFairness => CallDrainFairness
 <1>1. QED
-    BY Isa DEF CallSettleFairness, CallDrainFairness
+    BY Isa, PTL DEF CallSettleFairness, CallDrainFairness
 
 LEMMA BoxedCallSettleFairness ==
     CallSettleFairness <=> []CallSettleFairness
@@ -14500,7 +14646,7 @@ THEOREM ReleasedRuntimeSettles ==
           /\ WF_vars(WriteDoneReturns(cId))
       BY <2>2, Isa DEF CallSettleFairness
     <3>2. []BufferFairnessFor(cId)
-      BY <3>1, BoxedBufferFairness
+      BY <3>1, BoxedBufferFairness, PTL
     <3>3. /\ []WF_vars(EmitWriteDone(cId))
           /\ []WF_vars(WriteDoneReturns(cId))
       BY <3>1, PTL
@@ -14872,6 +15018,280 @@ THEOREM ResourcesReleasedEventuallyHolds ==
 <1>11. QED
     BY <1>3, <1>4, <1>45, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, PTL
 
+(***************************************************************************)
+(* THE EMISSION BUDGET - exhausting it is temporary                        *)
+(***************************************************************************)
+
+\* A buffer that is out reaches freed.  The lent half is BufferEventuallyFreed
+\* itself.  The returned half is that theorem's second rung, rebuilt here from
+\* the same top-level lemmas rather than reached into: a step of a theorem is
+\* not citable, and rebuilding four rungs costs less than hoisting them out of
+\* a proof that works.
+\* A buffer that is out reaches freed.  The lent half is BufferEventuallyFreed
+\* itself.  The returned half is that theorem's second rung, rebuilt here from
+\* the same top-level lemmas rather than reached into: a step of a theorem is
+\* not citable, and rebuilding four rungs costs less than hoisting them out of
+\* a proof that works.
+LEMMA OutstandingBufferEventuallyFreed ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  Spec => (BufferOutstanding(cId, b) ~> IsFreedBuffer(cId, b))
+\* The rungs are boxed here, where Spec is not in scope.  A fact proved under
+\* Spec cannot be necessitated, so the boxing has to happen outside the step
+\* that assumes it.
+<1>0. /\ [](TypeOK /\ IsReturnedBuffer(cId, b) /\
+                 CarriesNoUnacquittedSend(cId, b) =>
+                     ENABLED <<FreeReturnedBuffer(cId, b)>>_vars)
+      /\ [](TypeOK /\ <<FreeReturnedBuffer(cId, b)>>_vars =>
+                 (IsFreedBuffer(cId, b))')
+      /\ [](TypeOK /\ IsReturnedBuffer(cId, b) /\
+                 CarriesNoUnacquittedSend(cId, b) /\ [Next]_vars /\
+                 ~<<FreeReturnedBuffer(cId, b)>>_vars =>
+                     (IsReturnedBuffer(cId, b) /\
+                          CarriesNoUnacquittedSend(cId, b))')
+      /\ [](TypeOK => (IsFreedBuffer(cId, b) => ~IsReturnedBuffer(cId, b)))
+      /\ [](TypeOK /\ [Next]_vars /\
+                 (IsReturnedBuffer(cId, b) \/ IsFreedBuffer(cId, b)) =>
+                     (IsReturnedBuffer(cId, b) \/ IsFreedBuffer(cId, b))')
+  <2>1. TypeOK /\ IsReturnedBuffer(cId, b) /\
+          CarriesNoUnacquittedSend(cId, b) =>
+              ENABLED <<FreeReturnedBuffer(cId, b)>>_vars
+    BY FreeBufferEnabled, Zenon
+  <2>2. TypeOK /\ <<FreeReturnedBuffer(cId, b)>>_vars =>
+          (IsFreedBuffer(cId, b))'
+    BY SMTT(120) DEF FreeReturnedBuffer, IsFreedBuffer, TypeOK, L0!TypeOK
+  <2>3. TypeOK /\ IsReturnedBuffer(cId, b) /\
+          CarriesNoUnacquittedSend(cId, b) /\ [Next]_vars /\
+          ~<<FreeReturnedBuffer(cId, b)>>_vars =>
+              (IsReturnedBuffer(cId, b) /\
+                   CarriesNoUnacquittedSend(cId, b))'
+    <3>1. SUFFICES ASSUME TypeOK, IsReturnedBuffer(cId, b),
+                          CarriesNoUnacquittedSend(cId, b), [Next]_vars,
+                          ~<<FreeReturnedBuffer(cId, b)>>_vars
+                   PROVE  (IsReturnedBuffer(cId, b) /\
+                               CarriesNoUnacquittedSend(cId, b))'
+      OBVIOUS
+    <3>2. ~IsLentBuffer(cId, b)
+      BY <3>1, SMT DEF IsReturnedBuffer, IsLentBuffer, TypeOK, L0!TypeOK
+    <3>3. (IsReturnedBuffer(cId, b))'
+      BY <3>1, BufferStateFrame, Zenon
+    <3>4. QED
+      BY <3>1, <3>2, <3>3, AcquittalPersistsOffLent
+  <2>4. TypeOK => (IsFreedBuffer(cId, b) => ~IsReturnedBuffer(cId, b))
+    BY SMT DEF IsFreedBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
+  <2>5. TypeOK /\ [Next]_vars /\
+          (IsReturnedBuffer(cId, b) \/ IsFreedBuffer(cId, b)) =>
+              (IsReturnedBuffer(cId, b) \/ IsFreedBuffer(cId, b))'
+    BY ReturnedBufferStaysOrIsFreed, FreedStaysFreed, Zenon
+  <2>6. QED BY <2>1, <2>2, <2>3, <2>4, <2>5, PTL
+<1>1. ASSUME Spec
+      PROVE  BufferOutstanding(cId, b) ~> IsFreedBuffer(cId, b)
+  <2>0. /\ Init
+        /\ [][Next]_vars
+        /\ Fairness
+    BY <1>1 DEF Spec
+  <2>1. []IndInv
+    BY <2>0, BehaviorEstablishesIndInv, PTL
+  <2>2. []TypeOK
+    BY <2>1, IndInvParts, PTL
+  <2>3. /\ WF_vars(HostReturnsBuffer(cId, b))
+        /\ WF_vars(FreeReturnedBuffer(cId, b))
+    BY <2>0, Isa DEF Fairness
+  <2>4. /\ [](TypeOK /\ FfiCallInv /\ BufferStateInv)
+        /\ WF_vars(EmitWriteDone(cId))
+        /\ WF_vars(WriteDoneReturns(cId))
+    <3>1. [](TypeOK /\ FfiCallInv /\ BufferStateInv)
+      BY <2>1, IndInvBufferParts, PTL
+    <3>2. QED BY <2>0, <3>1, Isa DEF Fairness
+  <2>5. IsReturnedBuffer(cId, b) ~>
+            (CarriesNoUnacquittedSend(cId, b) \/ IsFreedBuffer(cId, b))
+    BY <2>0, <2>4, ReturnedBufferAcquits, PTL
+  <2>6. (IsReturnedBuffer(cId, b) /\ CarriesNoUnacquittedSend(cId, b))
+            ~> IsFreedBuffer(cId, b)
+    BY <1>0, <2>0, <2>2, <2>3, PTL
+  <2>7. IsReturnedBuffer(cId, b) ~> IsFreedBuffer(cId, b)
+    BY <1>0, <2>0, <2>2, <2>5, <2>6, PTL
+  <2>8. IsLentBuffer(cId, b) ~> IsFreedBuffer(cId, b)
+    BY <1>1, BufferEventuallyFreedHolds, ZenonT(120)
+       DEF BufferEventuallyFreed
+  <2>9. QED
+    BY <2>7, <2>8, PTL DEF BufferOutstanding
+<1>2. QED BY <1>1
+
+\* Each buffer leaves the outstanding pair for good.  Either it is never in it,
+\* or it reaches freed and stays there: freed is absorbing, and freed is neither
+\* lent nor returned.  The argument rests on a buffer identity being used once,
+\* which is what makes this a settling rather than an induction on a measure.
+\* Under buffer reuse it would be the lend guard that carried it - no lend can
+\* fire while the budget is exhausted - and that is the mechanism the ABI
+\* actually relies on.
+LEMMA BufferSettlesOutstanding ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  Spec => <>[]~BufferOutstanding(cId, b)
+<1>0. /\ [](TypeOK /\ [Next]_vars /\ IsFreedBuffer(cId, b) =>
+                 (IsFreedBuffer(cId, b))')
+      /\ [](TypeOK /\ IsFreedBuffer(cId, b) =>
+                 ~BufferOutstanding(cId, b))
+  <2>1. TypeOK /\ [Next]_vars /\ IsFreedBuffer(cId, b) =>
+            (IsFreedBuffer(cId, b))'
+    BY FreedStaysFreed, Zenon
+  <2>2. TypeOK /\ IsFreedBuffer(cId, b) => ~BufferOutstanding(cId, b)
+    BY SMT DEF IsFreedBuffer, IsLentBuffer, IsReturnedBuffer,
+        BufferOutstanding, TypeOK, L0!TypeOK
+  <2>3. QED BY <2>1, <2>2, PTL
+<1>1. ASSUME Spec PROVE <>[]~BufferOutstanding(cId, b)
+  <2>0. /\ Init
+        /\ [][Next]_vars
+        /\ Fairness
+    BY <1>1 DEF Spec
+  <2>1. []TypeOK
+    <3>1. []IndInv
+      BY <2>0, BehaviorEstablishesIndInv, PTL
+    <3>2. QED BY <3>1, IndInvParts, PTL
+  <2>2. BufferOutstanding(cId, b) ~> IsFreedBuffer(cId, b)
+    BY <1>1, OutstandingBufferEventuallyFreed
+  <2>3. CASE []~BufferOutstanding(cId, b)
+    BY <2>3, PTL
+  <2>4. CASE <>BufferOutstanding(cId, b)
+    <3>1. <>IsFreedBuffer(cId, b)
+      BY <2>2, <2>4, PTL
+    <3>2. <>[]IsFreedBuffer(cId, b)
+      BY <1>0, <2>0, <2>1, <3>1, PTL
+    <3>3. QED BY <1>0, <2>1, <3>2, PTL
+  <2>5. QED BY <2>3, <2>4, PTL
+<1>2. QED BY <1>1
+
+\* The finite lift over the buffers of one call, and then over the calls: the
+\* same induction as AllBuffersUnreturned and AllCallsBytesFreeFor, on the
+\* outstanding pair instead of the returned state.
+THEOREM AllBuffersSettleFor ==
+    ASSUME NEW cId \in CallIds
+    PROVE  (\A b \in BufferIds : <>[]~BufferOutstanding(cId, b))
+               => <>[](\A b \in BufferIds : ~BufferOutstanding(cId, b))
+<1>0. USE BufferIdsAreAFiniteNonemptySet DEF BufferIdsAreAFiniteNonemptySet
+<1> DEFINE G(b) == ~BufferOutstanding(cId, b)
+           K(b) == <>[]G(b)
+           I(T) == (\A b \in T : K(b)) => <>[](\A b \in T : G(b))
+<1>1. I({})
+  <2>1. \A b \in {} : G(b)
+    <3> HIDE DEF G
+    <3>1. QED OBVIOUS
+  <2>2. QED BY <2>1, PTL
+<1>1a. ASSUME NEW T \in SUBSET BufferIds, NEW x \in BufferIds \ T
+       PROVE <>[](\A b \in T : G(b)) /\ <>[]G(x) =>
+                 <>[](\A b \in T \cup {x} : G(b))
+  <2>1. (\A b \in T : G(b)) /\ G(x) => (\A b \in T \cup {x} : G(b))
+    <3> HIDE DEF G
+    <3>1. QED OBVIOUS
+  <2>2. QED BY <2>1, PTL
+<1>2. ASSUME NEW T \in SUBSET BufferIds, IsFiniteSet(T), I(T),
+             NEW x \in BufferIds \ T
+      PROVE I(T \cup {x})
+  <2>1. (\A b \in T \cup {x} : K(b)) => (\A b \in T : K(b)) /\ K(x)
+    <3> HIDE DEF K
+    <3>1. QED OBVIOUS
+  <2>2. <>[](\A b \in T : G(b)) /\ <>[]G(x) =>
+            <>[](\A b \in T \cup {x} : G(b))
+    BY <1>1a
+  <2>3. QED BY <1>2, <2>1, <2>2, PTL
+<1> HIDE DEF I
+<1>3. I(BufferIds)
+    BY <1>1, <1>2, FS_Induction, IsaM("blast")
+<1>4. QED BY <1>3 DEF I
+
+THEOREM AllCallsBuffersSettle ==
+    (\A cId \in CallIds :
+         <>[](\A b \in BufferIds : ~BufferOutstanding(cId, b)))
+        => <>[](\A cId \in CallIds :
+                    \A b \in BufferIds : ~BufferOutstanding(cId, b))
+<1>0. USE FiniteCallIds DEF FiniteCallIds
+<1> DEFINE G(c) == \A b \in BufferIds : ~BufferOutstanding(c, b)
+           K(c) == <>[]G(c)
+           I(T) == (\A cId \in T : K(cId)) => <>[](\A cId \in T : G(cId))
+<1>1. I({})
+  <2>1. \A cId \in {} : G(cId)
+    <3> HIDE DEF G
+    <3>1. QED OBVIOUS
+  <2>2. QED BY <2>1, PTL
+<1>1a. ASSUME NEW T \in SUBSET CallIds, NEW x \in CallIds \ T
+       PROVE <>[](\A cId \in T : G(cId)) /\ <>[]G(x) =>
+                 <>[](\A cId \in T \cup {x} : G(cId))
+  <2>1. (\A cId \in T : G(cId)) /\ G(x) => (\A cId \in T \cup {x} : G(cId))
+    <3> HIDE DEF G
+    <3>1. QED OBVIOUS
+  <2>2. QED BY <2>1, PTL
+<1>2. ASSUME NEW T \in SUBSET CallIds, IsFiniteSet(T), I(T),
+             NEW x \in CallIds \ T
+      PROVE I(T \cup {x})
+  <2>1. (\A cId \in T \cup {x} : K(cId)) => (\A cId \in T : K(cId)) /\ K(x)
+    <3> HIDE DEF K
+    <3>1. QED OBVIOUS
+  <2>2. <>[](\A cId \in T : G(cId)) /\ <>[]G(x) =>
+            <>[](\A cId \in T \cup {x} : G(cId))
+    BY <1>1a
+  <2>3. QED BY <1>2, <2>1, <2>2, PTL
+<1> HIDE DEF I
+<1>3. I(CallIds)
+    BY <1>1, <1>2, FS_Induction, IsaM("blast")
+<1>4. QED BY <1>3 DEF I
+
+\* The budget cannot stay exhausted: the invariant says it is only ever up
+\* while some buffer is out, and every buffer settles.
+THEOREM MemoryCapEventuallyRelievedHolds ==
+    Spec => MemoryCapEventuallyRelieved
+\* Boxed out here for the same reason as above: Spec is not in scope yet.
+<1>0. /\ [](SafetyInvariant => BudgetExhaustedMeansBufferOut)
+      /\ []((\A cId \in CallIds :
+                 \A b \in BufferIds : ~BufferOutstanding(cId, b))
+                => ~SomeBufferOutstanding)
+  <2>1. SafetyInvariant => BudgetExhaustedMeansBufferOut
+    BY Zenon DEF SafetyInvariant
+  <2>2. (\A cId \in CallIds :
+             \A b \in BufferIds : ~BufferOutstanding(cId, b))
+            => ~SomeBufferOutstanding
+    BY Zenon DEF SomeBufferOutstanding
+  <2>3. QED BY <2>1, <2>2, PTL
+<1>1. ASSUME Spec PROVE MemoryCapEventuallyRelieved
+  <2>1. []SafetyInvariant
+    BY <1>1, SafetyTheorem, PTL
+  <2>2. []BudgetExhaustedMeansBufferOut
+    BY <1>0, <2>1, PTL
+  <2>3. ASSUME NEW cId \in CallIds
+        PROVE  <>[](\A b \in BufferIds : ~BufferOutstanding(cId, b))
+\* One buffer at a time: the lift wants the quantified form, and the
+\* instantiation is first order where the conclusion is temporal.
+    <3>0. ASSUME NEW b \in BufferIds
+          PROVE  <>[]~BufferOutstanding(cId, b)
+      <4>1. Spec => <>[]~BufferOutstanding(cId, b)
+        BY BufferSettlesOutstanding
+      <4>2. QED BY <1>1, <4>1, PTL
+    <3>1. \A b \in BufferIds : <>[]~BufferOutstanding(cId, b)
+      BY <3>0
+\* The lift as its own step, with no backend named: the cascade instantiates it
+\* there, and PTL then has two atoms and a modus ponens.  ls4 cannot cross the
+\* bounded quantifier itself.
+    <3>15. (\A b \in BufferIds : <>[]~BufferOutstanding(cId, b))
+               => <>[](\A b \in BufferIds : ~BufferOutstanding(cId, b))
+      BY AllBuffersSettleFor, Isa
+    <3>2. QED BY <3>1, <3>15, PTL
+  <2>35. (\A cId \in CallIds :
+              <>[](\A b \in BufferIds : ~BufferOutstanding(cId, b)))
+             => <>[](\A cId \in CallIds :
+                         \A b \in BufferIds : ~BufferOutstanding(cId, b))
+    BY AllCallsBuffersSettle, Isa
+\* The antecedent as one atom too: ls4 matches formulas, not quantifiers.
+  <2>36. \A cId \in CallIds :
+             <>[](\A b \in BufferIds : ~BufferOutstanding(cId, b))
+    BY <2>3
+  <2>4. <>[](\A cId \in CallIds :
+                 \A b \in BufferIds : ~BufferOutstanding(cId, b))
+    BY <2>35, <2>36, PTL
+  <2>5. <>[]~SomeBufferOutstanding
+    BY <1>0, <2>4, PTL
+  <2>6. QED
+    BY <2>2, <2>5, PTL
+    DEF MemoryCapEventuallyRelieved, BudgetExhaustedMeansBufferOut
+<1>2. QED BY <1>1
+
 THEOREM LivenessTheorem == Spec => LivenessProperties
 <1>1. QED
     BY CancellationCompletesHolds, SendsEventuallyAcquittedHolds,
@@ -14880,8 +15300,8 @@ THEOREM LivenessTheorem == Spec => LivenessProperties
        ShutdownCallbacksReturnHolds,
        ResourcesReleasedCallbacksReturnHolds, BufferEventuallyFreedHolds,
        CallEventuallyReclaimedHolds, RuntimeEventuallyQuiescentHolds,
-       ResourcesReleasedEventuallyHolds,
-       Zenon DEF LivenessProperties
+       ResourcesReleasedEventuallyHolds, MemoryCapEventuallyRelievedHolds,
+       ZenonT(120) DEF LivenessProperties
 
 =============================================================================
 

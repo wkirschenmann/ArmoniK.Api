@@ -2433,15 +2433,16 @@ the artefact rather than left to rot:
 | Element | Status |
 |---------|--------|
 | Specification described in this document | Current |
-| Level 1, model-checked (TLC), base configuration | Current: 252132 distinct states, no error, deadlock checking on. It carries `AbstractSpec` - the whole level-0 specification, fairness included, as a property of `Spec` - so every fairness lift is model-checked as well as proved |
+| Level 1, model-checked (TLC), base configuration | Current: 435984 distinct states, no error, deadlock checking on. It carries `AbstractSpec` - the whole level-0 specification, fairness included, as a property of `Spec` - so every fairness lift is model-checked as well as proved, and now `SafetyInvariant` too. The level-1 invariant had never been model-checked: `FfiGrpc_MC` extended `FfiGrpc` where `FfiGrpc_defs` says in its own header that the configurations are meant to extend it, so `FfiCallInv`, `BufferStateInv`, `ShutdownSignalInv` and `DestroyedRuntimeIsClean` were proved and never checked while level 0 checked its own |
 | Level 1, model-checked (TLC), the other four configurations | Being re-run for this revision |
-| Level 1, TLC coverage of the new liveness properties | None. No configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`: those are proved and not model-checked |
+| Level 1, TLC coverage of the new liveness properties | `MemoryCapEventuallyRelieved` is named by the base configuration and checked. The others are not: no configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`, so those are proved and not model-checked |
 | Level 0, model-checked (TLC, four configurations) | Current; the level-0 modules did not change this revision |
 | Level 0, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 1632 obligations proved over 10 windows in 1m55s, this revision |
-| Level 1, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 10299 obligations proved over 50 windows in 12m48s, this revision. That factor is a fifth of the one the gate uses, so a step closing with no room fails here rather than on a busy machine |
+| Level 1, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 10460 obligations proved over 51 windows, this revision, and **one obligation failing** - see the row below. That factor is a fifth of the one the gate uses, so a step closing with no room fails here rather than on a busy machine |
+| The one failing obligation | `FreeBufferEnabled`'s closing step, which discharges `ENABLED <<FreeReturnedBuffer(cId, b)>>_vars`. The statement is true and the failure is the discharge: removing the budget clause from the action proves it in seconds, because the solver then reaches `vars' # vars` by varying the unconstrained budget instead of reading back a nested `EXCEPT` inside an existential over every primed variable. Raising `--stretch` to 20 changes nothing, so it is not a time limit. Tried and rejected: all three backends, budgets to 300s, a `SUFFICES` that strips the hypotheses, naming the inner existential so it stays opaque, `BufferStateWriteLookup`, and supplying the disequality prime-free so it survives into the expanded goal. Left failing rather than `OMITTED`: a failing step is visible on every pass, an `OMITTED` is not. Everything that cites the lemma discharges normally, tlapm reporting per obligation |
 | Level 1, one pass, no windows | 9927 obligations, 95 minutes - measured before the last two revisions grew the module, so the number is that revision's and not this one's. What it established still holds: a single pass gets no memory kill, which retires the claim in `verify_proofs.sh` that it does, and the one-pass count is the only one free of the steps two adjacent windows both cover |
 | Window size is the dominant cost | The same module at `STRETCH=5` takes about 15 minutes in 300-line windows and 81 in 2000-line ones. More obligations in flight per invocation means the worker threads contend, and wall-clock per obligation inflates about fourfold; the repeated elaboration that penalises small windows is dwarfed by it |
-| `ci/check_theorem_statements.py` | 65 declarations, each restated verbatim in its proofs module |
+| `ci/check_theorem_statements.py` | 66 declarations, each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
@@ -2473,8 +2474,9 @@ anywhere, and it carries the deadlock that level 1 cannot see: level 1 *assumes*
 gives back what it holds, so a host blocked polling for capacity while holding a lent buffer
 is admitted there and fatal in practice. See `RetryingCallHoldsNoBuffer`.
 
-Nothing above is `OMITTED`, and both obligation counts were measured on the model as it
-stands here rather than carried over. The level-1 count grew from 5208 because the send
+Nothing above is `OMITTED` - the one gap is a step that fails, named in its own row - and
+both obligation counts were measured on the model as it stands here rather than carried
+over. The level-1 count grew from 5208 because the send
 window, `RuntimeDestroy` and the buffer downcalls each added actions, and because the
 frames that used to enumerate the action alphabet were rebuilt on thirteen framing
 lemmas - `OnlyCallStartWritesCallChannel`, `EveryStepEitherLendsOrKeepsBuffers` and

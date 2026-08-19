@@ -307,6 +307,11 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 THEOREM RuntimeEventuallyQuiescentHolds ==
     Spec => RuntimeEventuallyQuiescent
 
+\* The emission budget's own promise: exhausting it is temporary, which is what
+\* makes AK_STATUS_BUDGET_BUSY worth retrying against instead of a fault.
+THEOREM MemoryCapEventuallyRelievedHolds ==
+    Spec => MemoryCapEventuallyRelieved
+
 \* The release tag's own promise, named so a level-2 binding can refine it
 \* rather than re-derive it: a host that was told to give memory back is told
 \* when the runtime is done with what came back.

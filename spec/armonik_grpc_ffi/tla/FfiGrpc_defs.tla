@@ -350,14 +350,6 @@ DestroyedRuntimeIsClean ==
     \A rtId \in RuntimeIds :
         IsRuntimeDestroyed(rtId) => IsRuntimeQuiescent(rtId)
 
-StrongInv ==
-    /\ L0!StrongInv
-    /\ TypeOK
-    /\ FfiCallInv
-    /\ BufferStateInv
-    /\ ShutdownSignalInv
-    /\ DestroyedRuntimeIsClean
-
 \* The emission budget is never exhausted with no buffer outstanding.  This is
 \* the one thing the model asserts about the budget, and it is what makes
 \* reaching it temporary rather than terminal: the relief argument reads the
@@ -369,6 +361,15 @@ StrongInv ==
 \* can still get its memory back afterwards.
 BudgetExhaustedMeansBufferOut ==
     memory_cap_exhausted => SomeBufferOutstanding
+
+StrongInv ==
+    /\ L0!StrongInv
+    /\ TypeOK
+    /\ FfiCallInv
+    /\ BufferStateInv
+    /\ ShutdownSignalInv
+    /\ DestroyedRuntimeIsClean
+    /\ BudgetExhaustedMeansBufferOut
 
 \* FfiCallInv sits outside the NotFailed umbrella: its preservation is
 \* guard-based only, and the fairness lifts need the send and delivery

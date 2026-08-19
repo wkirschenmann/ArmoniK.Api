@@ -77,7 +77,8 @@ ffi_vars == <<buffers_held_by_host,
               shutdown_event_emitted, shutdown_callback_running,
               runtime_destroyed, buffer_state, buffer_send,
               second_event_owed, resources_released_emitted,
-              resources_released_callback_running>>
+              resources_released_callback_running,
+              memory_cap_exhausted>>
 
 \* The level-0 state, under a local name for the stuttering actions.  TLC
 \* cannot resolve an instantiated tuple inside ENABLED, so the MC
@@ -85,7 +86,7 @@ ffi_vars == <<buffers_held_by_host,
 l0_vars == L0!vars
 
 \* The level-1 state is the level-0 state plus the FFI state.
-vars == <<l0_vars, ffi_vars, memory_cap_exhausted>>
+vars == <<l0_vars, ffi_vars>>
 
 \* --- DOMAIN-DRIVEN GROUPINGS ---
 RuntimeVars == <<runtime_state, shutdown_event_emitted,
@@ -212,9 +213,22 @@ HostOwnsAtMostCreditsPlusOne(cId) ==
 \* the bytes it does not, and bounded by a constant, BufferIds being finite
 \* with each buffer used once, which is what keeps the relief argument finite
 \* rather than a well-founded induction.
+BufferOutstanding(cId, b) ==
+    IsLentBuffer(cId, b) \/ IsReturnedBuffer(cId, b)
+
 SomeBufferOutstanding ==
-    \E cId \in CallIds, b \in BufferIds :
-        IsLentBuffer(cId, b) \/ IsReturnedBuffer(cId, b)
+    \E cId \in CallIds, b \in BufferIds : BufferOutstanding(cId, b)
+
+\* Some buffer other than this one is out.  Read on the current state rather
+\* than the next, which says the same thing where it is used - freeing removes
+\* exactly this buffer from the set - and reads without a prime, which is what
+\* ENABLED can expand.  Named rather than written out so a proof that needs
+\* only the other branch of the budget clause is handed an atom instead of an
+\* existential to satisfy.
+AnotherBufferOutstanding(cId, b) ==
+    \E c2 \in CallIds, b2 \in BufferIds :
+        /\ <<c2, b2>> # <<cId, b>>
+        /\ BufferOutstanding(c2, b2)
 
 \* The SHUTDOWN_COMPLETE discipline, per runtime.
 IsShutdownEventEmitted(rtId) == shutdown_event_emitted[rtId]
@@ -396,7 +410,7 @@ NoOtherRuntimeOutstanding(rtId) ==
 RuntimeCreate(rtId) ==
     /\ L0!RuntimeCreate(rtId)
     /\ NoOtherRuntimeOutstanding(rtId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 \* Shutdown closes the channels (level 0) and latches cancellation on
 \* every active call of the runtime: the drain must not depend on the
@@ -464,7 +478,7 @@ RuntimeRelease(rtId) ==
     /\ IsShutdownEventEmitted(rtId)
     /\ ~IsShutdownCallbackRunning(rtId)
     /\ L0!RuntimeRelease(rtId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 \* ak_runtime_destroy: the handles go void and the arena may be unloaded.
 \* It is the runtime-level image of ReleaseCallHandle - refused until the
@@ -531,15 +545,15 @@ ResourcesReleasedCallbackReturns(rtId) ==
 
 RuntimeFail(rtId) ==
     /\ L0!RuntimeFail(rtId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 RemainFailed(rtId) ==
     /\ L0!RemainFailed(rtId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 RemainReleased ==
     /\ L0!RemainReleased
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 (***************************************************************************)
 (* ACTIONS - Channel lifecycle                                             *)
@@ -547,7 +561,7 @@ RemainReleased ==
 
 ChannelCreate(chId, rtId) ==
     /\ L0!ChannelCreate(chId, rtId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 \* Closing a channel cancels its calls: without this, a channel whose
 \* host neither cancels nor consumes would never drain.
@@ -570,7 +584,7 @@ ChannelStartClosing(chId) ==
 ChannelFinishClosing(chId) ==
     /\ \A cId \in L0!CallsOf(chId) : ~L0!IsActiveCall(cId)
     /\ L0!ChannelFinishClosing(chId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 (***************************************************************************)
 (* ACTIONS - Call lifecycle                                                *)
@@ -580,7 +594,7 @@ ChannelFinishClosing(chId) ==
 \* like the level-0 UnusedCallsAreEmpty), so starting needs no reset.
 CallStart(cId, chId) ==
     /\ L0!CallStart(cId, chId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 \* ak_call_cancel only latches the request; the cancellation itself is
 \* the DeliverCancelled callback.  A handle exists only for a started,
@@ -718,8 +732,10 @@ FreeReturnedBuffer(cId, b) ==
     \* budget, and it is what makes exhaustion temporary: the one taker is
     \* guarded off, so what is out only shrinks and the clause runs out of
     \* excuses.
-    /\ memory_cap_exhausted' \in BOOLEAN
-    /\ (memory_cap_exhausted' => memory_cap_exhausted /\ SomeBufferOutstanding')
+    /\ \/ memory_cap_exhausted' = FALSE
+       \/ /\ memory_cap_exhausted' = TRUE
+          /\ memory_cap_exhausted
+          /\ AnotherBufferOutstanding(cId, b)
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host,
                    write_dones_emitted, write_done_callback_running,
@@ -768,7 +784,7 @@ SendMessage(cId, msg, b) ==
 EndSend(cId) ==
     /\ ~IsHandleReleased(cId)
     /\ L0!EndSend(cId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 \* The replay copy of the oldest unacquitted send is taken; the host may
 \* unpin that buffer (WRITE_DONE acquits in send order).  One acquittal
@@ -811,15 +827,15 @@ WriteDoneReturns(cId) ==
 
 NetworkSend(cId) ==
     /\ L0!NetworkSend(cId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 NetworkReceive(cId, msg) ==
     /\ L0!NetworkReceive(cId, msg)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 ReceiveStatus(cId) ==
     /\ L0!ReceiveStatus(cId)
-    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
+    /\ UNCHANGED ffi_vars
 
 (***************************************************************************)
 (* ACTIONS - Delivery                                                      *)
