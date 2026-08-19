@@ -12406,7 +12406,7 @@ LEMMA FreeBufferEnabled ==
 <1>1. QED
     BY <1>0, <1>05, ExpandENABLED, SMTT(120)
     DEF FreeReturnedBuffer, IsReturnedBuffer, CarriesNoUnacquittedSend,
-        BufferStates, TypeOK, L0!TypeOK, l0_vars, L0!vars, vars, ffi_vars
+        l0_vars, L0!vars, vars, ffi_vars
 
 \* The entry of one buffer of one call moves only under a step that names
 \* it: lending it, giving it back, releasing it, or a send committing it.
