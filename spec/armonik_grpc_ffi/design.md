@@ -641,7 +641,7 @@ refinement.
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
 | `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
-| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. That downcall has a second linearization: exhausting the runtime's global byte ceiling is `RuntimeFail`, not a refusal |
+| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its two refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling - linearize nowhere: refusing is a step the model does not take, which is sound because the action carries no fairness |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
@@ -658,10 +658,10 @@ refinement.
 | `ShutdownCallbackReturns` | that callback returns |
 | `RuntimeRelease` | the runtime publishes `AK_RUNTIME_GRPC_STOPPED`, or `AK_RUNTIME_QUIESCENT` when nothing of it is outstanding. Both refine the level-0 RELEASED state; which one the host reads is the release signal, not a level-0 distinction |
 | `EmitResourcesReleased` | the runtime task invokes the callback with `AK_EVENT_RESOURCES_RELEASED`, owed only when `SHUTDOWN_COMPLETE` carried `AK_HOST_MUST_RETURN` |
-| `ResourcesReleasedCallbackReturns` | that callback returns, which is what makes the status `AK_RUNTIME_QUIESCENT` |
+| `ResourcesReleasedCallbackReturns` | that callback returns, which completes the resources branch. It does not by itself make the status `AK_RUNTIME_QUIESCENT`: the order against `RuntimeRelease` is free, so the level-0 transition may still be owed |
 | `RuntimeDestroy` | `ak_runtime_destroy` accepts, its precondition checked |
 | `NetworkSend` / `NetworkReceive` / `ReceiveStatus` | internal to `armonik-grpc-channel`, not observable at the ABI |
-| `RuntimeFail` | any unrecoverable runtime fault, including exhaustion of the global byte ceiling in `ak_get_call_buffer`; the model leaves the state that follows unconstrained |
+| `RuntimeFail` | any unrecoverable runtime fault, including a genuine allocator failure inside `ak_get_call_buffer` - but not reaching the configured ceiling, which is a refusal; the model leaves the state that follows unconstrained |
 | `RemainFailed` / `RemainReleased` | explicit stutter, so a terminal runtime state has a step and the temporal proofs need no special case |
 
 #### Which ABI argument becomes what
@@ -729,11 +729,21 @@ The schema is committed at `packages/rust/armonik-grpc-channel-ffi/include/chann
 typedef enum {
     AK_STATUS_OK            = 0,
     AK_STATUS_HANDLE_STALE  = 1,  // the object is gone; the token names nothing
-    AK_STATUS_SLOT_BUSY     = 2,  // the send window is full - backpressure, not
-                                  // an error; retry when a WRITE_DONE arrives
-    AK_STATUS_INVALID_ARG   = 3,  // a null pointer, or a struct whose size
-                                  // prefix does not match any known version
-    AK_STATUS_INTERNAL      = 4,  // a fault the ABI cannot attribute
+    AK_STATUS_SLOT_BUSY     = 2,  // this call's send window is full - backpressure,
+                                  // not an error; retry when a WRITE_DONE arrives
+    AK_STATUS_INVALID_ARG   = 3,  // a null pointer, or a struct whose size prefix
+                                  // does not match any known version
+    AK_STATUS_INTERNAL      = 4,  // a fault the ABI cannot attribute, including a
+                                  // genuine allocator failure
+    AK_STATUS_BUDGET_BUSY   = 5,  // the runtime-wide byte ceiling is reached, which
+                                  // is not this call's fault and which no WRITE_DONE
+                                  // of this call can clear; poll
+                                  // ak_runtime_memory_usage and retry
+    AK_STATUS_INVALID_STATE = 6,  // a valid handle at the wrong moment: destroy
+                                  // before quiescence, a start while stopping, a
+                                  // send after the terminal, a second end_send. A
+                                  // guard refused, which is not a fault - calling it
+                                  // INTERNAL would blame the runtime
 } ak_status;
 
 // === Runtime lifecycle ===
@@ -817,8 +827,15 @@ ak_status ak_call_start(ak_channel_handle channel,
 // SetPayloadLength(CalculateSize()) - so no growable writer is needed.
 // At most MaxSendsInFlight buffers out of one arena at a time (a channel option,
 // default 1), counting both those the host is filling and those already committed
-// and awaiting their WRITE_DONE: beyond that the downcall is refused (AK_STATUS_SLOT_BUSY).
-// Refused once the call is over - a terminal call has nothing left to send -
+// and awaiting their WRITE_DONE: beyond that the downcall is refused with
+// AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. A second,
+// unrelated refusal is AK_STATUS_BUDGET_BUSY: the runtime-wide byte ceiling is
+// reached because other calls hold the capacity. No event of this call can clear
+// that one, so the host polls ak_runtime_memory_usage and retries. Neither is an
+// error. A genuine allocator failure is neither refusal: it is AK_STATUS_INTERNAL
+// and the runtime fails.
+// Refused with AK_STATUS_INVALID_STATE once the call is over - a terminal call has
+// nothing left to send -
 // once cancellation has been requested, and once the call is reclaimed. Being
 // refused on a call that has just ended is normal and not an error: the same
 // race exists on ak_call_send_message.
@@ -921,6 +938,24 @@ typedef struct {
 
 ak_status ak_call_debt_of(ak_call_handle call, ak_call_debt *out);
 
+// What the runtime-wide byte ceiling is holding, for a host that was refused with
+// AK_STATUS_BUDGET_BUSY and needs to know whether waiting helps. Synchronous,
+// non-blocking, observational: it changes nothing the model carries.
+//
+// Three numbers rather than one because the host's next move differs. bytes_lent
+// falling means another call gave something back. bytes_retained falling means the
+// runtime released bytes it was still holding for replay. If the ceiling is reached
+// with nothing retained, the host is waiting on sends that have not been acquitted -
+// its own or another call's - and a WRITE_DONE will move it. A single aggregate
+// cannot tell those apart.
+typedef struct {
+    uint64_t bytes_lent;      // handed out, not yet given back
+    uint64_t bytes_retained;  // given back, not yet freed - the replay budget
+    uint64_t ceiling;         // the configured limit both count against
+} ak_memory_usage;
+
+ak_status ak_runtime_memory_usage(ak_runtime_handle runtime, ak_memory_usage *out);
+
 // === Utilities ===
 
 // ABI version. To compare with AK_ABI_VERSION compiled into the binding.
@@ -938,8 +973,9 @@ int ak_abi_version(void);
 // The terminal does not invalidate payloads already handed over: calling
 // ak_event_consumed remains legal after the terminal, and is in fact required
 // before the call can be reclaimed.  After a runtime failure the binding cleans
-// up on a best-effort basis; the host reclaims ownership of anything still lent
-// or owed, with no further callback and no guarantee.
+// up on a best-effort basis: no promise that reads a runtime state survives, but
+// this call does - ak_event_consumed stays legal and BufferEventuallyFreed still
+// holds, because a failed runtime disables neither returning memory nor freeing it.
 void ak_event_consumed(ak_bytes payload);
 ```
 
@@ -1001,16 +1037,18 @@ typedef struct {
 // === Events ===
 typedef enum {
     AK_RUNTIME_RUNNING           = 1,  // operational, accepts channels and calls
-    AK_RUNTIME_GRPC_STOPPING          = 2,  // start gate closed, channels closing
-    AK_RUNTIME_GRPC_STOPPED           = 3,  // functional shutdown done, nothing left to run
+    AK_RUNTIME_GRPC_STOPPING     = 2,  // start gate closed, channels closing
+    AK_RUNTIME_GRPC_STOPPED      = 3,  // Hyper and Tonic are done; a dispatch
+                                       // thread may still carry one last event
     AK_RUNTIME_QUIESCENT         = 4,  // and nothing of it is outstanding either
     AK_RUNTIME_FAILED_UNQUIESCED = 5,  // quiescence impossible, destroy refused
 } ak_runtime_state;
 // Stopped and destructible are two different facts - the first is about the
 // runtime's own activity, the second about what the host has given back - and
 // one enum value cannot carry both, so there are two. STOPPED is the functional
-// shutdown: no channels, no connections, no task running, and it needs nothing
-// from the host. QUIESCENT is STOPPED plus an empty ledger: every payload
+// shutdown: no channels, no connections, no gRPC task running, and it needs no
+// ownership return from the host. It does not mean no thread is left: the dispatch
+// thread survives to carry AK_EVENT_RESOURCES_RELEASED when that is owed. QUIESCENT is STOPPED plus an empty ledger: every payload
 // consumed, every buffer given back and released. Only QUIESCENT permits
 // ak_runtime_destroy, unloading the library, or starting a new runtime.
 //
@@ -1093,7 +1131,7 @@ typedef struct {
     ak_event_kind    kind;
     ak_bytes         payload;      // owned - host must call ak_event_consumed
     int32_t          status_code;  // grpc status (AK_EVENT_STATUS only)
-    ak_host_debt host_debt;    // AK_EVENT_SHUTDOWN_COMPLETE only
+    ak_host_debt     host_debt;    // AK_EVENT_SHUTDOWN_COMPLETE only
 } ak_event;
 
 // === Callback ===
@@ -1267,27 +1305,40 @@ retained for replay - and neither has to be traded against the other.
 the calls a process carries. The runtime therefore holds a byte budget shared by every channel,
 handed out by `ak_get_call_buffer`.
 
-**Exhausting it is a failure, not a refusal.** The runtime transitions to
-`AK_RUNTIME_FAILED_UNQUIESCED` and the downcall returns `AK_STATUS_INTERNAL`; it does not
-return `AK_STATUS_SLOT_BUSY`. The reason is that the ceiling is a process-wide allocation
-limit, and a process that cannot allocate a send buffer has no reason to believe it can
-allocate anything else - a retry path, a queue entry, the string a log line needs. There is
-nothing to back-pressure against, because there is no evidence that waiting helps.
+**Reaching the ceiling and failing to allocate are two different events, and only the
+second is a fault.** The ceiling is a configured accounting limit. Reaching it means some
+other call is holding bytes right now, and the runtime knows exactly what recredits that
+capacity: `FreeReturnedBuffer`. Waiting demonstrably helps. A real allocator failure is the
+other case, and there waiting has no evidence behind it - a process that cannot allocate a
+send buffer has no reason to believe it can allocate a retry path or the string a log line
+needs.
 
-That keeps `AK_STATUS_SLOT_BUSY` to one meaning - the per-call send window is full - and
-WRITE_DONE is exactly its wake-up. Sharing the code between the two causes would have been
-worse than a naming problem: a call refused for the global ceiling has no send in flight, so
-no WRITE_DONE can ever arrive for it, and a host waiting on its send signal would wait
-forever. One refusal, one cause, one wake-up.
+So `ak_get_call_buffer` has three outcomes rather than two. It lends; or it refuses with
+`AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
+refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
+not this call's fault and which no WRITE_DONE of this call can clear. Only a genuine
+allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
 
-The model needs nothing new for this: `RuntimeFail` is guarded on a running or stopping
-runtime and leaves the state that follows unconstrained, so ceiling exhaustion linearizes
-onto it. What the host may still rely on afterwards is what the failure envelope says, and
-that is not empty - returning a buffer and freeing its bytes are steps a failed runtime does
-not disable, so `BufferEventuallyFreed` still holds and the memory already out can still come
-back. The alternative shapes - admission control that silently commits a call, or a pool whose
-exhaustion is the ceiling - were rejected because they change the contract instead of
-narrowing it. See T8.1.
+Three refusals need three wake-ups, and the third one is the reason
+`ak_runtime_memory_usage` exists: a call refused for the ceiling has no send in flight, so
+nothing of its own can wake it, and the host polls the runtime's accounting instead. That is
+a poll and not a signal on purpose, for now - a signal would have to fire at the moment the
+native budget is genuinely recredited rather than when the host hands something back, and
+getting that edge wrong reintroduces the lost wake-up this replaces. A signal or an epoch can
+be added later without changing the contract, since the poll remains correct in its presence.
+
+Making the ceiling fatal was the previous shape and it was wrong, not merely pessimistic:
+`AK_RUNTIME_FAILED_UNQUIESCED` is absorbing and `ak_runtime_destroy` is refused from it
+forever, so a normal burst would have left the runtime permanently undestroyable - a
+mechanism introduced to bound memory turning the runtime itself unreclaimable.
+
+The model needs nothing new either way. `LendSendBuffer` is a downcall with no fairness, so an
+implementation that refuses more often than the specification permits produces a subset of
+the modelled behaviours and no proved liveness rests on the action being enabled. The
+alternative shapes - reserving the budget at call admission and refusing `ak_call_start`, or a
+runtime permit acquired before the lend and released on the real recredit - remain open and
+are the level-2 material for turning a non-blocking refusal into a fair asynchronous wait.
+See T8.1.
 
 ---
 
@@ -1402,7 +1453,8 @@ The `runtime_ctx` root follows the same shape one level up: freed by the
 
 ```csharp
 // Allocated and GCHandle.Alloc'd BEFORE ak_call_start.
-// The GCHandle is passed as call_ctx. Freed by the consumer after the terminal.
+// The GCHandle is passed as call_ctx, and the terminal callback frees it itself
+// after its last access to CallState - not the consumer.
 class CallState
 {
     // The delivery ring is the stream queue: metadata, messages and the

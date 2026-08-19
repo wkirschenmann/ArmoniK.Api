@@ -404,8 +404,9 @@ EmitShutdownComplete(rtId) ==
     /\ shutdown_callback_running' =
            [shutdown_callback_running EXCEPT ![rtId] = TRUE]
 \* The tag: whether the host still holds memory of this runtime.  Recording it
-\* here is what makes the second event owed or not owed, and what lets a host
-\* unload on this callback instead of arming another wait.
+\* here is what makes the second event owed or not owed, and so whether the host
+\* has anything to give back at all.  It is not a permission to unload: only the
+\* status reaching QUIESCENT is that, in both cases of the tag.
     /\ second_event_owed' =
            [second_event_owed EXCEPT ![rtId] =
                 ~NoHostDebt(rtId)]
@@ -470,8 +471,9 @@ RuntimeDestroy(rtId) ==
 \* released it.  Owed only when SHUTDOWN_COMPLETE said so, because a host told
 \* nothing was outstanding is waiting for nothing.  Its order against
 \* RuntimeRelease is free - the guard waits for the first event and its
-\* callback, not for the state - and its return is what
-\* makes the status QUIESCENT.
+\* callback, not for the state - so its return completes the resources branch
+\* without making the status QUIESCENT on its own: the level-0 transition may
+\* still be owed.
 EmitResourcesReleased(rtId) ==
     /\ IsShutdownEventEmitted(rtId)
     /\ SecondEventOwed(rtId)
