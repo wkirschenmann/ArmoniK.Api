@@ -2273,11 +2273,30 @@ Additional invariants:
   `CallStartOptions.deadline` is optional, cancellation may never be requested, and
   acquisition is deliberately not guaranteed since another call can always win the
   capacity. A behaviour in which the polls continue forever is admitted by this
-  contract, so no property of it may conclude termination unconditionally. Promising
-  acquisition under recurring capacity is a different contract needing a different
-  mechanism - a fair queue, or a runtime permit acquired before the lend and released on the
-  real recredit - and not a stronger claim about polling. The cadence, the backoff and the
-  cancellation of the poll itself are part of this obligation
+  contract, so no property of it may conclude termination unconditionally. The cadence, the
+  backoff and the cancellation of the poll itself are part of this obligation.
+
+  Note what is and is not missing here, because the gap is not where it looks. That the
+  memory comes back is modelled and proved: `BufferEventuallyFreed` carries a lent buffer all
+  the way to freed, so the transition that recredits capacity is guaranteed to happen without
+  any byte appearing in the model. What no amount of modelling supplies is that *this* caller
+  wins the freed capacity, because nothing stops the same caller losing the CAS every time.
+  Promising acquisition therefore needs a different mechanism and not a stronger claim about
+  polling - and the mechanism that would deliver it is also the one that would make it
+  provable in the idiom already in use: a FIFO of waiters gives a positional argument, the
+  waiter at the head is eventually served, which is the shape of level 0's `SubmitProgress`
+  and `DeliveryProgress`. A queue position is a state, so this too needs no arithmetic. Its
+  price is ABI surface rather than internal machinery, since a fair `ak_get_call_buffer`
+  cannot stay synchronous and non-blocking: it needs a wake-up event, blocking a managed
+  thread not being an option. That escalation stays available at no cost because a poll
+  remains correct once a signal exists, and `ak_runtime_memory_usage_detailed` is the
+  instrument for deciding whether contention warrants paying for it.
+
+  One dependency deserves emphasis: `BufferEventuallyFreed` rests on `WF(HostReturnsBuffer)`,
+  a host obligation rather than a runtime promise. A host that polls while holding a lent
+  buffer therefore breaks the very property that would let its poll succeed, which is what
+  makes `RetryingCallHoldsNoBuffer` the condition of the whole polling design rather than a
+  detail of it
 - **MessageTooLargeIsNotRetried**: a lend refused with `AK_STATUS_MESSAGE_TOO_LARGE`
   schedules no retry at all. The refusal is permanent by construction - `len > ceiling` is a
   property of the request and not of the moment - so a binding that retried it would poll
