@@ -972,10 +972,13 @@ ak_status ak_runtime_memory_usage(ak_runtime_handle runtime, ak_memory_usage *ou
 //   bytes_send_in_flight committed, and the send they carry is not acquitted yet.
 //                        The transport still needs the bytes; a WRITE_DONE moves
 //                        them to the next category.
-//   bytes_replay_retained given back, and freeable - returned unused, or carrying a
-//                        send already acquitted. The runtime frees these on its own
-//                        and FreeReturnedBuffer is weakly fair, so this category
-//                        drains without anyone doing anything.
+//   bytes_runtime_held   given back and not yet freed - returned unused, or carrying
+//                        a send already acquitted. The host has nothing left to do
+//                        here. In the model FreeReturnedBuffer is enabled on all of
+//                        these and weakly fair, so the category drains on its own;
+//                        an implementation that keeps an acquitted send's bytes for
+//                        replay until the commitment point holds part of it longer,
+//                        which is why the name says held rather than freeable.
 //
 // The first two fields of ak_memory_usage_detailed are the base struct's, in the
 // same order, so a host upgrades by changing the call and the type and re-reading
@@ -983,16 +986,21 @@ ak_status ak_runtime_memory_usage(ak_runtime_handle runtime, ak_memory_usage *ou
 //
 // Normative: the snapshot is coherent - all five numbers are read from one instant
 // of the runtime's accounting - and
-//     bytes_host_lent + bytes_send_in_flight + bytes_replay_retained == bytes_used
+//     bytes_host_lent + bytes_send_in_flight + bytes_runtime_held == bytes_used
 //     bytes_used <= ceiling
 // hold exactly on every returned snapshot, not merely eventually. A host may
 // therefore compare fields across categories without a second call.
+//
+// Normative here means an ABI obligation, checked by the ABI tests. It is not a
+// level-1 theorem: no charge, no byte count and no ceiling appears in the model, so
+// these two lines are the one part of this ABI's contract that TLA+ does not carry.
+// See "What is actually verified".
 typedef struct {
     uint64_t bytes_used;
     uint64_t ceiling;
     uint64_t bytes_host_lent;
     uint64_t bytes_send_in_flight;
-    uint64_t bytes_replay_retained;
+    uint64_t bytes_runtime_held;
 } ak_memory_usage_detailed;
 
 ak_status ak_runtime_memory_usage_detailed(ak_runtime_handle runtime,
@@ -1364,6 +1372,31 @@ So `ak_get_call_buffer` has three outcomes rather than two. It lends; or it refu
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
 not this call's fault and which no WRITE_DONE of this call can clear. Only a genuine
 allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
+
+**What a buffer charges against the ceiling** is the length the host asked for, and nothing
+else: `charge(b)` is `b.len` as requested at `ak_get_call_buffer`, `bytes_used` is the sum of
+`charge(b)` over every buffer lent and not yet freed, and the two refusals are exactly
+
+```
+AK_STATUS_MESSAGE_TOO_LARGE  <=>  len > ceiling
+AK_STATUS_BUDGET_BUSY        <=>  len <= ceiling  and  bytes_used + len > ceiling
+```
+
+The alternative is to charge what the allocator really hands out - the size class, the arena
+reservation, the bookkeeping - and it is rejected for one reason: the host cannot compute it.
+A refusal the host cannot predict from its own numbers is indistinguishable from a bug, and
+`MESSAGE_TOO_LARGE` in particular has to be a predicate the host can evaluate *before* it
+calls, or "permanent, do not retry" is advice about a condition the host has no way to
+recognise. A host holding a 4 MiB message against a 4 MiB ceiling must be able to know which
+answer it will get.
+
+The price of that choice is stated rather than hidden: **the ceiling bounds the logical bytes
+in flight, not the process's resident memory.** Rounding up to a size class, per-arena slack
+and the allocator's own overhead all sit outside it. An implementation therefore owes a
+documented factor - real footprint no worse than `ceiling` times a constant it names, plus a
+fixed overhead - and that factor is an implementation and test obligation, not something this
+ceiling delivers. Configuring the ceiling as though it were an RSS limit is the mistake this
+paragraph exists to prevent.
 
 Two of the refusals are transient and each needs its own wake-up. `AK_STATUS_SLOT_BUSY`
 has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has none of its own - a call refused for the
@@ -2233,14 +2266,28 @@ Additional invariants:
   (`DestroyedRuntimeRejectsHandles`); this is the binding's side of it, and it is an
   ordering obligation on dispose, not a safety net - the invoker drains and disposes every
   call it still holds before it destroys, so no downcall is left to race the teardown
-- **BudgetRetryTerminates**: a lend refused with `AK_STATUS_BUDGET_BUSY` is retried on a
-  timed poll of `ak_runtime_memory_usage`, and the retry loop ends - on acquisition, on
-  cancellation, or on the deadline. Never on `AK_STATUS_MESSAGE_TOO_LARGE`, which is
-  permanent and must not be retried. What level 2 does **not** promise is freedom from
-  starvation: another call can win the capacity between the observation and the retry, and
-  level 1 promises nothing before a send is accepted. Promising acquisition under recurring
-  capacity would need a queue or a fairness hypothesis stronger than concurrent polling;
-  the cadence, the backoff and the cancellation of the poll are part of this obligation
+- **BudgetCancellationStopsRetry**: a lend refused with `AK_STATUS_BUDGET_BUSY` and retried
+  on a timed poll of `ak_runtime_memory_usage` stops retrying once the call is cancelled or
+  its deadline expires. The conditional shape is the whole property, and no unconditional
+  one is available: concluding that the loop ends would need a finite deadline, but
+  `CallStartOptions.deadline` is optional, cancellation may never be requested, and
+  acquisition is deliberately not guaranteed since another call can always win the
+  capacity. A behaviour in which the polls continue forever is admitted by this
+  contract, so no property of it may conclude termination unconditionally. Promising
+  acquisition under recurring capacity is a different contract needing a different
+  mechanism - a fair queue, or a runtime permit acquired before the lend and released on the
+  real recredit - and not a stronger claim about polling. The cadence, the backoff and the
+  cancellation of the poll itself are part of this obligation
+- **MessageTooLargeIsNotRetried**: a lend refused with `AK_STATUS_MESSAGE_TOO_LARGE`
+  schedules no retry at all. The refusal is permanent by construction - `len > ceiling` is a
+  property of the request and not of the moment - so a binding that retried it would poll
+  forever against a condition no return by anyone can change
+- **RetainedBytesAreEventuallyFreed**: a buffer the runtime keeps past its send's acquittal,
+  for replay, is freed in the end. Level 1's `FreeReturnedBuffer` is enabled as soon as the
+  send is acquitted and is weakly fair, so an implementation that holds the bytes until the
+  commitment point has to show its own release happens - that fairness conjunct is a
+  hypothesis level 2 discharges, not one it inherits. This is the only place where the
+  implementation is deliberately slower than the model rather than the reverse
 - **RingNeverOverflows**: `head - tail ≤ DeliveryCredits + 1`. Inherited, not re-proved:
   it is level 1's `PayloadsOwnedWithinCreditsPlusOne` read through the mapping, and it is
   what lets the trampoline publish without a fullness test
@@ -2325,17 +2372,29 @@ the artefact rather than left to rot:
 | Specification described in this document | Current |
 | Level 1, model-checked (TLC), base configuration | Current: 252132 distinct states, no error, deadlock checking on. It carries `AbstractSpec` - the whole level-0 specification, fairness included, as a property of `Spec` - so every fairness lift is model-checked as well as proved |
 | Level 1, model-checked (TLC), the other four configurations | Being re-run for this revision |
-| Level 1, TLC coverage of the new liveness properties | None. No configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed` or `RuntimeEventuallyQuiescent`: those are proved and not model-checked |
+| Level 1, TLC coverage of the new liveness properties | None. No configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`: those are proved and not model-checked |
 | Level 0, model-checked (TLC, four configurations) | Current; the level-0 modules did not change this revision |
-| Level 0, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 1632 obligations proved over 10 windows in 2m17s, this revision |
-| Level 1, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 9938 obligations proved over 49 windows in 16m31s, this revision. That factor is a fifth of the one the gate uses, so a step closing with no room fails here rather than on a busy machine |
-| Level 1, one pass, no windows | 9927 obligations, 95 minutes. The exact count: the windowed figures exceed it by the steps two adjacent windows both cover. No memory kill, which retires the claim in `verify_proofs.sh` that a single pass over this module gets one |
+| Level 0, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 1632 obligations proved over 10 windows in 1m55s, this revision |
+| Level 1, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 10299 obligations proved over 50 windows in 12m48s, this revision. That factor is a fifth of the one the gate uses, so a step closing with no room fails here rather than on a busy machine |
+| Level 1, one pass, no windows | 9927 obligations, 95 minutes - measured before the last two revisions grew the module, so the number is that revision's and not this one's. What it established still holds: a single pass gets no memory kill, which retires the claim in `verify_proofs.sh` that it does, and the one-pass count is the only one free of the steps two adjacent windows both cover |
 | Window size is the dominant cost | The same module at `STRETCH=5` takes about 15 minutes in 300-line windows and 81 in 2000-line ones. More obligations in flight per invocation means the worker threads contend, and wall-clock per obligation inflates about fourfold; the repeated elaboration that penalises small windows is dwarfed by it |
 | `ci/check_theorem_statements.py` | 65 declarations, each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
+| The two memory observers' normative invariants | **Not covered by TLA+.** The coherence of a snapshot and `bytes_host_lent + bytes_send_in_flight + bytes_runtime_held == bytes_used <= ceiling` are safety properties of state neither level carries: no charge, no byte count and no ceiling appears in `FfiGrpc`. They are implementation obligations, discharged by the ABI tests, and the paragraph after this table says what covering them would cost |
 | Level 2 | Specified, not modelled, not proved |
+
+The observers' row is a deliberate boundary rather than an oversight, so here is the shape of
+closing it. Level 1 would gain one variable - `buffer_charge`, recorded per buffer at the lend
+- and four definitions: `bytes_used` as the sum of `buffer_charge` over the buffers that are
+neither `"none"` nor `"freed"`, and the three categories as that same sum restricted by
+`buffer_state` and by acquittal. The sum invariant would then not be a property to preserve
+across twenty actions but an identity about a partition of a finite set, true by construction,
+and the ceiling bound would need only `LendSendBuffer`'s guard. The cost is real all the same,
+because sums over sets are where these proofs get expensive rather than merely long. Until it
+is done this document does not claim the two observers are proved, and the row above is what a
+reader should believe. Adding them is a local extension of level 1 and needs no further level.
 
 Nothing above is `OMITTED`, and both obligation counts were measured on the model as it
 stands here rather than carried over. The level-1 count grew from 5208 because the send

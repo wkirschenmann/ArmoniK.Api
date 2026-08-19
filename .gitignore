@@ -415,3 +415,5 @@ build/
 # TLA files
 **/.tlacache/
 **/tla/out/
+# The model checker is a toolchain download, not a source artifact.
+**/tla/tla2tools.jar
