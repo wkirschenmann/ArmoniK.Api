@@ -12925,7 +12925,7 @@ LEMMA FreedStaysFreed ==
 
 \* Every lent buffer is given back and then released.  Two rungs: the host
 \* returns it, which is its obligation, and the runtime frees it, which is
-\* the runtime's.  The replay budget lives in the gap.
+\* the runtime's.  The replay buffer lives in the gap.
 \* Every fact of both rungs is a validity, so it is proved and boxed here
 \* where no temporal hypothesis is in scope: PTL cannot box a fact that
 \* holds only of the behaviour under Spec.

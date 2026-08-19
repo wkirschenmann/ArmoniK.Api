@@ -58,7 +58,7 @@ ASSUME BufferIdsAreAFiniteNonemptySet ==
 (* keeping both is what makes the identities additive - every proof that   *)
 (* reads the counter stands unchanged.  "returned" and "freed" are two     *)
 (* states because they are two events: giving the buffer back is the       *)
-(* host's, releasing the memory is the runtime's, and the replay budget    *)
+(* host's, releasing the memory is the runtime's, and the replay buffer    *)
 (* is the gap between them.                                                *)
 (*                                                                         *)
 (* buffer_send is the link the ABI has and the counters did not, and it is *)
@@ -93,6 +93,30 @@ VARIABLES
 \* never writing level-0 state.
     second_event_owed,    \* per runtime: the tag SHUTDOWN_COMPLETE carried
     resources_released_emitted,  \* per runtime: RESOURCES_RELEASED went out
-    resources_released_callback_running \* per runtime: its callback on stack
+    resources_released_callback_running, \* per runtime: its callback on stack
+
+\* The emission budget, as a state rather than a quantity.  The ABI has a
+\* runtime-wide byte ceiling on the memory it lends for sending, but no count
+\* of bytes appears here.  A sum over the live buffers would be an identity
+\* over a partition of a finite set - true however the model is written, so it
+\* would discriminate no design and catch no defect - and whether the one
+\* counter is maintained correctly is a question for a code invariant and a
+\* concurrency test, not for a refinement.
+\* One boolean carries design because it is welded to the buffer lifecycle at
+\* both ends.  Lending is guarded on the budget being down and may raise it,
+\* which is the whole of what the budget being exhaustible means.  Freeing a
+\* returned buffer's bytes may lower it, may never raise it, and may leave it
+\* up only while some buffer is still out - that last clause is what forbids a
+\* runtime stuck exhausted with nothing in anyone's hands, and it is what the
+\* relief property rests on.  Nothing here says what the budget is or how it
+\* is computed.
+\* The emission path only.  Receive-side memory belongs to hyper and is
+\* governed by the HTTP/2 flow control window, not by anything the ABI can
+\* refuse against, and a genuine allocation failure in Rust aborts rather than
+\* returning an error - so there is no refusal on that side to model.
+\* Global rather than per runtime: at most one runtime is outstanding, and the
+\* budget being down at destroy is proved rather than assumed - quiescence
+\* leaves no buffer out, and the invariant reads the budget off that.
+    memory_cap_exhausted         \* runtime-wide: a lend refuses against it
 
 =============================================================================

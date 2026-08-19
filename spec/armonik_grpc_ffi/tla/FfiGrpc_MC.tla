@@ -6,7 +6,11 @@
 (* lift is model-checked before it is proved.                              *)
 (***************************************************************************)
 
-EXTENDS FfiGrpc, TLC
+\* FfiGrpc_defs rather than FfiGrpc: its header says both TLAPS and the TLC
+\* configurations are meant to extend it, and extending FfiGrpc instead is what
+\* left the level-1 SafetyInvariant out of every configuration while level 0
+\* checked its own.
+EXTENDS FfiGrpc_defs, TLC
 
 (***************************************************************************)
 (* SYMMETRY SETS (optional, to reduce state space)                         *)

@@ -383,7 +383,7 @@ first and has to say so explicitly.
 ### Retry — commitment point
 
 A call is retryable while **both** hold: no response header has been seen, and what it has
-sent still fits the replay budget. Committing on either alone is wrong - the table below
+sent still fits the replay buffer. Committing on either alone is wrong - the table below
 reads as if one sufficed, which is why each row names both.
 
 | Situation | Retryable? |
@@ -677,7 +677,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_call_send_message`'s `buffer` | `b` in `SendMessage(cId, msg, b)`. An argument, not a choice made inside the action: the host names the allocation it commits, and letting the model pick would make `buffer_send` a record of nondeterminism rather than of what the caller passed |
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
-| `ak_get_call_buffer`'s `len` | **not modelled.** No size appears anywhere in either level: the send window counts allocations, not bytes. The replay budget is the only place bytes matter, and it is a configuration knob rather than a modelled quantity |
+| `ak_get_call_buffer`'s `len` | **not modelled.** No size appears anywhere in either level: the send window counts allocations, not bytes. The replay buffer is the only place bytes matter, and it is a configuration knob rather than a modelled quantity |
 | `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight` and `DeliveryCredits`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
@@ -857,7 +857,7 @@ ak_status ak_get_call_buffer(ak_call_handle call, size_t len, ak_buffer *out);
 // have been received - the buffer must then go back through
 // ak_return_call_buffer.
 // When the allocation is freed is Rust's business and is not observable here: a
-// call still within its replay budget keeps the bytes so it can send them again,
+// call still within its replay buffer keeps the bytes so it can send them again,
 // and frees them when it commits. WRITE_DONE therefore says the slot is free,
 // nothing about the memory.
 // AK_EVENT_WRITE_DONE settles an accepted send and frees its slot, from the moment
@@ -1331,7 +1331,7 @@ and only then writes.
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
 the writer it wakes can act on it straight away. Retry costs no copy at all: the
 bytes are already Rust's, so a retryable call simply keeps the allocation until it commits.
-The slot budget and the replay budget (`RetryConfig::max_buffer_size`) are two independent
+The slot budget and the replay buffer (`RetryConfig::max_buffer_size`) are two independent
 budgets - the first bounds how many buffers are outstanding, the second how many bytes are
 retained for replay - and neither has to be traded against the other.
 
@@ -1373,7 +1373,18 @@ refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached
 not this call's fault and which no WRITE_DONE of this call can clear. Only a genuine
 allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
 
-**What a buffer charges against the ceiling** is the length the host asked for, and nothing
+**The budget covers the emission path and only it.** What it governs is the memory this
+runtime allocates against a quota of its own and can therefore refuse: the buffers
+`ak_get_call_buffer` lends. Receive-side memory is not in it. Those bytes belong to hyper and
+are governed by the HTTP/2 flow-control window rather than by anything the ABI exposes, and
+there is no refusal to expose: a genuine allocation failure in Rust runs the allocation error
+hook and aborts, so `Vec` and `Bytes` offer no `Result` to turn into a status. A fallible
+receive path would be a different design - reserving from a bounded pool and resetting the
+stream with `RESOURCE_EXHAUSTED` when the reservation fails - and it is not this one. This is
+why the model's budget is welded to the send-buffer lifecycle alone, and why
+`MemoryCapEventuallyRelieved` is a statement about lending rather than about all memory.
+
+**What a buffer charges against the budget** is the length the host asked for, and nothing
 else: `charge(b)` is `b.len` as requested at `ak_get_call_buffer`, `bytes_used` is the sum of
 `charge(b)` over every buffer lent and not yet freed, and the two refusals are exactly
 
@@ -2012,7 +2023,7 @@ fifteen FFI variables:
   `buffers_held_by_host` by `LentCountMatchesBufferStates`, which is what keeps every
   proof that reads the counter standing. `returned` and `freed` are two states because
   they are two events: giving the buffer back is the host's, releasing the memory is the
-  runtime's, and the replay budget is the gap
+  runtime's, and the replay buffer is the gap
 - `buffer_send`: per call and per buffer, the index of the send living in that
   allocation, zero for none. Keyed by the buffer because that is how
   `ak_call_send_message` keys it, so both questions the model asks are lookups - may
@@ -2127,6 +2138,15 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   is what makes the event mean what the ABI says it means rather than only arrive; the
   two that read a ledger are the ones that need a drained runtime's ledger not to grow,
   which is why the split keeps each preservation obligation the size it was
+- **BudgetExhaustedMeansBufferOut**: the emission budget is never exhausted with no send
+  buffer outstanding. It is the one thing the model asserts about the budget, and it is
+  what makes reaching the budget temporary rather than terminal - the relief property reads
+  the budget off the buffers through this invariant's contrapositive. It carries content
+  because it can fail: a free that kept the budget exhausted with nothing left out would
+  break it, and that runtime is one that can never lend again. It sits outside the
+  `NotFailed` umbrella, failing changing neither the budget nor any buffer, so a host still
+  gets its memory back after a failure
+
 - **DestroyedRuntimeIsClean**: a destroyed runtime is quiescent, and stays quiescent -
   the whole gate, not half of it, so the invariant's name and `ak_runtime_destroy`'s
   precondition are the same sentence. Quiescence is absorbing for six separate reasons:
@@ -2170,7 +2190,7 @@ New liveness guarantees:
 - **BufferEventuallyFreed**: every buffer the arena lends out is given back and then
   released. Two rungs with two owners: the host returns it, per buffer because returns are
   unordered, and the runtime releases the bytes once the send they carry is acquitted. The
-  replay budget is the gap between the two
+  replay buffer is the gap between the two
 - **CallEventuallyReclaimed**: a terminal call is reclaimed - handle retired, arena gone -
   without the host doing anything beyond giving back what it holds. This is what removing
   `ak_call_release` from the ABI buys: the guarantee is unconditional where a downcall the
@@ -2197,6 +2217,21 @@ New liveness guarantees:
   what the host reads, and it is derived rather than re-proved: the level-0 shutdown
   settles, the runtime quiesces from there, and quiescence with the tag set is the event
   having gone out. Level 2 refines this one rather than re-deriving it
+
+- **MemoryCapEventuallyRelieved**: the emission budget, once exhausted, is relieved. The
+  budget is one boolean and not a byte count, because a sum over the live buffers would be
+  an identity over a partition of a finite set - true however the model is written, so it
+  would discriminate no design and catch no defect. What the boolean does carry is the
+  interlock, and that is what the proof rests on. Lending is guarded on the budget being
+  down and may raise it, which is all the model says about when a budget fills. Freeing a
+  returned buffer's bytes may lower it, may never raise it, and may leave it up only while
+  some buffer is still out - that last clause is what forbids a runtime stuck exhausted
+  holding nothing. With the one taker guarded off, the buffers out can only shrink, each is
+  eventually freed by `BufferEventuallyFreed`, and at the last one the clause runs out of
+  excuses. Reaching the budget is therefore always temporary, which is what makes
+  `AK_STATUS_BUDGET_BUSY` something to retry against rather than a fault. It does **not**
+  say a particular caller wins the capacity that comes back: lending carries no fairness,
+  and nothing stops the same caller losing the race every time
 
 #### Fairness
 
@@ -2494,7 +2529,7 @@ table above maps the five call shapes and stops there.
 |----------|---------|--------|
 | Crate for X509Store Windows | Direct native APIs / `schannel` crate / `windows` crate | Layer 1 |
 | Exact handle format | **Slot map: index plus generation.** A stale handle is refused with a status instead of dereferenced, which is what makes runtime-driven reclamation safe: the host may still hold a token for a call already reclaimed | Layer 3, decided |
-| Default replay budget (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes an arena retains past their WRITE_DONE, which is the one knob between replayability and memory held |
+| Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes an arena retains past their WRITE_DONE, which is the one knob between replayability and memory held |
 | Host queue signal mechanism | **Moot: there is no host queue.** The per-call ring replaces it, and its signal must be latched auto-reset - never `SemaphoreSlim`, whose `Release` can run a waiter inline on the callback's thread | Layer 4, decided |
 | Generator for the C# options | **Roslyn source generator.** T4 needs an external tool and a build step of its own; a generator runs in-compilation and stays in step with the Rust JSON schema by construction | Layer 4, decided |
 | Connection pool management (idle eviction) | Internal timer vs lazy check | Layer 2 |

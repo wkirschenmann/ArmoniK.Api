@@ -5,6 +5,8 @@ set -u
 cfg="$1"
 cd "$(dirname "$0")/.."
 TLA2TOOLS="${TLA2TOOLS:-tla2tools.jar}"
+[ -d "$TLA2TOOLS" ] && TLA2TOOLS="${TLA2TOOLS%/}/tla2tools.jar"
+[ -r "$TLA2TOOLS" ] || { echo "no tla2tools.jar at $TLA2TOOLS"; exit 1; }
 mkdir -p out
 base="$(basename "$cfg" .cfg)"
 # <Module>_MC*.cfg runs against <Module>_MC.tla

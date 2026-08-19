@@ -358,6 +358,18 @@ StrongInv ==
     /\ ShutdownSignalInv
     /\ DestroyedRuntimeIsClean
 
+\* The emission budget is never exhausted with no buffer outstanding.  This is
+\* the one thing the model asserts about the budget, and it is what makes
+\* reaching it temporary rather than terminal: the relief argument reads the
+\* budget off the buffers through this invariant's contrapositive.  It carries
+\* content because it could fail - a free that kept the budget exhausted with
+\* nothing left out would break it, which is exactly the runtime that can never
+\* lend again.  Outside the NotFailed umbrella: failing changes neither the
+\* budget nor any buffer, so the implication survives a failure, and the host
+\* can still get its memory back afterwards.
+BudgetExhaustedMeansBufferOut ==
+    memory_cap_exhausted => SomeBufferOutstanding
+
 \* FfiCallInv sits outside the NotFailed umbrella: its preservation is
 \* guard-based only, and the fairness lifts need the send and delivery
 \* disciplines on the whole behavior, failure included.  ShutdownSignalInv
@@ -367,6 +379,7 @@ IndInv ==
     /\ L0!SingleRuntime
     /\ FfiCallInv
     /\ BufferStateInv
+    /\ BudgetExhaustedMeansBufferOut
     /\ (L0!NotFailed => StrongInv)
 
 \* The level-1 safety contract: the inherited level-0 invariant plus the
@@ -376,6 +389,7 @@ SafetyInvariant ==
     /\ L0!SafetyInvariant
     /\ FfiCallInv
     /\ BufferStateInv
+    /\ BudgetExhaustedMeansBufferOut
     /\ (L0!NotFailed => ShutdownSignalInv)
     /\ (L0!NotFailed => DestroyedRuntimeIsClean)
 

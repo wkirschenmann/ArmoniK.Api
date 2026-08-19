@@ -85,7 +85,7 @@ ffi_vars == <<buffers_held_by_host,
 l0_vars == L0!vars
 
 \* The level-1 state is the level-0 state plus the FFI state.
-vars == <<l0_vars, ffi_vars>>
+vars == <<l0_vars, ffi_vars, memory_cap_exhausted>>
 
 \* --- DOMAIN-DRIVEN GROUPINGS ---
 RuntimeVars == <<runtime_state, shutdown_event_emitted,
@@ -140,7 +140,7 @@ CarriesNoUnacquittedSend(cId, b) ==
 \* The per-buffer lifecycle.  Monotone along none -> lent -> returned ->
 \* freed, and an identity is never reused, which is what makes the states
 \* a chain rather than a cycle.  "returned" is the host's step, "freed" is
-\* the runtime's: the replay budget may keep the bytes past the return.
+\* the runtime's: the replay buffer may keep the bytes past the return.
 BufferStates == {"none", "lent", "returned", "freed"}
 IsFreshBuffer(cId, b) == buffer_state[cId][b] = "none"
 IsLentBuffer(cId, b) == buffer_state[cId][b] = "lent"
@@ -198,8 +198,23 @@ HostOwnsNoPayload(cId) == OwedPayloads(cId) = 0
 HostOwnsSomePayload(cId) == OwedPayloads(cId) > 0
 HostHasDeliveryCredit(cId) == OwedPayloads(cId) < DeliveryCredits
 HostOwnsAtMostCredits(cId) == OwedPayloads(cId) <= DeliveryCredits
+
 HostOwnsAtMostCreditsPlusOne(cId) ==
     OwedPayloads(cId) <= DeliveryCredits + 1
+
+\* A send buffer is outstanding: lent to the host, or given back and not yet
+\* freed - the buffers the emission budget is holding.  The budget covers the emission path and only it, because
+\* that is the memory this runtime allocates against a quota of its own and
+\* can refuse.  Receive-side memory is hyper's, governed by the HTTP/2 flow
+\* control window rather than by anything the ABI exposes, and a genuine
+\* allocation failure in Rust aborts rather than returning - there is no
+\* refusal there to model.  Named by the states the model has instead of by
+\* the bytes it does not, and bounded by a constant, BufferIds being finite
+\* with each buffer used once, which is what keeps the relief argument finite
+\* rather than a well-founded induction.
+SomeBufferOutstanding ==
+    \E cId \in CallIds, b \in BufferIds :
+        IsLentBuffer(cId, b) \/ IsReturnedBuffer(cId, b)
 
 \* The SHUTDOWN_COMPLETE discipline, per runtime.
 IsShutdownEventEmitted(rtId) == shutdown_event_emitted[rtId]
@@ -337,6 +352,7 @@ TypeOK ==
     /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
+    /\ memory_cap_exhausted \in BOOLEAN
 
 Init ==
     /\ L0!Init
@@ -358,6 +374,7 @@ Init ==
     /\ resources_released_emitted = [rtId \in RuntimeIds |-> FALSE]
     /\ resources_released_callback_running =
            [rtId \in RuntimeIds |-> FALSE]
+    /\ memory_cap_exhausted = FALSE
 
 (***************************************************************************)
 (* ACTIONS - Runtime lifecycle                                             *)
@@ -379,7 +396,7 @@ NoOtherRuntimeOutstanding(rtId) ==
 RuntimeCreate(rtId) ==
     /\ L0!RuntimeCreate(rtId)
     /\ NoOtherRuntimeOutstanding(rtId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 \* Shutdown closes the channels (level 0) and latches cancellation on
 \* every active call of the runtime: the drain must not depend on the
@@ -394,7 +411,8 @@ RuntimeBeginShutdown(rtId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 EmitShutdownComplete(rtId) ==
     /\ IsStoppingRuntime(rtId)
@@ -419,7 +437,8 @@ EmitShutdownComplete(rtId) ==
                    cancel_requested>>
     /\ UNCHANGED <<runtime_destroyed, buffer_state, buffer_send,
                    resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 ShutdownCallbackReturns(rtId) ==
     /\ IsShutdownCallbackRunning(rtId)
@@ -433,7 +452,8 @@ ShutdownCallbackReturns(rtId) ==
                    cancel_requested, shutdown_event_emitted,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* Release happens after the SHUTDOWN_COMPLETE callback has returned, and it
 \* publishes AK_RUNTIME_GRPC_STOPPED: the gRPC machinery - channels,
@@ -444,7 +464,7 @@ RuntimeRelease(rtId) ==
     /\ IsShutdownEventEmitted(rtId)
     /\ ~IsShutdownCallbackRunning(rtId)
     /\ L0!RuntimeRelease(rtId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 \* ak_runtime_destroy: the handles go void and the arena may be unloaded.
 \* It is the runtime-level image of ReleaseCallHandle - refused until the
@@ -466,7 +486,8 @@ RuntimeDestroy(rtId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* The second signal: the host has given everything back and the runtime has
 \* released it.  Owed only when SHUTDOWN_COMPLETE said so, because a host told
@@ -492,7 +513,8 @@ EmitResourcesReleased(rtId) ==
                    payloads_consumed_by_host, handle_released,
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
-                   buffer_state, buffer_send, second_event_owed>>
+                   buffer_state, buffer_send, second_event_owed,
+                   memory_cap_exhausted>>
 
 ResourcesReleasedCallbackReturns(rtId) ==
     /\ IsResourcesReleasedCallbackRunning(rtId)
@@ -505,19 +527,19 @@ ResourcesReleasedCallbackReturns(rtId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send, second_event_owed,
-                   resources_released_emitted>>
+                   resources_released_emitted, memory_cap_exhausted>>
 
 RuntimeFail(rtId) ==
     /\ L0!RuntimeFail(rtId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 RemainFailed(rtId) ==
     /\ L0!RemainFailed(rtId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 RemainReleased ==
     /\ L0!RemainReleased
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 (***************************************************************************)
 (* ACTIONS - Channel lifecycle                                             *)
@@ -525,7 +547,7 @@ RemainReleased ==
 
 ChannelCreate(chId, rtId) ==
     /\ L0!ChannelCreate(chId, rtId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 \* Closing a channel cancels its calls: without this, a channel whose
 \* host neither cancels nor consumes would never drain.
@@ -539,7 +561,8 @@ ChannelStartClosing(chId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* At level 1 the close completes only once every call has terminated on
 \* its own (through DeliverCancelled): the level-0 cancel-en-masse
@@ -547,7 +570,7 @@ ChannelStartClosing(chId) ==
 ChannelFinishClosing(chId) ==
     /\ \A cId \in L0!CallsOf(chId) : ~L0!IsActiveCall(cId)
     /\ L0!ChannelFinishClosing(chId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 (***************************************************************************)
 (* ACTIONS - Call lifecycle                                                *)
@@ -557,7 +580,7 @@ ChannelFinishClosing(chId) ==
 \* like the level-0 UnusedCallsAreEmpty), so starting needs no reset.
 CallStart(cId, chId) ==
     /\ L0!CallStart(cId, chId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 \* ak_call_cancel only latches the request; the cancellation itself is
 \* the DeliverCancelled callback.  A handle exists only for a started,
@@ -575,7 +598,8 @@ RequestCallCancellation(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* Reclaiming a call is the runtime's own step, not a downcall: the ABI has
 \* no ak_call_release.  Every resource a call lends out comes back through
@@ -609,7 +633,8 @@ ReleaseCallHandle(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 (***************************************************************************)
 (* ACTIONS - Send path                                                     *)
@@ -629,9 +654,17 @@ LendSendBuffer(cId, b) ==
     /\ ~IsCancelRequested(cId)
     /\ HasFreeSendSlot(cId)
     /\ IsFreshBuffer(cId, b)
+    \* The emission budget refuses here, and refusing is the whole of it:
+    \* AK_STATUS_BUDGET_BUSY is a step the model does not take rather than a
+    \* state it enters.  Nothing rests on this action being enabled - it
+    \* carries no fairness - so guarding it costs no proved liveness.
+    /\ ~memory_cap_exhausted
     /\ buffers_held_by_host' =
            [buffers_held_by_host EXCEPT ![cId] = @ + 1]
     /\ buffer_state' = [buffer_state EXCEPT ![cId][b] = "lent"]
+    \* Lending may exhaust the budget or may not, and the model says no more
+    \* than that about when.
+    /\ memory_cap_exhausted' \in BOOLEAN
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<write_dones_emitted, write_done_callback_running,
                    delivery_callback_running, payloads_consumed_by_host,
@@ -662,22 +695,31 @@ HostReturnsBuffer(cId, b) ==
                    runtime_destroyed,
                    buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* The runtime releases the bytes of a buffer the host has given back.
 \* Not an ABI event at all: when the allocation actually goes is Rust's
-\* business, and a call still inside its replay budget keeps the bytes so
+\* business, and a call still inside its replay buffer keeps the bytes so
 \* it can send them again.  This is the step that makes "returned" and
 \* "freed" two states rather than one, and it is the runtime's own, so it
 \* carries fairness where the return does not.
 FreeReturnedBuffer(cId, b) ==
     /\ IsReturnedBuffer(cId, b)
     \* The bytes of a send are not released while the send is unacquitted:
-    \* the transport may still be reading them, and the replay budget may
+    \* the transport may still be reading them, and the replay buffer may
     \* still want them.  A buffer given back unused carries no send, so it
     \* is free to go at once.
     /\ CarriesNoUnacquittedSend(cId, b)
     /\ buffer_state' = [buffer_state EXCEPT ![cId][b] = "freed"]
+    \* Giving the bytes back may relieve the budget and may never exhaust it,
+    \* and it may leave the budget exhausted only while some buffer is still
+    \* out.  That last clause is the only thing the model asserts about the
+    \* budget, and it is what makes exhaustion temporary: the one taker is
+    \* guarded off, so what is out only shrinks and the clause runs out of
+    \* excuses.
+    /\ memory_cap_exhausted' \in BOOLEAN
+    /\ (memory_cap_exhausted' => memory_cap_exhausted /\ SomeBufferOutstanding')
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host,
                    write_dones_emitted, write_done_callback_running,
@@ -720,12 +762,13 @@ SendMessage(cId, msg, b) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 EndSend(cId) ==
     /\ ~IsHandleReleased(cId)
     /\ L0!EndSend(cId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 \* The replay copy of the oldest unacquitted send is taken; the host may
 \* unpin that buffer (WRITE_DONE acquits in send order).  One acquittal
@@ -745,7 +788,8 @@ EmitWriteDone(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 WriteDoneReturns(cId) ==
     /\ IsWriteDoneCallbackRunning(cId)
@@ -758,7 +802,8 @@ WriteDoneReturns(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 (***************************************************************************)
 (* ACTIONS - Network (identical to level 0)                                *)
@@ -766,15 +811,15 @@ WriteDoneReturns(cId) ==
 
 NetworkSend(cId) ==
     /\ L0!NetworkSend(cId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 NetworkReceive(cId, msg) ==
     /\ L0!NetworkReceive(cId, msg)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 ReceiveStatus(cId) ==
     /\ L0!ReceiveStatus(cId)
-    /\ UNCHANGED ffi_vars
+    /\ UNCHANGED <<ffi_vars, memory_cap_exhausted>>
 
 (***************************************************************************)
 (* ACTIONS - Delivery                                                      *)
@@ -790,7 +835,8 @@ DeliverInitialMetadata(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 DeliverMessage(cId) ==
     /\ HasFreeDeliverySlot(cId)
@@ -803,7 +849,8 @@ DeliverMessage(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* Terminals wait for the send side to drain: WRITE_DONE precedes the
 \* terminal, so the terminal is the last callback of the call and the
@@ -821,7 +868,8 @@ DeliverStatus(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* Cancellation completes as a delivered CANCELLED terminal.  Refines
 \* L0!CallCancel: the callback is the cancellation.
@@ -837,7 +885,8 @@ DeliverCancelled(cId) ==
                    shutdown_event_emitted, shutdown_callback_running,
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 DeliveryCallbackReturns(cId) ==
     /\ IsDeliveryCallbackRunning(cId)
@@ -851,7 +900,8 @@ DeliveryCallbackReturns(cId) ==
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 \* ak_event_consumed: frees the oldest payload the host still holds and
 \* arms the next delivery in one gesture.  Takes the payload, not the
@@ -870,7 +920,8 @@ HostConsumesEvent(cId) ==
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   memory_cap_exhausted>>
 
 (***************************************************************************)
 (* NEXT STATE RELATION                                                     *)
@@ -981,7 +1032,7 @@ ResourcesReleasedCallbacksReturn ==
 \* Every buffer the arena lends out is given back and then released.  The
 \* first half is the host's obligation, per buffer because returns are
 \* unordered; the second is the runtime's, and the gap between them is the
-\* replay budget.
+\* replay buffer.
 BufferEventuallyFreed ==
     \A cId \in CallIds, b \in BufferIds :
         IsLentBuffer(cId, b) ~> IsFreedBuffer(cId, b)
@@ -1025,6 +1076,15 @@ ResourcesReleasedEventually ==
             (IsResourcesReleasedEmitted(rtId) \/ ~L0!NotFailed)
 
 
+\* Exhausting the emission budget is always temporary.  Lending cannot fire
+\* while it is exhausted, so the buffers out only shrink; each of them is
+\* eventually freed, by BufferEventuallyFreed; and freeing may not leave the
+\* budget exhausted once none is out.  It does not say that a particular
+\* caller wins the capacity that comes back - lending carries no fairness, and
+\* nothing stops the same caller losing the race every time.
+MemoryCapEventuallyRelieved ==
+    memory_cap_exhausted ~> ~memory_cap_exhausted
+
 LivenessProperties ==
     /\ CancellationCompletes
     /\ SendsEventuallyAcquitted
@@ -1038,6 +1098,7 @@ LivenessProperties ==
     /\ CallEventuallyReclaimed
     /\ RuntimeEventuallyQuiescent
     /\ ResourcesReleasedEventually
+    /\ MemoryCapEventuallyRelieved
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)

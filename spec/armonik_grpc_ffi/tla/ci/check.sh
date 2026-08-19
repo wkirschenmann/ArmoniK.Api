@@ -6,6 +6,10 @@
 set -u
 cd "$(dirname "$0")/.."
 TLA2TOOLS="${TLA2TOOLS:-tla2tools.jar}"
+# A directory here is a common way to set it; accept it rather than reporting
+# every module clean because the launcher never ran.
+[ -d "$TLA2TOOLS" ] && TLA2TOOLS="${TLA2TOOLS%/}/tla2tools.jar"
+[ -r "$TLA2TOOLS" ] || { echo "no tla2tools.jar at $TLA2TOOLS"; exit 1; }
 fail=0
 
 PY=python3; command -v python3 >/dev/null 2>&1 || PY=python
@@ -21,7 +25,14 @@ for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          FfiGrpcState.tla FfiGrpc.tla FfiGrpc_defs.tla \
          FfiGrpcTheorems.tla FfiGrpc_MC.tla; do
   out=$(java -cp "$TLA2TOOLS" tla2sany.SANY "$m" 2>&1)
-  if echo "$out" | grep -qE "Parse Error|Semantic error|Fatal errors"; then
+  # Positive evidence, not the absence of an error word: a launcher failure
+  # matches no error pattern, and reporting that as clean is worse than no
+  # check at all.  SANY always announces the module it parsed.
+  if ! echo "$out" | grep -q "Semantic processing of module ${m%.tla}$"; then
+    echo "SANY DID NOT RUN: $m"
+    echo "$out" | tail -5
+    fail=1
+  elif echo "$out" | grep -qE "Parse Error|Semantic error|Fatal errors"; then
     echo "SANY FAILED: $m"
     echo "$out" | tail -20
     fail=1
