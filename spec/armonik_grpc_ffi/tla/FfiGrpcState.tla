@@ -18,11 +18,23 @@ EXTENDS AbstractGrpcState, Naturals, FiniteSets
 CONSTANTS
     MaxSendsInFlight, \* pinned send buffers a call may hold at once
     DeliveryCredits,  \* unconsumed payloads a call may owe the host
-    BufferIds         \* the send-buffer identity space, per call
+    BufferIds,        \* the send-buffer identity space, per call
+    Ceiling,          \* the runtime-wide byte limit on lent send memory
+    MessageLength     \* the size in bytes of each abstract message
 
 ASSUME MaxSendsInFlightIsPositive == MaxSendsInFlight \in Nat \ {0}
 
 ASSUME DeliveryCreditsArePositive == DeliveryCredits \in Nat \ {0}
+
+\* Positive so that a lend of the whole ceiling is representable, and so that
+\* a charge can be strictly positive - which is what makes a zero total mean
+\* an empty outstanding set rather than a set of weightless buffers.
+ASSUME CeilingIsPositive == Ceiling \in Nat \ {0}
+
+\* A message has a size.  Only the commit reads it, to check that the message
+\* fits the buffer it was given; the budget charges what the allocator handed
+\* out, which is at least what the host asked for and may be more.
+ASSUME MessageLengthIsNat == MessageLength \in [Messages -> Nat]
 
 \* Buffers are named, unlike payloads, because ak_buffer carries an owner
 \* and the ABI says a buffer is given back exactly once.  A payload needs
@@ -95,28 +107,25 @@ VARIABLES
     resources_released_emitted,  \* per runtime: RESOURCES_RELEASED went out
     resources_released_callback_running, \* per runtime: its callback on stack
 
-\* The emission budget, as a state rather than a quantity.  The ABI has a
-\* runtime-wide byte ceiling on the memory it lends for sending, but no count
-\* of bytes appears here.  A sum over the live buffers would be an identity
-\* over a partition of a finite set - true however the model is written, so it
-\* would discriminate no design and catch no defect - and whether the one
-\* counter is maintained correctly is a question for a code invariant and a
-\* concurrency test, not for a refinement.
-\* One boolean carries design because it is welded to the buffer lifecycle at
-\* both ends.  Lending is guarded on the budget being down and may raise it,
-\* which is the whole of what the budget being exhaustible means.  Freeing a
-\* returned buffer's bytes may lower it, may never raise it, and may leave it
-\* up only while some buffer is still out - that last clause is what forbids a
-\* runtime stuck exhausted with nothing in anyone's hands, and it is what the
-\* relief property rests on.  Nothing here says what the budget is or how it
-\* is computed.
+\* The emission budget, in bytes.  buffer_charge records what the allocator
+\* handed out for a buffer, written once when the buffer is lent and read by
+\* the commit and the free; memory_used is the runtime-wide counter, kept the
+\* way the implementation keeps it - an independent quantity moved by the lend
+\* and the free, not a sum evaluated on demand.
+\* Independent is the point.  MemoryAccountingExact ties the counter to the
+\* charges of the buffers actually out, and it can fail: a path that forgets
+\* an increment, forgets a decrement, credits twice, or publishes a snapshot
+\* between two updates breaks it.  Defined as the sum it would be a tautology;
+\* the ABI publishes this counter, so a host builds on it, and a published
+\* number that can drift is a promise someone will rely on.
 \* The emission path only.  Receive-side memory belongs to hyper and is
 \* governed by the HTTP/2 flow control window, not by anything the ABI can
 \* refuse against, and a genuine allocation failure in Rust aborts rather than
 \* returning an error - so there is no refusal on that side to model.
 \* Global rather than per runtime: at most one runtime is outstanding, and the
-\* budget being down at destroy is proved rather than assumed - quiescence
-\* leaves no buffer out, and the invariant reads the budget off that.
-    memory_cap_exhausted         \* runtime-wide: a lend refuses against it
+\* counter reaching zero at destroy is proved rather than assumed - quiescence
+\* leaves no buffer out, and the accounting reads the counter off that.
+    buffer_charge,               \* per call, per buffer: the bytes allocated
+    memory_used                  \* runtime-wide: bytes lent and not yet freed
 
 =============================================================================

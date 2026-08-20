@@ -64,8 +64,8 @@ NextSafeShutdownFfi ==
 NextSafeCallFfi ==
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
-    \/ \E cId \in CallIds, b \in BufferIds :
-           LendSendBuffer(cId, b)
+    \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
+           LendSendBuffer(cId, b, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
@@ -350,17 +350,23 @@ DestroyedRuntimeIsClean ==
     \A rtId \in RuntimeIds :
         IsRuntimeDestroyed(rtId) => IsRuntimeQuiescent(rtId)
 
-\* The emission budget is never exhausted with no buffer outstanding.  This is
-\* the one thing the model asserts about the budget, and it is what makes
-\* reaching it temporary rather than terminal: the relief argument reads the
-\* budget off the buffers through this invariant's contrapositive.  It carries
-\* content because it could fail - a free that kept the budget exhausted with
-\* nothing left out would break it, which is exactly the runtime that can never
-\* lend again.  Outside the NotFailed umbrella: failing changes neither the
-\* budget nor any buffer, so the implication survives a failure, and the host
-\* can still get its memory back afterwards.
-BudgetExhaustedMeansBufferOut ==
-    memory_cap_exhausted => SomeBufferOutstanding
+\* The counter says what the buffers out actually charge.  This is the one
+\* accounting claim with content, and it can fail: a lend that forgets its
+\* increment, a free that forgets its decrement or subtracts the wrong charge,
+\* a second credit for one buffer - each breaks it.  Defined as the sum it
+\* would be a tautology, which is why memory_used is a variable the actions
+\* move rather than an expression evaluated on demand: that is also how the
+\* implementation keeps it, and it is the number the ABI publishes.
+\* Outside the NotFailed umbrella, like the buffer disciplines it rests on:
+\* failing changes neither the counter nor any charge, so a host still gets its
+\* memory back afterwards and the observers still answer.
+MemoryAccountingExact ==
+    memory_used = BytesOutstanding
+
+\* And the counter never passes the ceiling.  Carried by the lend's guard
+\* alone - the free only ever subtracts - so it needs no arithmetic beyond it.
+MemoryWithinCeiling ==
+    memory_used <= Ceiling
 
 StrongInv ==
     /\ L0!StrongInv
@@ -369,7 +375,8 @@ StrongInv ==
     /\ BufferStateInv
     /\ ShutdownSignalInv
     /\ DestroyedRuntimeIsClean
-    /\ BudgetExhaustedMeansBufferOut
+    /\ MemoryAccountingExact
+    /\ MemoryWithinCeiling
 
 \* FfiCallInv sits outside the NotFailed umbrella: its preservation is
 \* guard-based only, and the fairness lifts need the send and delivery
@@ -380,7 +387,8 @@ IndInv ==
     /\ L0!SingleRuntime
     /\ FfiCallInv
     /\ BufferStateInv
-    /\ BudgetExhaustedMeansBufferOut
+    /\ MemoryAccountingExact
+    /\ MemoryWithinCeiling
     /\ (L0!NotFailed => StrongInv)
 
 \* The level-1 safety contract: the inherited level-0 invariant plus the
@@ -390,7 +398,8 @@ SafetyInvariant ==
     /\ L0!SafetyInvariant
     /\ FfiCallInv
     /\ BufferStateInv
-    /\ BudgetExhaustedMeansBufferOut
+    /\ MemoryAccountingExact
+    /\ MemoryWithinCeiling
     /\ (L0!NotFailed => ShutdownSignalInv)
     /\ (L0!NotFailed => DestroyedRuntimeIsClean)
 

@@ -81,7 +81,8 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ ~EndSend(cId)
            /\ \A msg \in Messages, b \in BufferIds :
                  ~SendMessage(cId, msg, b)
-           /\ \A b \in BufferIds : ~LendSendBuffer(cId, b)
+           /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 ~LendSendBuffer(cId, b, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 
 (***************************************************************************)
@@ -307,10 +308,11 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 THEOREM RuntimeEventuallyQuiescentHolds ==
     Spec => RuntimeEventuallyQuiescent
 
-\* The emission budget's own promise: exhausting it is temporary, which is what
-\* makes AK_STATUS_BUDGET_BUSY worth retrying against instead of a fault.
-THEOREM MemoryCapEventuallyRelievedHolds ==
-    Spec => MemoryCapEventuallyRelieved
+\* The emission budget's own promise: a request the ABI would consider, refused
+\* for want of room, eventually has room.  Not that the caller who was refused
+\* is the one served - lending carries no fairness.
+THEOREM BudgetEventuallyAdmitsHolds ==
+    Spec => BudgetEventuallyAdmits
 
 \* The release tag's own promise, named so a level-2 binding can refine it
 \* rather than re-derive it: a host that was told to give memory back is told

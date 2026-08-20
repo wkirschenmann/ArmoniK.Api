@@ -53,7 +53,11 @@
 (* it.                                                                     *)
 (***************************************************************************)
 
-EXTENDS FfiGrpcState, Naturals, Sequences
+\* Functions for SumFunctionOnSet: the budget's total is a sum of a function
+\* over a set of indices.  First order in both arguments, which is what lets
+\* the primed total be written at all - tlapm does not distribute a prime
+\* through a higher-order application.  Its theory is FunctionTheorems.
+EXTENDS FfiGrpcState, Naturals, Sequences, Functions
 
 (***************************************************************************)
 (* The whole state comes from FfiGrpcState: the constants and the twelve   *)
@@ -78,7 +82,7 @@ ffi_vars == <<buffers_held_by_host,
               runtime_destroyed, buffer_state, buffer_send,
               second_event_owed, resources_released_emitted,
               resources_released_callback_running,
-              memory_cap_exhausted>>
+              buffer_charge, memory_used>>
 
 \* The level-0 state, under a local name for the stuttering actions.  TLC
 \* cannot resolve an instantiated tuple inside ENABLED, so the MC
@@ -219,16 +223,59 @@ BufferOutstanding(cId, b) ==
 SomeBufferOutstanding ==
     \E cId \in CallIds, b \in BufferIds : BufferOutstanding(cId, b)
 
-\* Some buffer other than this one is out.  Read on the current state rather
-\* than the next, which says the same thing where it is used - freeing removes
-\* exactly this buffer from the set - and reads without a prime, which is what
-\* ENABLED can expand.  Named rather than written out so a proof that needs
-\* only the other branch of the budget clause is handed an atom instead of an
-\* existential to satisfy.
-AnotherBufferOutstanding(cId, b) ==
-    \E c2 \in CallIds, b2 \in BufferIds :
-        /\ <<c2, b2>> # <<cId, b>>
-        /\ BufferOutstanding(c2, b2)
+\* --- THE EMISSION BUDGET, IN BYTES ---
+\* Every comparison lives in a predicate.  A bare inequality in a property is
+\* two unrelated atoms to the temporal backend, which cannot then see that one
+\* is the negation of the other; named, it is one atom and its negation.
+
+\* A request the ABI will consider at all.  Strictly positive so a charge is
+\* never weightless, and no larger than the ceiling - above that the refusal is
+\* AK_STATUS_MESSAGE_TOO_LARGE, permanent, and the complement of this
+\* predicate is exactly that condition.
+IsLendable(len) == 0 < len /\ len <= Ceiling
+
+\* Room for a charge right now.  Its negation is what AK_STATUS_BUDGET_BUSY
+\* reports, and a refusal writes nothing: the lend simply does not fire for
+\* that size, while it may fire for a smaller one.  That per-size refusal is
+\* the host's polling, and it is why the size is a parameter of the action.
+IsMemoryAvailable(charge) == memory_used + charge <= Ceiling
+
+\* The allocator hands out at least what was asked.  The budget charges what
+\* it handed out, not what was asked: the ceiling then bounds the bytes the
+\* runtime really holds.  Nothing here models a rounding policy.
+CoversRequest(charge, len) == len <= charge
+
+\* A message fits the buffer it was given.  Read at the commit, where the
+\* message appears - the lend saw only a length.
+FitsInBuffer(msg, cId, b) ==
+    MessageLength[msg] <= buffer_charge[<<cId, b>>]
+
+\* The buffers the budget is holding, as a set of pairs, and the charge of
+\* one.  Named so the sums below are folds over an atom.
+OutstandingPairs ==
+    {q \in CallIds \X BufferIds : BufferOutstanding(q[1], q[2])}
+LentPairs ==
+    {q \in CallIds \X BufferIds : IsLentBuffer(q[1], q[2])}
+InFlightPairs ==
+    {q \in CallIds \X BufferIds :
+        IsReturnedBuffer(q[1], q[2]) /\ ~CarriesNoUnacquittedSend(q[1], q[2])}
+HeldPairs ==
+    {q \in CallIds \X BufferIds :
+        IsReturnedBuffer(q[1], q[2]) /\ CarriesNoUnacquittedSend(q[1], q[2])}
+
+\* The four numbers the ABI publishes, as sums over those sets.  Definitions
+\* rather than counters: what the implementation maintains is memory_used, and
+\* MemoryAccountingExact is what says it agrees with these.  The partition
+\* identity between the three categories and the total is a lemma, not an
+\* invariant - it holds of any state, so there is nothing to preserve.
+BytesOutstanding  == SumFunctionOnSet(buffer_charge, OutstandingPairs)
+BytesHostLent     == SumFunctionOnSet(buffer_charge, LentPairs)
+BytesSendInFlight == SumFunctionOnSet(buffer_charge, InFlightPairs)
+BytesRuntimeHeld  == SumFunctionOnSet(buffer_charge, HeldPairs)
+
+\* The sizes a lend may be asked for.  Bounded by the ceiling so Next
+\* quantifies over a finite set: above it the request is refused anyway.
+Sizes == 1..Ceiling
 
 \* The SHUTDOWN_COMPLETE discipline, per runtime.
 IsShutdownEventEmitted(rtId) == shutdown_event_emitted[rtId]
@@ -366,7 +413,11 @@ TypeOK ==
     /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
-    /\ memory_cap_exhausted \in BOOLEAN
+    /\ buffer_charge \in [CallIds \X BufferIds -> Nat]
+    \* Int, not Nat: the free subtracts, so staying in Nat would need the
+    \* accounting inside the type proof.  MemoryAccountingExact pins it to a
+    \* sum of naturals, which is where non-negativity belongs.
+    /\ memory_used \in Int
 
 Init ==
     /\ L0!Init
@@ -388,7 +439,8 @@ Init ==
     /\ resources_released_emitted = [rtId \in RuntimeIds |-> FALSE]
     /\ resources_released_callback_running =
            [rtId \in RuntimeIds |-> FALSE]
-    /\ memory_cap_exhausted = FALSE
+    /\ buffer_charge = [q \in CallIds \X BufferIds |-> 0]
+    /\ memory_used = 0
 
 (***************************************************************************)
 (* ACTIONS - Runtime lifecycle                                             *)
@@ -426,7 +478,7 @@ RuntimeBeginShutdown(rtId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 EmitShutdownComplete(rtId) ==
     /\ IsStoppingRuntime(rtId)
@@ -452,7 +504,7 @@ EmitShutdownComplete(rtId) ==
     /\ UNCHANGED <<runtime_destroyed, buffer_state, buffer_send,
                    resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 ShutdownCallbackReturns(rtId) ==
     /\ IsShutdownCallbackRunning(rtId)
@@ -467,7 +519,7 @@ ShutdownCallbackReturns(rtId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* Release happens after the SHUTDOWN_COMPLETE callback has returned, and it
 \* publishes AK_RUNTIME_GRPC_STOPPED: the gRPC machinery - channels,
@@ -501,7 +553,7 @@ RuntimeDestroy(rtId) ==
                    buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* The second signal: the host has given everything back and the runtime has
 \* released it.  Owed only when SHUTDOWN_COMPLETE said so, because a host told
@@ -528,7 +580,7 @@ EmitResourcesReleased(rtId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send, second_event_owed,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 ResourcesReleasedCallbackReturns(rtId) ==
     /\ IsResourcesReleasedCallbackRunning(rtId)
@@ -541,7 +593,7 @@ ResourcesReleasedCallbackReturns(rtId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send, second_event_owed,
-                   resources_released_emitted, memory_cap_exhausted>>
+                   resources_released_emitted, buffer_charge, memory_used>>
 
 RuntimeFail(rtId) ==
     /\ L0!RuntimeFail(rtId)
@@ -576,7 +628,7 @@ ChannelStartClosing(chId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* At level 1 the close completes only once every call has terminated on
 \* its own (through DeliverCancelled): the level-0 cancel-en-masse
@@ -613,7 +665,7 @@ RequestCallCancellation(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* Reclaiming a call is the runtime's own step, not a downcall: the ABI has
 \* no ak_call_release.  Every resource a call lends out comes back through
@@ -648,7 +700,7 @@ ReleaseCallHandle(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 (***************************************************************************)
 (* ACTIONS - Send path                                                     *)
@@ -662,23 +714,32 @@ ReleaseCallHandle(cId) ==
 \* downcall has not returned in between, so nothing can observe a
 \* difference, and splitting them would only be needed to model an
 \* allocation failure.
-LendSendBuffer(cId, b) ==
+LendSendBuffer(cId, b, len, charge) ==
     /\ L0!IsActiveCall(cId)
     /\ ~IsHandleReleased(cId)
     /\ ~IsCancelRequested(cId)
     /\ HasFreeSendSlot(cId)
     /\ IsFreshBuffer(cId, b)
-    \* The emission budget refuses here, and refusing is the whole of it:
-    \* AK_STATUS_BUDGET_BUSY is a step the model does not take rather than a
-    \* state it enters.  Nothing rests on this action being enabled - it
-    \* carries no fairness - so guarding it costs no proved liveness.
-    /\ ~memory_cap_exhausted
+    \* The three budget conditions.  A request outside IsLendable is refused
+    \* permanently - that is AK_STATUS_MESSAGE_TOO_LARGE, and the model derives
+    \* the permanence rather than asserting it: the charge covers the request,
+    \* so a length above the ceiling leaves IsMemoryAvailable false in every
+    \* state.  A request that does not fit right now is AK_STATUS_BUDGET_BUSY,
+    \* and that refusal is this action not firing for this size while it may
+    \* fire for a smaller one - the host's polling, which is why the size is a
+    \* parameter.  Nothing rests on the action being enabled, it carrying no
+    \* fairness, so refusing costs no proved liveness.
+    /\ IsLendable(len)
+    /\ CoversRequest(charge, len)
+    /\ IsMemoryAvailable(charge)
     /\ buffers_held_by_host' =
            [buffers_held_by_host EXCEPT ![cId] = @ + 1]
     /\ buffer_state' = [buffer_state EXCEPT ![cId][b] = "lent"]
-    \* Lending may exhaust the budget or may not, and the model says no more
-    \* than that about when.
-    /\ memory_cap_exhausted' \in BOOLEAN
+    \* The charge is recorded once, on a fresh buffer, and never rewritten -
+    \* the discipline buffer_send already follows.  The counter moves by it
+    \* here and back by it at the free, which is what the accounting checks.
+    /\ buffer_charge' = [buffer_charge EXCEPT ![<<cId, b>>] = charge]
+    /\ memory_used' = memory_used + charge
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<write_dones_emitted, write_done_callback_running,
                    delivery_callback_running, payloads_consumed_by_host,
@@ -710,7 +771,7 @@ HostReturnsBuffer(cId, b) ==
                    buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* The runtime releases the bytes of a buffer the host has given back.
 \* Not an ABI event at all: when the allocation actually goes is Rust's
@@ -726,16 +787,11 @@ FreeReturnedBuffer(cId, b) ==
     \* is free to go at once.
     /\ CarriesNoUnacquittedSend(cId, b)
     /\ buffer_state' = [buffer_state EXCEPT ![cId][b] = "freed"]
-    \* Giving the bytes back may relieve the budget and may never exhaust it,
-    \* and it may leave the budget exhausted only while some buffer is still
-    \* out.  That last clause is the only thing the model asserts about the
-    \* budget, and it is what makes exhaustion temporary: the one taker is
-    \* guarded off, so what is out only shrinks and the clause runs out of
-    \* excuses.
-    /\ \/ memory_cap_exhausted' = FALSE
-       \/ /\ memory_cap_exhausted' = TRUE
-          /\ memory_cap_exhausted
-          /\ AnotherBufferOutstanding(cId, b)
+    \* Exactly the charge the lend added comes back off the counter.  The
+    \* charge itself stays recorded and is never summed again, the sums running
+    \* over the buffers still out.
+    /\ memory_used' = memory_used - buffer_charge[<<cId, b>>]
+    /\ UNCHANGED buffer_charge
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host,
                    write_dones_emitted, write_done_callback_running,
@@ -760,10 +816,13 @@ FreeReturnedBuffer(cId, b) ==
 \* would let the model decide where the host decides, and would make the
 \* send-to-buffer link a record of a nondeterministic choice rather than of
 \* what the caller passed.
+\* The message must fit the buffer it was handed.  The lend saw a length
+\* only; here the message is known, so this is where the check belongs.
 SendMessage(cId, msg, b) ==
     /\ HostHoldsSomeBuffer(cId)
     /\ ~IsCancelRequested(cId)
     /\ IsLentBuffer(cId, b)
+    /\ FitsInBuffer(msg, cId, b)
     /\ L0!SendMessage(cId, msg)
     /\ buffers_held_by_host' =
            [buffers_held_by_host EXCEPT ![cId] = @ - 1]
@@ -779,7 +838,7 @@ SendMessage(cId, msg, b) ==
                    runtime_destroyed,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 EndSend(cId) ==
     /\ ~IsHandleReleased(cId)
@@ -805,7 +864,7 @@ EmitWriteDone(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 WriteDoneReturns(cId) ==
     /\ IsWriteDoneCallbackRunning(cId)
@@ -819,7 +878,7 @@ WriteDoneReturns(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 (***************************************************************************)
 (* ACTIONS - Network (identical to level 0)                                *)
@@ -852,7 +911,7 @@ DeliverInitialMetadata(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 DeliverMessage(cId) ==
     /\ HasFreeDeliverySlot(cId)
@@ -866,7 +925,7 @@ DeliverMessage(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* Terminals wait for the send side to drain: WRITE_DONE precedes the
 \* terminal, so the terminal is the last callback of the call and the
@@ -885,7 +944,7 @@ DeliverStatus(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* Cancellation completes as a delivered CANCELLED terminal.  Refines
 \* L0!CallCancel: the callback is the cancellation.
@@ -902,7 +961,7 @@ DeliverCancelled(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 DeliveryCallbackReturns(cId) ==
     /\ IsDeliveryCallbackRunning(cId)
@@ -917,7 +976,7 @@ DeliveryCallbackReturns(cId) ==
                    buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 \* ak_event_consumed: frees the oldest payload the host still holds and
 \* arms the next delivery in one gesture.  Takes the payload, not the
@@ -937,7 +996,7 @@ HostConsumesEvent(cId) ==
                    buffer_state, buffer_send,
                    second_event_owed, resources_released_emitted,
                    resources_released_callback_running,
-                   memory_cap_exhausted>>
+                   buffer_charge, memory_used>>
 
 (***************************************************************************)
 (* NEXT STATE RELATION                                                     *)
@@ -961,8 +1020,8 @@ Next ==
     \/ \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
-    \/ \E cId \in CallIds, b \in BufferIds :
-           LendSendBuffer(cId, b)
+    \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
+           LendSendBuffer(cId, b, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
@@ -1092,14 +1151,23 @@ ResourcesReleasedEventually ==
             (IsResourcesReleasedEmitted(rtId) \/ ~L0!NotFailed)
 
 
-\* Exhausting the emission budget is always temporary.  Lending cannot fire
-\* while it is exhausted, so the buffers out only shrink; each of them is
-\* eventually freed, by BufferEventuallyFreed; and freeing may not leave the
-\* budget exhausted once none is out.  It does not say that a particular
-\* caller wins the capacity that comes back - lending carries no fairness, and
-\* nothing stops the same caller losing the race every time.
-MemoryCapEventuallyRelieved ==
-    memory_cap_exhausted ~> ~memory_cap_exhausted
+\* A request the ABI would consider, refused for want of room, eventually has
+\* room.  Every buffer out is eventually freed, so the counter reaches zero,
+\* and at zero any lendable size fits.  Stated on a predicate and its negation
+\* rather than on two inequalities: the temporal backend matches formulas, and
+\* two arithmetic comparisons are two unrelated atoms to it.
+\* It does not say the caller who was refused wins the room that comes back -
+\* lending carries no fairness, and nothing stops the same caller losing the
+\* race every time.  What a retry loop is owed is level 2's
+\* BudgetCancellationStopsRetry.
+\* The guard sits outside the leads-to, not inside its antecedent.  It reads
+\* only len and Ceiling, both rigid, so the two forms are equivalent - but the
+\* temporal backend treats every atom as flexible, and inside the antecedent it
+\* cannot know the guard still holds when the room arrives.
+BudgetEventuallyAdmits ==
+    \A len \in Nat :
+        IsLendable(len) =>
+            (~IsMemoryAvailable(len) ~> IsMemoryAvailable(len))
 
 LivenessProperties ==
     /\ CancellationCompletes
@@ -1114,7 +1182,7 @@ LivenessProperties ==
     /\ CallEventuallyReclaimed
     /\ RuntimeEventuallyQuiescent
     /\ ResourcesReleasedEventually
-    /\ MemoryCapEventuallyRelieved
+    /\ BudgetEventuallyAdmits
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)
