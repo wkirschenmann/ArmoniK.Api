@@ -1401,8 +1401,8 @@ AK_STATUS_MESSAGE_TOO_LARGE  <=>  len > ceiling
 AK_STATUS_BUDGET_BUSY        <=>  len <= ceiling  and  bytes_used + charge > ceiling
 ```
 
-Charging the request instead was this design's earlier shape, and it fails at the one thing
-the ceiling exists for. A budget that counts what was asked for bounds an accounting fiction;
+Charging the request instead is the obvious alternative, and it fails at the one thing the
+ceiling exists for. A budget that counts what was asked for bounds an accounting fiction;
 the memory that has to fit is what the allocator handed out. Size-class rounding and per-arena
 slack would sit outside the ceiling, and the ceiling would be wrong by however much they come
 to - silently, and in the direction that matters.
@@ -1415,7 +1415,7 @@ around. A host holding a 4 MiB message against a 4 MiB ceiling still knows which
 will get. `BUDGET_BUSY` is not predictable from the host's own numbers, and does not need to
 be: it is transient, it has a wake-up, and retrying on it is the correct response.
 
-The residue is smaller than under the earlier shape but it is not zero: **the ceiling bounds
+The residue is small but it is not zero: **the ceiling bounds
 the bytes the allocator reported, not the process's resident memory.** Allocator metadata, the
 arena's own structures and fragmentation between arenas sit outside it. No bound relating the
 two is asserted here: it is not known that the relation even has the shape of a factor plus a
@@ -2460,11 +2460,11 @@ the artefact rather than left to rot:
 | Element | Status |
 |---------|--------|
 | Specification described in this document | Current |
-| Level 1, model-checked (TLC), base configuration | Being re-run for this revision. The counter design has never been through TLC: all five configurations carried `MessageLength` as a function literal in the `.cfg`, which TLC's configuration grammar does not accept, so none of them started. The sizes now come from `MC_MessageLength` in the module, as `l0_vars` and `PayloadIndices` already did. The 435984 distinct states recorded here previously belong to the latch design that preceded the counters |
+| Level 1, model-checked (TLC), base configuration | Being re-run for this revision. The counter design has never been through TLC: all five configurations carried `MessageLength` as a function literal in the `.cfg`, which TLC's configuration grammar does not accept, so none of them started. The sizes now come from `MC_MessageLength` in the module, as `l0_vars` and `PayloadIndices` already did. |
 | Level 1, model-checked (TLC), the other four configurations | Being re-run for this revision |
 | Level 1, TLC coverage of the new liveness properties | `MCBudgetEventuallyAdmits` - the bounded lift of `BudgetEventuallyAdmits`, `Nat` not being enumerable - is named by the base configuration. The others are not: no configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`, so those are proved and not model-checked |
 | Level 0, model-checked (TLC, four configurations) | Current; the level-0 modules did not change this revision |
-| Level 1, one pass at `--stretch 1` | **10867 obligations, all proved, 10m54s at `--threads 8`**, this revision. A single pass is the whole verification now: the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) retired the 300-line windows this table used to report, along with the finding that window size dominated the cost. Both belonged to the older build |
+| Level 1, one pass at `--stretch 1` | **10867 obligations, all proved, 10m54s at `--threads 8`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
 | Level 0, one pass at `--stretch 1` | 1632 obligations proved, this revision; the level-0 module did not change |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. The twelve irreducible Isabelle calls in `RefinesSpec` and the fairness lemmas now carry `IsaT(600)`, a ceiling and not a cost |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
@@ -2476,11 +2476,11 @@ the artefact rather than left to rot:
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
 | Level 2 | Specified, not modelled, not proved |
 
-An earlier revision of this document argued the opposite, and the argument is worth recording
-because half of it was right. Carrying the accounting does make the partition identity close to
-true by construction: `BytesOutstanding` is a sum over the pairs `buffer_state` selects, so
-`CategoriesPartitionTotal` discriminates no design and would catch no defect on its own. What
-that argument missed is that `MemoryAccountingExact` is not of that kind. It relates a counter
+There is an objection to modelling any of this, and it is half right, so it is worth stating.
+The partition identity is close to true by construction: `BytesOutstanding` is a sum over the
+pairs `buffer_state` selects, so `CategoriesPartitionTotal` discriminates no design and would
+catch no defect on its own. Where the objection stops holding is `MemoryAccountingExact`, which
+is not of that kind. It relates a counter
 the actions update by arithmetic - `memory_used' = memory_used + charge` on the lend,
 `- buffer_charge[<<cId, b>>]` on the free - to a sum over a set those same actions reshape, and
 nothing makes the two agree except the actions being written correctly. It is what makes the
@@ -2488,7 +2488,7 @@ ceiling mean anything: without it `MemoryWithinCeiling` bounds a number with no 
 to the memory that is out. It is also the only reason `memory_used` can be typed `Int` and still
 be known non-negative, the free being the one action that subtracts.
 
-The price the earlier revision named is real and was paid: the sums over sets are the expensive
+The price the objection names is real and is paid: the sums over sets are the expensive
 part of these proofs. `SumFunctionOnSet` from the standard `Functions` module and its theory in
 `FunctionTheorems` carry it - `SumFunctionOnSetAddIndex` for the lend, `SumFunctionOnSetRemoveIndex`
 for the free, `SumFunctionOnSetEqual` where a state moves without changing a charge. A fold taking
