@@ -677,7 +677,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_call_send_message`'s `buffer` | `b` in `SendMessage(cId, msg, b)`. An argument, not a choice made inside the action: the host names the allocation it commits, and letting the model pick would make `buffer_send` a record of nondeterminism rather than of what the caller passed |
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
-| `ak_get_call_buffer`'s `len` | `len` in `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned for it. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two. Level 0 carries no sizes: its send window counts allocations |
+| `ak_get_call_buffer`'s `len` | The model identifies the request by the message it is for: `LendSendBuffer(cId, b, msg, charge)`, with `len = MessageLength[msg]` and `charge` the size the allocator returned. The message is the model's prophecy of what the buffer will carry, and it is what keeps several outstanding requests distinguishable - two requests of a hundred bytes are the same length and different messages. `IsSendableMessage(msg)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversMessage(charge, msg)` ties the two. Level 0 carries no sizes: its send window counts allocations |
 | `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight` and `DeliveryCredits`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
@@ -2059,9 +2059,12 @@ nineteen FFI variables:
   implementation moves it rather than evaluated as a sum on demand. Typed `Int`, the free
   being the one action that subtracts; `MemoryAccountingExact` is what makes it non-negative
   and what makes the ceiling mean anything
-- `last_lend_status`: per call, what its last `ak_get_call_buffer` returned - `OK` or one of
-  the three refusals. Nothing else reads it, which is the point: it makes a refusal an event
-  the properties can quantify over without giving any action a new way to be blocked
+- `last_lend_status`: per call and per message, what the last `ak_get_call_buffer` for that
+  request returned - `OK` or one of the three refusals. Keyed by the request rather than by
+  the call so that several requests in flight stay distinguishable: a promise about "the
+  refused request" needs the refusal and the grant to name the same one. Nothing else reads
+  it, which is the point: it makes a refusal an event the properties can quantify over
+  without giving any action a new way to be blocked
 
 Deliberately absent: no handle registry (validity is modeled, not indices and
 generations, so the slot map's generation counter is an implementation of handle validity
@@ -2257,21 +2260,28 @@ New liveness guarantees:
   having gone out. Level 2 refines this one rather than re-deriving it
 
 - **BudgetEventuallyAdmits**: a request the ABI would consider, refused for want of room,
-  eventually has room. `IsLendable(len)` is the request the ABI considers at all - strictly
-  positive, no larger than the ceiling - and its complement is exactly
-  `AK_STATUS_MESSAGE_TOO_LARGE`, whose permanence the model now derives rather than
-  asserts: the charge covers the request, so a length above the ceiling leaves
-  `IsMemoryAvailable` false in every state. `~IsMemoryAvailable(len)` is what
-  `AK_STATUS_BUDGET_BUSY` reports, and that refusal writes nothing - the lend simply does
-  not fire for that size while it may fire for a smaller one, which is why the size is a
-  parameter of the action and why the host's polling is a stutter. Proved from the drain:
-  every buffer out is eventually freed, so the outstanding set empties, the accounting
-  makes the counter zero, and at zero any lendable size fits. It does **not** say the
-  caller who was refused wins the room that comes back - lending carries no fairness, and
-  nothing stops the same caller losing the race every time. What a retry loop is owed is
-  level 2's `BudgetCancellationStopsRetry`. Stated on a predicate and its negation rather
-  than on two inequalities: the temporal backend matches formulas, and two arithmetic
-  comparisons are two unrelated atoms to it
+  eventually has room. `IsLendable(len)` is the request the ABI considers at all - no
+  larger than the ceiling, an empty serialized message being valid - and its complement is
+  exactly `AK_STATUS_MESSAGE_TOO_LARGE`, whose permanence the model derives rather than
+  asserts: `IsLendable` reads the request and the ceiling and nothing else, so no return
+  by anyone changes the answer. `IsRequestAdmissible(len)` - some charge covers the
+  request and fits - is what a `AK_STATUS_BUDGET_BUSY` refusal denies; it is stated as an
+  existential over charges because the allocator picks the charge, and a promise about one
+  charge would be a promise about the allocator's mood. Proved from the drain: every
+  buffer out is eventually freed, so the outstanding set empties, the accounting makes the
+  counter zero, and at zero the request is its own witness. It says nothing about who is
+  served; the per-request promise is the next property
+- **BudgetRefusalEventuallyLends**: the request that was refused is granted - or the call
+  leaves the state where lending means anything, or the runtime fails, the escape every
+  inherited liveness carries. The antecedent is a `BUDGET_BUSY` refusal recorded by the
+  refusal actions, which is why they exist: stated on the absence of a transition, this
+  promise cannot be written down at all. `CanStillLend` is the eligibility - the call
+  takes downcalls, the window has room, some buffer is free - and its loss is a legitimate
+  end of the promise: a cancelled or terminal call is owed no buffer. Proved from the
+  level-0 termination promise: eligibility keeps the call active, an active call reaches
+  its status or the runtime fails, and a delivered status ends eligibility through the
+  terminal-status equivalence. What a retry loop is owed on top is level 2's
+  `BudgetCancellationStopsRetry`
 
 #### Fairness
 
@@ -2371,7 +2381,14 @@ Additional invariants:
   a host obligation rather than a runtime promise. A host that polls while holding a lent
   buffer therefore breaks the very property that would let its poll succeed, which is what
   makes `RetryingCallHoldsNoBuffer` the condition of the whole polling design rather than a
-  detail of it
+  detail of it. The lend carries the same kind of conjunct and it has to be read the same
+  way: `WF(LendForMessage)` forces a successful `ak_get_call_buffer`, and a downcall only
+  the host can make being forced is a hypothesis *on the host* - it keeps asking - not a
+  promise of the runtime. It is what "the runtime does its best" amounts to formally: taken
+  at the message's own size, the instance is enabled exactly when there is room for what
+  was asked, and the allocator's other choices stay unconstrained. A level-2 binding
+  discharges it with its retry loop, which is the same loop `RetryingCallHoldsNoBuffer`
+  constrains
 - **MessageTooLargeIsNotRetried**: a lend refused with `AK_STATUS_MESSAGE_TOO_LARGE`
   schedules no retry at all. The refusal is permanent by construction - `len > ceiling` is a
   property of the request and not of the moment - so a binding that retried it would poll

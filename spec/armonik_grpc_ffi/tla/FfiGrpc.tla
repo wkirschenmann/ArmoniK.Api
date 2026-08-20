@@ -258,8 +258,16 @@ Sizes == 0..Ceiling
 LendStatuses ==
     {"NONE", "OK", "SLOT_BUSY", "BUDGET_BUSY", "MESSAGE_TOO_LARGE"}
 
-\* One witness above the ceiling: a request the ABI refuses permanently.
-RequestSizes == 0..(Ceiling + 1)
+\* The request, spoken of as the message it is for.  A guard that reached into
+\* MessageLength would put arithmetic back where the predicates are meant to
+\* hold it, and every proof about a lend would have to carry the lookup.
+IsSendableMessage(msg)     == IsLendable(MessageLength[msg])
+CoversMessage(charge, msg) == CoversRequest(charge, MessageLength[msg])
+
+\* Some charge the allocator could pick both covers the message and fits.
+IsMessageAdmissible(msg) ==
+    \E charge \in Sizes :
+        CoversMessage(charge, msg) /\ IsMemoryAvailable(charge)
 
 IsRequestAdmissible(len) ==
     \E charge \in Sizes :
@@ -429,7 +437,7 @@ TypeOK ==
     /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
-    /\ last_lend_status \in [CallIds -> LendStatuses]
+    /\ last_lend_status \in [CallIds \X Messages -> LendStatuses]
     /\ buffer_charge \in [CallIds \X BufferIds -> Nat]
     /\ buffer_length \in [CallIds \X BufferIds -> Nat]
     \* Int, not Nat: the free subtracts, so staying in Nat would need the
@@ -457,7 +465,7 @@ Init ==
     /\ resources_released_emitted = [rtId \in RuntimeIds |-> FALSE]
     /\ resources_released_callback_running =
            [rtId \in RuntimeIds |-> FALSE]
-    /\ last_lend_status = [cId \in CallIds |-> "NONE"]
+    /\ last_lend_status = [q \in CallIds \X Messages |-> "NONE"]
     /\ buffer_charge = [q \in CallIds \X BufferIds |-> 0]
     /\ buffer_length = [q \in CallIds \X BufferIds |-> 0]
     /\ memory_used = 0
@@ -736,7 +744,7 @@ ReleaseCallHandle(cId) ==
 \* downcall has not returned in between, so nothing can observe a
 \* difference, and splitting them would only be needed to model an
 \* allocation failure.
-LendSendBuffer(cId, b, len, charge) ==
+LendSendBuffer(cId, b, msg, charge) ==
     /\ L0!IsActiveCall(cId)
     /\ ~IsHandleReleased(cId)
     /\ ~IsCancelRequested(cId)
@@ -751,8 +759,8 @@ LendSendBuffer(cId, b, len, charge) ==
     \* fire for a smaller one - the host's polling, which is why the size is a
     \* parameter.  Nothing rests on the action being enabled, it carrying no
     \* fairness, so refusing costs no proved liveness.
-    /\ IsLendable(len)
-    /\ CoversRequest(charge, len)
+    /\ IsSendableMessage(msg)
+    /\ CoversMessage(charge, msg)
     /\ IsMemoryAvailable(charge)
     /\ buffers_held_by_host' =
            [buffers_held_by_host EXCEPT ![cId] = @ + 1]
@@ -761,9 +769,9 @@ LendSendBuffer(cId, b, len, charge) ==
     \* the discipline buffer_send already follows.  The counter moves by it
     \* here and back by it at the free, which is what the accounting checks.
     /\ buffer_charge' = [buffer_charge EXCEPT ![<<cId, b>>] = charge]
-    /\ buffer_length' = [buffer_length EXCEPT ![<<cId, b>>] = len]
+    /\ buffer_length' = [buffer_length EXCEPT ![<<cId, b>>] = MessageLength[msg]]
     /\ memory_used' = memory_used + charge
-    /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "OK"]
+    /\ last_lend_status' = [last_lend_status EXCEPT ![<<cId, msg>>] = "OK"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<write_dones_emitted, write_done_callback_running,
                    delivery_callback_running, payloads_consumed_by_host,
@@ -787,11 +795,11 @@ ContemplatesLend(cId) ==
 
 \* Permanent, and derived rather than asserted: IsLendable reads the request
 \* and the ceiling, so no return by anyone changes the answer.
-RefuseLendTooLarge(cId, len) ==
+RefuseLendTooLarge(cId, msg) ==
     /\ ContemplatesLend(cId)
-    /\ ~IsLendable(len)
+    /\ ~IsSendableMessage(msg)
     /\ last_lend_status' =
-           [last_lend_status EXCEPT ![cId] = "MESSAGE_TOO_LARGE"]
+           [last_lend_status EXCEPT ![<<cId, msg>>] = "MESSAGE_TOO_LARGE"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -803,11 +811,11 @@ RefuseLendTooLarge(cId, len) ==
                    resources_released_callback_running,
                    buffer_charge, buffer_length, memory_used>>
 
-RefuseLendForSlot(cId, len) ==
+RefuseLendForSlot(cId, msg) ==
     /\ ContemplatesLend(cId)
-    /\ IsLendable(len)
+    /\ IsSendableMessage(msg)
     /\ ~HasFreeSendSlot(cId)
-    /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "SLOT_BUSY"]
+    /\ last_lend_status' = [last_lend_status EXCEPT ![<<cId, msg>>] = "SLOT_BUSY"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -823,13 +831,13 @@ RefuseLendForSlot(cId, len) ==
 \* one that did not fit, not the claim that none would.  Guarding it on
 \* ~IsRequestAdmissible instead would make the refusal impossible whenever any
 \* charge fits, and the liveness built on it vacuous in exactly that case.
-RefuseLendForBudget(cId, len, charge) ==
+RefuseLendForBudget(cId, msg, charge) ==
     /\ ContemplatesLend(cId)
-    /\ IsLendable(len)
+    /\ IsSendableMessage(msg)
     /\ HasFreeSendSlot(cId)
-    /\ CoversRequest(charge, len)
+    /\ CoversMessage(charge, msg)
     /\ ~IsMemoryAvailable(charge)
-    /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "BUDGET_BUSY"]
+    /\ last_lend_status' = [last_lend_status EXCEPT ![<<cId, msg>>] = "BUDGET_BUSY"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -840,6 +848,13 @@ RefuseLendForBudget(cId, len, charge) ==
                    resources_released_emitted,
                    resources_released_callback_running,
                    buffer_charge, buffer_length, memory_used>>
+
+\* The lend at the allocator's most economical answer: charge exactly what the
+\* message needs.  The fairness conjunct forces this instance and no other, so
+\* the allocator's real choices stay unconstrained - it may always hand out
+\* more, but the budget's obligations are stated against this one.
+LendForMessage(cId, b, msg) ==
+    LendSendBuffer(cId, b, msg, MessageLength[msg])
 
 \* ak_return_call_buffer: the host gives a buffer back unused.  Legal on
 \* a cancelled or terminal call - it is the only exit for a buffer whose
@@ -1111,12 +1126,12 @@ Next ==
     \/ \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
-    \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
-           LendSendBuffer(cId, b, len, charge)
-    \/ \E cId \in CallIds, len \in RequestSizes : RefuseLendTooLarge(cId, len)
-    \/ \E cId \in CallIds, len \in Sizes : RefuseLendForSlot(cId, len)
-    \/ \E cId \in CallIds, len \in Sizes, charge \in Sizes :
-           RefuseLendForBudget(cId, len, charge)
+    \/ \E cId \in CallIds, b \in BufferIds, msg \in Messages, charge \in Sizes :
+           LendSendBuffer(cId, b, msg, charge)
+    \/ \E cId \in CallIds, msg \in Messages : RefuseLendTooLarge(cId, msg)
+    \/ \E cId \in CallIds, msg \in Messages : RefuseLendForSlot(cId, msg)
+    \/ \E cId \in CallIds, msg \in Messages, charge \in Sizes :
+           RefuseLendForBudget(cId, msg, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
@@ -1161,6 +1176,27 @@ SendAcquittedAt(cId, k) ==
 SendsEventuallyAcquitted ==
     \A cId \in CallIds :
         \A k \in L0!PositiveNaturals : SendAcquittedAt(cId, k)
+
+IsBudgetRefused(cId, msg) == last_lend_status[<<cId, msg>>] = "BUDGET_BUSY"
+IsLendGranted(cId, msg) == last_lend_status[<<cId, msg>>] = "OK"
+
+\* Where lending still makes sense: the call takes downcalls, the window has
+\* room, and some buffer identity is free.  Its failure is the escape - a
+\* cancelled or released call is owed no buffer.
+CanStillLend(cId) ==
+    /\ ContemplatesLend(cId)
+    /\ HasFreeSendSlot(cId)
+    /\ \E b \in BufferIds : IsFreshBuffer(cId, b)
+
+\* The promise the budget owes the host: a request refused for want of room is
+\* eventually granted.  The antecedent is the refusal itself, which is why the
+\* refusals are actions - stated on "no charge fits" it would say nothing about
+\* the case where one did and the allocator chose another.
+BudgetRefusalEventuallyLends ==
+    \A cId \in CallIds, msg \in Messages :
+        (IsBudgetRefused(cId, msg) /\ CanStillLend(cId) /\ L0!NotFailed)
+            ~> (IsLendGranted(cId, msg) \/ ~CanStillLend(cId)
+                    \/ ~L0!NotFailed)
 
 \* Every payload handed to the host is individually consumed.  This is
 \* the guarantee that rests on the per-payload host hypothesis.
@@ -1260,7 +1296,8 @@ ResourcesReleasedEventually ==
 \* does: a refusal at one charge followed by a success at another, with nothing
 \* freed, is a step this says nothing about - and must not, since the lend
 \* carries no fairness and the allocator's choice is not the budget's promise.
-\* AdmissibleIffRoomForLength is the bridge to the counter.
+\* The existential collapses at its best witness, charge = len, so this is
+\* IsMemoryAvailable(len) said without reaching into the counter.
 \* The guard sits outside the leads-to, not inside its antecedent.  It reads
 \* only len and Ceiling, both rigid, so the two forms are equivalent - but the
 \* temporal backend treats every atom as flexible, and inside the antecedent it
@@ -1284,11 +1321,12 @@ LivenessProperties ==
     /\ RuntimeEventuallyQuiescent
     /\ ResourcesReleasedEventually
     /\ BudgetEventuallyAdmits
+    /\ BudgetRefusalEventuallyLends
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)
 (*                                                                         *)
-(* Nineteen action families under WF, all individual, and which side owes  *)
+(* Twenty action families under WF, all individual, and which side owes   *)
 (* each one is what the three groups below record.                         *)
 (*                                                                         *)
 (* The Rust runtime owes nine: NetworkSend, ReceiveStatus, EmitWriteDone,  *)
@@ -1347,6 +1385,14 @@ Fairness ==
     \* Reclaiming a call is the runtime's own step, not a downcall, so the
     \* runtime is the side that owes it.
     /\ \A cId \in CallIds : WF_vars(ReleaseCallHandle(cId))
+    \* A host obligation, not a runtime one, and it has to be read as such.
+    \* LendSendBuffer *is* a successful ak_get_call_buffer, so forcing it forces
+    \* the host to keep asking: the runtime cannot lend to nobody.  Taken at the
+    \* message's own size, the instance is enabled exactly when there is room
+    \* for what was asked - "the runtime does its best" - and the allocator's
+    \* other choices stay unconstrained.
+    /\ \A cId \in CallIds, b \in BufferIds, msg \in Messages :
+           WF_vars(LendForMessage(cId, b, msg))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 

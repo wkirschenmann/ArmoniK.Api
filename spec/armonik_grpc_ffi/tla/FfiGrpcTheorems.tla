@@ -81,8 +81,8 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ ~EndSend(cId)
            /\ \A msg \in Messages, b \in BufferIds :
                  ~SendMessage(cId, msg, b)
-           /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
-                 ~LendSendBuffer(cId, b, ln, ch)
+           /\ \A b \in BufferIds, msg \in Messages, ch \in Sizes :
+                 ~LendSendBuffer(cId, b, msg, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 
 (***************************************************************************)
@@ -308,11 +308,19 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 THEOREM RuntimeEventuallyQuiescentHolds ==
     Spec => RuntimeEventuallyQuiescent
 
-\* The emission budget's own promise: a request the ABI would consider, refused
-\* for want of room, eventually has room.  Not that the caller who was refused
-\* is the one served - lending carries no fairness.
+\* The emission budget's own promise, on the state alone: a request the ABI
+\* would consider, refused for want of room, eventually has room.  It says
+\* nothing about who is served.
 THEOREM BudgetEventuallyAdmitsHolds ==
     Spec => BudgetEventuallyAdmits
+
+\* What the host is actually promised: the request that was refused is granted.
+\* Weaker than it looks in one respect and stronger in another - the fairness it
+\* rests on is the host's own, since LendSendBuffer is a successful downcall and
+\* forcing it forces the host to keep asking.  The escape is the call leaving
+\* the state where lending means anything: a cancelled call is owed no buffer.
+THEOREM BudgetRefusalEventuallyLendsHolds ==
+    Spec => BudgetRefusalEventuallyLends
 
 \* The release tag's own promise, named so a level-2 binding can refine it
 \* rather than re-derive it: a host that was told to give memory back is told
