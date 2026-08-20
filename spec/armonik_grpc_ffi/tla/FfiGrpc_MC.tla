@@ -40,6 +40,19 @@ MCPositiveNaturals == 1..2
 \* delivered messages plus one terminal.
 MC_PayloadIndices == 1..4
 
+\* Overrides MessageLength in every configuration: a .cfg constant assignment
+\* cannot carry a function literal, and Messages is empty in one of them.  One
+\* byte per message - what the checks exercise is the ceiling, not a spread of
+\* sizes.
+MC_MessageLength == [msg \in Messages |-> 1]
+
+\* BudgetEventuallyAdmits quantifies over Nat.  Above the ceiling IsLendable
+\* is false and the property is vacuous, so the bounded range loses nothing.
+MCBudgetEventuallyAdmits ==
+    \A len \in 1..Ceiling :
+        IsLendable(len) =>
+            (~IsMemoryAvailable(len) ~> IsMemoryAvailable(len))
+
 MCSendsEventuallyAcquitted ==
     \A cId \in CallIds :
         \A k \in MCPositiveNaturals : SendAcquittedAt(cId, k)
