@@ -12,7 +12,14 @@ TLA2TOOLS="${TLA2TOOLS:-tla2tools.jar}"
 [ -r "$TLA2TOOLS" ] || { echo "no tla2tools.jar at $TLA2TOOLS"; exit 1; }
 fail=0
 
-PY=python3; command -v python3 >/dev/null 2>&1 || PY=python
+# Pick an interpreter that actually runs.  `command -v python3` finds the
+# Windows Store stub, which exists, is on PATH, and fails with "Permission
+# denied" the moment it is executed - so presence is not the test.
+PY=""
+for cand in python3 python py; do
+  if "$cand" -c "" >/dev/null 2>&1; then PY="$cand"; break; fi
+done
+[ -n "$PY" ] || { echo "no working python interpreter on PATH"; exit 1; }
 "$PY" ci/check_theorem_statements.py || fail=1
 "$PY" ci/check_action_footprints.py || fail=1
 "$PY" ci/check_property_manifest.py || fail=1
