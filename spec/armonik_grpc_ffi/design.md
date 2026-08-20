@@ -677,7 +677,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_call_send_message`'s `buffer` | `b` in `SendMessage(cId, msg, b)`. An argument, not a choice made inside the action: the host names the allocation it commits, and letting the model pick would make `buffer_send` a record of nondeterminism rather than of what the caller passed |
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
-| `ak_get_call_buffer`'s `len` | **not modelled.** No size appears anywhere in either level: the send window counts allocations, not bytes. The replay buffer is the only place bytes matter, and it is a configuration knob rather than a modelled quantity |
+| `ak_get_call_buffer`'s `len` | `len` in `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned for it. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two. Level 0 carries no sizes: its send window counts allocations |
 | `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight` and `DeliveryCredits`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
@@ -1373,6 +1373,13 @@ refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached
 not this call's fault and which no WRITE_DONE of this call can clear. Only a genuine
 allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
 
+The order of those checks is what keeps `AK_STATUS_INTERNAL` rare. The ceiling is tested
+*before* anything is allocated, so a runtime at its budget refuses with `AK_STATUS_BUDGET_BUSY`
+and never reaches an allocation that could fail. Past that check, every allocation on this path
+uses the fallible form - `try_reserve`, `try_with_capacity` - so a failure returns rather than
+aborting, and that return is what `AK_STATUS_INTERNAL` reports. The infallible `Vec` and `Bytes`
+APIs are what abort; the emission path does not use them.
+
 **The budget covers the emission path and only it.** What it governs is the memory this
 runtime allocates against a quota of its own and can therefore refuse: the buffers
 `ak_get_call_buffer` lends. Receive-side memory is not in it. Those bytes belong to hyper and
@@ -1382,32 +1389,39 @@ hook and aborts, so `Vec` and `Bytes` offer no `Result` to turn into a status. A
 receive path would be a different design - reserving from a bounded pool and resetting the
 stream with `RESOURCE_EXHAUSTED` when the reservation fails - and it is not this one. This is
 why the model's budget is welded to the send-buffer lifecycle alone, and why
-`MemoryCapEventuallyRelieved` is a statement about lending rather than about all memory.
+`BudgetEventuallyAdmits` is a statement about lending rather than about all memory.
 
-**What a buffer charges against the budget** is the length the host asked for, and nothing
-else: `charge(b)` is `b.len` as requested at `ak_get_call_buffer`, `bytes_used` is the sum of
-`charge(b)` over every buffer lent and not yet freed, and the two refusals are exactly
+**What a buffer charges against the budget** is the size the allocator returned, not the size
+the host asked for: `charge(b)` is what actually backs `b`, `len` is the request it must
+cover, and `bytes_used` is the sum of `charge(b)` over every buffer lent and not yet freed.
+The two refusals are then
 
 ```
 AK_STATUS_MESSAGE_TOO_LARGE  <=>  len > ceiling
-AK_STATUS_BUDGET_BUSY        <=>  len <= ceiling  and  bytes_used + len > ceiling
+AK_STATUS_BUDGET_BUSY        <=>  len <= ceiling  and  bytes_used + charge > ceiling
 ```
 
-The alternative is to charge what the allocator really hands out - the size class, the arena
-reservation, the bookkeeping - and it is rejected for one reason: the host cannot compute it.
-A refusal the host cannot predict from its own numbers is indistinguishable from a bug, and
-`MESSAGE_TOO_LARGE` in particular has to be a predicate the host can evaluate *before* it
-calls, or "permanent, do not retry" is advice about a condition the host has no way to
-recognise. A host holding a 4 MiB message against a 4 MiB ceiling must be able to know which
-answer it will get.
+Charging the request instead was this design's earlier shape, and it fails at the one thing
+the ceiling exists for. A budget that counts what was asked for bounds an accounting fiction;
+the memory that has to fit is what the allocator handed out. Size-class rounding and per-arena
+slack would sit outside the ceiling, and the ceiling would be wrong by however much they come
+to - silently, and in the direction that matters.
 
-The price of that choice is stated rather than hidden: **the ceiling bounds the logical bytes
-in flight, not the process's resident memory.** Rounding up to a size class, per-arena slack
-and the allocator's own overhead all sit outside it. An implementation therefore owes a
-documented factor - real footprint no worse than `ceiling` times a constant it names, plus a
-fixed overhead - and that factor is an implementation and test obligation, not something this
-ceiling delivers. Configuring the ceiling as though it were an RSS limit is the mistake this
-paragraph exists to prevent.
+What that costs is the predictability of one refusal, and only one. `MESSAGE_TOO_LARGE` stays
+a predicate the host can evaluate *before* it calls, because it reads `len` and the ceiling
+and nothing else - which is also why its permanence is **derived** in the model rather than
+asserted: `IsLendable(len)` mentions no charge, so no sequence of frees can turn the answer
+around. A host holding a 4 MiB message against a 4 MiB ceiling still knows which answer it
+will get. `BUDGET_BUSY` is not predictable from the host's own numbers, and does not need to
+be: it is transient, it has a wake-up, and retrying on it is the correct response.
+
+The residue is smaller than under the earlier shape but it is not zero: **the ceiling bounds
+the bytes the allocator reported, not the process's resident memory.** Allocator metadata, the
+arena's own structures and fragmentation between arenas sit outside it. No bound relating the
+two is asserted here: it is not known that the relation even has the shape of a factor plus a
+constant, and writing one down before there is data to fit it would be a number with no
+standing. Configuring the ceiling as though it were an RSS limit is the concrete mistake this
+paragraph exists to prevent, and stating that much does not require the bound.
 
 Two of the refusals are transient and each needs its own wake-up. `AK_STATUS_SLOT_BUSY`
 has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has none of its own - a call refused for the
@@ -1546,8 +1560,12 @@ to it is not even an option. Two rules remove the question instead:
   It is the last callback of the call, so that is where native use ends - and the managed
   side keeps its own references, so freeing the native root collects nothing.
 
-The `runtime_ctx` root follows the same shape one level up: freed by the
-`SHUTDOWN_COMPLETE` callback, after its last access.
+The `runtime_ctx` root does **not** follow that shape, and the difference is the whole point.
+It is released after `ak_runtime_destroy` returns, never inside a callback. Every callback of
+every kind carries `runtime_ctx`, so there is no last one to hand the free to: releasing it on
+`SHUTDOWN_COMPLETE` would be a use-after-free whenever `host_debt` says the host still owes a
+return. `ak_runtime_destroy` returning is the only point at which nothing can be in flight,
+which is what the ABI's "valid until the last event of the runtime" rule amounts to.
 
 ### CallState (per call)
 
@@ -2138,14 +2156,19 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   is what makes the event mean what the ABI says it means rather than only arrive; the
   two that read a ledger are the ones that need a drained runtime's ledger not to grow,
   which is why the split keeps each preservation obligation the size it was
-- **BudgetExhaustedMeansBufferOut**: the emission budget is never exhausted with no send
-  buffer outstanding. It is the one thing the model asserts about the budget, and it is
-  what makes reaching the budget temporary rather than terminal - the relief property reads
-  the budget off the buffers through this invariant's contrapositive. It carries content
-  because it can fail: a free that kept the budget exhausted with nothing left out would
-  break it, and that runtime is one that can never lend again. It sits outside the
-  `NotFailed` umbrella, failing changing neither the budget nor any buffer, so a host still
-  gets its memory back after a failure
+- **MemoryAccountingExact**: the runtime-wide counter equals the charges of the send
+  buffers actually out. This is the accounting claim with content, and it can fail - a lend
+  that forgets its increment, a free that forgets its decrement or subtracts the wrong
+  charge, a second credit for one buffer. Defined as the sum it would be a tautology, which
+  is why `memory_used` is a variable the actions move rather than an expression evaluated
+  on demand: that is how the implementation keeps it, and it is the number
+  `ak_runtime_memory_usage` publishes. The three categories of the detailed observer are
+  definitions over the same charges, and that they add up to the total is
+  `CategoriesPartitionTotal` - a lemma and not an invariant, since it holds of any state.
+  Both sit outside the `NotFailed` umbrella: failing changes neither the counter nor any
+  charge, so a host still gets its memory back afterwards and the observers still answer
+- **MemoryWithinCeiling**: the counter never passes the ceiling. Carried by the lend's
+  guard alone, the free only ever subtracting
 
 - **DestroyedRuntimeIsClean**: a destroyed runtime is quiescent, and stays quiescent -
   the whole gate, not half of it, so the invariant's name and `ak_runtime_destroy`'s
@@ -2218,20 +2241,22 @@ New liveness guarantees:
   settles, the runtime quiesces from there, and quiescence with the tag set is the event
   having gone out. Level 2 refines this one rather than re-deriving it
 
-- **MemoryCapEventuallyRelieved**: the emission budget, once exhausted, is relieved. The
-  budget is one boolean and not a byte count, because a sum over the live buffers would be
-  an identity over a partition of a finite set - true however the model is written, so it
-  would discriminate no design and catch no defect. What the boolean does carry is the
-  interlock, and that is what the proof rests on. Lending is guarded on the budget being
-  down and may raise it, which is all the model says about when a budget fills. Freeing a
-  returned buffer's bytes may lower it, may never raise it, and may leave it up only while
-  some buffer is still out - that last clause is what forbids a runtime stuck exhausted
-  holding nothing. With the one taker guarded off, the buffers out can only shrink, each is
-  eventually freed by `BufferEventuallyFreed`, and at the last one the clause runs out of
-  excuses. Reaching the budget is therefore always temporary, which is what makes
-  `AK_STATUS_BUDGET_BUSY` something to retry against rather than a fault. It does **not**
-  say a particular caller wins the capacity that comes back: lending carries no fairness,
-  and nothing stops the same caller losing the race every time
+- **BudgetEventuallyAdmits**: a request the ABI would consider, refused for want of room,
+  eventually has room. `IsLendable(len)` is the request the ABI considers at all - strictly
+  positive, no larger than the ceiling - and its complement is exactly
+  `AK_STATUS_MESSAGE_TOO_LARGE`, whose permanence the model now derives rather than
+  asserts: the charge covers the request, so a length above the ceiling leaves
+  `IsMemoryAvailable` false in every state. `~IsMemoryAvailable(len)` is what
+  `AK_STATUS_BUDGET_BUSY` reports, and that refusal writes nothing - the lend simply does
+  not fire for that size while it may fire for a smaller one, which is why the size is a
+  parameter of the action and why the host's polling is a stutter. Proved from the drain:
+  every buffer out is eventually freed, so the outstanding set empties, the accounting
+  makes the counter zero, and at zero any lendable size fits. It does **not** say the
+  caller who was refused wins the room that comes back - lending carries no fairness, and
+  nothing stops the same caller losing the race every time. What a retry loop is owed is
+  level 2's `BudgetCancellationStopsRetry`. Stated on a predicate and its negation rather
+  than on two inequalities: the temporal backend matches formulas, and two arithmetic
+  comparisons are two unrelated atoms to it
 
 #### Fairness
 
@@ -2346,11 +2371,13 @@ Additional invariants:
   deadlock no invariant over `bytes_used` would have found, because every number in it stays
   consistent throughout
 - **RetainedBytesAreEventuallyFreed**: a buffer the runtime keeps past its send's acquittal,
-  for replay, is freed in the end. Level 1's `FreeReturnedBuffer` is enabled as soon as the
-  send is acquitted and is weakly fair, so an implementation that holds the bytes until the
-  commitment point has to show its own release happens - that fairness conjunct is a
-  hypothesis level 2 discharges, not one it inherits. This is the only place where the
-  implementation is deliberately slower than the model rather than the reverse
+  for replay, is freed in the end. **This one is a native-Rust obligation rather than a binding
+  obligation**: the retention is the runtime's own decision, no managed code observes it, and
+  nothing level 2 models can discharge it. Level 1's `FreeReturnedBuffer` is enabled as soon as
+  the send is acquitted and is weakly fair, so an implementation that holds the bytes to the
+  commitment point owes a demonstration that its own release happens - a fairness conjunct the
+  native side discharges, not one it inherits. It is listed among these because it is the only
+  place where the implementation is deliberately slower than the model rather than the reverse
 - **RingNeverOverflows**: `head - tail ≤ DeliveryCredits + 1`. Inherited, not re-proved:
   it is level 1's `PayloadsOwnedWithinCreditsPlusOne` read through the mapping, and it is
   what lets the trampoline publish without a fullness test
@@ -2433,31 +2460,40 @@ the artefact rather than left to rot:
 | Element | Status |
 |---------|--------|
 | Specification described in this document | Current |
-| Level 1, model-checked (TLC), base configuration | Current: 435984 distinct states, no error, deadlock checking on. It carries `AbstractSpec` - the whole level-0 specification, fairness included, as a property of `Spec` - so every fairness lift is model-checked as well as proved, and now `SafetyInvariant` too. The level-1 invariant had never been model-checked: `FfiGrpc_MC` extended `FfiGrpc` where `FfiGrpc_defs` says in its own header that the configurations are meant to extend it, so `FfiCallInv`, `BufferStateInv`, `ShutdownSignalInv` and `DestroyedRuntimeIsClean` were proved and never checked while level 0 checked its own |
+| Level 1, model-checked (TLC), base configuration | Being re-run for this revision. The counter design has never been through TLC: all five configurations carried `MessageLength` as a function literal in the `.cfg`, which TLC's configuration grammar does not accept, so none of them started. The sizes now come from `MC_MessageLength` in the module, as `l0_vars` and `PayloadIndices` already did. The 435984 distinct states recorded here previously belong to the latch design that preceded the counters |
 | Level 1, model-checked (TLC), the other four configurations | Being re-run for this revision |
-| Level 1, TLC coverage of the new liveness properties | `MemoryCapEventuallyRelieved` is named by the base configuration and checked. The others are not: no configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`, so those are proved and not model-checked |
+| Level 1, TLC coverage of the new liveness properties | `MCBudgetEventuallyAdmits` - the bounded lift of `BudgetEventuallyAdmits`, `Nat` not being enumerable - is named by the base configuration. The others are not: no configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`, so those are proved and not model-checked |
 | Level 0, model-checked (TLC, four configurations) | Current; the level-0 modules did not change this revision |
-| Level 0, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 1632 obligations proved over 10 windows in 1m55s, this revision |
-| Level 1, `ci/scan_windows.sh` at `STRETCH=1`, windows of 300 lines | 10698 obligations proved over 51 windows, none failing, this revision. That factor is a fifth of the one the gate uses, so a step closing with no room fails here rather than on a busy machine |
-| `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles 29 membership conjuncts onto a goal that is already an existential over 29 primed variables, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `STRETCH=1`. It surfaced only when the free began writing `memory_cap_exhausted`, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| Level 1, one pass, no windows | 9927 obligations, 95 minutes - measured before the last two revisions grew the module, so the number is that revision's and not this one's. What it established still holds: a single pass gets no memory kill, which retires the claim in `verify_proofs.sh` that it does, and the one-pass count is the only one free of the steps two adjacent windows both cover |
-| Window size is the dominant cost | The same module at `STRETCH=5` takes about 15 minutes in 300-line windows and 81 in 2000-line ones. More obligations in flight per invocation means the worker threads contend, and wall-clock per obligation inflates about fourfold; the repeated elaboration that penalises small windows is dwarfed by it |
+| Level 1, one pass at `--stretch 1` | **10867 obligations, all proved, 10m54s at `--threads 8`**, this revision. A single pass is the whole verification now: the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) retired the 300-line windows this table used to report, along with the finding that window size dominated the cost. Both belonged to the older build |
+| Level 0, one pass at `--stretch 1` | 1632 obligations proved, this revision; the level-0 module did not change |
+| A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. The twelve irreducible Isabelle calls in `RefinesSpec` and the fairness lemmas now carry `IsaT(600)`, a ceiling and not a cost |
+| Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
+| `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
 | `ci/check_theorem_statements.py` | 66 declarations, each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
-| The two memory observers' normative invariants | **Not covered by TLA+.** The coherence of a snapshot and `bytes_host_lent + bytes_send_in_flight + bytes_runtime_held == bytes_used <= ceiling` are safety properties of state neither level carries: no charge, no byte count and no ceiling appears in `FfiGrpc`. They are implementation obligations, discharged by the ABI tests; the paragraph after this table says why modelling them would add nothing |
+| The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
 | Level 2 | Specified, not modelled, not proved |
 
-The observers' row is a decision and not an oversight, and the reason is worth stating because
-the obvious repair is the wrong one. Carrying the accounting would mean a `buffer_charge`
-variable and `bytes_used` as a sum over the buffers that are neither `"none"` nor `"freed"`,
-with the three categories as that same sum restricted by `buffer_state` and by acquittal. The
-sum invariant would then be an identity about a partition of a finite set - **true by
-construction**, which is the objection rather than the selling point. There is no way to write
-the model in which it is false, so it discriminates no design and catches no defect; it would
-cost the expensive part of these proofs, sums over sets, to prove a tautology. Whether the one
-CAS on the counter is correct is a question for a code invariant and a concurrency test.
+An earlier revision of this document argued the opposite, and the argument is worth recording
+because half of it was right. Carrying the accounting does make the partition identity close to
+true by construction: `BytesOutstanding` is a sum over the pairs `buffer_state` selects, so
+`CategoriesPartitionTotal` discriminates no design and would catch no defect on its own. What
+that argument missed is that `MemoryAccountingExact` is not of that kind. It relates a counter
+the actions update by arithmetic - `memory_used' = memory_used + charge` on the lend,
+`- buffer_charge[<<cId, b>>]` on the free - to a sum over a set those same actions reshape, and
+nothing makes the two agree except the actions being written correctly. It is what makes the
+ceiling mean anything: without it `MemoryWithinCeiling` bounds a number with no stated relation
+to the memory that is out. It is also the only reason `memory_used` can be typed `Int` and still
+be known non-negative, the free being the one action that subtracts.
+
+The price the earlier revision named is real and was paid: the sums over sets are the expensive
+part of these proofs. `SumFunctionOnSet` from the standard `Functions` module and its theory in
+`FunctionTheorems` carry it - `SumFunctionOnSetAddIndex` for the lend, `SumFunctionOnSetRemoveIndex`
+for the free, `SumFunctionOnSetEqual` where a state moves without changing a charge. A fold taking
+its summand as an *operator* parameter has no citable primed form, which is the trap that shape
+walks into; `SumFunctionOnSet` is first order in both arguments and the prime distributes.
 
 The refusal itself needs no modelling either, because it is already there. `LendSendBuffer`
 carries no fairness, so a refused lend is a stuttering step: every proved property crosses it
@@ -2537,6 +2573,8 @@ table above maps the five call shapes and stops there.
 | Command delivery to a call actor | Per-actor channel vs atomic flags + notify | Layer 3. Cancel is a flag the actor polls; send and end_send carry data. Reclamation is neither - it is the actor's own step when the debt counters reach zero, so it is a wake rather than a command. A single channel is simpler, two mechanisms are faster |
 | Send memory on .NET | **Moot: the host never owns it.** `ak_get_call_buffer` lends native memory, protobuf serializes straight into it, `ak_call_send_message` gives it back. Nothing to pin, nothing to copy, and no managed heap to fragment | Layer 4, decided |
 | Payload allocation shape | One `Vec` per event vs slices of a pooled `Arc<Vec<u8>>` | Layer 3. The ABI already carries `owner` separately from `ptr`, so both fit without changing the contract |
+| Low-memory probe | Warn when the memory the system has available drops below `ceiling` / no probe | Layer 3. The ceiling bounds what this runtime lends, not what the machine has left; a runtime configured near the machine's limit refuses nothing and is killed instead. Deferred until there is operational data to set a threshold against |
+| A ceiling for the receive path | Configurable capacity, reserved from a bounded pool / unbounded as now | Layer 3. Would make the receive side refusable the way emission is - a different design from this one, and one that needs data on real receive footprints before it is worth the ABI surface |
 
 ---
 
