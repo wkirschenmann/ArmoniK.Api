@@ -1,9 +1,10 @@
 ----------------------------- MODULE FfiGrpc_MC ----------------------------
 (***************************************************************************)
 (* TLC model checking configuration for FfiGrpc.                           *)
-(* The load-bearing check is AbstractSpec: TLC verifies that Spec refines  *)
-(* the full level-0 specification, fairness included, so every fairness    *)
-(* lift is model-checked before it is proved.                              *)
+(* Exploration and debugging, not evidence: every property named here is   *)
+(* proved by tlapm over unbounded constants, where these configurations    *)
+(* fix small ones.  A checker that prints a counterexample trace is the    *)
+(* fastest way to understand a broken draft, which is why they stay.       *)
 (***************************************************************************)
 
 \* FfiGrpc_defs rather than FfiGrpc: its header says both TLAPS and the TLC

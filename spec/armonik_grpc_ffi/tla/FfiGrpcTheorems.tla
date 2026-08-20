@@ -169,6 +169,7 @@ THEOREM ChannelCloseLift ==
            /\ [][Next]_vars
            /\ WF_vars(ChannelFinishClosing(chId))
            /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -199,6 +200,7 @@ THEOREM CancellationProgressSafeFor ==
     PROVE  /\ []StrongInv
            /\ [][NextSafe]_vars
            /\ WF_vars(DeliverCancelled(cId))
+           /\ WF_vars(DeliverInitialMetadata(cId))
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
@@ -231,6 +233,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
            /\ WF_vars(EmitShutdownComplete(rtId))
            /\ \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
            /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -242,6 +245,7 @@ THEOREM CancellationFairnessRequirement ==
     PROVE  /\ Init
            /\ [][NextSafe]_vars
            /\ WF_vars(DeliverCancelled(cId))
+           /\ WF_vars(DeliverInitialMetadata(cId))
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
@@ -271,6 +275,7 @@ THEOREM ShutdownEmitFairnessRequirement ==
            /\ WF_vars(EmitShutdownComplete(rtId))
            /\ \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
            /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -314,11 +319,11 @@ THEOREM RuntimeEventuallyQuiescentHolds ==
 THEOREM BudgetEventuallyAdmitsHolds ==
     Spec => BudgetEventuallyAdmits
 
-\* What the host is actually promised: the request that was refused is granted.
-\* Weaker than it looks in one respect and stronger in another - the fairness it
-\* rests on is the host's own, since LendSendBuffer is a successful downcall and
-\* forcing it forces the host to keep asking.  The escape is the call leaving
-\* the state where lending means anything: a cancelled call is owed no buffer.
+\* Per request: a refusal is followed by a grant, or by the call leaving the
+\* state where lending means anything, or by failure - the escape every
+\* inherited liveness carries, and no stronger leads-to is true: the network
+\* may settle the call before any lend.  The proof rides the termination
+\* promise; WF(LendForMessage) is the host obligation level 2 discharges.
 THEOREM BudgetRefusalEventuallyLendsHolds ==
     Spec => BudgetRefusalEventuallyLends
 

@@ -305,7 +305,7 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
 \* free that may relieve it.  Every other step leaves it alone, which is what
 \* lets the interlock be read off one framing fact instead of an action
 \* alphabet.  Lend and free stay opaque here - they are the disjuncts being
-\* proved - so the case that expands NextSafeCallFfi has seven actions to
+\* proved - so the case that expands NextSafeCallFfi has ten actions to
 \* look at and two to hand back.
 LEMMA OnlyBudgetStepsWriteBudget ==
     ASSUME [Next]_vars
@@ -6948,6 +6948,34 @@ LEMMA ReceiveStatusEnabledBridge ==
 \* The metadata slot is free on its own: no event delivered yet means no
 \* debt (NoDeliveryImpliesNoDebt), so the level-1 guard follows from the level-0
 \* one and the invariant.
+\* The level-0 metadata delivery is enabled exactly where its guard holds:
+\* an active call with nothing delivered.  The append changes the state,
+\* said without a prime so it survives into the expanded ENABLED.
+LEMMA DIM0Enabled ==
+    ASSUME NEW cId \in CallIds
+    PROVE  TypeOK /\ L0!IsActiveCall(cId) /\ HasNoDeliveredEvents(cId) =>
+               ENABLED <<L0!DeliverInitialMetadata(cId)>>_l0_vars
+<1>0. SUFFICES ASSUME TypeOK, L0!IsActiveCall(cId), HasNoDeliveredEvents(cId)
+               PROVE  ENABLED <<L0!DeliverInitialMetadata(cId)>>_l0_vars
+    OBVIOUS
+<1>05. [events_delivered EXCEPT ![cId] =
+            Append(events_delivered[cId], "INITIAL_METADATA")]
+           # events_delivered
+  <2>1. events_delivered[cId] = <<>>
+    BY <1>0, Zenon DEF HasNoDeliveredEvents
+  <2>2. [events_delivered EXCEPT ![cId] =
+             Append(events_delivered[cId], "INITIAL_METADATA")][cId]
+            = Append(<<>>, "INITIAL_METADATA")
+    BY <1>0, <2>1, SMT DEF TypeOK, L0!TypeOK
+  <2>3. Len(Append(<<>>, "INITIAL_METADATA")) = 1 /\ Len(<<>>) = 0
+    BY SMT
+  <2>4. QED BY <2>1, <2>2, <2>3, SMT
+<1>1. QED
+    BY <1>0, <1>05, ExpandENABLED, SMTT(120)
+    DEF L0!DeliverInitialMetadata, HasNoDeliveredEvents,
+        L0!IsActiveCall, L0!ActiveCallStates,
+        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars
+
 LEMMA MetadataEnabledBridge ==
     ASSUME NEW cId \in CallIds
     PROVE  TypeOK /\ NoDeliveryImpliesNoDebt /\
@@ -7615,10 +7643,12 @@ LEMMA DC1EnabledBridge ==
            /\ ~IsDeliveryCallbackRunning(cId)
            /\ HasNoSendInFlight(cId)
            /\ IsCancelRequested(cId)
+           /\ ~HasNoDeliveredEvents(cId)
            => ENABLED <<DeliverCancelled(cId)>>_vars
 <1>1. QED
     BY ExpandENABLED, SMT
     DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
+        HasNoDeliveredEvents,
         ActiveCallPayloadsWithinCredits, vars, l0_vars, L0!vars, ffi_vars,
         L0!RuntimeVars, L0!ChannelVars, StatusReady, TypeOK, L0!TypeOK,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus,
@@ -8757,8 +8787,15 @@ THEOREM StatusDeliveryLift ==
         /\ ~IsDeliveryCallbackRunning(cId)
         /\ HasNoSendInFlight(cId)
         /\ IsCancelRequested(cId)
+        /\ ~HasNoDeliveredEvents(cId)
         => ENABLED <<DeliverCancelled(cId)>>_vars)
     BY DC1EnabledBridge, PTL
+\* StatusReady carries the delivered metadata, so the guard's new
+\* hypothesis is its own conjunct read back.
+<1>31. [](StatusReady(cId) => ~HasNoDeliveredEvents(cId))
+  <2>1. StatusReady(cId) => ~HasNoDeliveredEvents(cId)
+    BY SMT DEF StatusReady, HasNoDeliveredEvents
+  <2>2. QED BY <2>1, PTL
 <1>30. [](StatusReady(cId) =>
               L0!IsActiveCall(cId) /\ ~L0!HasStatus(cId))
     BY PTL DEF StatusReady
@@ -8843,7 +8880,7 @@ THEOREM StatusDeliveryLift ==
     BY SendSideQuiets, PTL
   <2>4. QED
     BY <1>1, <2>1, <2>2, <2>3, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15,
-       <1>16, <1>17, <1>18, <1>19, <1>20, <1>22, <1>24, <1>25, <1>30, PTL
+       <1>16, <1>17, <1>18, <1>19, <1>20, <1>22, <1>24, <1>25, <1>30, <1>31, PTL
 <1>2. QED BY <1>1, PTL
 
 (***************************************************************************)
@@ -9153,9 +9190,14 @@ THEOREM DMCancelBranchFor ==
 <1>12. [](TypeOK /\ ActiveCallPayloadsWithinCredits /\ L0!IsActiveCall(cId) /\
               ~L0!HasStatus(cId) /\
               ~IsDeliveryCallbackRunning(cId) /\
-              HasNoSendInFlight(cId) /\ IsCancelRequested(cId)
+              HasNoSendInFlight(cId) /\ IsCancelRequested(cId) /\
+              ~HasNoDeliveredEvents(cId)
               => ENABLED <<DeliverCancelled(cId)>>_vars)
     BY DC1EnabledBridge, PTL
+<1>43. [](MsgReady(cId) => ~HasNoDeliveredEvents(cId))
+  <2>1. MsgReady(cId) => ~HasNoDeliveredEvents(cId)
+    BY SMT DEF MsgReady, HasNoDeliveredEvents
+  <2>2. QED BY <2>1, PTL
 <1>1. ASSUME [](TypeOK /\ FfiCallInv /\ ActiveCallPayloadsWithinCredits),
              [][Next]_vars,
              WF_vars(DeliverCancelled(cId)),
@@ -9182,7 +9224,7 @@ THEOREM DMCancelBranchFor ==
     BY <1>1, <1>50, PTL
   <2>5. QED
     BY <1>1, <2>1, <2>2, <2>3, <2>4, <1>42, <1>22, <1>27, <1>37, <1>39,
-       <1>12, PTL
+       <1>12, <1>43, PTL
 <1>2. QED BY <1>1, PTL
 
 \* The uncancelled branch: the credit recovers, the callback returns, the
@@ -9304,12 +9346,6 @@ THEOREM MessageDeliveryLift ==
               HostHasDeliveryCredit(cId) /\ ~IsCancelRequested(cId)
               => ENABLED <<DeliverMessage(cId)>>_vars)
     BY DM1EnabledBridge, PTL
-<1>12. [](TypeOK /\ ActiveCallPayloadsWithinCredits /\ L0!IsActiveCall(cId) /\
-              ~L0!HasStatus(cId) /\
-              ~IsDeliveryCallbackRunning(cId) /\
-              HasNoSendInFlight(cId) /\ IsCancelRequested(cId)
-              => ENABLED <<DeliverCancelled(cId)>>_vars)
-    BY DC1EnabledBridge, PTL
 <1>13. [](TypeOK /\ <<DeliverMessage(cId)>>_vars =>
               <<L0!DeliverMessage(cId)>>_l0_vars)
     BY DM1StepProjects, PTL
@@ -9561,6 +9597,7 @@ THEOREM CancelledCallDies ==
     PROVE  /\ []IndInv
            /\ [][Next]_vars
            /\ WF_vars(DeliverCancelled(cId))
+           /\ WF_vars(DeliverInitialMetadata(cId))
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
@@ -9597,8 +9634,26 @@ THEOREM CancelledCallDies ==
         /\ ~IsDeliveryCallbackRunning(cId)
         /\ HasNoSendInFlight(cId)
         /\ IsCancelRequested(cId)
+        /\ ~HasNoDeliveredEvents(cId)
         => ENABLED <<DeliverCancelled(cId)>>_vars)
     BY DC1EnabledBridge, PTL
+\* The rungs of the metadata step: the guard's new hypothesis in the
+\* ladder's own vocabulary, the metadata delivery enabled from the empty
+\* state, and the invariant conjunct the bridge needs.
+<1>41. [](events_delivered[cId] # <<>> <=> ~HasNoDeliveredEvents(cId))
+  <2>1. events_delivered[cId] # <<>> <=> ~HasNoDeliveredEvents(cId)
+    BY Zenon DEF HasNoDeliveredEvents
+  <2>2. QED BY <2>1, PTL
+<1>44. [](/\ TypeOK
+        /\ NoDeliveryImpliesNoDebt
+        /\ L0!IsActiveCall(cId)
+        /\ HasNoDeliveredEvents(cId)
+        => ENABLED <<DeliverInitialMetadata(cId)>>_vars)
+    BY DIM0Enabled, MetadataEnabledBridge, PTL
+<1>45. [](FfiCallInv => NoDeliveryImpliesNoDebt)
+  <2>1. FfiCallInv => NoDeliveryImpliesNoDebt
+    BY Zenon DEF FfiCallInv
+  <2>2. QED BY <2>1, PTL
 <1>19. [](TypeOK /\ IsCancelRequested(cId) /\ [Next]_vars =>
               (IsCancelRequested(cId))')
     BY CancelMonotone, PTL
@@ -9645,6 +9700,7 @@ THEOREM CancelledCallDies ==
 <1>1. ASSUME []IndInv,
              [][Next]_vars,
              WF_vars(DeliverCancelled(cId)),
+             WF_vars(DeliverInitialMetadata(cId)),
              WF_vars(DeliveryCallbackReturns(cId)),
              WF_vars(EmitWriteDone(cId)),
              WF_vars(WriteDoneReturns(cId))
@@ -9664,7 +9720,7 @@ THEOREM CancelledCallDies ==
   <2>4. QED
     BY <1>1, <2>1, <2>2, <2>3, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15,
        <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>24, <1>33, <1>35,
-       <1>37, <1>40, PTL
+       <1>37, <1>40, <1>41, <1>44, <1>45, PTL
 <1>2. QED BY <1>1, PTL
 
 (***************************************************************************)
@@ -9808,6 +9864,7 @@ THEOREM CallLeavesChannelFor ==
     PROVE  /\ []IndInv
            /\ [][Next]_vars
            /\ WF_vars(DeliverCancelled(cId))
+           /\ WF_vars(DeliverInitialMetadata(cId))
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
@@ -9826,6 +9883,7 @@ THEOREM CallLeavesChannelFor ==
 <1>1. ASSUME []IndInv,
              [][Next]_vars,
              WF_vars(DeliverCancelled(cId)),
+             WF_vars(DeliverInitialMetadata(cId)),
              WF_vars(DeliveryCallbackReturns(cId)),
              WF_vars(EmitWriteDone(cId)),
              WF_vars(WriteDoneReturns(cId)),
@@ -9836,6 +9894,7 @@ THEOREM CallLeavesChannelFor ==
   <2>2. /\ []IndInv
         /\ [][Next]_vars
         /\ WF_vars(DeliverCancelled(cId))
+        /\ WF_vars(DeliverInitialMetadata(cId))
         /\ WF_vars(DeliveryCallbackReturns(cId))
         /\ WF_vars(EmitWriteDone(cId))
         /\ WF_vars(WriteDoneReturns(cId))
@@ -9894,6 +9953,18 @@ THEOREM AllCallsLeaveChannel ==
 (* Quantified weak fairness is invariant, per family: the three-move.      *)
 (***************************************************************************)
 
+THEOREM BoxedDIMFairness ==
+    (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+    <=> [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+<1>1. [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+      <=> \A cId \in CallIds : [](WF_vars(DeliverInitialMetadata(cId)))
+    OBVIOUS
+<1>2. ASSUME NEW cId \in CallIds
+      PROVE [](WF_vars(DeliverInitialMetadata(cId)))
+            <=> WF_vars(DeliverInitialMetadata(cId))
+    BY PTL
+<1>3. QED BY <1>1, <1>2, IsaT(600)
+
 THEOREM BoxedDCFairness ==
     (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
     <=> [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
@@ -9949,6 +10020,7 @@ THEOREM AllCallsDrainFor ==
     PROVE  /\ []IndInv
            /\ [][Next]_vars
            /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+           /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -9958,6 +10030,7 @@ THEOREM AllCallsDrainFor ==
 <1>1. ASSUME []IndInv,
              [][Next]_vars,
              \A cId \in CallIds : WF_vars(DeliverCancelled(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
@@ -9969,6 +10042,7 @@ THEOREM AllCallsDrainFor ==
     <3>1. /\ []IndInv
           /\ [][Next]_vars
           /\ WF_vars(DeliverCancelled(cId))
+          /\ WF_vars(DeliverInitialMetadata(cId))
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
@@ -9989,6 +10063,7 @@ THEOREM AllCallsDrainForBoxed ==
     PROVE  /\ []IndInv
            /\ [][Next]_vars
            /\ [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+           /\ [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
            /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -9999,6 +10074,7 @@ THEOREM AllCallsDrainForBoxed ==
 <1>1. ASSUME []IndInv,
              [][Next]_vars,
              [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId))),
+             [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))),
              [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))),
              [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId))),
              [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -10012,6 +10088,8 @@ THEOREM AllCallsDrainForBoxed ==
     BY <1>1, PTL
   <2>3. [][](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
     BY <1>1, BoxedDCFairness, PTL
+  <2>35. [][](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+    BY <1>1, BoxedDIMFairness, PTL
   <2>4. [][](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
     BY <1>1, BoxedCBRFairness, PTL
   <2>5. [][](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
@@ -10021,6 +10099,7 @@ THEOREM AllCallsDrainForBoxed ==
   <2>7. /\ []IndInv
         /\ [][Next]_vars
         /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -10029,7 +10108,7 @@ THEOREM AllCallsDrainForBoxed ==
                     call_channel[cId] = chId => ~L0!IsActiveCall(cId))
     BY AllCallsDrainFor, PTL
   <2>8. QED
-    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, PTL
+    BY <2>1, <2>2, <2>3, <2>35, <2>4, <2>5, <2>6, <2>7, PTL
 <1>2. QED BY <1>1
 
 THEOREM ChannelCloseLift ==
@@ -10038,6 +10117,7 @@ THEOREM ChannelCloseLift ==
            /\ [][Next]_vars
            /\ WF_vars(ChannelFinishClosing(chId))
            /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -10061,6 +10141,7 @@ THEOREM ChannelCloseLift ==
              [][Next]_vars,
              WF_vars(ChannelFinishClosing(chId)),
              \A cId \in CallIds : WF_vars(DeliverCancelled(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -10070,6 +10151,7 @@ THEOREM ChannelCloseLift ==
   <2>2. /\ []IndInv
         /\ [][Next]_vars
         /\ [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -10082,7 +10164,7 @@ THEOREM ChannelCloseLift ==
                <>[](\A cId \in CallIds :
                         call_channel[cId] = chId =>
                             ~L0!IsActiveCall(cId)))
-    BY <1>1, <2>2, BoxedDCFairness, BoxedCBRFairness,
+    BY <1>1, <2>2, BoxedDCFairness, BoxedDIMFairness, BoxedCBRFairness,
        BoxedEWFairness, BoxedWRFairness, PTL
   <2>4. QED
     BY <1>1, <2>1, <2>3, <1>10, <1>11, <1>12, <1>13, PTL
@@ -10801,6 +10883,7 @@ BY IsaT(600) DEF Fairness
 LEMMA FairnessEverywhere ==
     ASSUME Fairness
     PROVE  /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -10920,6 +11003,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
          PROVE  WF_l0_vars(L0!ChannelFinishClosing(chId))
     <3>1. /\ WF_vars(ChannelFinishClosing(chId))
           /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+          /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -10928,6 +11012,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ [][Next]_vars
           /\ WF_vars(ChannelFinishClosing(chId))
           /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+          /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -10985,6 +11070,7 @@ THEOREM CancellationProgressSafeFor ==
     PROVE  /\ []StrongInv
            /\ [][NextSafe]_vars
            /\ WF_vars(DeliverCancelled(cId))
+           /\ WF_vars(DeliverInitialMetadata(cId))
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
@@ -10997,6 +11083,7 @@ THEOREM CancellationProgressSafeFor ==
 <1>1. ASSUME []StrongInv,
              [][NextSafe]_vars,
              WF_vars(DeliverCancelled(cId)),
+             WF_vars(DeliverInitialMetadata(cId)),
              WF_vars(DeliveryCallbackReturns(cId)),
              WF_vars(EmitWriteDone(cId)),
              WF_vars(WriteDoneReturns(cId))
@@ -11009,6 +11096,7 @@ THEOREM CancellationProgressSafeFor ==
   <2>3. /\ []IndInv
         /\ [][Next]_vars
         /\ WF_vars(DeliverCancelled(cId))
+        /\ WF_vars(DeliverInitialMetadata(cId))
         /\ WF_vars(DeliveryCallbackReturns(cId))
         /\ WF_vars(EmitWriteDone(cId))
         /\ WF_vars(WriteDoneReturns(cId))
@@ -11023,6 +11111,7 @@ THEOREM CancellationFairnessRequirement ==
     PROVE  /\ Init
            /\ [][NextSafe]_vars
            /\ WF_vars(DeliverCancelled(cId))
+           /\ WF_vars(DeliverInitialMetadata(cId))
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
@@ -11521,6 +11610,7 @@ THEOREM ChannelEventuallyCloses ==
            /\ [][Next]_vars
            /\ WF_vars(ChannelFinishClosing(chId))
            /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+           /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11551,6 +11641,8 @@ THEOREM ChannelEventuallyCloses ==
              [][Next]_vars,
              WF_vars(ChannelFinishClosing(chId)),
              \A cId \in CallIds : WF_vars(DeliverCancelled(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -11561,6 +11653,7 @@ THEOREM ChannelEventuallyCloses ==
   <2>2. /\ []IndInv
         /\ [][Next]_vars
         /\ [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11573,7 +11666,7 @@ THEOREM ChannelEventuallyCloses ==
                <>[](\A cId \in CallIds :
                         call_channel[cId] = chId =>
                             ~L0!IsActiveCall(cId)))
-    BY <1>1, <2>2, BoxedDCFairness, BoxedCBRFairness,
+    BY <1>1, <2>2, BoxedDCFairness, BoxedDIMFairness, BoxedCBRFairness,
        BoxedEWFairness, BoxedWRFairness, PTL
   <2>4. ASSUME <>(IsClosingChannel(chId) /\
                       [](~(IsClosedChannel(chId))))
@@ -11660,6 +11753,7 @@ THEOREM ChannelSettlesForL1 ==
            /\ [][Next]_vars
            /\ WF_vars(ChannelFinishClosing(chId))
            /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+           /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11716,6 +11810,7 @@ THEOREM ChannelSettlesForL1 ==
              [][Next]_vars,
              WF_vars(ChannelFinishClosing(chId)),
              \A cId \in CallIds : WF_vars(DeliverCancelled(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
@@ -11730,6 +11825,7 @@ THEOREM ChannelSettlesForL1 ==
           /\ [][Next]_vars
           /\ WF_vars(ChannelFinishClosing(chId))
           /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+          /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
           /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
           /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
           /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11929,6 +12025,7 @@ THEOREM AllChannelsSettleCollected ==
            /\ [][Next]_vars
            /\ (\A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId)))
            /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+           /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11941,6 +12038,7 @@ THEOREM AllChannelsSettleCollected ==
              [][Next]_vars,
              \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId)),
              \A cId \in CallIds : WF_vars(DeliverCancelled(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
@@ -11956,6 +12054,7 @@ THEOREM AllChannelsSettleCollected ==
           /\ [][Next]_vars
           /\ WF_vars(ChannelFinishClosing(chId))
           /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+          /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
           /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
           /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
           /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11979,6 +12078,7 @@ THEOREM AllChannelsSettleBoxed ==
            /\ [](\A chId \in ChannelIds :
                      WF_vars(ChannelFinishClosing(chId)))
            /\ [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+           /\ [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
            /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -11992,6 +12092,7 @@ THEOREM AllChannelsSettleBoxed ==
              [](\A chId \in ChannelIds :
                     WF_vars(ChannelFinishClosing(chId))),
              [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId))),
+             [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))),
              [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))),
              [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId))),
              [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -12010,6 +12111,8 @@ THEOREM AllChannelsSettleBoxed ==
     BY <1>1, BoxedCFCFairness, PTL
   <2>5. [][](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
     BY <1>1, BoxedDCFairness, PTL
+  <2>55. [][](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+    BY <1>1, BoxedDIMFairness, PTL
   <2>6. [][](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
     BY <1>1, BoxedCBRFairness, PTL
   <2>7. [][](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
@@ -12021,6 +12124,7 @@ THEOREM AllChannelsSettleBoxed ==
         /\ [][Next]_vars
         /\ (\A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId)))
         /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -12030,7 +12134,7 @@ THEOREM AllChannelsSettleBoxed ==
                         IsClosedChannel(chId))
     BY AllChannelsSettleCollected, PTL
   <2>10. QED
-    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9, PTL
+    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>55, <2>6, <2>7, <2>8, <2>9, PTL
 <1>2. QED BY <1>1
 
 THEOREM ShutdownEmitProgressSafeFor ==
@@ -12040,6 +12144,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
            /\ WF_vars(EmitShutdownComplete(rtId))
            /\ \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
            /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -12092,6 +12197,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
              WF_vars(EmitShutdownComplete(rtId)),
              \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId)),
              \A cId \in CallIds : WF_vars(DeliverCancelled(cId)),
+             \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -12109,6 +12215,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
         /\ [](\A chId \in ChannelIds :
                   WF_vars(ChannelFinishClosing(chId)))
         /\ [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -12122,7 +12229,8 @@ THEOREM ShutdownEmitProgressSafeFor ==
                         channel_runtime[chId] = rtId =>
                             IsClosedChannel(chId)))
     BY <1>1, <2>1, <2>2, <2>4, BoxedCFCFairness, BoxedDCFairness,
-       BoxedCBRFairness, BoxedEWFairness, BoxedWRFairness, PTL
+       BoxedDIMFairness, BoxedCBRFairness, BoxedEWFairness, BoxedWRFairness,
+       PTL
   <2>6. /\ []IndInv
         /\ [][Next]_vars
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
@@ -12157,6 +12265,7 @@ THEOREM ShutdownEmitFairnessRequirement ==
            /\ WF_vars(EmitShutdownComplete(rtId))
            /\ \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
            /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+           /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -12191,6 +12300,7 @@ THEOREM CancellationCompletesHolds == Spec => CancellationCompletes
                     L0!NotFailed) ~>
                    (~L0!IsActiveCall(cId) \/ ~L0!NotFailed)
     <3>1. /\ WF_vars(DeliverCancelled(cId))
+          /\ WF_vars(DeliverInitialMetadata(cId))
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
@@ -12198,6 +12308,7 @@ THEOREM CancellationCompletesHolds == Spec => CancellationCompletes
     <3>2. /\ []IndInv
           /\ [][Next]_vars
           /\ WF_vars(DeliverCancelled(cId))
+          /\ WF_vars(DeliverInitialMetadata(cId))
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
@@ -12395,6 +12506,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
     <3>0. /\ WF_vars(EmitShutdownComplete(rtId))
           /\ \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
           /\ \A cId \in CallIds : WF_vars(DeliverCancelled(cId))
+          /\ \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
@@ -12441,6 +12553,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
             /\ [](\A chId \in ChannelIds :
                       WF_vars(ChannelFinishClosing(chId)))
             /\ [](\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+            /\ [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
             /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
             /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
             /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
@@ -12454,7 +12567,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
                             channel_runtime[chId] = rtId =>
                                 IsClosedChannel(chId)))
         BY <2>0, <2>1, <3>0, <4>2, <4>4, BoxedCFCFairness,
-           BoxedDCFairness, BoxedCBRFairness, BoxedEWFairness,
+           BoxedDCFairness, BoxedDIMFairness, BoxedCBRFairness, BoxedEWFairness,
            BoxedWRFairness, PTL
       <4>6. <>[](\A chId \in ChannelIds :
                      channel_runtime[chId] = rtId =>
@@ -12702,40 +12815,6 @@ LEMMA ReturnBufferEnabled ==
     DEF HostReturnsBuffer, IsLentBuffer, HostHoldsSomeBuffer,
         TypeOK, L0!TypeOK, l0_vars, L0!vars, vars, ffi_vars
 
-\* Being returned is not enough to enable the release: the guard also asks
-\* that the send this buffer carries be acquitted, which is what stops the
-\* bytes going while the transport may still be reading them.
-\* The lend is enabled wherever the host may ask and the budget has room for
-\* the message's own size.  Taken at that size, the two budget guards are the
-\* same fact twice: CoversMessage is reflexive there, and IsSendableMessage is
-\* the room hypothesis read against MessageWithinCeiling's bound.
-LEMMA LendEnabled ==
-    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW msg \in Messages,
-           IsSendableMessage(msg)
-    PROVE  TypeOK /\ ContemplatesLend(cId) /\ HasFreeSendSlot(cId)
-               /\ IsFreshBuffer(cId, b)
-               /\ IsMemoryAvailable(MessageLength[msg]) =>
-                   ENABLED <<LendForMessage(cId, b, msg)>>_vars
-<1>0. SUFFICES ASSUME TypeOK, ContemplatesLend(cId), HasFreeSendSlot(cId),
-                      IsFreshBuffer(cId, b),
-                      IsMemoryAvailable(MessageLength[msg])
-               PROVE  ENABLED <<LendForMessage(cId, b, msg)>>_vars
-    OBVIOUS
-\* The step changes the state, said without a prime so it survives into the
-\* expanded ENABLED as a hypothesis: the buffer leaves "none".
-<1>05. [buffer_state EXCEPT ![cId][b] = "lent"] # buffer_state
-  <2>1. buffer_state[cId][b] = "none"
-    BY <1>0, Zenon DEF IsFreshBuffer
-  <2>2. [buffer_state EXCEPT ![cId][b] = "lent"][cId][b] = "lent"
-    BY <1>0, SMT DEF TypeOK, L0!TypeOK
-  <2>3. QED
-    BY <2>1, <2>2, Zenon
-<1>1. QED
-    BY <1>0, <1>05, MessageLengthIsNat, ExpandENABLED, SMTT(120)
-    DEF LendForMessage, LendSendBuffer, ContemplatesLend, HasFreeSendSlot,
-        IsFreshBuffer, IsMemoryAvailable, CoversMessage, CoversRequest,
-        IsSendableMessage, IsLendable, Sizes, MessageLengthIsNat,
-        l0_vars, L0!vars, vars, ffi_vars
 
 LEMMA FreeBufferEnabled ==
     ASSUME NEW cId \in CallIds, NEW b \in BufferIds

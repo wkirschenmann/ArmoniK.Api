@@ -133,7 +133,7 @@ VARIABLES
 \* destroyed, so at most one is ever outstanding, and the
 \* counter reaching zero at destroy is proved rather than assumed - quiescence
 \* leaves no buffer out, and the accounting reads the counter off that.
-    last_lend_status,            \* per call: what its last lend returned
+    last_lend_status,            \* per call and message: the lend's answer
     buffer_charge,               \* per call, per buffer: the bytes allocated
     buffer_length,               \* per call, per buffer: the bytes exposed
     memory_used                  \* runtime-wide: bytes lent and not yet freed

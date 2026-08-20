@@ -473,10 +473,10 @@ unconditional rather than contingent on the host calling something.
 **That is the difference between this and `ak_runtime_destroy`, which stays a downcall.**
 Destroy answers a question only the host can ask - may I unload the library - so the host
 needs a verdict it can act on, and a refcount is no substitute. Reclaiming a call answers
-a question the runtime resolves for itself, and the verdict is of no use to the host. The
-two had the same shape for a while, and that symmetry was the mistake: it forced an
-unobservable condition (has the callback finished unwinding) to be argued *out* of a
-precondition, when the right answer was to have no precondition at all.
+a question the runtime resolves for itself, and the verdict is of no use to the host.
+Giving both the same downcall shape would force an unobservable condition (has the
+callback finished unwinding) to be argued *out* of a precondition; the right shape is no
+precondition at all.
 
 **The send window** bounds the memory the call's arena lends out: at most
 `MaxSendsInFlight` buffers at a time, counting both those the host is still filling and
@@ -502,7 +502,7 @@ which bounds how many allocations are outstanding at once and is what makes a re
 buffer's send debt bounded by a constant.
 
 **The slot goes back at emission, not at return**, and the distinction is load-bearing.
-Two counts live here and had been conflated: `SendWindowOccupancy`, which
+Two counts live here and they are distinct: `SendWindowOccupancy`, which
 `MaxSendsInFlight` bounds and which shrinks when WRITE_DONE is emitted, and the
 acquittal callback still on the stack, which only quiescence and the terminal care
 about. Freeing at return would mean a host woken by WRITE_DONE could ask for a buffer,
@@ -641,7 +641,7 @@ refinement.
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
 | `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
-| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its two refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling - linearize nowhere: refusing is a step the model does not take, which is sound because the action carries no fairness |
+| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the per-request status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
@@ -678,7 +678,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
 | `ak_get_call_buffer`'s `len` | The model identifies the request by the message it is for: `LendSendBuffer(cId, b, msg, charge)`, with `len = MessageLength[msg]` and `charge` the size the allocator returned. The message is the model's prophecy of what the buffer will carry, and it is what keeps several outstanding requests distinguishable - two requests of a hundred bytes are the same length and different messages. `IsSendableMessage(msg)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversMessage(charge, msg)` ties the two. Level 0 carries no sizes: its send window counts allocations |
-| `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight` and `DeliveryCredits`; the rest does not change what the ABI guarantees |
+| `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
 
@@ -931,9 +931,9 @@ ak_status ak_call_cancel(ak_call_handle call);
 // arena exactly as it did before.
 //
 // Reports what the call still owes. Purely observational: it changes nothing,
-// and it is legal to never call it. It exists because removing the downcall
-// removed the one place a forgotten ak_return_call_buffer used to be reported
-// synchronously, and an obligation with no way to check it is one that rots.
+// and it is legal to never call it. It exists because without a release downcall
+// nothing reports a forgotten ak_return_call_buffer synchronously, and an
+// obligation with no way to check it is one that rots.
 // Conformance tests and host assertions are the intended callers.
 // AK_STATUS_HANDLE_STALE means the call is already reclaimed, which is to say the host
 // owes nothing; a debug build keeps the slot as a tombstone so that answer is
@@ -991,10 +991,10 @@ ak_status ak_runtime_memory_usage(ak_runtime_handle runtime, ak_memory_usage *ou
 // hold exactly on every returned snapshot, not merely eventually. A host may
 // therefore compare fields across categories without a second call.
 //
-// Normative here means an ABI obligation, checked by the ABI tests. It is not a
-// level-1 theorem: no charge, no byte count and no ceiling appears in the model, so
-// these two lines are the one part of this ABI's contract that TLA+ does not carry.
-// See "What is actually verified".
+// Normative here means an ABI obligation, checked by the ABI tests. The two
+// identities are proved at level 1 (MemoryAccountingExact, CategoriesPartitionTotal,
+// MemoryWithinCeiling); what stays a test obligation is the snapshot itself -
+// that one read returns one coherent instant. See "What is actually verified".
 typedef struct {
     uint64_t bytes_used;
     uint64_t ceiling;
@@ -1441,14 +1441,15 @@ owes the honest contract there - retry until cancellation or deadline, or a queu
 acquisition under recurring capacity is to be promised - along with the cadence, the backoff
 and the cancellation of the poll itself.
 
-Making the ceiling fatal was the previous shape and it was wrong, not merely pessimistic:
+A fatal ceiling - the rejected alternative - would be wrong, not merely pessimistic:
 `AK_RUNTIME_FAILED_UNQUIESCED` is absorbing and `ak_runtime_destroy` is refused from it
-forever, so a normal burst would have left the runtime permanently undestroyable - a
+forever, so a normal burst would leave the runtime permanently undestroyable - a
 mechanism introduced to bound memory turning the runtime itself unreclaimable.
 
-The model needs nothing new either way. `LendSendBuffer` is a downcall with no fairness, so an
-implementation that refuses more often than the specification permits produces a subset of
-the modelled behaviours and no proved liveness rests on the action being enabled. The
+An implementation that refuses more often than the specification permits produces a subset
+of the modelled behaviours for every property except the budget's own liveness, which rests
+on `WF(LendForMessage)` - a host obligation, so the implementation inherits it as the retry
+loop rather than as a runtime promise. The
 alternative shapes - reserving the budget at call admission and refusing `ak_call_start`, or a
 runtime permit acquired before the lend and released on the real recredit - remain open and
 are the level-2 material for turning a non-blocking refusal into a fair asynchronous wait.
@@ -2096,7 +2097,13 @@ has to induce them cannot tell a predicate from a step:
   That is why WRITE_DONE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED are emitted and the
   four data events are delivered. Note that `DeliverStatus` and `DeliverCancelled` both
   produce `AK_EVENT_STATUS`: two model actions for one event kind, distinguished by the
-  status the payload carries.
+  status the payload carries. Every delivery action adds exactly one owned event and arms
+  exactly one callback - an `ak_callback` carries one `ak_event`, and the model counts the
+  host's debt off `events_delivered`, so an action that appended two events under one
+  callback would owe the host a payload no callback carries. `DeliverCancelled` therefore
+  requires the initial metadata to be out already: a call cancelled before anything was
+  delivered gets two serialized callbacks, INITIAL_METADATA first - `DeliverInitialMetadata`
+  fires on its own weak fairness - and the cancellation second.
 
 Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
 - **UnusedCallsAreFfiClean**: no FFI state before `ak_call_start`
@@ -2285,7 +2292,7 @@ New liveness guarantees:
 
 #### Fairness
 
-Nineteen weak-fairness conjuncts, all individual, and they do not all belong to the same
+Twenty weak-fairness conjuncts, all individual, and they do not all belong to the same
 party. Which side owes each one is the whole point of listing them, because the ones the
 host owes are exactly the obligations a level-2 binding has to discharge.
 
@@ -2301,12 +2308,15 @@ any other host it is an obligation the ABI imposes. The model is right to assume
 nothing can make progress otherwise - but calling it a promise of the binding overstates
 what is ours to guarantee.
 
-The last two are about giving memory back. `HostConsumesEvent` is per call, which suffices
+The next two are about giving memory back. `HostConsumesEvent` is per call, which suffices
 because payload release is FIFO: consuming past a payload without consuming it is not a
 behavior the ABI admits. `HostReturnsBuffer` is per *buffer*, because buffer returns are
 unordered - a per-call conjunct would let a host cycle some buffers while starving one.
+The last, `LendForMessage`, is the lend at the message's own size: forcing a downcall only
+the host can make is the hypothesis that a refused host keeps asking, and taken at that
+size the instance is enabled exactly when there is room for what was asked.
 
-The remaining downcalls (`CallStart`, `LendSendBuffer`, `SendMessage`, `EndSend`,
+The remaining downcalls (`CallStart`, `SendMessage`, `EndSend`,
 `RequestCallCancellation`, `RuntimeBeginShutdown`, `RuntimeDestroy`) carry no fairness:
 the model never promises the host acts, only what follows when it does. `ReleaseCallHandle`
 is not among them, because it is not a downcall - the runtime reclaims a settled call
@@ -2316,9 +2326,8 @@ directive on
 `ShutdownFairness`.
 
 Level-0 safety and the five level-0 liveness guarantees are not re-proved: the
-refinement mapping is the identity on the level-0 variables, `Spec => L0!Spec` is
-model-checked by TLC (fairness included) and proved with tlapm by lifting each level-0
-fairness conjunct to the level-1 machinery.
+refinement mapping is the identity on the level-0 variables, and `Spec => L0!Spec` is
+proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machinery.
 
 ### Level 2 — DotNetBinding
 
@@ -2427,9 +2436,9 @@ Additional invariants:
 - **BuffersAlwaysReturned**: ∀ buffer `ak_get_call_buffer` handed over: eventually given
   back, by a send or by `ak_return_call_buffer`. The managed side of level 1's
   `WF(HostReturnsBuffer)`, discharged by a `using` on the lent buffer covering
-  serialization, refusal and cancellation alike. It used to be stated against
-  `ak_call_release`'s precondition, which gave it a synchronous check; with the downcall
-  gone it is a pure obligation, and `ak_call_debt_of` is where a test verifies it
+  serialization, refusal and cancellation alike. With no release downcall to carry a
+  synchronous check, it is a pure obligation, and `ak_call_debt_of` is where a test
+  verifies it
 
 Refinement mapping to FfiGrpc:
 - `GCHandle.Alloc(callState)` before start ↔ publication before start
@@ -2492,13 +2501,10 @@ the artefact rather than left to rot:
 | Element | Status |
 |---------|--------|
 | Specification described in this document | Current |
-| Level 1, model-checked (TLC), base configuration | Being re-run for this revision. The counter design has never been through TLC: all five configurations carried `MessageLength` as a function literal in the `.cfg`, which TLC's configuration grammar does not accept, so none of them started. The sizes now come from `MC_MessageLength` in the module, as `l0_vars` and `PayloadIndices` already did. |
-| Level 1, model-checked (TLC), the other four configurations | Being re-run for this revision |
-| Level 1, TLC coverage of the new liveness properties | `MCBudgetEventuallyAdmits` - the bounded lift of `BudgetEventuallyAdmits`, `Nat` not being enumerable - is named by the base configuration. The others are not: no configuration names the four callback returns, `BufferEventuallyFreed`, `CallEventuallyReclaimed`, `RuntimeEventuallyQuiescent` or `ResourcesReleasedEventually`, so those are proved and not model-checked |
-| Level 0, model-checked (TLC, four configurations) | Current; the level-0 modules did not change this revision |
-| Level 1, one pass at `--stretch 1` | **10867 obligations, all proved, 10m54s at `--threads 8`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
+| Model-checking configurations | Nine configurations exist - five at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
+| Level 1, one pass at `--stretch 1` | **11054 obligations, all proved, 10m35s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
 | Level 0, one pass at `--stretch 1` | 1632 obligations proved, this revision; the level-0 module did not change |
-| A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. The twelve irreducible Isabelle calls in `RefinesSpec` and the fairness lemmas now carry `IsaT(600)`, a ceiling and not a cost |
+| A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
 | `ci/check_theorem_statements.py` | 66 declarations, each restated verbatim in its proofs module |
@@ -2552,16 +2558,14 @@ gives back what it holds, so a host blocked polling for capacity while holding a
 is admitted there and fatal in practice. See `RetryingCallHoldsNoBuffer`.
 
 Nothing above is `OMITTED`, nothing fails, and both obligation counts were measured on the
-model as it stands here rather than carried over. The level-1 count grew from 5208 because the send
-window, `RuntimeDestroy` and the buffer downcalls each added actions, and because the
-frames that used to enumerate the action alphabet were rebuilt on thirteen framing
-lemmas - `OnlyCallStartWritesCallChannel`, `EveryStepEitherLendsOrKeepsBuffers` and
+model as it stands here rather than carried over. The proof's framing rests on thirteen
+framing lemmas - `OnlyCallStartWritesCallChannel`, `EveryStepEitherLendsOrKeepsBuffers` and
 their siblings, each naming the writers of one variable - over four projection lemmas
 (`FfiOnlyStutters`, `StutterProjects`, `FfiOnlyStepsKeepL0`,
 `RuntimeAndChannelStepsKeepCalls`), which trade one large obligation for several small
-ones. That rebuild was not housekeeping: with the
-old shape the three new actions pushed nineteen frames past what the solver could do at
-any timeout, so the alphabet could not have grown again.
+ones. The shape is load-bearing: frames that enumerate the whole action alphabet put
+every new action in every frame obligation, and past nineteen frames no solver timeout
+closes them - naming each variable's writers is what lets the alphabet keep growing.
 
 ---
 

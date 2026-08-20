@@ -5,7 +5,7 @@
 (* The state is shared, the machinery is instantiated: the constants and   *)
 (* the twelve level-0 variables come from AbstractGrpcState (declared      *)
 (* once, never redeclared), this module adds the FFI constants and the     *)
-(* fifteen FFI variables, and every level-0 definition is reached through  *)
+(* nineteen FFI variables, and every level-0 definition is reached through *)
 (* the L0 prefix.  Every local name (vars, TypeOK, Init, Next, Spec, the   *)
 (* action names) denotes the level-1 concept.                              *)
 (*                                                                         *)
@@ -63,7 +63,7 @@ EXTENDS FfiGrpcState, Naturals, Sequences, Functions
 (* The whole state comes from FfiGrpcState: the constants and the twelve   *)
 (* level-0 variables (shared through AbstractGrpcState, they feed the      *)
 (* implicit substitution of the INSTANCE below) plus the FFI constants     *)
-(* and the fifteen FFI variables.  Nothing is declared here.               *)
+(* and the nineteen FFI variables.  Nothing is declared here.              *)
 (***************************************************************************)
 
 \* The level-0 engine: definitions and proved theorems, all under L0.
@@ -229,16 +229,15 @@ SomeBufferOutstanding ==
 \* two unrelated atoms to the temporal backend, which cannot then see that one
 \* is the negation of the other; named, it is one atom and its negation.
 
-\* A request the ABI will consider at all.  Strictly positive so a charge is
-\* never weightless, and no larger than the ceiling - above that the refusal is
+\* A request the ABI will consider at all: no larger than the ceiling.  Zero
+\* is a valid length - an empty serialized message - and charges nothing - above that the refusal is
 \* AK_STATUS_MESSAGE_TOO_LARGE, permanent, and the complement of this
 \* predicate is exactly that condition.
 IsLendable(len) == len <= Ceiling
 
 \* Room for a charge right now.  Its negation is what AK_STATUS_BUDGET_BUSY
-\* reports, and a refusal writes nothing: the lend simply does not fire for
-\* that size, while it may fire for a smaller one.  That per-size refusal is
-\* the host's polling, and it is why the size is a parameter of the action.
+\* reports, through RefuseLendForBudget: a refusal for the charge the
+\* allocator picked, recorded per request, while a smaller charge may fit.
 IsMemoryAvailable(charge) == memory_used + charge <= Ceiling
 
 \* The allocator hands out at least what was asked.  The budget charges what
@@ -246,11 +245,6 @@ IsMemoryAvailable(charge) == memory_used + charge <= Ceiling
 \* runtime really holds.  Nothing here models a rounding policy.
 CoversRequest(charge, len) == len <= charge
 
-\* What the host is refused on, and what it is eventually promised.  The lend
-\* is guarded on a charge, but the host asks for a length and does not choose
-\* the charge: the allocator may pick a large one now and a small one later
-\* with nothing freed in between, so a promise about one charge would be a
-\* promise about the allocator's mood.  This is the promise that survives.
 \* The sizes a lend may be asked for.  Bounded by the ceiling so Next
 \* quantifies over a finite set: above it the request is refused anyway.
 Sizes == 0..Ceiling
@@ -263,11 +257,6 @@ LendStatuses ==
 \* hold it, and every proof about a lend would have to carry the lookup.
 IsSendableMessage(msg)     == IsLendable(MessageLength[msg])
 CoversMessage(charge, msg) == CoversRequest(charge, MessageLength[msg])
-
-\* Some charge the allocator could pick both covers the message and fits.
-IsMessageAdmissible(msg) ==
-    \E charge \in Sizes :
-        CoversMessage(charge, msg) /\ IsMemoryAvailable(charge)
 
 IsRequestAdmissible(len) ==
     \E charge \in Sizes :
@@ -755,10 +744,9 @@ LendSendBuffer(cId, b, msg, charge) ==
     \* the permanence rather than asserting it: the charge covers the request,
     \* so a length above the ceiling leaves IsMemoryAvailable false in every
     \* state.  A request that does not fit right now is AK_STATUS_BUDGET_BUSY,
-    \* and that refusal is this action not firing for this size while it may
-    \* fire for a smaller one - the host's polling, which is why the size is a
-    \* parameter.  Nothing rests on the action being enabled, it carrying no
-    \* fairness, so refusing costs no proved liveness.
+    \* recorded by RefuseLendForBudget for the charge that did not fit.  The
+    \* fairness forces only LendForMessage, the instance at the message's own
+    \* size: a host obligation - it keeps asking - never a runtime promise.
     /\ IsSendableMessage(msg)
     /\ CoversMessage(charge, msg)
     /\ IsMemoryAvailable(charge)
@@ -1058,6 +1046,11 @@ DeliverCancelled(cId) ==
     /\ HasFreeDeliverySlotForTerminal(cId)
     /\ IsCancelRequested(cId)
     /\ HasNoSendInFlight(cId)
+    \* One event per callback.  An ak_callback carries one ak_event, so the
+    \* branch of L0!CallCancel that would deliver metadata and the terminal in
+    \* one step has no level-2 refinement: metadata goes out first, on its own
+    \* callback, and only then may the cancellation settle the call.
+    /\ ~HasNoDeliveredEvents(cId)
     /\ L0!CallCancel(cId)
     /\ HandPayloadToHost(cId)
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -1287,10 +1280,8 @@ ResourcesReleasedEventually ==
 \* and at zero any lendable size fits.  Stated on a predicate and its negation
 \* rather than on two inequalities: the temporal backend matches formulas, and
 \* two arithmetic comparisons are two unrelated atoms to it.
-\* It does not say the caller who was refused wins the room that comes back -
-\* lending carries no fairness, and nothing stops the same caller losing the
-\* race every time.  What a retry loop is owed is level 2's
-\* BudgetCancellationStopsRetry.
+\* It says nothing about who is served: the per-request promise is
+\* BudgetRefusalEventuallyLends below.
 \* Stated on the request, because the request is what the host makes.  The
 \* antecedent is that no charge admits it, the consequent that some charge
 \* does: a refusal at one charge followed by a success at another, with nothing
@@ -1340,19 +1331,19 @@ LivenessProperties ==
 (* reaches the queue reaches the host.                                     *)
 (*                                                                         *)
 (* The host - binding and application, indistinguishable at this level -   *)
-(* owes six: DeliveryCallbackReturns, WriteDoneReturns,                    *)
+(* owes seven: DeliveryCallbackReturns, WriteDoneReturns,                  *)
 (* ShutdownCallbackReturns, ResourcesReleasedCallbackReturns,              *)
-(* HostConsumesEvent and HostReturnsBuffer.  The first four say a callback *)
-(* returns, which is what a callback contract means; the last two say the  *)
-(* host gives back what it borrows.  These are the six hypotheses a        *)
+(* HostConsumesEvent, HostReturnsBuffer and LendForMessage.  The first     *)
+(* four say a callback returns, which is what a callback contract means;   *)
+(* the next two say the host gives back what it borrows; the last says a   *)
+(* host that was refused keeps asking.  These are the seven hypotheses a   *)
 (* level-2 binding has to discharge.  One                                  *)
 (* HostConsumesEvent per call is enough because release is FIFO, whereas   *)
 (* buffer returns are unordered and so need one per buffer.                *)
 (*                                                                         *)
-(* The remaining downcalls (CallStart, LendSendBuffer, SendMessage,        *)
-(* EndSend, RequestCallCancellation, RuntimeBeginShutdown) carry no        *)
-(* fairness: the model never promises the host acts, only what follows     *)
-(* when it does.                                                           *)
+(* The remaining downcalls (CallStart, SendMessage, EndSend,               *)
+(* RequestCallCancellation, RuntimeBeginShutdown) carry no fairness: the   *)
+(* model never promises the host acts, only what follows when it does.    *)
 (***************************************************************************)
 
 Fairness ==
