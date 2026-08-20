@@ -107,6 +107,12 @@ VARIABLES
     resources_released_emitted,  \* per runtime: RESOURCES_RELEASED went out
     resources_released_callback_running, \* per runtime: its callback on stack
 
+\* Two quantities, because they are not the same number.  buffer_length is what
+\* ak_buffer.len exposes and what a commit must fit inside; buffer_charge is
+\* what the allocator handed out and what the budget counts.  The allocator may
+\* round the request up, so charging the length would bound a fiction, and
+\* checking a commit against the charge would admit a message the view cannot
+\* hold.  CoversRequest ties them at the lend and nothing relates them after.
 \* The emission budget, in bytes.  buffer_charge records what the allocator
 \* handed out for a buffer, written once when the buffer is lent and read by
 \* the commit and the free; memory_used is the runtime-wide counter, kept the
@@ -120,12 +126,16 @@ VARIABLES
 \* number that can drift is a promise someone will rely on.
 \* The emission path only.  Receive-side memory belongs to hyper and is
 \* governed by the HTTP/2 flow control window, not by anything the ABI can
-\* refuse against, and a genuine allocation failure in Rust aborts rather than
-\* returning an error - so there is no refusal on that side to model.
-\* Global rather than per runtime: at most one runtime is outstanding, and the
+\* refuse against.  On that side an allocation failure runs Rust's allocation
+\* error hook and aborts, so there is no refusal to model; the emission path
+\* uses the fallible allocator APIs and reports AK_STATUS_INTERNAL instead.
+\* Global rather than per runtime: RuntimeCreate requires every other runtime
+\* destroyed, so at most one is ever outstanding, and the
 \* counter reaching zero at destroy is proved rather than assumed - quiescence
 \* leaves no buffer out, and the accounting reads the counter off that.
+    last_lend_status,            \* per call: what its last lend returned
     buffer_charge,               \* per call, per buffer: the bytes allocated
+    buffer_length,               \* per call, per buffer: the bytes exposed
     memory_used                  \* runtime-wide: bytes lent and not yet freed
 
 =============================================================================

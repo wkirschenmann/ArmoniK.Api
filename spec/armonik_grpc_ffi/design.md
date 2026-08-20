@@ -1983,7 +1983,7 @@ obligations, which membership in a sequence could not express.
 The state is the level-0 state (shared through `AbstractGrpcState`, never redeclared),
 two FFI constants — `MaxSendsInFlight` and `DeliveryCredits`, the pipelining depths of
 the ABI contract, each assumed a positive natural, plus the buffer identity space — and
-fifteen FFI variables:
+nineteen FFI variables:
 
 - `buffers_held_by_host`: per call, the number of buffers `ak_get_call_buffer` has lent
   and that have not come back. Committing one moves it out of this count and into
@@ -2047,6 +2047,21 @@ fifteen FFI variables:
   `ak_call_send_message` keys it, so both questions the model asks are lookups - may
   these bytes go, and are they still needed. Without it nothing forbade releasing the
   memory of a message still on its way to the wire
+
+- `buffer_charge`: per call and per buffer, the bytes the allocator handed out for that
+  allocation. It is what the budget counts, and it is written once on a fresh buffer and
+  never rewritten - the discipline `buffer_send` already follows
+- `buffer_length`: per call and per buffer, the bytes `ak_buffer.len` exposes. Distinct from
+  the charge because the allocator may round a request up: `FitsInBuffer` reads the length,
+  so a commit must fit the view the host was given, while the ceiling counts what was really
+  taken. `CoversRequest` ties them at the lend and nothing relates them afterwards
+- `memory_used`: the runtime-wide counter, moved by the lend and the free the way an
+  implementation moves it rather than evaluated as a sum on demand. Typed `Int`, the free
+  being the one action that subtracts; `MemoryAccountingExact` is what makes it non-negative
+  and what makes the ceiling mean anything
+- `last_lend_status`: per call, what its last `ak_get_call_buffer` returned - `OK` or one of
+  the three refusals. Nothing else reads it, which is the point: it makes a refusal an event
+  the properties can quantify over without giving any action a new way to be blocked
 
 Deliberately absent: no handle registry (validity is modeled, not indices and
 generations, so the slot map's generation counter is an implementation of handle validity
@@ -2495,13 +2510,22 @@ for the free, `SumFunctionOnSetEqual` where a state moves without changing a cha
 its summand as an *operator* parameter has no citable primed form, which is the trap that shape
 walks into; `SumFunctionOnSet` is first order in both arguments and the prime distributes.
 
-The refusal itself needs no modelling either, because it is already there. `LendSendBuffer`
-carries no fairness, so a refused lend is a stuttering step: every proved property crosses it
-unchanged, and that includes the only thing a ceiling could plausibly wedge - the runtime's
-state does not move, so `RuntimeEventuallyQuiescent` and `ResourcesReleasedEventually` are
-untouched. A runtime-level `RESOURCE_EXHAUSTED` state would be the same mistake as the fatal
-ceiling that preceded this design: **a refusal is not a state of the runtime, it is the
-absence of a transition**, and promoting it to a state is what made the runtime undestroyable.
+The refusals are modelled, and as their own actions: `RefuseLendTooLarge`,
+`RefuseLendForSlot` and `RefuseLendForBudget` write `last_lend_status` and nothing else. They
+carry no fairness - refusing is never owed - and every property proved of the other actions
+crosses them, since the state they touch is read by none of them.
+
+Modelling them is not decoration. A refusal is the antecedent of the promise the budget owes:
+*a valid request that did not go through eventually goes through.* Stated on the absence of a
+transition, that promise cannot be written down, and a property whose antecedent is "no charge
+would have fitted" is vacuous in the case that matters - the one where a charge would have
+fitted and the allocator picked another. `RefuseLendForBudget` therefore takes the charge as a
+parameter: it records that *this* one did not fit, not the claim that none would.
+
+What stays true is the shape of the refusal. **A refusal is not a state of the runtime**: it
+records what a downcall returned, not a condition the runtime is in. A runtime-level
+`RESOURCE_EXHAUSTED` state would be the same mistake as the fatal ceiling that preceded this
+design, and promoting a refusal to a state is what made the runtime undestroyable.
 
 What does deserve a model is the retry protocol, and it is level 2's because it is about the
 binding's own scheduling rather than about bytes. One boolean per call - retrying or not -

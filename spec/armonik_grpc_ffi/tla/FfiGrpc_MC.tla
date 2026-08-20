@@ -49,9 +49,8 @@ MC_MessageLength == [msg \in Messages |-> 1]
 \* BudgetEventuallyAdmits quantifies over Nat.  Above the ceiling IsLendable
 \* is false and the property is vacuous, so the bounded range loses nothing.
 MCBudgetEventuallyAdmits ==
-    \A len \in 1..Ceiling :
-        IsLendable(len) =>
-            (~IsMemoryAvailable(len) ~> IsMemoryAvailable(len))
+    \A len \in 0..Ceiling :
+        (~IsRequestAdmissible(len) ~> IsRequestAdmissible(len))
 
 MCSendsEventuallyAcquitted ==
     \A cId \in CallIds :

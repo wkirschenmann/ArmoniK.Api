@@ -66,6 +66,10 @@ NextSafeCallFfi ==
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
            LendSendBuffer(cId, b, len, charge)
+    \/ \E cId \in CallIds, len \in RequestSizes : RefuseLendTooLarge(cId, len)
+    \/ \E cId \in CallIds, len \in Sizes : RefuseLendForSlot(cId, len)
+    \/ \E cId \in CallIds, len \in Sizes, charge \in Sizes :
+           RefuseLendForBudget(cId, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
