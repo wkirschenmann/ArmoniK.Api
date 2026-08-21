@@ -270,13 +270,10 @@ HasAccountingRoomForSomeCharge(len) ==
 \* A message fits the buffer it was given.  Read at the commit, where the
 \* message appears - the lend saw only a length.
 \* The occurrence discipline, both directions.  A token names one occurrence:
-\* once per call within its direction, and never in both directions - a
-\* received token cannot reappear in emission, nor an emitted one in
-\* reception.  Position already orders each direction; the tokens are what
-\* buffer_send and the k-th WRITE_DONE key on.
-NotYetReceived(cId, msg) ==
-    \A i \in DOMAIN received[cId] : received[cId][i] # msg
-
+\* once globally within its direction, on whichever call committed it, and
+\* never in both directions - a received token cannot reappear in emission,
+\* nor an emitted one in reception.  Position already orders each direction;
+\* the tokens are what buffer_send and the k-th WRITE_DONE key on.
 NeverSubmitted(msg) ==
     \A c \in CallIds :
         \A i \in DOMAIN submitted[c] : submitted[c][i] # msg
@@ -284,9 +281,6 @@ NeverSubmitted(msg) ==
 NeverReceived(msg) ==
     \A c \in CallIds :
         \A i \in DOMAIN received[c] : received[c][i] # msg
-
-NotYetSubmitted(cId, msg) ==
-    \A i \in DOMAIN submitted[cId] : submitted[cId][i] # msg
 
 FitsInBuffer(msg, cId, b) ==
     MessageLength[msg] = buffer_length[<<cId, b>>]
@@ -944,7 +938,7 @@ SendMessage(cId, msg, b) ==
     /\ IsLentBuffer(cId, b)
     \* A message is submitted at most once per call: the submitted sequence
     \* is injective, which is what lets a message identify its request.
-    /\ NotYetSubmitted(cId, msg)
+    /\ NeverSubmitted(msg)
     /\ NeverReceived(msg)
     /\ FitsInBuffer(msg, cId, b)
     /\ L0!SendMessage(cId, msg)
@@ -1017,7 +1011,7 @@ NetworkReceive(cId, msg) ==
     /\ L0!NetworkReceive(cId, msg)
     \* The occurrence discipline: a fresh token, never seen in either
     \* direction.  A strengthening of the level-0 action, as a refinement may.
-    /\ NotYetReceived(cId, msg)
+    /\ NeverReceived(msg)
     /\ NeverSubmitted(msg)
     /\ UNCHANGED ffi_vars
 
@@ -1315,7 +1309,8 @@ BudgetEventuallyHasRoomFor ==
             (~HasAccountingRoomForSomeCharge(len) ~> HasAccountingRoomForSomeCharge(len))
 
 \* What ak_channel_release promises: a channel told to close closes, its
-\* calls cancelled and drained on the runtime's own fairness.
+\* calls cancelled and drained on the runtime's fairness plus the host
+\* obligations - a callback that never returns holds the drain open.
 EventualChannelClosed ==
     \A chId \in ChannelIds :
         IsClosingChannel(chId) ~> IsClosedChannel(chId)

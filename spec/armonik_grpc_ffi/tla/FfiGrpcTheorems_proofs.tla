@@ -2581,18 +2581,18 @@ LEMMA FfiFramePreservesFfiCallInv ==
         ReleasesNeverExceedDeliveries, ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
-  <2>95. (/\ SubmittedOccurrencesUnique
-          /\ ReceivedOccurrencesUnique
+  <2>95. (/\ SubmittedOccurrencesGloballyUnique
+          /\ ReceivedOccurrencesGloballyUnique
           /\ DirectionsShareNoToken)'
-    <3>1. /\ SubmittedOccurrencesUnique
-          /\ ReceivedOccurrencesUnique
+    <3>1. /\ SubmittedOccurrencesGloballyUnique
+          /\ ReceivedOccurrencesGloballyUnique
           /\ DirectionsShareNoToken
       BY <1>1, Zenon DEF FfiCallInv
     <3>2. /\ submitted' = submitted
           /\ received' = received
       BY <1>1, Zenon
     <3>3. QED BY <3>1, <3>2, SMT
-          DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+          DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
               DirectionsShareNoToken
   <2>6. QED
     BY <2>3, <2>4, <2>5, <2>95, Zenon DEF FfiCallInv
@@ -2707,18 +2707,18 @@ LEMMA CancelLatchPreservesFfiCallInv ==
         ReleasesNeverExceedDeliveries, ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-          /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+          /\ ReceivedOccurrencesGloballyUnique
           /\ DirectionsShareNoToken
     BY <1>1, Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
         /\ received' = received
     BY <1>1, Zenon
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>10. QED
     BY <1>6, <1>7, <1>8, <1>9, <1>95, Zenon DEF FfiCallInv
@@ -2903,11 +2903,11 @@ LEMMA ReceiveKeepsFfiCallInv ==
                      sent, status_pending, send_closed>>
     BY SMT DEF NetworkReceive, L0!NetworkReceive, ffi_vars,
        L0!RuntimeVars, L0!ChannelVars, L0!CallVars
-<1>2. (/\ SubmittedOccurrencesUnique
-       /\ ReceivedOccurrencesUnique
+<1>2. (/\ SubmittedOccurrencesGloballyUnique
+       /\ ReceivedOccurrencesGloballyUnique
        /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ received' = [received EXCEPT ![cId] =
@@ -2916,14 +2916,15 @@ LEMMA ReceiveKeepsFfiCallInv ==
     BY Zenon DEF NetworkReceive, L0!NetworkReceive
   <2>3. received \in [CallIds -> Seq(Messages)]
     BY Zenon DEF TypeOK, L0!TypeOK
-  <2>4. \A k \in DOMAIN received[cId] : received[cId][k] # msg
-    BY Zenon DEF NetworkReceive, NotYetReceived
+  <2>4. \A c \in CallIds :
+            \A k \in DOMAIN received[c] : received[c][k] # msg
+    BY Zenon DEF NetworkReceive, NeverReceived
   <2>45. \A c \in CallIds :
              \A j \in DOMAIN submitted[c] : submitted[c][j] # msg
     BY Zenon DEF NetworkReceive, NeverSubmitted
   <2>5. QED
     BY <2>1, <2>2, <2>3, <2>4, <2>45, AppendProperties, SMTT(120)
-    DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+    DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
         DirectionsShareNoToken
 \* The tuples opened into the components the conjuncts read, so the final
 \* congruence is the same shape UnchangedFfiKeepsFfiCallInv closes.
@@ -2937,8 +2938,8 @@ LEMMA ReceiveKeepsFfiCallInv ==
                      events_delivered, submitted, delivered,
                      sent, status_pending, send_closed>>
     BY <1>1, Zenon DEF ffi_vars
-<1>26. /\ (SubmittedOccurrencesUnique)'
-       /\ (ReceivedOccurrencesUnique)'
+<1>26. /\ (SubmittedOccurrencesGloballyUnique)'
+       /\ (ReceivedOccurrencesGloballyUnique)'
        /\ (DirectionsShareNoToken)'
     BY <1>2, Zenon
 <1>31. (/\ UnusedCallsAreFfiClean
@@ -3073,17 +3074,17 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>32. TerminalCallHasNoSendInFlight'
         BY <1>1, <4>0, Zenon
         DEF FfiCallInv, TerminalCallHasNoSendInFlight
-      <4>95. (/\ SubmittedOccurrencesUnique
-              /\ ReceivedOccurrencesUnique
+      <4>95. (/\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
               /\ DirectionsShareNoToken)'
-        <5>1. /\ SubmittedOccurrencesUnique
-              /\ ReceivedOccurrencesUnique
+        <5>1. /\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
               /\ DirectionsShareNoToken
           BY <1>1, Zenon DEF FfiCallInv
         <5>2. QED
           BY <1>1, <5>1, <3>1, SMT
-          DEF CallStart, L0!CallStart, SubmittedOccurrencesUnique,
-              ReceivedOccurrencesUnique, DirectionsShareNoToken,
+          DEF CallStart, L0!CallStart, SubmittedOccurrencesGloballyUnique,
+              ReceivedOccurrencesGloballyUnique, DirectionsShareNoToken,
               TypeOK, L0!TypeOK
       <4>4. QED
         BY <4>1, <4>2, <4>30, <4>31, <4>32, <4>95, Zenon DEF FfiCallInv
@@ -3197,11 +3198,11 @@ LEMMA CallOnlyPreservesFfiCallInv ==
         <5>2. QED BY <5>1, LenProperties, Zenon
       <4>35. WriteDonesNeverExceedSends'
         BY <4>0, <4>30, <4>34, SMT DEF WriteDonesNeverExceedSends
-      <4>95. (/\ SubmittedOccurrencesUnique
-              /\ ReceivedOccurrencesUnique
+      <4>95. (/\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
               /\ DirectionsShareNoToken)'
-        <5>1. /\ SubmittedOccurrencesUnique
-              /\ ReceivedOccurrencesUnique
+        <5>1. /\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
               /\ DirectionsShareNoToken
           BY <1>1, Zenon DEF FfiCallInv
         <5>2. /\ submitted' = [submitted EXCEPT ![cId] =
@@ -3211,16 +3212,17 @@ LEMMA CallOnlyPreservesFfiCallInv ==
              L0!RuntimeVars, L0!ChannelVars, L0!CallVars
         <5>3. submitted \in [CallIds -> Seq(Messages)]
           BY <1>1, Zenon DEF TypeOK, L0!TypeOK
-        <5>4. \A k \in DOMAIN submitted[cId] : submitted[cId][k] # msg
-          BY <3>1, Zenon DEF SendMessage, NotYetSubmitted
+        <5>4. \A c \in CallIds :
+                  \A k \in DOMAIN submitted[c] : submitted[c][k] # msg
+          BY <3>1, Zenon DEF SendMessage, NeverSubmitted
         \* The committed token never came from reception, so the wall between
         \* directions survives the append.
         <5>45. \A c \in CallIds :
                    \A j \in DOMAIN received[c] : received[c][j] # msg
           BY <3>1, Zenon DEF SendMessage, NeverReceived
         <5>5. QED
-          BY <5>1, <5>2, <5>3, <5>4, <5>45, AppendProperties, SMT
-          DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+          BY <5>1, <5>2, <5>3, <5>4, <5>45, AppendProperties, SMTT(120)
+          DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
               DirectionsShareNoToken
       <4>4. QED
         BY <4>1, <4>2, <4>32, <4>33, <4>35, <4>95, Zenon DEF FfiCallInv
@@ -3347,17 +3349,17 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               /\ RunningWriteDoneWasEmitted
               /\ TerminalCallHasNoSendInFlight)'
         BY <4>820, <4>821, <4>822, Zenon
-      <4>95. (/\ SubmittedOccurrencesUnique
-              /\ ReceivedOccurrencesUnique
+      <4>95. (/\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
               /\ DirectionsShareNoToken)'
-        <5>1. /\ SubmittedOccurrencesUnique
-              /\ ReceivedOccurrencesUnique
+        <5>1. /\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
               /\ DirectionsShareNoToken
           BY <1>1, Zenon DEF FfiCallInv
         <5>2. QED
           BY <1>1, <5>1, <3>1, SMT
-          DEF EndSend, L0!EndSend, SubmittedOccurrencesUnique,
-              ReceivedOccurrencesUnique, DirectionsShareNoToken,
+          DEF EndSend, L0!EndSend, SubmittedOccurrencesGloballyUnique,
+              ReceivedOccurrencesGloballyUnique, DirectionsShareNoToken,
               TypeOK, L0!TypeOK
       <4>8. QED
         BY <4>80, <4>81, <4>82, <4>95, Zenon DEF FfiCallInv
@@ -3457,18 +3459,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-      <4>91. /\ SubmittedOccurrencesUnique
-             /\ ReceivedOccurrencesUnique
+      <4>91. /\ SubmittedOccurrencesGloballyUnique
+             /\ ReceivedOccurrencesGloballyUnique
              /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
       <4>92. /\ submitted' = submitted
              /\ received' = received
         BY <1>1, <2>7, SMT DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost
       <4>93. QED BY <4>91, <4>92, SMT
-             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+             DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
                  DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>8. CASE \E cId \in CallIds : DeliverMessage(cId)
@@ -3558,18 +3560,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-      <4>91. /\ SubmittedOccurrencesUnique
-             /\ ReceivedOccurrencesUnique
+      <4>91. /\ SubmittedOccurrencesGloballyUnique
+             /\ ReceivedOccurrencesGloballyUnique
              /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
       <4>92. /\ submitted' = submitted
              /\ received' = received
         BY <1>1, <2>8, SMT DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost
       <4>93. QED BY <4>91, <4>92, SMT
-             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+             DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
                  DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>9. CASE \E cId \in CallIds : DeliverStatus(cId)
@@ -3659,18 +3661,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-      <4>91. /\ SubmittedOccurrencesUnique
-             /\ ReceivedOccurrencesUnique
+      <4>91. /\ SubmittedOccurrencesGloballyUnique
+             /\ ReceivedOccurrencesGloballyUnique
              /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
       <4>92. /\ submitted' = submitted
              /\ received' = received
         BY <1>1, <2>9, SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost
       <4>93. QED BY <4>91, <4>92, SMT
-             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+             DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
                  DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>10. CASE \E cId \in CallIds : DeliverCancelled(cId)
@@ -3760,18 +3762,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-      <4>91. /\ SubmittedOccurrencesUnique
-             /\ ReceivedOccurrencesUnique
+      <4>91. /\ SubmittedOccurrencesGloballyUnique
+             /\ ReceivedOccurrencesGloballyUnique
              /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
       <4>92. /\ submitted' = submitted
              /\ received' = received
         BY <1>1, <2>10, SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost
       <4>93. QED BY <4>91, <4>92, SMT
-             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+             DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
                  DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>11. QED BY <1>1, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7,
@@ -3856,11 +3858,11 @@ LEMMA CancelRequestKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -3868,7 +3870,7 @@ LEMMA CancelRequestKeepsFfiCallInv ==
     BY SMT DEF RequestCallCancellation, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
@@ -3980,11 +3982,11 @@ LEMMA ReleaseKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -3992,7 +3994,7 @@ LEMMA ReleaseKeepsFfiCallInv ==
     BY SMT DEF ReleaseCallHandle, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
@@ -4065,11 +4067,11 @@ LEMMA DeliveryReturnKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -4077,7 +4079,7 @@ LEMMA DeliveryReturnKeepsFfiCallInv ==
     BY SMT DEF DeliveryCallbackReturns, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
@@ -4184,11 +4186,11 @@ LEMMA EmitWriteDoneKeepsFfiCallInv ==
        /\ RunningWriteDoneWasEmitted)'
     BY <1>2, <1>3, <1>70, <1>71, <1>72, SMT
     DEF WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -4196,7 +4198,7 @@ LEMMA EmitWriteDoneKeepsFfiCallInv ==
     BY SMT DEF EmitWriteDone, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>8. QED
     BY <1>4, <1>5, <1>6, <1>61, <1>7, <1>95, Zenon DEF FfiCallInv
@@ -4290,11 +4292,11 @@ LEMMA WriteDoneReturnKeepsFfiCallInv ==
 <1>7. SendsInFlightWithinLimit'
     BY <1>3, <1>60, <1>73, MaxSendsInFlightIsPositive, SMT
     DEF SendsInFlightWithinLimit
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -4302,7 +4304,7 @@ LEMMA WriteDoneReturnKeepsFfiCallInv ==
     BY SMT DEF WriteDoneReturns, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>8. QED
     BY <1>4, <1>5, <1>6, <1>7, <1>95, Zenon DEF FfiCallInv
@@ -4415,11 +4417,11 @@ LEMMA ConsumeKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -4427,7 +4429,7 @@ LEMMA ConsumeKeepsFfiCallInv ==
     BY SMT DEF HostConsumesEvent, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>40, <1>5, <1>50, <1>6, <1>95, Zenon DEF FfiCallInv
@@ -4525,11 +4527,11 @@ LEMMA LendBufferKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -4537,7 +4539,7 @@ LEMMA LendBufferKeepsFfiCallInv ==
     BY SMT DEF LendSendBuffer, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>7. QED
     BY <1>36, <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
@@ -4639,11 +4641,11 @@ LEMMA ReturnBufferKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. (/\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesUnique
-        /\ ReceivedOccurrencesUnique
+  <2>1. /\ SubmittedOccurrencesGloballyUnique
+        /\ ReceivedOccurrencesGloballyUnique
         /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
@@ -4651,7 +4653,7 @@ LEMMA ReturnBufferKeepsFfiCallInv ==
     BY SMT DEF HostReturnsBuffer, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
 <1>7. QED
     BY <1>36, <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
@@ -4675,7 +4677,7 @@ LEMMA UnchangedFfiKeepsFfiCallInv ==
     PROVE  FfiCallInv'
 <1>1. QED
     BY SMT
-    DEF FfiCallInv, SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+    DEF FfiCallInv, SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
         DirectionsShareNoToken, UnusedCallsAreFfiClean,
         ReleasedCallIsClean,
         SendsInFlightWithinLimit, WriteDonesNeverExceedSends,
@@ -7235,11 +7237,11 @@ THEOREM InitEstablishesIndInv == Init => IndInv
         NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
         UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus
-<1>43. /\ SubmittedOccurrencesUnique
-       /\ ReceivedOccurrencesUnique
+<1>43. /\ SubmittedOccurrencesGloballyUnique
+       /\ ReceivedOccurrencesGloballyUnique
        /\ DirectionsShareNoToken
-    BY <1>0, SMT DEF Init, L0!Init, SubmittedOccurrencesUnique,
-       ReceivedOccurrencesUnique, DirectionsShareNoToken
+    BY <1>0, SMT DEF Init, L0!Init, SubmittedOccurrencesGloballyUnique,
+       ReceivedOccurrencesGloballyUnique, DirectionsShareNoToken
 <1>4. FfiCallInv
     BY <1>39, <1>40, <1>41, <1>42, <1>43, Zenon DEF FfiCallInv
 <1>5. ShutdownSignalInv

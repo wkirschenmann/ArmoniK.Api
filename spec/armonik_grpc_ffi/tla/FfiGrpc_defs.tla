@@ -231,19 +231,22 @@ UnusedCallHasNoEvents ==
     \A cId \in CallIds :
         L0!IsUnusedCall(cId) => HasNoDeliveredEvents(cId)
 
-\* One occurrence per value: NotYetSubmitted guards the commit, and this is
-\* the guard made citable.  What lets a submitted message name its send.
-SubmittedOccurrencesUnique ==
-    \A cId \in CallIds :
-        \A i, j \in DOMAIN submitted[cId] :
-            submitted[cId][i] = submitted[cId][j] => i = j
+\* One occurrence per token, across every call: NeverSubmitted guards the
+\* commit, and this is the guard made citable.  What lets a submitted
+\* message name its send.
+SubmittedOccurrencesGloballyUnique ==
+    \A c1, c2 \in CallIds :
+        \A i \in DOMAIN submitted[c1] :
+            \A j \in DOMAIN submitted[c2] :
+                submitted[c1][i] = submitted[c2][j] => c1 = c2 /\ i = j
 
 \* The receive side of the same discipline, and the wall between directions:
 \* a token names one occurrence, in one direction.
-ReceivedOccurrencesUnique ==
-    \A cId \in CallIds :
-        \A i, j \in DOMAIN received[cId] :
-            received[cId][i] = received[cId][j] => i = j
+ReceivedOccurrencesGloballyUnique ==
+    \A c1, c2 \in CallIds :
+        \A i \in DOMAIN received[c1] :
+            \A j \in DOMAIN received[c2] :
+                received[c1][i] = received[c2][j] => c1 = c2 /\ i = j
 
 DirectionsShareNoToken ==
     \A c1, c2 \in CallIds :
@@ -265,8 +268,8 @@ FfiCallInv ==
     /\ NoDeliveryImpliesNoDebt
     /\ ActiveCallHasNoStatus
     /\ UnusedCallHasNoEvents
-    /\ SubmittedOccurrencesUnique
-    /\ ReceivedOccurrencesUnique
+    /\ SubmittedOccurrencesGloballyUnique
+    /\ ReceivedOccurrencesGloballyUnique
     /\ DirectionsShareNoToken
 
 \* The buffer identities, kept apart from FfiCallInv for the same reason
