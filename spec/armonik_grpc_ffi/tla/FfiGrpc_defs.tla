@@ -230,6 +230,13 @@ UnusedCallHasNoEvents ==
     \A cId \in CallIds :
         L0!IsUnusedCall(cId) => HasNoDeliveredEvents(cId)
 
+\* One occurrence per value: NotYetSubmitted guards the commit, and this is
+\* the guard made citable.  What lets a submitted message name its send.
+SubmittedOccurrencesUnique ==
+    \A cId \in CallIds :
+        \A i, j \in DOMAIN submitted[cId] :
+            submitted[cId][i] = submitted[cId][j] => i = j
+
 FfiCallInv ==
     /\ UnusedCallsAreFfiClean
     /\ ReleasedCallIsClean
@@ -244,6 +251,7 @@ FfiCallInv ==
     /\ NoDeliveryImpliesNoDebt
     /\ ActiveCallHasNoStatus
     /\ UnusedCallHasNoEvents
+    /\ SubmittedOccurrencesUnique
 
 \* The buffer identities, kept apart from FfiCallInv for the same reason
 \* BufferTypes is kept apart from FfiTypes: every per-action lemma about

@@ -2109,6 +2109,10 @@ has to induce them cannot tell a predicate from a step:
   fires on its own weak fairness - and the cancellation second.
 
 Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
+- **SubmittedOccurrencesUnique**: a message value is committed at most once per call -
+  the submitted sequence is injective, `NotYetSubmitted` guarding the commit and this
+  invariant making the guard citable. It is what lets a submitted message name its send,
+  and the k-th WRITE_DONE name its message
 - **UnusedCallsAreFfiClean**: no FFI state before `ak_call_start`
 - **ReleasedCallIsClean**: a released call is terminal, every payload consumed, every
   buffer given back and freed, no delivery callback on the stack and no send in
@@ -2498,12 +2502,12 @@ the artefact rather than left to rot:
 |---------|--------|
 | Specification described in this document | Current |
 | Model-checking configurations | Nine configurations exist - five at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
-| Level 1, one pass at `--stretch 1` | **11054 obligations, all proved, 10m35s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
+| Level 1, one pass at `--stretch 1` | **11364 obligations, all proved, 7m47s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
 | Level 0, one pass at `--stretch 1` | 1632 obligations proved, this revision; the level-0 module did not change |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| `ci/check_theorem_statements.py` | 68 declarations - 67 theorems and one public lemma - each restated verbatim in its proofs module |
+| `ci/check_theorem_statements.py` | 69 declarations - 68 theorems and one public lemma - each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
