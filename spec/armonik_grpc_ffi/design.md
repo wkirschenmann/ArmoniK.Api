@@ -2069,6 +2069,270 @@ nineteen FFI variables:
   against, without giving any other action a new way to be blocked. An identity of
   attempts finer than the call - positions, tickets - is level 2's to introduce if its
   retry model needs one
+
+Deliberately absent: no handle registry (validity is modeled, not indices and
+generations, so the slot map's generation counter is an implementation of handle validity
+rather than a modelled object), no read-credit variable (`ak_event_consumed` frees and arms in one
+gesture, so credits available + payloads owed = `DeliveryCredits` on a live call and
+one variable suffices), no start gate (derivable from `runtime_state`), no boundary
+message lists (the in-flight gaps are the derived differences between the level-0
+sequences).
+
+Every action either refines a level-0 action (conjoining FFI guards and updates onto
+the instantiated `L0!` action) or stutters on the level-0 variables; the level-0
+machinery is the only writer of the level-0 state.
+
+Guards, invariants and properties are written through named state predicates
+(`HasFreeSendSlot`, `IsCancelRequested`, `IsRuntimeDrained`, ...); reading a
+variable directly is reserved to update expressions, `Init` and `TypeOK`.
+
+Three naming rules hold throughout, and they are written here because a reader who
+has to induce them cannot tell a predicate from a step:
+
+- **A stative verb is a predicate, a dynamic verb is an action.** `HostHoldsNoBuffer`,
+  `HostOwnsNoPayload` and `RuntimeOwesFree` describe a state; `HostReturnsBuffer`,
+  `HostConsumesEvent` and `RuntimeRelease` are steps. The party prefix says whose
+  obligation or whose step it is, and never which of the two it is - the verb does that.
+  There is no exception in either module.
+- **`Is…` describes the object its argument names, `Has…` describes the call.**
+  `IsLentBuffer(c, b)` is about the buffer, `HasFreeSendSlot(c)` about the call.
+- **`Deliver…` carries a payload and spends a delivery credit; `Emit…` carries neither.**
+  That is why WRITE_DONE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED are emitted and the
+  four data events are delivered. Note that `DeliverStatus` and `DeliverCancelled` both
+  produce `AK_EVENT_STATUS`: two model actions for one event kind, distinguished by the
+  status the payload carries. Every delivery action adds exactly one owned event and arms
+  exactly one callback - an `ak_callback` carries one `ak_event`, and the model counts the
+  host's debt off `events_delivered`, so an action that appended two events under one
+  callback would owe the host a payload no callback carries. `DeliverCancelled` therefore
+  requires the initial metadata to be out already: a call cancelled before anything was
+  delivered gets two serialized callbacks, INITIAL_METADATA first - `DeliverInitialMetadata`
+  fires on its own weak fairness - and the cancellation second.
+
+Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
+- **UnusedCallsAreFfiClean**: no FFI state before `ak_call_start`
+- **ReleasedCallIsClean**: a released call is terminal, every payload consumed, every
+  buffer given back and freed, no delivery callback on the stack and no send in
+  flight - the release's full postcondition, carried as an invariant so a client can
+  cite what the reclaim guaranteed rather than re-deriving it from the guard. And it
+  stays that way, because nothing can lend or deliver afterwards. This is the end-of-call guarantee: whatever the ending, Rust has everything
+  back before the arena goes. The reclaiming step also waits for the call's own delivery
+  callback to return and for every buffer given back to be released, both conditions only
+  the runtime can read, which is why they moved into the guard when reclamation stopped
+  being a downcall the host could be asked to establish
+  it, and the runtime defers its teardown instead
+- **SendsInFlightWithinLimit**: never more buffers out of one call's arena than
+  `MaxSendsInFlight`, counting those the host is filling and those awaiting WRITE_DONE
+- **WriteDonesNeverExceedSends / RunningWriteDoneWasEmitted**: the send-side
+  no-double-free — never more acquittals than accepted sends
+- **ReleasesNeverExceedDeliveries**: the host never releases more payloads than were
+  delivered. This is conservation of a count, not of identities: the model does not track
+  which `owner` a release names, so two releases of the same payload are indistinguishable
+  from the correct release of two. It therefore proves *no over-consumption under a
+  conformance assumption* - the host releases the right owner, once, in order - and that
+  assumption sits beside the fairness hypotheses rather than being discharged here. A
+  defensive ABI that detects a duplicate token would need the identities modelled; this
+  design chooses assume-guarantee instead, and the level-2 obligations are where the
+  binding pays it
+- **TerminalCallHasNoSendInFlight**: WRITE_DONE always precedes the terminal
+- **ClosingChannelCallsCancelRequested**: both paths into closing latch cancellation on the
+  channel's active calls, so a closing channel drains without the host
+- **ActiveCallPayloadsWithinCredits / PayloadsOwnedWithinCreditsPlusOne**: at most
+  `DeliveryCredits` payloads owed while the call is active, one more only when the last
+  is the terminal
+- **LentCountMatchesBufferStates**: the bridge between the two views of the send buffers -
+  the count `buffers_held_by_host` and the per-buffer state - is that the count is the
+  cardinality of the lent ones. Both are kept on purpose: the count is what the send window
+  and every proof about it read, the states are what carry an identity, and without this
+  conjunct they could drift. That is the same failure as the send window and the ABI comment
+  describing it coming apart, which is why it is stated rather than assumed
+- **UnusedCallsHaveFreshBuffers**: a call that has not started has allocated nothing, the
+  per-buffer form of `UnusedCallsAreFfiClean`
+- **BufferSendIndicesExist**: a send index recorded against a buffer names a send that
+  exists. `buffer_send[c][b]` is the send living in allocation `b`, zero for none - the
+  identity `ak_call_send_message` takes and the counters could not express. Keyed by the
+  buffer rather than by the send index, on purpose: both questions the model asks are then
+  lookups, and one allocation carrying two sends is unrepresentable instead of being
+  something an invariant has to forbid
+- **CommittedBuffersAreGivenBack**: a buffer that carries a send is `returned` or `freed`,
+  never lent again. Committing is one of the two ways to give a buffer back, so this is what
+  stops one allocation being handed out twice
+- **EverySendHasItsBuffer / SendsLiveInOneBuffer**: each accepted send lives in exactly
+  one allocation. Keying `buffer_send` by the buffer makes one allocation carrying two
+  sends unrepresentable, but it says nothing about the other two directions: that no send
+  exists without a buffer, and that no two buffers claim the same send. Both are true by
+  construction - a commit records the index the sequence is about to reach, which is above
+  every index already recorded - and both are now stated rather than left to be read off
+  the actions
+- **UnacquittedSendKeepsItsBytes**: the bytes of an unacquitted send are still there. This
+  is the conjunct that closes a real hole: without the send-to-buffer link, nothing forbade
+  releasing the memory of a message the transport had not read yet, and no counter could
+  have caught it because a counter does not know which allocation carries which send
+- **NoDeliveryImpliesNoDebt**: a call that has never received a delivery owes no payload
+  and has no delivery callback running. The delivery debt is created by the same step
+  that appends the first event, which is what gives the initial metadata its credit
+  without any help from the host
+- **ActiveCallHasNoStatus / UnusedCallHasNoEvents**: the status event terminates the call
+  in the step that appends it, so an active call never carries one and a call that has
+  not started carries nothing. Both are guard-based, so they survive a failure - the
+  cancellation drain needs them there
+- **ShutdownSignalInv**: two halves, stated apart because they are preserved by
+  different arguments. `ShutdownSignalCore` says SHUTDOWN_COMPLETE is emitted exactly
+  once, from a drained runtime, and that release waits for its callback to return.
+  `ReleaseSignalInv` says the second event is owed before it is sent, its callback
+  never outlives it, the tag is accurate - a runtime whose event said nothing was
+  outstanding really had an empty ledger - and the second event is honest: once
+  `AK_EVENT_RESOURCES_RELEASED` has gone out, nothing of the runtime is in the host's
+  hands and nothing the host gave back is still waiting to be freed. That last conjunct
+  is what makes the event mean what the ABI says it means rather than only arrive; the
+  two that read a ledger are the ones that need a drained runtime's ledger not to grow,
+  which is why the split keeps each preservation obligation the size it was
+- **MemoryAccountingExact**: the runtime-wide counter equals the charges of the send
+  buffers actually out. This is the accounting claim with content, and it can fail - a lend
+  that forgets its increment, a free that forgets its decrement or subtracts the wrong
+  charge, a second credit for one buffer. Defined as the sum it would be a tautology, which
+  is why `memory_used` is a variable the actions move rather than an expression evaluated
+  on demand: that is how the implementation keeps it, and it is the number
+  `ak_runtime_memory_usage` publishes. The three categories of the detailed observer are
+  definitions over the same charges, and that they add up to the total is
+  `CategoriesPartitionTotal` - a lemma and not an invariant, since it holds of any state.
+  Both sit outside the `NotFailed` umbrella: failing changes neither the counter nor any
+  charge, so a host still gets its memory back afterwards and the observers still answer
+- **MemoryWithinCeiling**: the counter never passes the ceiling. Carried by the lend's
+  guard alone, the free only ever subtracting
+
+- **DestroyedRuntimeIsClean**: a destroyed runtime is quiescent, and stays quiescent -
+  the whole gate, not half of it, so the invariant's name and `ak_runtime_destroy`'s
+  precondition are the same sentence. Quiescence is absorbing for six separate reasons:
+  RELEASED is a level-0 end state, neither runtime callback can be re-entered because
+  the conjunct forbidding it is also what its writer's guard demands, the tag is frozen
+  and the second event is a latch, and neither ledger can refill once the calls are
+  quiet. It is kept apart from `ShutdownSignalInv` because it is the only runtime-level
+  conjunct that reaches into the calls
+
+Usability, proved of the ABI itself and assuming nothing of the host - what it permits it
+does not then withdraw, and what it withdraws it withdraws completely:
+- **DeliveryCallbacksReturn / WriteDoneCallbacksReturn / ShutdownCallbacksReturn /
+  ResourcesReleasedCallbacksReturn**: every callback the runtime hands out comes back.
+  These are the obligations the ABI imposes on the host, stated as guarantees so the
+  fairness conjuncts they rest on are not hypotheses with nothing to buy. The last one
+  is what makes `AK_EVENT_RESOURCES_RELEASED` safe to owe: without it the runtime could
+  wait forever on a callback it dispatched and never reach `AK_RUNTIME_QUIESCENT`
+- **DestroyedRuntimeRejectsHandles**: after `ak_runtime_destroy`, no downcall on any call
+  of that runtime is enabled - not release, not cancel, not lend, not send, not end_send,
+  not returning a buffer. Two of them are refused by a guard; the rest follow from what
+  destruction already required, a released runtime having no live call and nothing of its
+  memory outstanding. This is the formal content of "destroy invalidates every handle of
+  the runtime", which until now the document asserted and nothing checked
+- **WriteDoneFreesASlot**: `EmitWriteDone(c) ⇒ HasFreeSendSlot(c)'`. A host woken by a
+  WRITE_DONE and asking for a buffer is never refused for want of a slot - cancellation, a
+  closed send side or a retired handle each still refuse one on their own grounds. Nothing
+  forced this to be stated -
+  the send side is host-driven, so no fairness lift needed it - and its absence is what
+  let the slot accounting drift from the ABI it documents. The receive side has the same
+  property and got it by accident, because the `DeliverMessage` lift needed it
+
+New liveness guarantees:
+- **CancellationCompletes**: a cancelled call reaches its terminal without any ownership return from the application - the callbacks already in flight still return, which stays a host hypothesis
+- **SendsEventuallyAcquitted**: per send — the k-th accepted send is acquitted by its
+  in-order WRITE_DONE, whose callback returns
+- **PayloadsEventuallyConsumed**: per payload — each payload handed over is
+  individually consumed; rests only on the per-call host hypothesis
+  `WF(HostConsumesEvent(call))`, which carries every payload of the call because
+  release is FIFO
+- **ShutdownEventEmitted**: a stopping runtime emits SHUTDOWN_COMPLETE
+- **EventualChannelClosed**: a channel told to close closes, its calls cancelled and
+  drained on the runtime's own fairness - what `ak_channel_release` promises. Previously
+  derivable and citable by nobody; the theorem makes it part of the interface
+- **BufferEventuallyFreed**: every buffer the arena lends out is given back and then
+  released. Two rungs with two owners: the host returns it, per buffer because returns are
+  unordered, and the runtime releases the bytes once the send they carry is acquitted. The
+  replay buffer is the gap between the two
+- **CallEventuallyReclaimed**: a terminal call is reclaimed - handle retired, arena gone -
+  without the host doing anything beyond giving back what it holds. This is what removing
+  `ak_call_release` from the ABI buys: the guarantee is unconditional where a downcall the
+  host might never make could not be. The escape is `ak_runtime_destroy`, which takes the
+  arena with the runtime; there is deliberately no failure escape, because every action the
+  drain rests on is untouched by a runtime failure
+- **RuntimeEventuallyQuiescent**: a runtime that has stopped running reaches
+  `AK_RUNTIME_QUIESCENT`, so a host polling `ak_runtime_status` is not waiting for
+  nothing, and may then destroy or unload - and once destroyed, start a new
+  runtime. Note the shape - the
+  runtime promises the permission, never the destruction, because destroying is the
+  host's call. It is stronger than the host's ledger emptying: it also carries the last
+  callback having returned, which is the only thing that can say the trampoline thread
+  is gone, and no callback could ever report that about itself. It carries the same
+  failure escape as `ShutdownEventEmitted`: what makes a released runtime's calls
+  terminal is a level-0 invariant, and level-0 safety is asserted only while no runtime
+  sits in the failed state. The drains themselves survive a failure - they rest on
+  `FfiCallInv` and `BufferStateInv`, both outside that umbrella - so the escape covers
+  the premise, not the mechanism
+
+- **ResourcesReleasedEventually**: a runtime whose `SHUTDOWN_COMPLETE` carried
+  `AK_HOST_MUST_RETURN` does emit `AK_EVENT_RESOURCES_RELEASED`. This is the tag's own
+  promise, and it is why a host may wait for the second callback rather than poll from
+  the first. It is stated on the tag rather than on the runtime state because the tag is
+  what the host reads, and it is derived rather than re-proved: the level-0 shutdown
+  settles, the runtime quiesces from there, and quiescence with the tag set is the event
+  having gone out. Level 2 refines this one rather than re-deriving it
+
+- **BudgetEventuallyHasRoomFor**: the counter eventually has `len` bytes free, for every
+  lendable `len`. The name is deliberate: it promises room in the model's accounting, not
+  that the allocator admits the request - the allocator picks the charge, its size classes
+  are its own, and whether a realizable class fits is the implementation's contract,
+  carried by the ABI matrix and its tests. `IsLendable(len)` is the request the ABI
+  considers at all - no larger than the ceiling, an empty serialized message being valid.
+  `IsRequestAdmissible(len)` - some charge in the model's range covers the request and
+  fits - is the existential the property closes on; a `AK_STATUS_BUDGET_BUSY` refusal
+  denies one charge, not all of them, and a smaller one may already fit. Proved from the
+  drain: every
+  buffer out is eventually freed, so the outstanding set empties, the accounting makes the
+  counter zero, and at zero the request is its own witness. It says nothing about who is
+  served: lending carries no fairness, a competing caller may win every race, and no
+  per-request grant is promised at this level. A guarantee that a *specific* refused
+  request is eventually served would need an arbitration the ABI does not have - a FIFO
+  waiter or a reserved permit - and a fairness on the host's retry *invocation*, not on
+  the successful lend; stating it on the success would assume the very selection it
+  claims to prove. What a retry loop is owed is level 2's `BudgetCancellationStopsRetry`
+
+#### Fairness
+
+Nineteen weak-fairness conjuncts, all individual, and they do not all belong to the same
+party. Which side owes each one is the whole point of listing them, because the ones the
+host owes are exactly the obligations a level-2 binding has to discharge.
+
+| Owed by | Conjuncts | What it means |
+| --- | --- | --- |
+| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator. Nothing outside the library can stall them |
+| FFI layer | `DeliverInitialMetadata`, `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
+| Host (binding + application) | `DeliveryCallbackReturns`, `WriteDoneReturns`, `ShutdownCallbackReturns`, `ResourcesReleasedCallbackReturns`, `HostConsumesEvent`, `HostReturnsBuffer` | Six hypotheses the ABI imposes and cannot enforce |
+
+The four callback-return conjuncts say that the callback the *host* installed eventually
+returns. For our own .NET binding that is a property we implement and can point at; for
+any other host it is an obligation the ABI imposes. The model is right to assume it -
+nothing can make progress otherwise - but calling it a promise of the binding overstates
+what is ours to guarantee.
+
+The next two are about giving memory back. `HostConsumesEvent` is per call, which suffices
+because payload release is FIFO: consuming past a payload without consuming it is not a
+behavior the ABI admits. `HostReturnsBuffer` is per *buffer*, because buffer returns are
+unordered - a per-call conjunct would let a host cycle some buffers while starving one.
+
+The remaining downcalls (`CallStart`, `LendSendBuffer`, `SendMessage`, `EndSend`,
+`RequestCallCancellation`, `RuntimeBeginShutdown`, `RuntimeDestroy`) carry no fairness:
+the model never promises the host acts, only what follows when it does. `ReleaseCallHandle`
+is not among them, because it is not a downcall - the runtime reclaims a settled call
+itself, which is what removing `ak_call_release` from the ABI buys. Runtime shutdown
+completes without any ownership return from the host, which discharges the level-0
+directive on
+`ShutdownFairness`.
+
+Level-0 safety and the five level-0 liveness guarantees are not re-proved: the
+refinement mapping is the identity on the level-0 variables, and `Spec => L0!Spec` is
+proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machinery.
+
+### Level 2 — DotNetBinding
+
+Added variables:
 - `call_states`: GCHandle → CallState (allocated before start, freed after terminal)
 - `ring`: per call, the published slots, with `head` and `tail`
 - `tcs_state`: per call, state of each TaskCompletionSource
