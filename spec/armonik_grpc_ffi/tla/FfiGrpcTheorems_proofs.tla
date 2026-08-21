@@ -15778,49 +15778,6 @@ THEOREM BudgetEventuallyAdmitsHolds ==
   <2>7. QED BY <2>6, PTL
 <1>2. QED BY <1>1, Zenon DEF BudgetEventuallyAdmits
 
-\* What the host is actually promised: the request that was refused is granted,
-\* or the call leaves the state where lending means anything, or the runtime
-\* fails - the escape every inherited liveness carries.  The route is the
-\* level-0 termination promise: eligibility keeps the call active, an active
-\* call reaches its status or the runtime fails, and a delivered status ends
-\* eligibility through the terminal-status equivalence.
-THEOREM BudgetRefusalEventuallyLendsHolds ==
-    Spec => BudgetRefusalEventuallyLends
-\* The definitional facts, boxed where no hypothesis is in scope: a fact
-\* proved under Spec cannot be necessitated.
-<1>0. ASSUME NEW cId \in CallIds, NEW msg \in Messages
-      PROVE  /\ [](IsBudgetRefused(cId, msg) /\ CanStillLend(cId)
-                        /\ L0!NotFailed
-                       => L0!TerminalWaiting(cId) /\ L0!NotFailed)
-             /\ [](L0!SafetyInvariant /\ L0!NotFailed
-                        /\ L0!TerminalReached(cId)
-                       => ~CanStillLend(cId))
-  <2>1. IsBudgetRefused(cId, msg) /\ CanStillLend(cId) /\ L0!NotFailed
-            => L0!TerminalWaiting(cId) /\ L0!NotFailed
-    BY Zenon DEF CanStillLend, ContemplatesLend, L0!TerminalWaiting
-\* Eligibility keeps the call active, so it is a used call; the equivalence
-\* then reads the delivered status as terminal, and terminal is not active.
-  <2>2. L0!SafetyInvariant /\ L0!NotFailed /\ L0!TerminalReached(cId)
-            => ~CanStillLend(cId)
-    BY SMTT(120)
-    DEF L0!SafetyInvariant, L0!SafetyCore, L0!TerminalStatusEquivalence,
-        L0!TerminalReached, L0!UsedCalls, L0!IsUnusedCall,
-        L0!IsTerminalCall, L0!IsActiveCall, L0!ActiveCallStates,
-        CanStillLend, ContemplatesLend
-  <2>3. QED BY <2>1, <2>2, PTL
-<1>1. ASSUME Spec, NEW cId \in CallIds, NEW msg \in Messages
-      PROVE  (IsBudgetRefused(cId, msg) /\ CanStillLend(cId) /\ L0!NotFailed)
-                 ~> (IsLendGranted(cId, msg) \/ ~CanStillLend(cId)
-                         \/ ~L0!NotFailed)
-  <2>1. []L0!SafetyInvariant
-    BY <1>1, InheritedSafety
-  <2>2. (L0!TerminalWaiting(cId) /\ L0!NotFailed) ~>
-            (L0!TerminalReached(cId) \/ ~L0!NotFailed)
-    <3>1. L0!LivenessProperties
-      BY <1>1, InheritedLivenessTheorem
-    <3>2. QED BY <3>1, IsaT(600) DEF L0!LivenessProperties, L0!EventualTerminal
-  <2>3. QED BY <1>0, <2>1, <2>2, PTL
-<1>2. QED BY <1>1, Zenon DEF BudgetRefusalEventuallyLends
 
 THEOREM LivenessTheorem == Spec => LivenessProperties
 <1>1. QED
@@ -15831,7 +15788,7 @@ THEOREM LivenessTheorem == Spec => LivenessProperties
        ResourcesReleasedCallbacksReturnHolds, BufferEventuallyFreedHolds,
        CallEventuallyReclaimedHolds, RuntimeEventuallyQuiescentHolds,
        ResourcesReleasedEventuallyHolds, BudgetEventuallyAdmitsHolds,
-       BudgetRefusalEventuallyLendsHolds,
+       
        ZenonT(120) DEF LivenessProperties
 
 =============================================================================

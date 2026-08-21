@@ -264,8 +264,11 @@ IsRequestAdmissible(len) ==
 
 \* A message fits the buffer it was given.  Read at the commit, where the
 \* message appears - the lend saw only a length.
+NotYetSubmitted(cId, msg) ==
+    \A i \in DOMAIN submitted[cId] : submitted[cId][i] # msg
+
 FitsInBuffer(msg, cId, b) ==
-    MessageLength[msg] <= buffer_length[<<cId, b>>]
+    MessageLength[msg] = buffer_length[<<cId, b>>]
 
 \* The buffers the budget is holding, as a set of pairs, and the charge of
 \* one.  Named so the sums below are folds over an atom.
@@ -739,14 +742,13 @@ LendSendBuffer(cId, b, msg, charge) ==
     /\ ~IsCancelRequested(cId)
     /\ HasFreeSendSlot(cId)
     /\ IsFreshBuffer(cId, b)
+    /\ HostHoldsNoBuffer(cId)
     \* The three budget conditions.  A request outside IsLendable is refused
     \* permanently - that is AK_STATUS_MESSAGE_TOO_LARGE, and the model derives
     \* the permanence rather than asserting it: the charge covers the request,
     \* so a length above the ceiling leaves IsMemoryAvailable false in every
     \* state.  A request that does not fit right now is AK_STATUS_BUDGET_BUSY,
-    \* recorded by RefuseLendForBudget for the charge that did not fit.  The
-    \* fairness forces only LendForMessage, the instance at the message's own
-    \* size: a host obligation - it keeps asking - never a runtime promise.
+    \* recorded by RefuseLendForBudget for the charge that did not fit.
     /\ IsSendableMessage(msg)
     /\ CoversMessage(charge, msg)
     /\ IsMemoryAvailable(charge)
@@ -780,6 +782,11 @@ ContemplatesLend(cId) ==
     /\ L0!IsActiveCall(cId)
     /\ ~IsHandleReleased(cId)
     /\ ~IsCancelRequested(cId)
+    \* One lent buffer at a time: asking while holding one is refused at the
+    \* ABI as a state error, so the model never contemplates it.  It is what
+    \* makes "SLOT_BUSY wakes on the next WRITE_DONE" true - a host eligible
+    \* to ask holds nothing, so the window is in-flight sends only.
+    /\ HostHoldsNoBuffer(cId)
 
 \* Permanent, and derived rather than asserted: IsLendable reads the request
 \* and the ceiling, so no return by anyone changes the answer.
@@ -837,12 +844,6 @@ RefuseLendForBudget(cId, msg, charge) ==
                    resources_released_callback_running,
                    buffer_charge, buffer_length, memory_used>>
 
-\* The lend at the allocator's most economical answer: charge exactly what the
-\* message needs.  The fairness conjunct forces this instance and no other, so
-\* the allocator's real choices stay unconstrained - it may always hand out
-\* more, but the budget's obligations are stated against this one.
-LendForMessage(cId, b, msg) ==
-    LendSendBuffer(cId, b, msg, MessageLength[msg])
 
 \* ak_return_call_buffer: the host gives a buffer back unused.  Legal on
 \* a cancelled or terminal call - it is the only exit for a buffer whose
@@ -916,6 +917,9 @@ SendMessage(cId, msg, b) ==
     /\ HostHoldsSomeBuffer(cId)
     /\ ~IsCancelRequested(cId)
     /\ IsLentBuffer(cId, b)
+    \* A message is submitted at most once per call: the submitted sequence
+    \* is injective, which is what lets a message identify its request.
+    /\ NotYetSubmitted(cId, msg)
     /\ FitsInBuffer(msg, cId, b)
     /\ L0!SendMessage(cId, msg)
     /\ buffers_held_by_host' =
@@ -1170,27 +1174,6 @@ SendsEventuallyAcquitted ==
     \A cId \in CallIds :
         \A k \in L0!PositiveNaturals : SendAcquittedAt(cId, k)
 
-IsBudgetRefused(cId, msg) == last_lend_status[<<cId, msg>>] = "BUDGET_BUSY"
-IsLendGranted(cId, msg) == last_lend_status[<<cId, msg>>] = "OK"
-
-\* Where lending still makes sense: the call takes downcalls, the window has
-\* room, and some buffer identity is free.  Its failure is the escape - a
-\* cancelled or released call is owed no buffer.
-CanStillLend(cId) ==
-    /\ ContemplatesLend(cId)
-    /\ HasFreeSendSlot(cId)
-    /\ \E b \in BufferIds : IsFreshBuffer(cId, b)
-
-\* The promise the budget owes the host: a request refused for want of room is
-\* eventually granted.  The antecedent is the refusal itself, which is why the
-\* refusals are actions - stated on "no charge fits" it would say nothing about
-\* the case where one did and the allocator chose another.
-BudgetRefusalEventuallyLends ==
-    \A cId \in CallIds, msg \in Messages :
-        (IsBudgetRefused(cId, msg) /\ CanStillLend(cId) /\ L0!NotFailed)
-            ~> (IsLendGranted(cId, msg) \/ ~CanStillLend(cId)
-                    \/ ~L0!NotFailed)
-
 \* Every payload handed to the host is individually consumed.  This is
 \* the guarantee that rests on the per-payload host hypothesis.
 PayloadConsumedAt(cId, k) ==
@@ -1280,8 +1263,8 @@ ResourcesReleasedEventually ==
 \* and at zero any lendable size fits.  Stated on a predicate and its negation
 \* rather than on two inequalities: the temporal backend matches formulas, and
 \* two arithmetic comparisons are two unrelated atoms to it.
-\* It says nothing about who is served: the per-request promise is
-\* BudgetRefusalEventuallyLends below.
+\* It says nothing about who is served: lending carries no fairness, and a
+\* retry loop's own guarantees are level 2's.
 \* Stated on the request, because the request is what the host makes.  The
 \* antecedent is that no charge admits it, the consequent that some charge
 \* does: a refusal at one charge followed by a success at another, with nothing
@@ -1312,12 +1295,11 @@ LivenessProperties ==
     /\ RuntimeEventuallyQuiescent
     /\ ResourcesReleasedEventually
     /\ BudgetEventuallyAdmits
-    /\ BudgetRefusalEventuallyLends
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)
 (*                                                                         *)
-(* Twenty action families under WF, all individual, and which side owes   *)
+(* Nineteen action families under WF, all individual, and which side owes  *)
 (* each one is what the three groups below record.                         *)
 (*                                                                         *)
 (* The Rust runtime owes nine: NetworkSend, ReceiveStatus, EmitWriteDone,  *)
@@ -1331,19 +1313,19 @@ LivenessProperties ==
 (* reaches the queue reaches the host.                                     *)
 (*                                                                         *)
 (* The host - binding and application, indistinguishable at this level -   *)
-(* owes seven: DeliveryCallbackReturns, WriteDoneReturns,                  *)
+(* owes six: DeliveryCallbackReturns, WriteDoneReturns,                    *)
 (* ShutdownCallbackReturns, ResourcesReleasedCallbackReturns,              *)
-(* HostConsumesEvent, HostReturnsBuffer and LendForMessage.  The first     *)
-(* four say a callback returns, which is what a callback contract means;   *)
-(* the next two say the host gives back what it borrows; the last says a   *)
-(* host that was refused keeps asking.  These are the seven hypotheses a   *)
+(* HostConsumesEvent and HostReturnsBuffer.  The first four say a callback *)
+(* returns, which is what a callback contract means; the last two say the  *)
+(* host gives back what it borrows.  These are the six hypotheses a        *)
 (* level-2 binding has to discharge.  One                                  *)
 (* HostConsumesEvent per call is enough because release is FIFO, whereas   *)
 (* buffer returns are unordered and so need one per buffer.                *)
 (*                                                                         *)
-(* The remaining downcalls (CallStart, SendMessage, EndSend,               *)
-(* RequestCallCancellation, RuntimeBeginShutdown) carry no fairness: the   *)
-(* model never promises the host acts, only what follows when it does.    *)
+(* The remaining downcalls (CallStart, LendSendBuffer, SendMessage,        *)
+(* EndSend, RequestCallCancellation, RuntimeBeginShutdown) carry no        *)
+(* fairness: the model never promises the host acts, only what follows    *)
+(* when it does.                                                           *)
 (***************************************************************************)
 
 Fairness ==
@@ -1376,14 +1358,6 @@ Fairness ==
     \* Reclaiming a call is the runtime's own step, not a downcall, so the
     \* runtime is the side that owes it.
     /\ \A cId \in CallIds : WF_vars(ReleaseCallHandle(cId))
-    \* A host obligation, not a runtime one, and it has to be read as such.
-    \* LendSendBuffer *is* a successful ak_get_call_buffer, so forcing it forces
-    \* the host to keep asking: the runtime cannot lend to nobody.  Taken at the
-    \* message's own size, the instance is enabled exactly when there is room
-    \* for what was asked - "the runtime does its best" - and the allocator's
-    \* other choices stay unconstrained.
-    /\ \A cId \in CallIds, b \in BufferIds, msg \in Messages :
-           WF_vars(LendForMessage(cId, b, msg))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 

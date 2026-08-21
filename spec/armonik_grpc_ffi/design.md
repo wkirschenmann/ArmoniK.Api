@@ -1447,9 +1447,7 @@ forever, so a normal burst would leave the runtime permanently undestroyable - a
 mechanism introduced to bound memory turning the runtime itself unreclaimable.
 
 An implementation that refuses more often than the specification permits produces a subset
-of the modelled behaviours for every property except the budget's own liveness, which rests
-on `WF(LendForMessage)` - a host obligation, so the implementation inherits it as the retry
-loop rather than as a runtime promise. The
+of the modelled behaviours: no proved liveness rests on the lend being taken. The
 alternative shapes - reserving the budget at call admission and refusing `ak_call_start`, or a
 runtime permit acquired before the lend and released on the real recredit - remain open and
 are the level-2 material for turning a non-blocking refusal into a fair asynchronous wait.
@@ -2277,18 +2275,12 @@ New liveness guarantees:
   charge would be a promise about the allocator's mood. Proved from the drain: every
   buffer out is eventually freed, so the outstanding set empties, the accounting makes the
   counter zero, and at zero the request is its own witness. It says nothing about who is
-  served; the per-request promise is the next property
-- **BudgetRefusalEventuallyLends**: the request that was refused is granted - or the call
-  leaves the state where lending means anything, or the runtime fails, the escape every
-  inherited liveness carries. The antecedent is a `BUDGET_BUSY` refusal recorded by the
-  refusal actions, which is why they exist: stated on the absence of a transition, this
-  promise cannot be written down at all. `CanStillLend` is the eligibility - the call
-  takes downcalls, the window has room, some buffer is free - and its loss is a legitimate
-  end of the promise: a cancelled or terminal call is owed no buffer. Proved from the
-  level-0 termination promise: eligibility keeps the call active, an active call reaches
-  its status or the runtime fails, and a delivered status ends eligibility through the
-  terminal-status equivalence. What a retry loop is owed on top is level 2's
-  `BudgetCancellationStopsRetry`
+  served: lending carries no fairness, a competing caller may win every race, and no
+  per-request grant is promised at this level. A guarantee that a *specific* refused
+  request is eventually served would need an arbitration the ABI does not have - a FIFO
+  waiter or a reserved permit - and a fairness on the host's retry *invocation*, not on
+  the successful lend; stating it on the success would assume the very selection it
+  claims to prove. What a retry loop is owed is level 2's `BudgetCancellationStopsRetry`
 
 #### Fairness
 
@@ -2390,14 +2382,9 @@ Additional invariants:
   a host obligation rather than a runtime promise. A host that polls while holding a lent
   buffer therefore breaks the very property that would let its poll succeed, which is what
   makes `RetryingCallHoldsNoBuffer` the condition of the whole polling design rather than a
-  detail of it. The lend carries the same kind of conjunct and it has to be read the same
-  way: `WF(LendForMessage)` forces a successful `ak_get_call_buffer`, and a downcall only
-  the host can make being forced is a hypothesis *on the host* - it keeps asking - not a
-  promise of the runtime. It is what "the runtime does its best" amounts to formally: taken
-  at the message's own size, the instance is enabled exactly when there is room for what
-  was asked, and the allocator's other choices stay unconstrained. A level-2 binding
-  discharges it with its retry loop, which is the same loop `RetryingCallHoldsNoBuffer`
-  constrains
+  detail of it. The lend itself carries no fairness: forcing the successful downcall would
+  conflate the host's invocation with the allocator's acceptance, and would assume an
+  exact-size allocation the design does not promise
 - **MessageTooLargeIsNotRetried**: a lend refused with `AK_STATUS_MESSAGE_TOO_LARGE`
   schedules no retry at all. The refusal is permanent by construction - `len > ceiling` is a
   property of the request and not of the moment - so a binding that retried it would poll

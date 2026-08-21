@@ -319,14 +319,6 @@ THEOREM RuntimeEventuallyQuiescentHolds ==
 THEOREM BudgetEventuallyAdmitsHolds ==
     Spec => BudgetEventuallyAdmits
 
-\* Per request: a refusal is followed by a grant, or by the call leaving the
-\* state where lending means anything, or by failure - the escape every
-\* inherited liveness carries, and no stronger leads-to is true: the network
-\* may settle the call before any lend.  The proof rides the termination
-\* promise; WF(LendForMessage) is the host obligation level 2 discharges.
-THEOREM BudgetRefusalEventuallyLendsHolds ==
-    Spec => BudgetRefusalEventuallyLends
-
 \* The release tag's own promise, named so a level-2 binding can refine it
 \* rather than re-derive it: a host that was told to give memory back is told
 \* when the runtime is done with what came back.
