@@ -682,7 +682,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_call_send_message`'s `buffer` | `b` in `SendMessage(cId, msg, b)`. An argument, not a choice made inside the action: the host names the allocation it commits, and letting the model pick would make `buffer_send` a record of nondeterminism rather than of what the caller passed |
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
-| `ak_get_call_buffer`'s `len` | The model identifies the request by the message it is for: `LendSendBuffer(cId, b, msg, charge)`, with `len = MessageLength[msg]` and `charge` the size the allocator returned. The message is the model's prophecy of what the buffer will carry, and it is what keeps several outstanding requests distinguishable - two requests of a hundred bytes are the same length and different messages. `IsSendableMessage(msg)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversMessage(charge, msg)` ties the two. Level 0 carries no sizes: its send window counts allocations |
+| `ak_get_call_buffer`'s `len` | The model takes the length directly: `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned. The lend sees only a length, exactly as the C function does; the message identity is born at the commit, where `SendMessage` requires `MessageLength[msg] = buffer_length` for the buffer it sends. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two - including that an empty request charges nothing. Level 0 carries no sizes: its send window counts allocations |
 | `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
@@ -839,9 +839,9 @@ ak_status ak_call_start(ak_channel_handle channel,
 // and awaiting their WRITE_DONE: beyond that the downcall is refused with
 // AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. A second,
 // unrelated refusal is AK_STATUS_BUDGET_BUSY: the runtime-wide byte ceiling is
-// reached because other calls hold the capacity. No event of this call can clear
-// that one, so the host polls ak_runtime_memory_usage and retries. Neither is an
-// error.
+// reached - not necessarily by others, this call's own in-flight sends hold
+// budget too. No single event announces room, so the host polls
+// ak_runtime_memory_usage and retries. Neither is an error.
 // Retrying only makes sense while the request could ever fit. If len exceeds the
 // ceiling itself, no return by anyone will ever make room, and the refusal is
 // AK_STATUS_MESSAGE_TOO_LARGE - permanent, and not to be retried. In every refusal
@@ -1373,10 +1373,12 @@ other case, and there waiting has no evidence behind it - a process that cannot 
 send buffer has no reason to believe it can allocate a retry path or the string a log line
 needs.
 
-So `ak_get_call_buffer` has three *resource* outcomes rather than two - the handle and
-argument errors (`HANDLE_STALE`, `INVALID_STATE`, `INVALID_ARG`, `INTERNAL`) are the ABI
-matrix's rows, outside the backpressure sub-machine level 1 formalizes. It lends; or it
-refuses with
+So `ak_get_call_buffer` has four modeled lend outcomes - `OK`, `SLOT_BUSY`,
+`BUDGET_BUSY`, `MESSAGE_TOO_LARGE`; the remaining ABI results (`HANDLE_STALE`,
+`INVALID_STATE`, `INVALID_ARG`, and `INTERNAL` for a fault the ABI cannot attribute)
+are the ABI matrix's rows, outside the backpressure sub-machine level 1 formalizes.
+It lends, with `MESSAGE_TOO_LARGE` refused permanently when `len` exceeds the ceiling
+itself; or it refuses with
 `AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
 not necessarily this call's doing - with a window deeper than one or replay bytes
@@ -1444,7 +1446,7 @@ refusal, `AK_STATUS_MESSAGE_TOO_LARGE`, needs no wake-up because waiting cannot 
 The budget wake-up is a poll and not a signal on purpose, for now. A signal would have to
 fire at the moment the native budget is genuinely recredited rather than when the host hands
 something back - committing a buffer moves bytes from the host to the runtime without
-freeing any - and getting that edge wrong reintroduces the lost wake-up this replaces. A
+freeing any - and a signal on the wrong edge is a wake-up that never comes. A
 signal or an epoch can be added later without changing the contract, since the poll remains
 correct in its presence. What the poll does *not* give on its own is freedom from
 starvation: another call can win the capacity between the observation and the retry. Level 2
@@ -2128,12 +2130,13 @@ has to induce them cannot tell a predicate from a step:
   fires on its own weak fairness - and the cancellation second.
 
 Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
-- **SubmittedOccurrencesUnique**: an occurrence token is committed at most once per call -
-  the submitted sequence is injective, `NotYetSubmitted` guarding the commit and this
-  invariant making the guard citable. It is what lets a submitted message name its send,
-  and the k-th WRITE_DONE name its message
-- **ReceivedOccurrencesUnique**: the receive side of the same discipline - the received
-  sequence is injective per call, `NetworkReceive` being guarded on a fresh token
+- **SubmittedOccurrencesGloballyUnique**: an occurrence token is committed at most once,
+  across every call - the submitted sequences are jointly injective, `NeverSubmitted`
+  guarding the commit and this invariant making the guard citable. It is what lets a
+  submitted message name its send, and the k-th WRITE_DONE name its message
+- **ReceivedOccurrencesGloballyUnique**: the receive side of the same discipline - one
+  reception per token across every call, `NetworkReceive` being guarded on a token never
+  received anywhere
 - **DirectionsShareNoToken**: a token names one occurrence in one direction, so a received
   token never reappears in emission nor an emitted one in reception - across all calls.
   Position orders each direction; the tokens are what `buffer_send` and the k-th
@@ -2254,7 +2257,7 @@ does not then withdraw, and what it withdraws it withdraws completely:
   buffer. Two of them are refused by a guard; the rest follow from what
   destruction already required, a released runtime having no live call and nothing of its
   memory outstanding. This is the formal content of "destroy invalidates every handle of
-  the runtime", which until now the document asserted and nothing checked
+  the runtime": asserted here, and carried by a theorem rather than by the prose alone
 - **WriteDoneFreesASlot**: `EmitWriteDone(c) ⇒ HasFreeSendSlot(c)'`. A host woken by a
   WRITE_DONE and asking for a buffer is never refused for want of a slot - cancellation, a
   closed send side or a retired handle each still refuse one on their own grounds. Nothing
@@ -2532,7 +2535,7 @@ the artefact rather than left to rot:
 |---------|--------|
 | Specification described in this document | Current |
 | Model-checking configurations | Nine configurations exist - five at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
-| Level 1, one pass at `--stretch 1` | **11444 obligations, all proved, 11m7s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
+| Level 1, one pass at `--stretch 1` | **11444 obligations, all proved, 12m8s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
 | Level 0, one pass at `--stretch 1` | **1805 obligations, all proved, 2m13s at `--threads 12`**, this revision - the event-trace conjuncts `EventStreamShape` and `MessageEventsMatchDelivered` joined `SafetyCore`, so the level-0 module changed and was re-proved in full |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
@@ -2575,10 +2578,14 @@ charge as a parameter: it records that *this* one did not fit, not the claim tha
 - a smaller charge may already fit when the refusal lands.
 
 A dead action would satisfy every safety proof - TLAPS happily proves that an action that
-can never fire preserves everything - so each status carries its own non-vacuity theorem.
-`TooLargeRefusalEnabled`, `SlotRefusalEnabled` and `BudgetRefusalEnabled` state that at any
-eligible state the refusal whose guard holds is `ENABLED`, and the first exhibits its own
-witness: `Ceiling + 1` is in the request domain and never lendable. That witness is why the
+can never fire preserves everything - so each status carries its own conditional
+enabledness theorem: `TooLargeRefusalEnabled`, `SlotRefusalEnabled` and
+`BudgetRefusalEnabled` state that at any eligible state the refusal whose guard holds is
+`ENABLED`. Conditional is the honest word: they do not prove the hypotheses reachable
+from `Init` - `SlotRefusalEnabled`'s full window, in particular, is reachable only when
+`Cardinality(BufferIds) >= MaxSendsInFlight` - but the first exhibits its own rigid
+witness, `Ceiling + 1` being in the request domain and never lendable. That witness is
+why the
 refusals quantify over `RequestLengths == 0..(Ceiling + 1)` rather than over the lendable
 sizes: one representative above the ceiling stands for every larger request, and without it
 `RefuseLendTooLarge` would be unsatisfiable and every proof about it vacuously true. The

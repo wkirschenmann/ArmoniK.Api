@@ -14,9 +14,11 @@ fail=0
 
 # Pick an interpreter that actually runs.  `command -v python3` finds the
 # Windows Store stub, which exists, is on PATH, and fails with "Permission
-# denied" the moment it is executed - so presence is not the test.
+# denied" the moment it is executed - so presence is not the test.  Probe
+# python first: merely executing the stub can pop the Store UI, so python3
+# must be the last resort, not the first probe.
 PY=""
-for cand in python3 python py; do
+for cand in python py python3; do
   if "$cand" -c "" >/dev/null 2>&1; then PY="$cand"; break; fi
 done
 [ -n "$PY" ] || { echo "no working python interpreter on PATH"; exit 1; }
