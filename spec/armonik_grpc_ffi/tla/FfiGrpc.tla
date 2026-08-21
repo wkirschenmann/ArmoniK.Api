@@ -936,8 +936,8 @@ SendMessage(cId, msg, b) ==
     /\ HostHoldsSomeBuffer(cId)
     /\ ~IsCancelRequested(cId)
     /\ IsLentBuffer(cId, b)
-    \* A message is submitted at most once per call: the submitted sequence
-    \* is injective, which is what lets a message identify its request.
+    \* A message token is submitted at most once globally: the submitted
+    \* sequences are jointly injective, so the token identifies one send.
     /\ NeverSubmitted(msg)
     /\ NeverReceived(msg)
     /\ FitsInBuffer(msg, cId, b)

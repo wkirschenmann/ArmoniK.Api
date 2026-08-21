@@ -1367,8 +1367,9 @@ handed out by `ak_get_call_buffer`.
 
 **Reaching the ceiling and failing to allocate are two different events, and only the
 second is a fault.** The ceiling is a configured accounting limit. Reaching it means some
-other call is holding bytes right now, and the runtime knows exactly what recredits that
-capacity: `FreeReturnedBuffer`. Waiting demonstrably helps. A real allocator failure is the
+live allocation - possibly from this call - is holding bytes right now, and the runtime
+knows exactly what recredits that capacity: `FreeReturnedBuffer`. Waiting demonstrably
+helps. A real allocator failure is the
 other case, and there waiting has no evidence behind it - a process that cannot allocate a
 send buffer has no reason to believe it can allocate a retry path or the string a log line
 needs.
