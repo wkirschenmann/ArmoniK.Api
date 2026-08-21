@@ -1901,6 +1901,15 @@ deliberately unconstrained failed state: `SafetyInvariant == NotFailed => Safety
   two would each have to be last
 - **TerminalStatusEquivalence**: a call is terminal exactly when it carries a status
   event, so "the call is over" and "the host has been told" are one fact and not two
+- **EventStreamShape**: the whole event grammar in one predicate: the first event is
+  INITIAL_METADATA, every later one is MESSAGE or a status kind, and every interior one
+  is MESSAGE - a status can only sit last. The two bullets above are its ends, kept as
+  their own conjuncts; the shape is what the event counting builds on
+- **MessageEventsMatchDelivered**: one MESSAGE callback per delivered message, stated as
+  a count: the events of a used call number one metadata, plus one per delivered
+  message, plus one status once it has arrived. With the shape this pins the event
+  stream to the delivery sequence - no MESSAGE event without its message, none missing,
+  none doubled
 
 **Message integrity (prefix invariants, liveness of equality):**
 - **SubmittedPrefixOfSent**: `sent` is a prefix of `submitted` at all times
@@ -2072,7 +2081,11 @@ nineteen FFI variables:
 - `last_lend_status`: per call, what its last `ak_get_call_buffer` returned - `OK` or one
   of the three refusals. Nothing else reads it, which is the point: it is the observable
   frontier of the downcall, the state a level-2 binding refines its retry decisions
-  against, without giving any other action a new way to be blocked. An identity of
+  against, without giving any other action a new way to be blocked. It records the
+  backpressure sub-machine only - `OK`, `MESSAGE_TOO_LARGE`, `SLOT_BUSY`, `BUDGET_BUSY`;
+  the rest of the downcall's result matrix (`HANDLE_STALE`, `INVALID_STATE`,
+  `INVALID_ARG`, `INTERNAL`, and `*out` untouched on every refusal) is the ABI matrix's
+  rows and the conformance tests' burden, not this variable's. An identity of
   attempts finer than the call - positions, tickets - is level 2's to introduce if its
   retry model needs one
 
@@ -2236,8 +2249,9 @@ does not then withdraw, and what it withdraws it withdraws completely:
   is what makes `AK_EVENT_RESOURCES_RELEASED` safe to owe: without it the runtime could
   wait forever on a callback it dispatched and never reach `AK_RUNTIME_QUIESCENT`
 - **DestroyedRuntimeRejectsHandles**: after `ak_runtime_destroy`, no downcall on any call
-  of that runtime is enabled - not release, not cancel, not lend, not send, not end_send,
-  not returning a buffer. Two of them are refused by a guard; the rest follow from what
+  of that runtime is enabled - not release, not cancel, not lend, not any of the three
+  lend refusals (not even a status is written), not send, not end_send, not returning a
+  buffer. Two of them are refused by a guard; the rest follow from what
   destruction already required, a released runtime having no live call and nothing of its
   memory outstanding. This is the formal content of "destroy invalidates every handle of
   the runtime", which until now the document asserted and nothing checked
@@ -2518,12 +2532,12 @@ the artefact rather than left to rot:
 |---------|--------|
 | Specification described in this document | Current |
 | Model-checking configurations | Nine configurations exist - five at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
-| Level 1, one pass at `--stretch 1` | **11364 obligations, all proved, 7m47s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
-| Level 0, one pass at `--stretch 1` | 1632 obligations proved, this revision; the level-0 module did not change |
+| Level 1, one pass at `--stretch 1` | **11444 obligations, all proved, 11m7s at `--threads 12`**, this revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
+| Level 0, one pass at `--stretch 1` | **1805 obligations, all proved, 2m13s at `--threads 12`**, this revision - the event-trace conjuncts `EventStreamShape` and `MessageEventsMatchDelivered` joined `SafetyCore`, so the level-0 module changed and was re-proved in full |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| `ci/check_theorem_statements.py` | 69 declarations - 68 theorems and one public lemma - each restated verbatim in its proofs module |
+| `ci/check_theorem_statements.py` | 72 declarations - 71 theorems and one public lemma - each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
@@ -2559,6 +2573,17 @@ the states a level-2 binding refines its retry decisions against, and what the A
 codes mean is defined by which model action wrote them. `RefuseLendForBudget` takes the
 charge as a parameter: it records that *this* one did not fit, not the claim that none would
 - a smaller charge may already fit when the refusal lands.
+
+A dead action would satisfy every safety proof - TLAPS happily proves that an action that
+can never fire preserves everything - so each status carries its own non-vacuity theorem.
+`TooLargeRefusalEnabled`, `SlotRefusalEnabled` and `BudgetRefusalEnabled` state that at any
+eligible state the refusal whose guard holds is `ENABLED`, and the first exhibits its own
+witness: `Ceiling + 1` is in the request domain and never lendable. That witness is why the
+refusals quantify over `RequestLengths == 0..(Ceiling + 1)` rather than over the lendable
+sizes: one representative above the ceiling stands for every larger request, and without it
+`RefuseLendTooLarge` would be unsatisfiable and every proof about it vacuously true. The
+budget refusal's charge ranges over `CandidateCharges`, the same domain, for the same
+reason.
 
 What stays true is the shape of the refusal. **A refusal is not a state of the runtime**: it
 records what a downcall returned, not a condition the runtime is in. A runtime-level
