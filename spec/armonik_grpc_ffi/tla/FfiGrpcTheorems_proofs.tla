@@ -1994,6 +1994,10 @@ THEOREM DestroyedRuntimeRejectsHandles ==
                  ~SendMessage(cId, msg, b)
            /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
                  ~LendSendBuffer(cId, b, ln, ch)
+           /\ \A ln \in RequestLengths : ~RefuseLendTooLarge(cId, ln)
+           /\ \A ln \in Sizes : ~RefuseLendForSlot(cId, ln)
+           /\ \A ln \in Sizes, ch \in CandidateCharges :
+                 ~RefuseLendForBudget(cId, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 <1>0. TypeOK
     BY Zenon DEF StrongInv
@@ -2026,6 +2030,13 @@ THEOREM DestroyedRuntimeRejectsHandles ==
                  ~LendSendBuffer(cId, b, ln, ch)
     BY <1>4, Zenon DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, L0!IsActiveCall, L0!ActiveCallStates
+<1>75. /\ \A ln \in RequestLengths : ~RefuseLendTooLarge(cId, ln)
+       /\ \A ln \in Sizes : ~RefuseLendForSlot(cId, ln)
+       /\ \A ln \in Sizes, ch \in CandidateCharges :
+             ~RefuseLendForBudget(cId, ln, ch)
+    BY <1>4, Zenon DEF RefuseLendTooLarge, RefuseLendForSlot,
+        RefuseLendForBudget, ContemplatesLend, L0!IsActiveCall,
+        L0!ActiveCallStates
 <1>8. \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
     BY <1>0, <1>5, SMT
     DEF SendMessage, HostHoldsSomeBuffer, HostHoldsNoBuffer, TypeOK
@@ -2035,7 +2046,60 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 <1>9. \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
     BY <1>85, Zenon DEF HostReturnsBuffer
 <1>95. QED
-    BY <1>3, <1>6, <1>7, <1>8, <1>9
+    BY <1>3, <1>6, <1>7, <1>75, <1>8, <1>9
+
+THEOREM TooLargeRefusalEnabled ==
+    ASSUME NEW cId \in CallIds,
+           L0!IsActiveCall(cId),
+           ~IsHandleReleased(cId),
+           ~IsCancelRequested(cId),
+           HostHoldsNoBuffer(cId)
+    PROVE  /\ Ceiling + 1 \in RequestLengths
+           /\ ~IsLendable(Ceiling + 1)
+           /\ ENABLED RefuseLendTooLarge(cId, Ceiling + 1)
+<1>1. Ceiling + 1 \in RequestLengths /\ ~IsLendable(Ceiling + 1)
+    BY CeilingIsPositive, SMT DEF RequestLengths, IsLendable
+<1>2. ENABLED RefuseLendTooLarge(cId, Ceiling + 1)
+    BY CeilingIsPositive, ExpandENABLED, SMT
+    DEF RefuseLendTooLarge, ContemplatesLend, IsLendable,
+        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
+<1>3. QED BY <1>1, <1>2
+
+THEOREM SlotRefusalEnabled ==
+    ASSUME NEW cId \in CallIds,
+           L0!IsActiveCall(cId),
+           ~IsHandleReleased(cId),
+           ~IsCancelRequested(cId),
+           HostHoldsNoBuffer(cId),
+           ~HasFreeSendSlot(cId)
+    PROVE  /\ 0 \in Sizes
+           /\ IsLendable(0)
+           /\ ENABLED RefuseLendForSlot(cId, 0)
+<1>1. 0 \in Sizes /\ IsLendable(0)
+    BY CeilingIsPositive, SMT DEF Sizes, IsLendable
+<1>2. ENABLED RefuseLendForSlot(cId, 0)
+    BY CeilingIsPositive, ExpandENABLED, SMT
+    DEF RefuseLendForSlot, ContemplatesLend, IsLendable,
+        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
+<1>3. QED BY <1>1, <1>2
+
+THEOREM BudgetRefusalEnabled ==
+    ASSUME NEW cId \in CallIds,
+           NEW len \in Sizes,
+           NEW charge \in CandidateCharges,
+           L0!IsActiveCall(cId),
+           ~IsHandleReleased(cId),
+           ~IsCancelRequested(cId),
+           HostHoldsNoBuffer(cId),
+           HasFreeSendSlot(cId),
+           IsLendable(len),
+           CoversRequest(charge, len),
+           ~IsMemoryAvailable(charge)
+    PROVE  ENABLED RefuseLendForBudget(cId, len, charge)
+<1>1. QED
+    BY ExpandENABLED, SMT
+    DEF RefuseLendForBudget, ContemplatesLend,
+        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
 
 LEMMA DeliveryReturnTransfers ==
     ASSUME NEW cId \in CallIds, TypeOK, DeliveryCallbackReturns(cId)
@@ -2858,7 +2922,7 @@ LEMMA ReceiveKeepsFfiCallInv ==
              \A j \in DOMAIN submitted[c] : submitted[c][j] # msg
     BY Zenon DEF NetworkReceive, NeverSubmitted
   <2>5. QED
-    BY <2>1, <2>2, <2>3, <2>4, <2>45, AppendProperties, SMT
+    BY <2>1, <2>2, <2>3, <2>4, <2>45, AppendProperties, SMTT(120)
     DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
         DirectionsShareNoToken
 \* The tuples opened into the components the conjuncts read, so the final

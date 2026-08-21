@@ -80,7 +80,9 @@ LEMMA CategoriesPartitionTotal ==
 \* a cancellation is the only downcall a finished call could still accept,
 \* and a guard says so; the rest follow from what destruction required -
 \* a released runtime has no active call, and nothing of its memory is
-\* out.  Reclamation is in the list too, and it is the runtime's own step:
+\* out.  The lend refusals are in the list too: refusing needs an eligible
+\* call, and a destroyed runtime has none, so not even a status is written.
+\* Reclamation likewise, and it is the runtime's own step:
 \* it does not reclaim a call whose runtime is already gone.
 \* The residual guarantee that survives a failure: FAILED_UNQUIESCED is
 \* absorbing.  Stated outside NotFailed on purpose - it is the one promise
@@ -100,7 +102,52 @@ THEOREM DestroyedRuntimeRejectsHandles ==
                  ~SendMessage(cId, msg, b)
            /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
                  ~LendSendBuffer(cId, b, ln, ch)
+           /\ \A ln \in RequestLengths : ~RefuseLendTooLarge(cId, ln)
+           /\ \A ln \in Sizes : ~RefuseLendForSlot(cId, ln)
+           /\ \A ln \in Sizes, ch \in CandidateCharges :
+                 ~RefuseLendForBudget(cId, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
+
+\* The refusal statuses are not dead letters.  TLAPS proves that a dead
+\* action preserves everything, so each status carries its own enabledness
+\* obligation: at any eligible state, the refusal whose guard holds is a
+\* step the model can take.  MESSAGE_TOO_LARGE exhibits its own witness -
+\* one length above the ceiling always exists and is never lendable; the
+\* other two are enabled whenever the state their guard describes arises.
+THEOREM TooLargeRefusalEnabled ==
+    ASSUME NEW cId \in CallIds,
+           L0!IsActiveCall(cId),
+           ~IsHandleReleased(cId),
+           ~IsCancelRequested(cId),
+           HostHoldsNoBuffer(cId)
+    PROVE  /\ Ceiling + 1 \in RequestLengths
+           /\ ~IsLendable(Ceiling + 1)
+           /\ ENABLED RefuseLendTooLarge(cId, Ceiling + 1)
+
+THEOREM SlotRefusalEnabled ==
+    ASSUME NEW cId \in CallIds,
+           L0!IsActiveCall(cId),
+           ~IsHandleReleased(cId),
+           ~IsCancelRequested(cId),
+           HostHoldsNoBuffer(cId),
+           ~HasFreeSendSlot(cId)
+    PROVE  /\ 0 \in Sizes
+           /\ IsLendable(0)
+           /\ ENABLED RefuseLendForSlot(cId, 0)
+
+THEOREM BudgetRefusalEnabled ==
+    ASSUME NEW cId \in CallIds,
+           NEW len \in Sizes,
+           NEW charge \in CandidateCharges,
+           L0!IsActiveCall(cId),
+           ~IsHandleReleased(cId),
+           ~IsCancelRequested(cId),
+           HostHoldsNoBuffer(cId),
+           HasFreeSendSlot(cId),
+           IsLendable(len),
+           CoversRequest(charge, len),
+           ~IsMemoryAvailable(charge)
+    PROVE  ENABLED RefuseLendForBudget(cId, len, charge)
 
 (***************************************************************************)
 (* REFINEMENT - the step half                                              *)

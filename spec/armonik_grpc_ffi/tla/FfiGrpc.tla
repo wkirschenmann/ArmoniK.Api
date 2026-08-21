@@ -848,8 +848,9 @@ RefuseLendForSlot(cId, len) ==
 
 \* The charge is a parameter because the allocator picks it: this refusal is
 \* one that did not fit, not the claim that none would.  Guarding it on
-\* ~HasAccountingRoomForSomeCharge instead would make the refusal impossible whenever any
-\* charge fits, and the liveness built on it vacuous in exactly that case.
+\* ~HasAccountingRoomForSomeCharge instead would make the refusal impossible
+\* whenever any charge fits, denying the observable frontier exactly the
+\* states it exists to record.
 RefuseLendForBudget(cId, len, charge) ==
     /\ ContemplatesLend(cId)
     /\ IsLendable(len)
@@ -968,8 +969,9 @@ EndSend(cId) ==
     /\ L0!EndSend(cId)
     /\ UNCHANGED ffi_vars
 
-\* The replay copy of the oldest unacquitted send is taken; the host may
-\* unpin that buffer (WRITE_DONE acquits in send order).  One acquittal
+\* WRITE_DONE acquits the oldest unacquitted send, in send order, and the
+\* host may unpin that buffer - the same allocation the lend handed out
+\* and the send pinned.  One acquittal
 \* callback at a time; WRITE_DONE always arrives, exactly once per
 \* accepted send, and always before the terminal: the send side is
 \* driven by binding threads alone.
