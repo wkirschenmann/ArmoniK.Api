@@ -330,13 +330,14 @@ THEOREM CallEventuallyReclaimedHolds == Spec => CallEventuallyReclaimed
 THEOREM RuntimeEventuallyQuiescentHolds ==
     Spec => RuntimeEventuallyQuiescent
 
-\* The emission budget's own promise, on the state alone: a request the ABI
-\* would consider, refused for want of room, eventually has room.  It says
-\* nothing about who is served.
-\* The channel side of ak_channel_release: closing settles into closed.
+\* The channel side of ak_channel_release: closing settles into closed - on
+\* the runtime's fairness and on the callbacks already dispatched returning.
 THEOREM EventualChannelClosedHolds ==
     Spec => EventualChannelClosed
 
+\* The emission budget's own promise, on the state alone: the counter
+\* eventually has room for any lendable length.  It says nothing about who is
+\* served, nor that the allocator admits.
 THEOREM BudgetEventuallyHasRoomForHolds ==
     Spec => BudgetEventuallyHasRoomFor
 

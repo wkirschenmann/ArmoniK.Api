@@ -51,7 +51,7 @@ MC_MessageLength == [msg \in Messages |-> 1]
 \* is false and the property is vacuous, so the bounded range loses nothing.
 MCBudgetEventuallyHasRoomFor ==
     \A len \in 0..Ceiling :
-        (~IsRequestAdmissible(len) ~> IsRequestAdmissible(len))
+        (~HasAccountingRoomForSomeCharge(len) ~> HasAccountingRoomForSomeCharge(len))
 
 MCSendsEventuallyAcquitted ==
     \A cId \in CallIds :

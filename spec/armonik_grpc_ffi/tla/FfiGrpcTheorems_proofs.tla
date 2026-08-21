@@ -1105,13 +1105,13 @@ LEMMA FfiOnlyPreservesFfiTypes ==
     <3>62. CASE \E cId \in CallIds, bb \in BufferIds :
                    FreeReturnedBuffer(cId, bb)
       BY <1>1, <3>62, SMTT(120) DEF FreeReturnedBuffer, FfiTypes
-    <3>63. CASE \E cId \in CallIds, ln \in Sizes :
+    <3>63. CASE \E cId \in CallIds, ln \in RequestLengths :
                    RefuseLendTooLarge(cId, ln)
       BY <1>1, <3>63, SMTT(120) DEF RefuseLendTooLarge, FfiTypes, LendStatuses
     <3>64. CASE \E cId \in CallIds, ln \in Sizes :
                    RefuseLendForSlot(cId, ln)
       BY <1>1, <3>64, SMTT(120) DEF RefuseLendForSlot, FfiTypes, LendStatuses
-    <3>65. CASE \E cId \in CallIds, ln \in Sizes, charge \in Sizes :
+    <3>65. CASE \E cId \in CallIds, ln \in Sizes, charge \in CandidateCharges :
                    RefuseLendForBudget(cId, ln, charge)
       BY <1>1, <3>65, SMTT(120) DEF RefuseLendForBudget, FfiTypes, LendStatuses
     <3>7. QED BY <1>1, <2>2, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
@@ -2437,7 +2437,7 @@ LEMMA FfiFramePreservesFfiCallInv ==
                    delivery_callback_running, payloads_consumed_by_host,
                    handle_released, cancel_requested>>
     /\ UNCHANGED <<call_state, call_channel, channel_state,
-                   events_delivered, submitted>>
+                   events_delivered, submitted, received>>
     /\ UNCHANGED buffer_state
     => FfiCallInv'
 <1>1. ASSUME FfiCallInv,
@@ -2447,7 +2447,7 @@ LEMMA FfiFramePreservesFfiCallInv ==
                          payloads_consumed_by_host,
                          handle_released, cancel_requested>>,
              UNCHANGED <<call_state, call_channel, channel_state,
-                         events_delivered, submitted>>,
+                         events_delivered, submitted, received>>,
              UNCHANGED buffer_state
       PROVE  FfiCallInv'
   <2>0. /\ UNCHANGED buffers_held_by_host
@@ -2517,12 +2517,19 @@ LEMMA FfiFramePreservesFfiCallInv ==
         ReleasesNeverExceedDeliveries, ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
-  <2>95. SubmittedOccurrencesUnique'
-    <3>1. SubmittedOccurrencesUnique
+  <2>95. (/\ SubmittedOccurrencesUnique
+          /\ ReceivedOccurrencesUnique
+          /\ DirectionsShareNoToken)'
+    <3>1. /\ SubmittedOccurrencesUnique
+          /\ ReceivedOccurrencesUnique
+          /\ DirectionsShareNoToken
       BY <1>1, Zenon DEF FfiCallInv
-    <3>2. submitted' = submitted
+    <3>2. /\ submitted' = submitted
+          /\ received' = received
       BY <1>1, Zenon
-    <3>3. QED BY <3>1, <3>2, SMT DEF SubmittedOccurrencesUnique
+    <3>3. QED BY <3>1, <3>2, SMT
+          DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+              DirectionsShareNoToken
   <2>6. QED
     BY <2>3, <2>4, <2>5, <2>95, Zenon DEF FfiCallInv
 <1>2. QED
@@ -2550,7 +2557,7 @@ LEMMA CancelLatchPreservesFfiCallInv ==
                        delivery_callback_running,
                        payloads_consumed_by_host, handle_released>>,
            UNCHANGED <<call_state, call_channel, events_delivered,
-                       submitted>>,
+                       submitted, received>>,
            UNCHANGED buffer_state,
            \A chan \in ChannelIds :
                IsClosingChannel(chan)' =>
@@ -2636,8 +2643,19 @@ LEMMA CancelLatchPreservesFfiCallInv ==
         ReleasesNeverExceedDeliveries, ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
-<1>95. SubmittedOccurrencesUnique'
-    BY SMT DEF FfiCallInv, SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+          /\ ReceivedOccurrencesUnique
+          /\ DirectionsShareNoToken
+    BY <1>1, Zenon DEF FfiCallInv
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
+    BY <1>1, Zenon
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>10. QED
     BY <1>6, <1>7, <1>8, <1>9, <1>95, Zenon DEF FfiCallInv
 
@@ -2652,7 +2670,7 @@ LEMMA RuntimeChannelPreservesFfiCallInv ==
                        delivery_callback_running,
                        payloads_consumed_by_host, handle_released>>
         /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                       submitted>>
+                       submitted, received>>
         /\ UNCHANGED buffer_state
     BY <1>1, SMT DEF RuntimeBeginShutdown, L0!RuntimeBeginShutdown,
         L0!CallVars
@@ -2686,7 +2704,7 @@ LEMMA ChannelOnlyPreservesFfiCallInv ==
                          delivery_callback_running,
                          payloads_consumed_by_host, handle_released>>
           /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                         submitted>>
+                         submitted, received>>
           /\ UNCHANGED buffer_state
       BY <2>1, SMT DEF ChannelCreate, L0!ChannelCreate, L0!RuntimeVars,
           L0!CallVars, ffi_vars
@@ -2713,7 +2731,7 @@ LEMMA ChannelOnlyPreservesFfiCallInv ==
                          delivery_callback_running,
                          payloads_consumed_by_host, handle_released>>
           /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                         submitted>>
+                         submitted, received>>
           /\ UNCHANGED buffer_state
       BY <2>2, SMT DEF ChannelStartClosing, L0!ChannelStartClosing,
           L0!CallVars
@@ -2743,7 +2761,7 @@ LEMMA ChannelCallPreservesFfiCallInv ==
 \* No call of the channel is active, so both comprehensions rewrite every
 \* entry to itself and the close moves nothing but the channel.
   <2>1. /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                       submitted>>
+                       submitted, received>>
   /\ UNCHANGED buffer_state
         /\ UNCHANGED cancel_requested
         /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -2807,6 +2825,92 @@ LEMMA ActiveCallStepKeepsReleasedClean ==
     BY <1>1, <2>1, <2>2, Zenon DEF FfiCallInv, ReleasedCallIsClean
 <1>4. QED
     BY <1>3, Zenon DEF ReleasedCallIsClean
+
+\* The receive path: the one action that grows received.  Everything the
+\* other conjuncts read is frozen; the occurrence conjuncts take the append
+\* argument, the fresh token guaranteed by the receive's own guards.
+LEMMA ReceiveKeepsFfiCallInv ==
+    ASSUME NEW cId \in CallIds, NEW msg \in Messages,
+           TypeOK, FfiCallInv, NetworkReceive(cId, msg)
+    PROVE  FfiCallInv'
+<1>1. /\ UNCHANGED ffi_vars
+      /\ UNCHANGED <<call_state, call_channel, channel_state,
+                     events_delivered, submitted, delivered,
+                     sent, status_pending, send_closed>>
+    BY SMT DEF NetworkReceive, L0!NetworkReceive, ffi_vars,
+       L0!RuntimeVars, L0!ChannelVars, L0!CallVars
+<1>2. (/\ SubmittedOccurrencesUnique
+       /\ ReceivedOccurrencesUnique
+       /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
+    BY Zenon DEF FfiCallInv
+  <2>2. /\ received' = [received EXCEPT ![cId] =
+                            Append(received[cId], msg)]
+        /\ submitted' = submitted
+    BY Zenon DEF NetworkReceive, L0!NetworkReceive
+  <2>3. received \in [CallIds -> Seq(Messages)]
+    BY Zenon DEF TypeOK, L0!TypeOK
+  <2>4. \A k \in DOMAIN received[cId] : received[cId][k] # msg
+    BY Zenon DEF NetworkReceive, NotYetReceived
+  <2>45. \A c \in CallIds :
+             \A j \in DOMAIN submitted[c] : submitted[c][j] # msg
+    BY Zenon DEF NetworkReceive, NeverSubmitted
+  <2>5. QED
+    BY <2>1, <2>2, <2>3, <2>4, <2>45, AppendProperties, SMT
+    DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DirectionsShareNoToken
+\* The tuples opened into the components the conjuncts read, so the final
+\* congruence is the same shape UnchangedFfiKeepsFfiCallInv closes.
+<1>25. /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                     write_done_callback_running,
+                     delivery_callback_running,
+                     payloads_consumed_by_host, handle_released,
+                     cancel_requested>>
+       /\ UNCHANGED buffer_state
+       /\ UNCHANGED <<call_state, call_channel, channel_state,
+                     events_delivered, submitted, delivered,
+                     sent, status_pending, send_closed>>
+    BY <1>1, Zenon DEF ffi_vars
+<1>26. /\ (SubmittedOccurrencesUnique)'
+       /\ (ReceivedOccurrencesUnique)'
+       /\ (DirectionsShareNoToken)'
+    BY <1>2, Zenon
+<1>31. (/\ UnusedCallsAreFfiClean
+        /\ ReleasedCallIsClean)'
+    BY <1>25, SMTT(120)
+    DEF FfiCallInv, UnusedCallsAreFfiClean, ReleasedCallIsClean,
+        HasNoSendInFlight, HostHoldsNoBuffer, IsDeliveryCallbackRunning,
+        HostOwnsNoPayload, IsHandleReleased, IsCancelRequested,
+        SendWindowOccupancy, IsReturnedBuffer,
+        L0!IsActiveCall, L0!IsUnusedCall, L0!IsTerminalCall
+<1>32. (/\ SendsInFlightWithinLimit
+        /\ WriteDonesNeverExceedSends
+        /\ RunningWriteDoneWasEmitted
+        /\ TerminalCallHasNoSendInFlight)'
+    BY <1>25, SMTT(120)
+    DEF FfiCallInv, SendsInFlightWithinLimit, WriteDonesNeverExceedSends,
+        RunningWriteDoneWasEmitted, TerminalCallHasNoSendInFlight,
+        HasNoSendInFlight, SendWindowOccupancy, IsWriteDoneCallbackRunning,
+        WriteDonesReturned, L0!IsTerminalCall
+<1>33. (/\ ClosingChannelCallsCancelRequested
+        /\ ActiveCallPayloadsWithinCredits
+        /\ PayloadsOwnedWithinCreditsPlusOne
+        /\ ReleasesNeverExceedDeliveries
+        /\ NoDeliveryImpliesNoDebt
+        /\ ActiveCallHasNoStatus
+        /\ UnusedCallHasNoEvents)'
+    BY <1>25, SMTT(120)
+    DEF FfiCallInv, ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        PayloadsOwnedWithinCreditsPlusOne, ReleasesNeverExceedDeliveries,
+        NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
+        HostOwnsAtMostCredits, HostOwnsAtMostCreditsPlusOne, OwedPayloads,
+        HostOwnsNoPayload, IsDeliveryCallbackRunning, HasNoDeliveredEvents,
+        IsClosingChannel, IsCancelRequested,
+        L0!IsActiveCall, L0!IsUnusedCall, L0!HasStatus
+<1>3. QED
+    BY <1>26, <1>31, <1>32, <1>33, Zenon DEF FfiCallInv
 
 LEMMA CallOnlyPreservesFfiCallInv ==
     FfiCallInv /\ TypeOK /\ NextSafeCallOnly => FfiCallInv'
@@ -2905,12 +3009,17 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>32. TerminalCallHasNoSendInFlight'
         BY <1>1, <4>0, Zenon
         DEF FfiCallInv, TerminalCallHasNoSendInFlight
-      <4>95. SubmittedOccurrencesUnique'
-        <5>1. SubmittedOccurrencesUnique
+      <4>95. (/\ SubmittedOccurrencesUnique
+              /\ ReceivedOccurrencesUnique
+              /\ DirectionsShareNoToken)'
+        <5>1. /\ SubmittedOccurrencesUnique
+              /\ ReceivedOccurrencesUnique
+              /\ DirectionsShareNoToken
           BY <1>1, Zenon DEF FfiCallInv
         <5>2. QED
           BY <1>1, <5>1, <3>1, SMT
           DEF CallStart, L0!CallStart, SubmittedOccurrencesUnique,
+              ReceivedOccurrencesUnique, DirectionsShareNoToken,
               TypeOK, L0!TypeOK
       <4>4. QED
         BY <4>1, <4>2, <4>30, <4>31, <4>32, <4>95, Zenon DEF FfiCallInv
@@ -3024,19 +3133,31 @@ LEMMA CallOnlyPreservesFfiCallInv ==
         <5>2. QED BY <5>1, LenProperties, Zenon
       <4>35. WriteDonesNeverExceedSends'
         BY <4>0, <4>30, <4>34, SMT DEF WriteDonesNeverExceedSends
-      <4>95. SubmittedOccurrencesUnique'
-        <5>1. SubmittedOccurrencesUnique
+      <4>95. (/\ SubmittedOccurrencesUnique
+              /\ ReceivedOccurrencesUnique
+              /\ DirectionsShareNoToken)'
+        <5>1. /\ SubmittedOccurrencesUnique
+              /\ ReceivedOccurrencesUnique
+              /\ DirectionsShareNoToken
           BY <1>1, Zenon DEF FfiCallInv
-        <5>2. submitted' = [submitted EXCEPT ![cId] =
-                                Append(submitted[cId], msg)]
-          BY <3>1, Zenon DEF SendMessage, L0!SendMessage
+        <5>2. /\ submitted' = [submitted EXCEPT ![cId] =
+                                  Append(submitted[cId], msg)]
+              /\ received' = received
+          BY <3>1, Zenon DEF SendMessage, L0!SendMessage, l0_vars, L0!vars,
+             L0!RuntimeVars, L0!ChannelVars, L0!CallVars
         <5>3. submitted \in [CallIds -> Seq(Messages)]
           BY <1>1, Zenon DEF TypeOK, L0!TypeOK
         <5>4. \A k \in DOMAIN submitted[cId] : submitted[cId][k] # msg
           BY <3>1, Zenon DEF SendMessage, NotYetSubmitted
+        \* The committed token never came from reception, so the wall between
+        \* directions survives the append.
+        <5>45. \A c \in CallIds :
+                   \A j \in DOMAIN received[c] : received[c][j] # msg
+          BY <3>1, Zenon DEF SendMessage, NeverReceived
         <5>5. QED
-          BY <5>1, <5>2, <5>3, <5>4, AppendProperties, SMT
-          DEF SubmittedOccurrencesUnique
+          BY <5>1, <5>2, <5>3, <5>4, <5>45, AppendProperties, SMT
+          DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+              DirectionsShareNoToken
       <4>4. QED
         BY <4>1, <4>2, <4>32, <4>33, <4>35, <4>95, Zenon DEF FfiCallInv
     <3>2. QED BY <2>2, <3>1
@@ -3162,12 +3283,17 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               /\ RunningWriteDoneWasEmitted
               /\ TerminalCallHasNoSendInFlight)'
         BY <4>820, <4>821, <4>822, Zenon
-      <4>95. SubmittedOccurrencesUnique'
-        <5>1. SubmittedOccurrencesUnique
+      <4>95. (/\ SubmittedOccurrencesUnique
+              /\ ReceivedOccurrencesUnique
+              /\ DirectionsShareNoToken)'
+        <5>1. /\ SubmittedOccurrencesUnique
+              /\ ReceivedOccurrencesUnique
+              /\ DirectionsShareNoToken
           BY <1>1, Zenon DEF FfiCallInv
         <5>2. QED
           BY <1>1, <5>1, <3>1, SMT
           DEF EndSend, L0!EndSend, SubmittedOccurrencesUnique,
+              ReceivedOccurrencesUnique, DirectionsShareNoToken,
               TypeOK, L0!TypeOK
       <4>8. QED
         BY <4>80, <4>81, <4>82, <4>95, Zenon DEF FfiCallInv
@@ -3176,8 +3302,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
     BY <1>1, <2>4, FfiFramePreservesFfiCallInv, SMT
     DEF NetworkSend, L0!NetworkSend, L0!RuntimeVars, L0!ChannelVars, ffi_vars
   <2>5. CASE \E cId \in CallIds, msg \in Messages : NetworkReceive(cId, msg)
-    BY <1>1, <2>5, FfiFramePreservesFfiCallInv, SMT
-    DEF NetworkReceive, L0!NetworkReceive, L0!RuntimeVars, L0!ChannelVars, ffi_vars
+    BY <1>1, <2>5, ReceiveKeepsFfiCallInv, Zenon
   <2>6. CASE \E cId \in CallIds : ReceiveStatus(cId)
     BY <1>1, <2>6, FfiFramePreservesFfiCallInv, SMT
     DEF ReceiveStatus, L0!ReceiveStatus, L0!RuntimeVars, L0!ChannelVars, ffi_vars
@@ -3268,12 +3393,19 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. SubmittedOccurrencesUnique'
-      <4>91. SubmittedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+      <4>91. /\ SubmittedOccurrencesUnique
+             /\ ReceivedOccurrencesUnique
+             /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
-      <4>92. submitted' = submitted
+      <4>92. /\ submitted' = submitted
+             /\ received' = received
         BY <1>1, <2>7, SMT DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost
-      <4>93. QED BY <4>91, <4>92, SMT DEF SubmittedOccurrencesUnique
+      <4>93. QED BY <4>91, <4>92, SMT
+             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+                 DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>8. CASE \E cId \in CallIds : DeliverMessage(cId)
 \* Delivering needs an active call and a released one is over, so the
@@ -3362,12 +3494,19 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. SubmittedOccurrencesUnique'
-      <4>91. SubmittedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+      <4>91. /\ SubmittedOccurrencesUnique
+             /\ ReceivedOccurrencesUnique
+             /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
-      <4>92. submitted' = submitted
+      <4>92. /\ submitted' = submitted
+             /\ received' = received
         BY <1>1, <2>8, SMT DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost
-      <4>93. QED BY <4>91, <4>92, SMT DEF SubmittedOccurrencesUnique
+      <4>93. QED BY <4>91, <4>92, SMT
+             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+                 DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>9. CASE \E cId \in CallIds : DeliverStatus(cId)
 \* Delivering needs an active call and a released one is over, so the
@@ -3456,12 +3595,19 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. SubmittedOccurrencesUnique'
-      <4>91. SubmittedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+      <4>91. /\ SubmittedOccurrencesUnique
+             /\ ReceivedOccurrencesUnique
+             /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
-      <4>92. submitted' = submitted
+      <4>92. /\ submitted' = submitted
+             /\ received' = received
         BY <1>1, <2>9, SMT DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost
-      <4>93. QED BY <4>91, <4>92, SMT DEF SubmittedOccurrencesUnique
+      <4>93. QED BY <4>91, <4>92, SMT
+             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+                 DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>10. CASE \E cId \in CallIds : DeliverCancelled(cId)
 \* Delivering needs an active call and a released one is over, so the
@@ -3550,12 +3696,19 @@ LEMMA CallOnlyPreservesFfiCallInv ==
               L0!ActiveCallStates, L0!CallStates, L0!HasStatus
       <4>12. QED
         BY <4>120, <4>121, Zenon DEF FfiCallInv
-    <3>95. SubmittedOccurrencesUnique'
-      <4>91. SubmittedOccurrencesUnique
+    <3>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+      <4>91. /\ SubmittedOccurrencesUnique
+             /\ ReceivedOccurrencesUnique
+             /\ DirectionsShareNoToken
         BY <1>1, Zenon DEF FfiCallInv
-      <4>92. submitted' = submitted
+      <4>92. /\ submitted' = submitted
+             /\ received' = received
         BY <1>1, <2>10, SMT DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost
-      <4>93. QED BY <4>91, <4>92, SMT DEF SubmittedOccurrencesUnique
+      <4>93. QED BY <4>91, <4>92, SMT
+             DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+                 DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
   <2>11. QED BY <1>1, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7,
                  <2>8, <2>9, <2>10 DEF NextSafeCallOnly
@@ -3639,13 +3792,20 @@ LEMMA CancelRequestKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF RequestCallCancellation, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
 
@@ -3756,13 +3916,20 @@ LEMMA ReleaseKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF ReleaseCallHandle, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
 
@@ -3834,13 +4001,20 @@ LEMMA DeliveryReturnKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF DeliveryCallbackReturns, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
 
@@ -3946,13 +4120,20 @@ LEMMA EmitWriteDoneKeepsFfiCallInv ==
        /\ RunningWriteDoneWasEmitted)'
     BY <1>2, <1>3, <1>70, <1>71, <1>72, SMT
     DEF WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF EmitWriteDone, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>8. QED
     BY <1>4, <1>5, <1>6, <1>61, <1>7, <1>95, Zenon DEF FfiCallInv
 
@@ -4045,13 +4226,20 @@ LEMMA WriteDoneReturnKeepsFfiCallInv ==
 <1>7. SendsInFlightWithinLimit'
     BY <1>3, <1>60, <1>73, MaxSendsInFlightIsPositive, SMT
     DEF SendsInFlightWithinLimit
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF WriteDoneReturns, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>8. QED
     BY <1>4, <1>5, <1>6, <1>7, <1>95, Zenon DEF FfiCallInv
 
@@ -4163,13 +4351,20 @@ LEMMA ConsumeKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean, SendsInFlightWithinLimit,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF HostConsumesEvent, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>7. QED
     BY <1>4, <1>40, <1>5, <1>50, <1>6, <1>95, Zenon DEF FfiCallInv
 
@@ -4266,13 +4461,20 @@ LEMMA LendBufferKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF LendSendBuffer, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>7. QED
     BY <1>36, <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
 
@@ -4373,13 +4575,20 @@ LEMMA ReturnBufferKeepsFfiCallInv ==
     DEF FfiCallInv, UnusedCallsAreFfiClean,
         WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
         TerminalCallHasNoSendInFlight
-<1>95. SubmittedOccurrencesUnique'
-  <2>1. SubmittedOccurrencesUnique
+<1>95. (/\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken)'
+  <2>1. /\ SubmittedOccurrencesUnique
+        /\ ReceivedOccurrencesUnique
+        /\ DirectionsShareNoToken
     BY Zenon DEF FfiCallInv
-  <2>2. submitted' = submitted
+  <2>2. /\ submitted' = submitted
+        /\ received' = received
     BY SMT DEF HostReturnsBuffer, l0_vars, L0!vars, L0!RuntimeVars,
        L0!ChannelVars, L0!CallVars
-  <2>3. QED BY <2>1, <2>2, SMT DEF SubmittedOccurrencesUnique
+  <2>3. QED BY <2>1, <2>2, SMT
+        DEF SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+            DirectionsShareNoToken
 <1>7. QED
     BY <1>36, <1>4, <1>5, <1>6, <1>95, Zenon DEF FfiCallInv
 
@@ -4402,7 +4611,8 @@ LEMMA UnchangedFfiKeepsFfiCallInv ==
     PROVE  FfiCallInv'
 <1>1. QED
     BY SMT
-    DEF FfiCallInv, SubmittedOccurrencesUnique, UnusedCallsAreFfiClean,
+    DEF FfiCallInv, SubmittedOccurrencesUnique, ReceivedOccurrencesUnique,
+        DirectionsShareNoToken, UnusedCallsAreFfiClean,
         ReleasedCallIsClean,
         SendsInFlightWithinLimit, WriteDonesNeverExceedSends,
         RunningWriteDoneWasEmitted, TerminalCallHasNoSendInFlight,
@@ -4428,7 +4638,7 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
                          payloads_consumed_by_host,
                          handle_released, cancel_requested>>
           /\ UNCHANGED <<call_state, call_channel, channel_state,
-                         events_delivered, submitted>>
+                         events_delivered, submitted, received>>
                        /\ UNCHANGED buffer_state
       BY <2>1, SMT
       DEF NextSafeShutdownFfi, EmitShutdownComplete,
@@ -4475,7 +4685,7 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
 \* A refused lend writes the status and nothing else, so FfiCallInv reads
 \* nothing it touches - the free's case, three actions over.
-    <3>63. CASE \E cId \in CallIds, ln \in Sizes :
+    <3>63. CASE \E cId \in CallIds, ln \in RequestLengths :
                    RefuseLendTooLarge(cId, ln)
       <4>1. /\ UNCHANGED l0_vars
             /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -4501,7 +4711,7 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
         BY <3>64, SMT DEF RefuseLendForSlot, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
-    <3>65. CASE \E cId \in CallIds, ln \in Sizes, charge \in Sizes :
+    <3>65. CASE \E cId \in CallIds, ln \in Sizes, charge \in CandidateCharges :
                    RefuseLendForBudget(cId, ln, charge)
       <4>1. /\ UNCHANGED l0_vars
             /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -6867,7 +7077,7 @@ LEMMA StutterPreservesFfi ==
                        payloads_consumed_by_host,
                        handle_released, cancel_requested>>
         /\ UNCHANGED <<call_state, call_channel, channel_state,
-                       events_delivered, submitted>>
+                       events_delivered, submitted, received>>
                      /\ UNCHANGED buffer_state
     BY <1>1, SMT DEF vars, l0_vars, L0!vars, L0!RuntimeVars,
         L0!ChannelVars, L0!CallVars, ffi_vars
@@ -6961,8 +7171,11 @@ THEOREM InitEstablishesIndInv == Init => IndInv
         NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
         UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus
-<1>43. SubmittedOccurrencesUnique
-    BY <1>0, SMT DEF Init, L0!Init, SubmittedOccurrencesUnique
+<1>43. /\ SubmittedOccurrencesUnique
+       /\ ReceivedOccurrencesUnique
+       /\ DirectionsShareNoToken
+    BY <1>0, SMT DEF Init, L0!Init, SubmittedOccurrencesUnique,
+       ReceivedOccurrencesUnique, DirectionsShareNoToken
 <1>4. FfiCallInv
     BY <1>39, <1>40, <1>41, <1>42, <1>43, Zenon DEF FfiCallInv
 <1>5. ShutdownSignalInv
@@ -7547,11 +7760,11 @@ LEMMA CancelMonotone ==
           BY <1>1, <5>7, SMT DEF DeliveryCallbackReturns, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>8. CASE \E c \in CallIds : HostConsumesEvent(c)
           BY <1>1, <5>8, SMT DEF HostConsumesEvent, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>10. CASE \E c \in CallIds, ln \in Sizes : RefuseLendTooLarge(c, ln)
+        <5>10. CASE \E c \in CallIds, ln \in RequestLengths : RefuseLendTooLarge(c, ln)
           BY <1>1, <5>10, SMT DEF RefuseLendTooLarge, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>11. CASE \E c \in CallIds, ln \in Sizes : RefuseLendForSlot(c, ln)
           BY <1>1, <5>11, SMT DEF RefuseLendForSlot, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in Sizes : RefuseLendForBudget(c, ln, ch)
+        <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in CandidateCharges : RefuseLendForBudget(c, ln, ch)
           BY <1>1, <5>12, SMT DEF RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
@@ -7651,11 +7864,11 @@ LEMMA CallbackFrame ==
           BY <1>1, <5>7, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF DeliveryCallbackReturns, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>8. CASE \E c \in CallIds : HostConsumesEvent(c)
           BY <1>1, <5>8, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF HostConsumesEvent, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>10. CASE \E c \in CallIds, ln \in Sizes : RefuseLendTooLarge(c, ln)
+        <5>10. CASE \E c \in CallIds, ln \in RequestLengths : RefuseLendTooLarge(c, ln)
           BY <1>1, <5>10, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendTooLarge, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>11. CASE \E c \in CallIds, ln \in Sizes : RefuseLendForSlot(c, ln)
           BY <1>1, <5>11, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendForSlot, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in Sizes : RefuseLendForBudget(c, ln, ch)
+        <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in CandidateCharges : RefuseLendForBudget(c, ln, ch)
           BY <1>1, <5>12, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
@@ -16060,7 +16273,7 @@ THEOREM BudgetEventuallyHasRoomForHolds ==
              /\ [](OutstandingPairs = {} /\ MemoryAccountingExact
                        => memory_used = 0)
              /\ [](memory_used = 0 /\ IsLendable(len)
-                       => IsRequestAdmissible(len))
+                       => HasAccountingRoomForSomeCharge(len))
   <2>2. SafetyInvariant => MemoryAccountingExact
     BY Zenon DEF SafetyInvariant
   <2>3. (\A cId \in CallIds :
@@ -16073,16 +16286,16 @@ THEOREM BudgetEventuallyHasRoomForHolds ==
 \* At zero the request is its own witness: a charge equal to the length covers
 \* it and fits.  Implications throughout - PTL boxes the conjunct above, and a
 \* sequent here would carry its hypotheses nowhere.
-  <2>5. memory_used = 0 /\ IsLendable(len) => IsRequestAdmissible(len)
+  <2>5. memory_used = 0 /\ IsLendable(len) => HasAccountingRoomForSomeCharge(len)
     <3>1. IsLendable(len) => len \in Sizes
       BY SMT DEF IsLendable, Sizes
     <3>2. memory_used = 0 /\ IsLendable(len)
               => CoversRequest(len, len) /\ IsMemoryAvailable(len)
       BY SMT DEF CoversRequest, IsMemoryAvailable, IsLendable
-    <3>3. QED BY <3>1, <3>2, Zenon DEF IsRequestAdmissible
+    <3>3. QED BY <3>1, <3>2, Zenon DEF HasAccountingRoomForSomeCharge
   <2>6. QED BY <2>2, <2>3, <2>4, <2>5, PTL
 <1>1. ASSUME Spec, NEW len \in Nat, IsLendable(len)
-      PROVE  ~IsRequestAdmissible(len) ~> IsRequestAdmissible(len)
+      PROVE  ~HasAccountingRoomForSomeCharge(len) ~> HasAccountingRoomForSomeCharge(len)
   <2>1. []SafetyInvariant
     BY <1>1, SafetyTheorem, PTL
   <2>3. ASSUME NEW cId \in CallIds
@@ -16117,13 +16330,13 @@ THEOREM BudgetEventuallyHasRoomForHolds ==
 \* The instance at this len as its own step: the cascade instantiates it here,
 \* and PTL then has a boxed fact with nothing left to instantiate.
   <2>55. [](memory_used = 0 /\ IsLendable(len)
-                 => IsRequestAdmissible(len))
+                 => HasAccountingRoomForSomeCharge(len))
     BY <1>0
   <2>555. [](IsLendable(len))
     <3>1. IsLendable(len)
       BY <1>1
     <3>2. QED BY <3>1, Zenon DEF IsLendable
-  <2>6. <>[]IsRequestAdmissible(len)
+  <2>6. <>[]HasAccountingRoomForSomeCharge(len)
     BY <2>5, <2>55, <2>555, PTL
   <2>7. QED BY <2>6, PTL
 <1>2. QED BY <1>1, Zenon DEF BudgetEventuallyHasRoomFor

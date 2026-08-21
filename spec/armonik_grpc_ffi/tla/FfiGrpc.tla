@@ -243,21 +243,48 @@ IsMemoryAvailable(charge) == memory_used + charge <= Ceiling
 \* The allocator hands out at least what was asked.  The budget charges what
 \* it handed out, not what was asked: the ceiling then bounds the bytes the
 \* runtime really holds.  Nothing here models a rounding policy.
-CoversRequest(charge, len) == len <= charge
+\* An empty message charges nothing: the ABI says so, and without the second
+\* conjunct a full budget could refuse a zero-length request that
+\* HasAccountingRoomForSomeCharge simultaneously calls admissible.
+CoversRequest(charge, len) ==
+    /\ len <= charge
+    /\ (len = 0 => charge = 0)
 
-\* The sizes a lend may be asked for.  Bounded by the ceiling so Next
-\* quantifies over a finite set: above it the request is refused anyway.
+\* The sizes a lend may be asked for.  Ceiling + 1 is the abstract
+\* representative of every length or charge strictly above the plafond: no
+\* state retains the exact value, so one witness is as good as them all.  A
+\* successful charge is necessarily under the ceiling; a refused one need not
+\* be, which is what makes MESSAGE_TOO_LARGE and the budget refusal of an
+\* oversized class representable at all.
 Sizes == 0..Ceiling
+RequestLengths == 0..(Ceiling + 1)
+CandidateCharges == 0..(Ceiling + 1)
 
 LendStatuses ==
     {"NONE", "OK", "SLOT_BUSY", "BUDGET_BUSY", "MESSAGE_TOO_LARGE"}
 
-IsRequestAdmissible(len) ==
+HasAccountingRoomForSomeCharge(len) ==
     \E charge \in Sizes :
         CoversRequest(charge, len) /\ IsMemoryAvailable(charge)
 
 \* A message fits the buffer it was given.  Read at the commit, where the
 \* message appears - the lend saw only a length.
+\* The occurrence discipline, both directions.  A token names one occurrence:
+\* once per call within its direction, and never in both directions - a
+\* received token cannot reappear in emission, nor an emitted one in
+\* reception.  Position already orders each direction; the tokens are what
+\* buffer_send and the k-th WRITE_DONE key on.
+NotYetReceived(cId, msg) ==
+    \A i \in DOMAIN received[cId] : received[cId][i] # msg
+
+NeverSubmitted(msg) ==
+    \A c \in CallIds :
+        \A i \in DOMAIN submitted[c] : submitted[c][i] # msg
+
+NeverReceived(msg) ==
+    \A c \in CallIds :
+        \A i \in DOMAIN received[c] : received[c][i] # msg
+
 NotYetSubmitted(cId, msg) ==
     \A i \in DOMAIN submitted[cId] : submitted[cId][i] # msg
 
@@ -821,7 +848,7 @@ RefuseLendForSlot(cId, len) ==
 
 \* The charge is a parameter because the allocator picks it: this refusal is
 \* one that did not fit, not the claim that none would.  Guarding it on
-\* ~IsRequestAdmissible instead would make the refusal impossible whenever any
+\* ~HasAccountingRoomForSomeCharge instead would make the refusal impossible whenever any
 \* charge fits, and the liveness built on it vacuous in exactly that case.
 RefuseLendForBudget(cId, len, charge) ==
     /\ ContemplatesLend(cId)
@@ -917,6 +944,7 @@ SendMessage(cId, msg, b) ==
     \* A message is submitted at most once per call: the submitted sequence
     \* is injective, which is what lets a message identify its request.
     /\ NotYetSubmitted(cId, msg)
+    /\ NeverReceived(msg)
     /\ FitsInBuffer(msg, cId, b)
     /\ L0!SendMessage(cId, msg)
     /\ buffers_held_by_host' =
@@ -985,6 +1013,10 @@ NetworkSend(cId) ==
 
 NetworkReceive(cId, msg) ==
     /\ L0!NetworkReceive(cId, msg)
+    \* The occurrence discipline: a fresh token, never seen in either
+    \* direction.  A strengthening of the level-0 action, as a refinement may.
+    /\ NotYetReceived(cId, msg)
+    /\ NeverSubmitted(msg)
     /\ UNCHANGED ffi_vars
 
 ReceiveStatus(cId) ==
@@ -1123,9 +1155,10 @@ Next ==
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
            LendSendBuffer(cId, b, len, charge)
-    \/ \E cId \in CallIds, len \in Sizes : RefuseLendTooLarge(cId, len)
+    \/ \E cId \in CallIds, len \in RequestLengths :
+           RefuseLendTooLarge(cId, len)
     \/ \E cId \in CallIds, len \in Sizes : RefuseLendForSlot(cId, len)
-    \/ \E cId \in CallIds, len \in Sizes, charge \in Sizes :
+    \/ \E cId \in CallIds, len \in Sizes, charge \in CandidateCharges :
            RefuseLendForBudget(cId, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
@@ -1277,7 +1310,7 @@ ResourcesReleasedEventually ==
 BudgetEventuallyHasRoomFor ==
     \A len \in Nat :
         IsLendable(len) =>
-            (~IsRequestAdmissible(len) ~> IsRequestAdmissible(len))
+            (~HasAccountingRoomForSomeCharge(len) ~> HasAccountingRoomForSomeCharge(len))
 
 \* What ak_channel_release promises: a channel told to close closes, its
 \* calls cancelled and drained on the runtime's own fairness.

@@ -66,9 +66,10 @@ NextSafeCallFfi ==
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
            LendSendBuffer(cId, b, len, charge)
-    \/ \E cId \in CallIds, len \in Sizes : RefuseLendTooLarge(cId, len)
+    \/ \E cId \in CallIds, len \in RequestLengths :
+           RefuseLendTooLarge(cId, len)
     \/ \E cId \in CallIds, len \in Sizes : RefuseLendForSlot(cId, len)
-    \/ \E cId \in CallIds, len \in Sizes, charge \in Sizes :
+    \/ \E cId \in CallIds, len \in Sizes, charge \in CandidateCharges :
            RefuseLendForBudget(cId, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
@@ -237,6 +238,19 @@ SubmittedOccurrencesUnique ==
         \A i, j \in DOMAIN submitted[cId] :
             submitted[cId][i] = submitted[cId][j] => i = j
 
+\* The receive side of the same discipline, and the wall between directions:
+\* a token names one occurrence, in one direction.
+ReceivedOccurrencesUnique ==
+    \A cId \in CallIds :
+        \A i, j \in DOMAIN received[cId] :
+            received[cId][i] = received[cId][j] => i = j
+
+DirectionsShareNoToken ==
+    \A c1, c2 \in CallIds :
+        \A i \in DOMAIN submitted[c1] :
+            \A j \in DOMAIN received[c2] :
+                submitted[c1][i] # received[c2][j]
+
 FfiCallInv ==
     /\ UnusedCallsAreFfiClean
     /\ ReleasedCallIsClean
@@ -252,6 +266,8 @@ FfiCallInv ==
     /\ ActiveCallHasNoStatus
     /\ UnusedCallHasNoEvents
     /\ SubmittedOccurrencesUnique
+    /\ ReceivedOccurrencesUnique
+    /\ DirectionsShareNoToken
 
 \* The buffer identities, kept apart from FfiCallInv for the same reason
 \* BufferTypes is kept apart from FfiTypes: every per-action lemma about

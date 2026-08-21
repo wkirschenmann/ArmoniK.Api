@@ -497,7 +497,10 @@ identifies which sends are acquitted.
 from a constant set `BufferIds` per call, because the ABI says a buffer is given back
 exactly once and returns are unordered - a count cannot say which buffer came back, which
 is the gap the names close. The set is finite so that the per-buffer arguments are finite
-inductions, and nothing beyond that depends on its size. It is not `MaxSendsInFlight`,
+inductions. Its size is a modelling bound: identities are never reused, so a level-1
+call accepts at most `Cardinality(BufferIds)` sends and the freshness a lend needs
+depends on it - a configured depth is reachable in the model only if the space is at
+least that large. It is not `MaxSendsInFlight`,
 which bounds how many allocations are outstanding at once and is what makes a returned
 buffer's send debt bounded by a constant.
 
@@ -643,7 +646,7 @@ refinement.
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
 | `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
-| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the per-request status and nothing else |
+| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
@@ -1370,7 +1373,10 @@ other case, and there waiting has no evidence behind it - a process that cannot 
 send buffer has no reason to believe it can allocate a retry path or the string a log line
 needs.
 
-So `ak_get_call_buffer` has three outcomes rather than two. It lends; or it refuses with
+So `ak_get_call_buffer` has three *resource* outcomes rather than two - the handle and
+argument errors (`HANDLE_STALE`, `INVALID_STATE`, `INVALID_ARG`, `INTERNAL`) are the ABI
+matrix's rows, outside the backpressure sub-machine level 1 formalizes. It lends; or it
+refuses with
 `AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
 not necessarily this call's doing - with a window deeper than one or replay bytes
@@ -2109,10 +2115,18 @@ has to induce them cannot tell a predicate from a step:
   fires on its own weak fairness - and the cancellation second.
 
 Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
-- **SubmittedOccurrencesUnique**: a message value is committed at most once per call -
+- **SubmittedOccurrencesUnique**: an occurrence token is committed at most once per call -
   the submitted sequence is injective, `NotYetSubmitted` guarding the commit and this
   invariant making the guard citable. It is what lets a submitted message name its send,
   and the k-th WRITE_DONE name its message
+- **ReceivedOccurrencesUnique**: the receive side of the same discipline - the received
+  sequence is injective per call, `NetworkReceive` being guarded on a fresh token
+- **DirectionsShareNoToken**: a token names one occurrence in one direction, so a received
+  token never reappears in emission nor an emitted one in reception - across all calls.
+  Position orders each direction; the tokens are what `buffer_send` and the k-th
+  WRITE_DONE key on, and what makes "the same bytes twice" two occurrences rather than
+  one ambiguous value. Payload content, were it modelled, would be a separate function of
+  the token, as `MessageLength` already is
 - **UnusedCallsAreFfiClean**: no FFI state before `ak_call_start`
 - **ReleasedCallIsClean**: a released call is terminal, every payload consumed, every
   buffer given back and freed, no delivery callback on the stack and no send in
@@ -2245,7 +2259,9 @@ New liveness guarantees:
   release is FIFO
 - **ShutdownEventEmitted**: a stopping runtime emits SHUTDOWN_COMPLETE
 - **EventualChannelClosed**: a channel told to close closes, its calls cancelled and
-  drained on the runtime's own fairness - what `ak_channel_release` promises. Previously
+  drained - what `ak_channel_release` promises. It rests on the runtime's fairness and
+  on the host hypotheses too: the callbacks already dispatched must return for the
+  drain to finish. Previously
   derivable and citable by nobody; the theorem makes it part of the interface
 - **BufferEventuallyFreed**: every buffer the arena lends out is given back and then
   released. Two rungs with two owners: the host returns it, per buffer because returns are
@@ -2285,7 +2301,7 @@ New liveness guarantees:
   are its own, and whether a realizable class fits is the implementation's contract,
   carried by the ABI matrix and its tests. `IsLendable(len)` is the request the ABI
   considers at all - no larger than the ceiling, an empty serialized message being valid.
-  `IsRequestAdmissible(len)` - some charge in the model's range covers the request and
+  `HasAccountingRoomForSomeCharge(len)` - some charge in the model's range covers the request and
   fits - is the existential the property closes on; a `AK_STATUS_BUDGET_BUSY` refusal
   denies one charge, not all of them, and a smaller one may already fit. Proved from the
   drain: every
