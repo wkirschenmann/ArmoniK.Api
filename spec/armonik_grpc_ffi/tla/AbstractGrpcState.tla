@@ -14,7 +14,7 @@
 EXTENDS FiniteSets
 
 CONSTANTS
-    Messages,       \* The universe of possible messages
+    Messages,       \* Occurrence tokens: one token per message occurrence
     CallIds,        \* Finite set of call identifiers
     ChannelIds,     \* Finite set of channel identifiers
     RuntimeIds      \* Finite set of runtime identifiers (typically singleton)

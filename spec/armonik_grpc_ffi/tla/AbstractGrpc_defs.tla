@@ -109,17 +109,6 @@ CallLifecycleInv ==
         /\ IsActiveCall(cId) =>
               (send_closed[cId] <=> call_state[cId] = "half_closed")
 
-\* Safe for traces of length zero and one: no zero-based sequence access.
-EventStreamShape ==
-    \A cId \in UsedCalls :
-        /\ Len(events_delivered[cId]) > 0 =>
-              events_delivered[cId][1] = "INITIAL_METADATA"
-        /\ \A i \in 2..Len(events_delivered[cId]) :
-              events_delivered[cId][i] \in {"MESSAGE"} \union StatusKinds
-        /\ \A i \in 2..Len(events_delivered[cId]) :
-              i < Len(events_delivered[cId]) =>
-                  events_delivered[cId][i] = "MESSAGE"
-
 MessageFlowInv ==
     /\ SubmittedPrefixOfSent
     /\ ReceivedPrefixOfDelivered
@@ -134,9 +123,9 @@ StructuralInv ==
     /\ ChannelLifecycleInv
     /\ CallLifecycleInv
 
-\* TLC confirms the strengthening is inductive without any alignment
-\* between event count and payload count, so none is carried.
-EventTraceInv == EventStreamShape
+EventTraceInv ==
+    /\ EventStreamShape
+    /\ MessageEventsMatchDelivered
 
 StrongInv ==
     /\ StructuralInv

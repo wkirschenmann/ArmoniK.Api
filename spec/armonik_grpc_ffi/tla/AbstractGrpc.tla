@@ -420,6 +420,28 @@ CompleteDelivery ==
     \A cId \in UsedCalls :
         (IsTerminalCall(cId) /\ ~IsCancelled(cId)) => Len(delivered[cId]) = Len(received[cId])
 
+\* Safe for traces of length zero and one: no zero-based sequence access.
+EventStreamShape ==
+    \A cId \in UsedCalls :
+        /\ Len(events_delivered[cId]) > 0 =>
+              events_delivered[cId][1] = "INITIAL_METADATA"
+        /\ \A i \in 2..Len(events_delivered[cId]) :
+              events_delivered[cId][i] \in {"MESSAGE"} \union StatusKinds
+        /\ \A i \in 2..Len(events_delivered[cId]) :
+              i < Len(events_delivered[cId]) =>
+                  events_delivered[cId][i] = "MESSAGE"
+
+\* A MESSAGE callback carries exactly one message: given the stream shape,
+\* the event count is one metadata, one event per delivered message, and one
+\* terminal if it has arrived.  This is the link between the sequence that
+\* carries the FFI debt and the sequence of data.
+MessageEventsMatchDelivered ==
+    \A cId \in UsedCalls :
+        Len(events_delivered[cId]) =
+            (IF Len(events_delivered[cId]) > 0 THEN 1 ELSE 0)
+            + Len(delivered[cId])
+            + (IF HasStatus(cId) THEN 1 ELSE 0)
+
 SafetyCore ==
     /\ TypeOK
     /\ MetadataFirst
@@ -438,6 +460,8 @@ SafetyCore ==
     /\ ReleasedNoChannels
     /\ ReleasedNoCalls
     /\ CompleteDelivery
+    /\ EventStreamShape
+    /\ MessageEventsMatchDelivered
 
 \* Safety is required only while no runtime has entered the deliberately
 \* unconstrained failed state.
@@ -552,7 +576,7 @@ LivenessProperties ==
 (*                                                                         *)
 (* Two kinds of conjuncts live here.  NetworkSend, ReceiveStatus,          *)
 (* RuntimeRelease and ChannelFinishClosing are promises of the library:    *)
-(* the level-1 refinement (the binding) must discharge them with its own   *)
+(* the FFI refinement must discharge them with its own                     *)
 (* threads.  The Deliver* conjuncts are continuing obligations of the      *)
 (* caller: level 0 has no demand variable, so delivery is guarded by       *)
 (* availability alone, and a caller that stops reading falsifies them.     *)

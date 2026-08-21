@@ -89,7 +89,7 @@ THEOREM IsPrefixAppendRight ==
 THEOREM CallFramePreservesEventTrace ==
     EventTraceInv /\ UNCHANGED CallVars => EventTraceInv'
 <1>1. QED
-    BY SMT DEF CallVars, EventTraceInv, EventStreamShape,
+    BY SMT DEF MessageEventsMatchDelivered, HasStatus, CallVars, EventTraceInv, EventStreamShape,
                HasStatus, UsedCalls, IsUnusedCall
 
 THEOREM CallFramePreservesMessageFlow ==
@@ -120,7 +120,7 @@ THEOREM StutteringPreservesHealthyStrongInv ==
 <1>1. StructuralInv /\ UNCHANGED vars => StructuralInv'
     BY VarsFramePreservesStructural
 <1>2. EventTraceInv /\ UNCHANGED vars => EventTraceInv'
-    BY SMT DEF vars, EventTraceInv, EventStreamShape, HasStatus,
+    BY SMT DEF MessageEventsMatchDelivered, HasStatus, vars, EventTraceInv, EventStreamShape, HasStatus,
                UsedCalls, IsUnusedCall
 <1>3. MessageFlowInv /\ UNCHANGED vars => MessageFlowInv'
     BY SMT DEF vars, MessageFlowInv, SubmittedPrefixOfSent,
@@ -153,6 +153,94 @@ THEOREM AppendTerminalKeepsShape ==
 <1>3. Len(es) >= 2 => es[Len(es)] = "MESSAGE"
     BY SMT DEF EventKinds, StatusKinds
 <1>4. QED BY <1>1, <1>2, <1>3, SMTT(90) DEF EventKinds, StatusKinds
+
+\* The cancel is the one action with two write shapes: from an empty stream
+\* it writes metadata and terminal in one step, from a nonempty one it appends
+\* the terminal alone.  Both keep the event count equal to one metadata, one
+\* event per delivered message, and the terminal.
+THEOREM CancelKeepsAlignment ==
+    ASSUME NEW cId \in CallIds
+    PROVE  TypeOK /\ MessageEventsMatchDelivered /\ CallCancel(cId) =>
+               MessageEventsMatchDelivered'
+<1>00. SUFFICES ASSUME TypeOK, MessageEventsMatchDelivered, CallCancel(cId)
+                PROVE  MessageEventsMatchDelivered'
+    OBVIOUS
+<1>0. /\ events_delivered \in [CallIds -> Seq(EventKinds)]
+      /\ delivered \in [CallIds -> Seq(Messages)]
+      /\ UNCHANGED delivered
+    BY <1>00, SMT DEF TypeOK, CallCancel
+<1>1. CASE events_delivered[cId] = <<>>
+  <2>1. events_delivered' = [events_delivered EXCEPT
+            ![cId] = <<"INITIAL_METADATA", "CANCELLED">>]
+    BY <1>00, <1>1, Zenon DEF CallCancel
+  <2>2. /\ Len(events_delivered'[cId]) = 2
+        /\ events_delivered'[cId][2] = "CANCELLED"
+        /\ Len(delivered[cId]) = 0
+    BY <1>00, <1>0, <1>1, <2>1, SMT
+    DEF MessageEventsMatchDelivered, HasStatus, UsedCalls, IsUnusedCall,
+        CallCancel, IsActiveCall, ActiveCallStates, CallStates, TypeOK
+  <2>3. QED
+    BY <1>00, <1>0, <1>1, <2>1, <2>2, SMTT(120)
+    DEF MessageEventsMatchDelivered, HasStatus, StatusKinds,
+        UsedCalls, IsUnusedCall,
+        CallCancel, IsActiveCall, ActiveCallStates, CallStates, TypeOK
+<1>2. CASE events_delivered[cId] # <<>>
+  <2>1. events_delivered' = [events_delivered EXCEPT
+            ![cId] = Append(events_delivered[cId], "CANCELLED")]
+    BY <1>00, <1>2, Zenon DEF CallCancel
+  <2>2. ~HasStatus(cId)
+    BY <1>00, <1>2, Zenon DEF CallCancel, HasStatus
+  <2>25. /\ Len(events_delivered'[cId]) = Len(events_delivered[cId]) + 1
+         /\ events_delivered'[cId][Len(events_delivered[cId]) + 1]
+                = "CANCELLED"
+         /\ \A c \in CallIds : c # cId =>
+                events_delivered'[c] = events_delivered[c]
+    BY <1>00, <1>0, <1>2, <2>1, AppendProperties, SMT
+    DEF TypeOK, EventKinds
+  <2>26. HasStatus(cId)'
+    BY <1>00, <1>0, <2>25, SMT DEF HasStatus, StatusKinds, TypeOK, EventKinds
+  <2>3. QED
+    BY <1>00, <1>0, <1>2, <2>2, <2>25, <2>26, SMTT(120)
+    DEF MessageEventsMatchDelivered, HasStatus, StatusKinds, EventKinds,
+        UsedCalls, IsUnusedCall,
+        CallCancel, IsActiveCall, ActiveCallStates, CallStates, TypeOK
+<1>3. QED BY <1>1, <1>2
+
+THEOREM DeliverKeepsAlignment ==
+    ASSUME NEW cId \in CallIds
+    PROVE  TypeOK /\ MessageEventsMatchDelivered /\ DeliverMessage(cId) =>
+               MessageEventsMatchDelivered'
+<1>00. SUFFICES ASSUME TypeOK, MessageEventsMatchDelivered, DeliverMessage(cId)
+                PROVE  MessageEventsMatchDelivered'
+    OBVIOUS
+<1>0. /\ events_delivered \in [CallIds -> Seq(EventKinds)]
+      /\ delivered \in [CallIds -> Seq(Messages)]
+      /\ received \in [CallIds -> Seq(Messages)]
+      /\ UNCHANGED call_state
+    BY <1>00, SMT DEF TypeOK, DeliverMessage, CallVars
+<1>1. /\ events_delivered' = [events_delivered EXCEPT
+              ![cId] = Append(events_delivered[cId], "MESSAGE")]
+      /\ delivered' = [delivered EXCEPT
+              ![cId] = Append(delivered[cId],
+                              received[cId][Len(delivered[cId]) + 1])]
+      /\ Len(delivered[cId]) < Len(received[cId])
+    BY <1>00, Zenon DEF DeliverMessage
+<1>2. ~HasStatus(cId) /\ Len(events_delivered[cId]) >= 1
+    BY <1>00, Zenon DEF DeliverMessage
+<1>25. /\ Len(events_delivered'[cId]) = Len(events_delivered[cId]) + 1
+       /\ events_delivered'[cId][Len(events_delivered[cId]) + 1] = "MESSAGE"
+       /\ \A c \in CallIds : c # cId =>
+              events_delivered'[c] = events_delivered[c]
+    BY <1>00, <1>0, <1>1, AppendProperties, SMT DEF TypeOK, EventKinds
+<1>26. /\ Len(delivered'[cId]) = Len(delivered[cId]) + 1
+       /\ \A c \in CallIds : c # cId => delivered'[c] = delivered[c]
+    BY <1>00, <1>0, <1>1, AppendProperties, SMT DEF TypeOK
+<1>27. ~HasStatus(cId)'
+    BY <1>0, <1>25, SMT DEF HasStatus, StatusKinds, TypeOK, EventKinds
+<1>3. QED
+    BY <1>00, <1>0, <1>2, <1>25, <1>26, <1>27, SMTT(120)
+    DEF MessageEventsMatchDelivered, HasStatus, StatusKinds, EventKinds,
+        UsedCalls, IsUnusedCall, TypeOK
 
 THEOREM StutteringPreservesIndInv == IndInv /\ UNCHANGED vars => IndInv'
 <1>1. ASSUME IndInv, UNCHANGED vars
@@ -405,7 +493,7 @@ THEOREM NextPreservesTypeOK == TypeOK /\ Next => TypeOK'
 THEOREM InitEstablishesIndInv == Init => IndInv
 <1>1. USE NoneNotInRuntimeIds, NoneNotInChannelIds, NoneNotInCallIds
 <1>2. QED
-    BY SMT DEF Init, IndInv, NotFailed, StrongInv, StructuralInv,
+    BY SMT DEF MessageEventsMatchDelivered, HasStatus, Init, IndInv, NotFailed, StrongInv, StructuralInv,
                EventTraceInv, MessageFlowInv, TypeOK, RuntimeStates,
                ChannelStates, CallStates, EventKinds, StatusKinds, SingleRuntime,
                ChannelSentinelEquivalence, CallSentinelEquivalence,
@@ -558,12 +646,62 @@ THEOREM ChannelCallPreservesStrongInv ==
   <2>8. StructuralInv'
     BY <2>7, <2>8a, <2>8b, SMTT(90) DEF StructuralInv
   <2>9. EventTraceInv'
-    BY <1>1, <2>3, <2>5, <2>6, <2>7, AppendTerminalKeepsShape,
-       StatusKindsExpansion, SMTT(90)
-    DEF StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
-        EventKinds, StatusKinds, EventStreamShape, CallLifecycleInv,
-        TerminalStatusEquivalence, HasStatus, UsedCalls, ActiveCallStates,
-        IsUnusedCall, IsActiveCall, IsTerminalCall
+    <3>0. /\ UNCHANGED delivered
+          /\ delivered \in [CallIds -> Seq(Messages)]
+          /\ events_delivered \in [CallIds -> Seq(EventKinds)]
+      BY <1>1, <2>1, SMT
+      DEF ChannelFinishClosing, StrongInv, StructuralInv, TypeOK
+    <3>1. EventStreamShape'
+      BY <1>1, <2>3, <2>5, <2>6, <2>7, AppendTerminalKeepsShape,
+         StatusKindsExpansion, SMTT(90)
+      DEF StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
+          EventKinds, StatusKinds, EventStreamShape, CallLifecycleInv,
+          TerminalStatusEquivalence, HasStatus, UsedCalls, ActiveCallStates,
+          IsUnusedCall, IsActiveCall, IsTerminalCall
+    <3>2. MessageEventsMatchDelivered'
+      <4>1. ASSUME NEW c \in CallIds, c \in UsedCalls'
+            PROVE  Len(events_delivered'[c]) =
+                       (IF Len(events_delivered'[c]) > 0 THEN 1 ELSE 0)
+                       + Len(delivered'[c])
+                       + (IF HasStatus(c)' THEN 1 ELSE 0)
+        <5>0. c \in UsedCalls =>
+                  Len(events_delivered[c]) =
+                      (IF Len(events_delivered[c]) > 0 THEN 1 ELSE 0)
+                      + Len(delivered[c])
+                      + (IF HasStatus(c) THEN 1 ELSE 0)
+          BY <1>1, Zenon
+          DEF StrongInv, EventTraceInv, MessageEventsMatchDelivered
+        <5>1. CASE call_channel[c] = chId /\ IsActiveCall(c)
+          <6>0. c \in UsedCalls
+            BY <5>1, Zenon
+            DEF UsedCalls, IsUnusedCall, IsActiveCall, ActiveCallStates
+          <6>1. CASE events_delivered[c] = <<>>
+            BY <1>1, <2>6, <3>0, <5>0, <5>1, <6>0, <6>1, SMTT(120)
+            DEF HasStatus, StatusKinds, EventKinds
+          <6>2. CASE events_delivered[c] # <<>>
+            <7>1. /\ events_delivered'[c]
+                        = Append(events_delivered[c], "CANCELLED")
+                  /\ ~HasStatus(c)
+                  /\ HasStatus(c)'
+              BY <2>6, <5>1, <6>2, Zenon
+            <7>2. Len(events_delivered'[c]) = Len(events_delivered[c]) + 1
+              BY <3>0, <7>1, AppendProperties, SMT DEF EventKinds
+            <7>3. QED
+              BY <3>0, <5>0, <6>0, <6>2, <7>1, <7>2, SMTT(120)
+          <6>3. QED BY <6>1, <6>2
+        <5>2. CASE ~(call_channel[c] = chId /\ IsActiveCall(c))
+          <6>1. /\ events_delivered'[c] = events_delivered[c]
+                /\ call_state'[c] = call_state[c]
+            BY <2>5, <5>2, Zenon
+          <6>2. c \in UsedCalls
+            BY <4>1, <6>1, Zenon DEF UsedCalls, IsUnusedCall
+          <6>3. HasStatus(c)' = HasStatus(c)
+            BY <6>1, Zenon DEF HasStatus
+          <6>4. QED BY <3>0, <5>0, <6>1, <6>2, <6>3, SMTT(120)
+        <5>3. QED BY <5>1, <5>2
+      <4>2. QED
+        BY <4>1, Zenon DEF MessageEventsMatchDelivered, UsedCalls, IsUnusedCall
+    <3>3. QED BY <3>1, <3>2 DEF EventTraceInv
   <2>10. MessageFlowInv'
     BY <1>1, <2>3, <2>5, <2>6, <2>7, SMTT(90)
     DEF StrongInv, StructuralInv, MessageFlowInv, TypeOK, CallStates,
@@ -689,7 +827,7 @@ THEOREM CallOnlyPreservesStrongInv ==
   <2>5. EventTraceInv'
     <3>1. CASE \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
       BY <1>1, <2>1, <3>1, SMT
-      DEF CallStart,
+      DEF MessageEventsMatchDelivered, HasStatus, CallStart,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -698,7 +836,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>2. CASE \E cId \in CallIds, msg \in Messages : SendMessage(cId, msg)
       BY <1>1, <2>1, <3>2, SMT
-      DEF SendMessage,
+      DEF MessageEventsMatchDelivered, HasStatus, SendMessage,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -707,7 +845,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>3. CASE \E cId \in CallIds : EndSend(cId)
       BY <1>1, <2>1, <3>3, SMT
-      DEF EndSend,
+      DEF MessageEventsMatchDelivered, HasStatus, EndSend,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -716,7 +854,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>4. CASE \E cId \in CallIds : NetworkSend(cId)
       BY <1>1, <2>1, <3>4, SMTT(90)
-      DEF NetworkSend,
+      DEF MessageEventsMatchDelivered, HasStatus, NetworkSend,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -725,7 +863,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>5. CASE \E cId \in CallIds, msg \in Messages : NetworkReceive(cId, msg)
       BY <1>1, <2>1, <3>5, StatusKindsExpansion, IsPrefixAppendRight, SMT
-      DEF NetworkReceive,
+      DEF MessageEventsMatchDelivered, HasStatus, NetworkReceive,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -734,7 +872,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>6. CASE \E cId \in CallIds : ReceiveStatus(cId)
       BY <1>1, <2>1, <3>6, SMT
-      DEF ReceiveStatus,
+      DEF MessageEventsMatchDelivered, HasStatus, ReceiveStatus,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -743,7 +881,7 @@ THEOREM CallOnlyPreservesStrongInv ==
           IsTerminalCall
     <3>7. CASE \E cId \in CallIds : DeliverInitialMetadata(cId)
       BY <1>1, <2>1, <3>7, SMTT(90)
-      DEF DeliverInitialMetadata,
+      DEF MessageEventsMatchDelivered, HasStatus, DeliverInitialMetadata,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -751,17 +889,24 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
           IsTerminalCall
     <3>8. CASE \E cId \in CallIds : DeliverMessage(cId)
-      BY <1>1, <2>1, <3>8, StatusKindsExpansion, SMTT(90)
-      DEF DeliverMessage,
-          RuntimeVars, ChannelVars, CallVars,
-          StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
-          EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
-          CallLifecycleInv, TerminalStatusEquivalence, HasStatus,
-          UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
-          IsTerminalCall
+      <4>1. ASSUME NEW cId \in CallIds, DeliverMessage(cId)
+            PROVE  EventTraceInv'
+        <5>1. MessageEventsMatchDelivered'
+          BY <1>1, <2>1, <4>1, DeliverKeepsAlignment, Zenon
+          DEF StrongInv, StructuralInv, EventTraceInv
+        <5>2. QED
+          BY <1>1, <2>1, <4>1, <5>1, StatusKindsExpansion, SMTT(90)
+          DEF HasStatus, DeliverMessage,
+              RuntimeVars, ChannelVars, CallVars,
+              StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
+              EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
+              CallLifecycleInv, TerminalStatusEquivalence,
+              UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
+              IsTerminalCall
+      <4>2. QED BY <3>8, <4>1
     <3>9. CASE \E cId \in CallIds : DeliverStatus(cId)
       BY <1>1, <2>1, <3>9, AppendTerminalKeepsShape, SMT
-      DEF DeliverStatus,
+      DEF MessageEventsMatchDelivered, HasStatus, DeliverStatus,
           RuntimeVars, ChannelVars, CallVars,
           StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
           EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
@@ -769,15 +914,22 @@ THEOREM CallOnlyPreservesStrongInv ==
           UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
           IsTerminalCall
     <3>10. CASE \E cId \in CallIds : CallCancel(cId)
-      BY <1>1, <2>1, <3>10, AppendTerminalKeepsShape,
-         StatusKindsExpansion, SMTT(90)
-      DEF CallCancel,
-          RuntimeVars, ChannelVars, CallVars,
-          StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
-          EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
-          CallLifecycleInv, TerminalStatusEquivalence, HasStatus,
-          UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
-          IsTerminalCall
+      <4>1. ASSUME NEW cId \in CallIds, CallCancel(cId)
+            PROVE  EventTraceInv'
+        <5>1. MessageEventsMatchDelivered'
+          BY <1>1, <2>1, <4>1, CancelKeepsAlignment, Zenon
+          DEF StrongInv, StructuralInv, EventTraceInv
+        <5>2. QED
+          BY <1>1, <2>1, <4>1, <5>1, AppendTerminalKeepsShape,
+             StatusKindsExpansion, SMTT(300)
+          DEF HasStatus, CallCancel,
+              RuntimeVars, ChannelVars, CallVars,
+              StrongInv, StructuralInv, EventTraceInv, TypeOK, CallStates,
+              EventKinds, StatusKinds, EventStreamShape, UnusedCallsAreEmpty,
+              CallLifecycleInv, TerminalStatusEquivalence,
+              UsedCalls, ActiveCallStates, IsUnusedCall, IsActiveCall,
+              IsTerminalCall
+      <4>2. QED BY <3>10, <4>1
     <3>11. QED BY <1>1, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>7, <3>8, <3>9, <3>10 DEF NextSafeCallOnly
   <2>6. MessageFlowInv'
     <3>1. CASE \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
