@@ -65,8 +65,18 @@ THEOREM WriteDoneFreesASlot ==
     ASSUME NEW cId \in CallIds, StrongInv, EmitWriteDone(cId)
     PROVE  (HasFreeSendSlot(cId))'
 
+\* The three categories partition the buffers out, so their sums add up to
+\* the total.  It holds of any typed state, there being nothing to preserve;
+\* it is what the detailed observer publishes, and what level 2 instantiates.
+LEMMA CategoriesPartitionTotal ==
+    ASSUME TypeOK
+    PROVE  BytesHostLent + BytesSendInFlight + BytesRuntimeHeld
+               = BytesOutstanding
+
 \* Destroying a runtime really does void its call handles: nothing that
 \* names a call of a destroyed runtime is ever enabled again.  Requesting
+\* Scope: the downcalls that take a call handle.  The channel and runtime
+\* handles have their own guards, stated with their actions.
 \* a cancellation is the only downcall a finished call could still accept,
 \* and a guard says so; the rest follow from what destruction required -
 \* a released runtime has no active call, and nothing of its memory is

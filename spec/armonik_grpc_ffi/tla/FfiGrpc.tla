@@ -1083,9 +1083,10 @@ DeliveryCallbackReturns(cId) ==
 
 \* ak_event_consumed: frees the oldest payload the host still holds and
 \* arms the next delivery in one gesture.  Takes the payload, not the
-\* call handle: legal after the terminal, after release, and after the
-\* runtime is gone.  Release follows delivery order, which is what lets
-\* one counter stand for the whole outstanding set.
+\* call handle: legal after the terminal and after release - and destroy
+\* requires every payload consumed, so nothing survives the runtime.
+\* Release follows delivery order, which is what lets one counter stand
+\* for the whole outstanding set.
 HostConsumesEvent(cId) ==
     /\ HostOwnsSomePayload(cId)
     /\ payloads_consumed_by_host' =

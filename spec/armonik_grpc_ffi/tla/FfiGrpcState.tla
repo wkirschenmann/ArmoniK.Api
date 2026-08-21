@@ -26,9 +26,9 @@ ASSUME MaxSendsInFlightIsPositive == MaxSendsInFlight \in Nat \ {0}
 
 ASSUME DeliveryCreditsArePositive == DeliveryCredits \in Nat \ {0}
 
-\* Positive so that a lend of the whole ceiling is representable, and so that
-\* a charge can be strictly positive - which is what makes a zero total mean
-\* an empty outstanding set rather than a set of weightless buffers.
+\* Positive so that a lend of the whole ceiling is representable.  A zero
+\* total does not mean an empty outstanding set: an empty message charges
+\* nothing, and the accounting counts charges, not buffers.
 ASSUME CeilingIsPositive == Ceiling \in Nat \ {0}
 
 \* A message has a size.  Only the commit reads it, to check that the message

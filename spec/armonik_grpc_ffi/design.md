@@ -1104,7 +1104,8 @@ typedef enum {
 // ownership return from the host. It does not mean no thread is left: the dispatch
 // thread survives to carry AK_EVENT_RESOURCES_RELEASED when that is owed. QUIESCENT is STOPPED plus an empty ledger: every payload
 // consumed, every buffer given back and released. Only QUIESCENT permits
-// ak_runtime_destroy, unloading the library, or starting a new runtime.
+// ak_runtime_destroy or unloading the library; a new runtime additionally
+// requires the old one destroyed, so its handle and its counters are gone.
 //
 // The host reaches QUIESCENT by acting, not by waiting: while it still holds
 // something the status stays STOPPED, and the AK_EVENT_SHUTDOWN_COMPLETE
@@ -1295,7 +1296,7 @@ loop:                                  // mandatory in both host_debt cases
   yield/spinwait
 ak_runtime_destroy(rt)             -> AK_STATUS_OK
 free the runtime_ctx root          // after destroy, never in a callback
-// Safe unload, or start a new runtime
+// Safe unload; destroy has run, so a new runtime may start
 ```
 
 Releasing comes before polling, and that is the whole point of the host-debt field. The
@@ -2225,7 +2226,7 @@ does not then withdraw, and what it withdraws it withdraws completely:
   property and got it by accident, because the `DeliverMessage` lift needed it
 
 New liveness guarantees:
-- **CancellationCompletes**: a cancelled call reaches its terminal without host action
+- **CancellationCompletes**: a cancelled call reaches its terminal without any ownership return from the application - the callbacks already in flight still return, which stays a host hypothesis
 - **SendsEventuallyAcquitted**: per send — the k-th accepted send is acquitted by its
   in-order WRITE_DONE, whose callback returns
 - **PayloadsEventuallyConsumed**: per payload — each payload handed over is
@@ -2245,7 +2246,8 @@ New liveness guarantees:
   drain rests on is untouched by a runtime failure
 - **RuntimeEventuallyQuiescent**: a runtime that has stopped running reaches
   `AK_RUNTIME_QUIESCENT`, so a host polling `ak_runtime_status` is not waiting for
-  nothing, and may then destroy, unload or start a new runtime. Note the shape - the
+  nothing, and may then destroy or unload - and once destroyed, start a new
+  runtime. Note the shape - the
   runtime promises the permission, never the destruction, because destroying is the
   host's call. It is stronger than the host's ledger emptying: it also carries the last
   callback having returned, which is the only thing that can say the trampoline thread
@@ -2364,8 +2366,8 @@ Additional invariants:
 
   Note what is and is not missing here, because the gap is not where it looks. That the
   memory comes back is modelled and proved: `BufferEventuallyFreed` carries a lent buffer all
-  the way to freed, so the transition that recredits capacity is guaranteed to happen without
-  any byte appearing in the model. What no amount of modelling supplies is that *this* caller
+  the way to freed, so the transition that recredits capacity is guaranteed to happen - and
+  the model counts the bytes it returns. What no amount of modelling supplies is that *this* caller
   wins the freed capacity, because nothing stops the same caller losing the CAS every time.
   Promising acquisition therefore needs a different mechanism and not a stronger claim about
   polling - and the mechanism that would deliver it is also the one that would make it
@@ -2494,7 +2496,7 @@ the artefact rather than left to rot:
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| `ci/check_theorem_statements.py` | 66 declarations, each restated verbatim in its proofs module |
+| `ci/check_theorem_statements.py` | 67 declarations, each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
@@ -2605,6 +2607,7 @@ table above maps the five call shapes and stops there.
 | Command delivery to a call actor | Per-actor channel vs atomic flags + notify | Layer 3. Cancel is a flag the actor polls; send and end_send carry data. Reclamation is neither - it is the actor's own step when the debt counters reach zero, so it is a wake rather than a command. A single channel is simpler, two mechanisms are faster |
 | Send memory on .NET | **Moot: the host never owns it.** `ak_get_call_buffer` lends native memory, protobuf serializes straight into it, `ak_call_send_message` gives it back. Nothing to pin, nothing to copy, and no managed heap to fragment | Layer 4, decided |
 | Payload allocation shape | One `Vec` per event vs slices of a pooled `Arc<Vec<u8>>` | Layer 3. The ABI already carries `owner` separately from `ptr`, so both fit without changing the contract |
+| `ak_channel_release` returns void | Keep void as an idempotent no-op / return `AK_STATUS_HANDLE_STALE` like the other downcalls | Layer 3. The general promise says every downcall on a dead handle reports HANDLE_STALE; the release is the one exception, and either the signature or the promise must move |
 | Low-memory probe | Warn when the memory the system has available drops below `ceiling` / no probe | Layer 3. The ceiling bounds what this runtime lends, not what the machine has left; a runtime configured near the machine's limit refuses nothing and is killed instead. Deferred until there is operational data to set a threshold against |
 | A ceiling for the receive path | Configurable capacity, reserved from a bounded pool / unbounded as now | Layer 3. Would make the receive side refusable the way emission is - a different design from this one, and one that needs data on real receive footprints before it is worth the ABI surface |
 
