@@ -607,7 +607,9 @@ The models make their safety and liveness guarantees conditional on no runtime h
 failed, so after a failure there is no promise that callbacks stop, that a terminal
 arrives, that cleanup completes, or that any downcall behaves as documented. Two things
 do survive as *invariants*, and they are deliberate rather than incidental: the failed
-state is absorbing - `RuntimeFail` requires a running or stopping runtime, so nothing
+state is absorbing - the public `FailedRuntimeAbsorbing` carries it as a theorem, stated
+outside `NotFailed` on purpose: it is the one promise that holds exactly when the other
+guarantees' escape hatch has fired - `RuntimeFail` requires a running or stopping runtime, so nothing
 returns to nominal - and `FfiCallInv` together with `BufferStateInv` is proved outside the
 failure envelope, so the send and delivery counts and the buffer identities hold whatever
 happens. The fairness lifts need those disciplines on the whole behaviour, failure
@@ -735,9 +737,9 @@ typedef enum {
                                   // does not match any known version
     AK_STATUS_INTERNAL      = 4,  // a fault the ABI cannot attribute, including a
                                   // genuine allocator failure
-    AK_STATUS_BUDGET_BUSY   = 5,  // the runtime-wide byte ceiling is reached, which
-                                  // is not this call's fault and which no WRITE_DONE
-                                  // of this call can clear; poll
+    AK_STATUS_BUDGET_BUSY   = 5,  // the runtime-wide byte ceiling is reached - not
+                                  // necessarily by others: this call's own in-flight
+                                  // sends hold budget too; poll
                                   // ak_runtime_memory_usage and retry
     AK_STATUS_INVALID_STATE = 6,  // a valid handle at the wrong moment: destroy
                                   // before quiescence, a start while stopping, a
@@ -1371,8 +1373,10 @@ needs.
 So `ak_get_call_buffer` has three outcomes rather than two. It lends; or it refuses with
 `AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
-not this call's fault and which no WRITE_DONE of this call can clear. Only a genuine
-allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
+not necessarily this call's doing - with a window deeper than one or replay bytes
+retained, its own sends hold budget too - so a WRITE_DONE of this call is a wake-up,
+never an exhaustive one: the budget is runtime-wide and anyone's free recredits it.
+Only a genuine allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
 
 The order of those checks is what keeps `AK_STATUS_INTERNAL` rare. The ceiling is tested
 *before* anything is allocated, so a runtime at its budget refuses with `AK_STATUS_BUDGET_BUSY`
@@ -2106,9 +2110,11 @@ has to induce them cannot tell a predicate from a step:
 
 Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
 - **UnusedCallsAreFfiClean**: no FFI state before `ak_call_start`
-- **ReleasedCallIsClean**: a released call is over, every payload consumed and every
-  buffer given back - and it stays that way, because nothing can lend or deliver
-  afterwards. This is the end-of-call guarantee: whatever the ending, Rust has everything
+- **ReleasedCallIsClean**: a released call is terminal, every payload consumed, every
+  buffer given back and freed, no delivery callback on the stack and no send in
+  flight - the release's full postcondition, carried as an invariant so a client can
+  cite what the reclaim guaranteed rather than re-deriving it from the guard. And it
+  stays that way, because nothing can lend or deliver afterwards. This is the end-of-call guarantee: whatever the ending, Rust has everything
   back before the arena goes. The reclaiming step also waits for the call's own delivery
   callback to return and for every buffer given back to be released, both conditions only
   the runtime can read, which is why they moved into the guard when reclamation stopped
@@ -2286,7 +2292,7 @@ New liveness guarantees:
 
 #### Fairness
 
-Twenty weak-fairness conjuncts, all individual, and they do not all belong to the same
+Nineteen weak-fairness conjuncts, all individual, and they do not all belong to the same
 party. Which side owes each one is the whole point of listing them, because the ones the
 host owes are exactly the obligations a level-2 binding has to discharge.
 
@@ -2306,11 +2312,8 @@ The next two are about giving memory back. `HostConsumesEvent` is per call, whic
 because payload release is FIFO: consuming past a payload without consuming it is not a
 behavior the ABI admits. `HostReturnsBuffer` is per *buffer*, because buffer returns are
 unordered - a per-call conjunct would let a host cycle some buffers while starving one.
-The last, `LendForMessage`, is the lend at the message's own size: forcing a downcall only
-the host can make is the hypothesis that a refused host keeps asking, and taken at that
-size the instance is enabled exactly when there is room for what was asked.
 
-The remaining downcalls (`CallStart`, `SendMessage`, `EndSend`,
+The remaining downcalls (`CallStart`, `LendSendBuffer`, `SendMessage`, `EndSend`,
 `RequestCallCancellation`, `RuntimeBeginShutdown`, `RuntimeDestroy`) carry no fairness:
 the model never promises the host acts, only what follows when it does. `ReleaseCallHandle`
 is not among them, because it is not a downcall - the runtime reclaims a settled call
@@ -2496,12 +2499,12 @@ the artefact rather than left to rot:
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| `ci/check_theorem_statements.py` | 67 declarations, each restated verbatim in its proofs module |
+| `ci/check_theorem_statements.py` | 68 declarations - 67 theorems and one public lemma - each restated verbatim in its proofs module |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
-| Level 2 | Specified, not modelled, not proved |
+| Level 2 | Planned: specified in prose in this document; `DotNetBinding.tla` is not yet written, so nothing level-2 is modelled or proved |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
 The partition identity is close to true by construction: `BytesOutstanding` is a sum over the
@@ -2527,12 +2530,11 @@ The refusals are modelled, and as their own actions: `RefuseLendTooLarge`,
 carry no fairness - refusing is never owed - and every property proved of the other actions
 crosses them, since the state they touch is read by none of them.
 
-Modelling them is not decoration. A refusal is the antecedent of the promise the budget owes:
-*a valid request that did not go through eventually goes through.* Stated on the absence of a
-transition, that promise cannot be written down, and a property whose antecedent is "no charge
-would have fitted" is vacuous in the case that matters - the one where a charge would have
-fitted and the allocator picked another. `RefuseLendForBudget` therefore takes the charge as a
-parameter: it records that *this* one did not fit, not the claim that none would.
+Modelling them is not decoration: the refusals are the observable frontier of the downcall,
+the states a level-2 binding refines its retry decisions against, and what the ABI's status
+codes mean is defined by which model action wrote them. `RefuseLendForBudget` takes the
+charge as a parameter: it records that *this* one did not fit, not the claim that none would
+- a smaller charge may already fit when the refusal lands.
 
 What stays true is the shape of the refusal. **A refusal is not a state of the runtime**: it
 records what a downcall returned, not a condition the runtime is in. A runtime-level

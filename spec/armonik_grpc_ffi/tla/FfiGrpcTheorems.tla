@@ -74,14 +74,21 @@ LEMMA CategoriesPartitionTotal ==
                = BytesOutstanding
 
 \* Destroying a runtime really does void its call handles: nothing that
-\* names a call of a destroyed runtime is ever enabled again.  Requesting
-\* Scope: the downcalls that take a call handle.  The channel and runtime
-\* handles have their own guards, stated with their actions.
+\* names a call of a destroyed runtime is ever enabled again.  Scope: the
+\* downcalls that take a call handle - the channel and runtime handles have
+\* their own guards, stated with their actions.  Requesting
 \* a cancellation is the only downcall a finished call could still accept,
 \* and a guard says so; the rest follow from what destruction required -
 \* a released runtime has no active call, and nothing of its memory is
 \* out.  Reclamation is in the list too, and it is the runtime's own step:
 \* it does not reclaim a call whose runtime is already gone.
+\* The residual guarantee that survives a failure: FAILED_UNQUIESCED is
+\* absorbing.  Stated outside NotFailed on purpose - it is the one promise
+\* that holds exactly when the others' escape hatch has fired.
+THEOREM FailedRuntimeAbsorbing ==
+    Spec => \A rtId \in RuntimeIds :
+                [](IsFailedRuntime(rtId) => []IsFailedRuntime(rtId))
+
 THEOREM DestroyedRuntimeRejectsHandles ==
     ASSUME StrongInv, NEW rtId \in RuntimeIds, IsRuntimeDestroyed(rtId),
            NEW cId \in CallIds,

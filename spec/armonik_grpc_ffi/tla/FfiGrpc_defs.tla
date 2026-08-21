@@ -126,9 +126,12 @@ UnusedCallsAreFfiClean ==
 ReleasedCallIsClean ==
     \A cId \in CallIds :
         IsHandleReleased(cId) =>
-            /\ ~L0!IsActiveCall(cId)
+            /\ L0!IsTerminalCall(cId)
             /\ HostOwnsNoPayload(cId)
             /\ HostHoldsNoBuffer(cId)
+            /\ ~IsDeliveryCallbackRunning(cId)
+            /\ (\A b \in BufferIds : ~IsReturnedBuffer(cId, b))
+            /\ HasNoSendInFlight(cId)
 
 \* The bridge between the counted view and the named one.  Both are kept:
 \* the counter is what the send window and every existing proof read, the

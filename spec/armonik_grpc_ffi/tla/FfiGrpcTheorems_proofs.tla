@@ -2347,7 +2347,8 @@ LEMMA SendMessageTransfers ==
 \* A released call is terminal, so an accepted send proves the handle is
 \* still live - which is what makes ReleasedCallIsClean vacuous here.
 <1>30. ~IsHandleReleased(cId)
-    BY <1>3, Zenon DEF FfiCallInv, ReleasedCallIsClean
+    BY <1>3, SMT DEF FfiCallInv, ReleasedCallIsClean, L0!IsTerminalCall,
+       L0!IsActiveCall, L0!ActiveCallStates, TypeOK, L0!TypeOK, L0!CallStates
 <1>4. ASSUME NEW c \in CallIds
       PROVE  /\ (IsDeliveryCallbackRunning(c))' =
                     IsDeliveryCallbackRunning(c)
@@ -2437,6 +2438,7 @@ LEMMA FfiFramePreservesFfiCallInv ==
                    handle_released, cancel_requested>>
     /\ UNCHANGED <<call_state, call_channel, channel_state,
                    events_delivered, submitted>>
+    /\ UNCHANGED buffer_state
     => FfiCallInv'
 <1>1. ASSUME FfiCallInv,
              UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -2445,7 +2447,8 @@ LEMMA FfiFramePreservesFfiCallInv ==
                          payloads_consumed_by_host,
                          handle_released, cancel_requested>>,
              UNCHANGED <<call_state, call_channel, channel_state,
-                         events_delivered, submitted>>
+                         events_delivered, submitted>>,
+             UNCHANGED buffer_state
       PROVE  FfiCallInv'
   <2>0. /\ UNCHANGED buffers_held_by_host
         /\ UNCHANGED <<write_dones_emitted, write_done_callback_running,
@@ -2493,7 +2496,10 @@ LEMMA FfiFramePreservesFfiCallInv ==
          /\ ReleasedCallIsClean
          /\ ClosingChannelCallsCancelRequested)'
     BY <1>1, <2>1, <2>2, SMT DEF FfiCallInv, UnusedCallsAreFfiClean,
-        ReleasedCallIsClean, ClosingChannelCallsCancelRequested
+        ReleasedCallIsClean, ClosingChannelCallsCancelRequested,
+        IsReturnedBuffer, HasNoSendInFlight, SendWindowOccupancy,
+        IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
+        IsHandleReleased, HostHoldsNoBuffer
   <2>4. (/\ SendsInFlightWithinLimit
          /\ WriteDonesNeverExceedSends
          /\ RunningWriteDoneWasEmitted
@@ -2514,7 +2520,7 @@ LEMMA FfiFramePreservesFfiCallInv ==
   <2>6. QED
     BY <2>3, <2>4, <2>5, Zenon DEF FfiCallInv
 <1>2. QED
-    BY <1>1
+    BY <1>1, IsaT(600)
 
 LEMMA RuntimeOnlyPreservesFfiCallInv ==
     FfiCallInv /\ TypeOK /\ NextSafeRuntimeOnly => FfiCallInv'
@@ -2539,6 +2545,7 @@ LEMMA CancelLatchPreservesFfiCallInv ==
                        payloads_consumed_by_host, handle_released>>,
            UNCHANGED <<call_state, call_channel, events_delivered,
                        submitted>>,
+           UNCHANGED buffer_state,
            \A chan \in ChannelIds :
                IsClosingChannel(chan)' =>
                    (IsClosingChannel(chan) \/ chan \in chs)
@@ -2592,10 +2599,17 @@ LEMMA CancelLatchPreservesFfiCallInv ==
       BY <1>4, <2>1, SMT
       DEF FfiCallInv, UnusedCallsAreFfiClean,
           RequestCancellationOfActiveCalls, IsCancelRequested
+<1>55. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF IsReturnedBuffer
 <1>6. (/\ UnusedCallsAreFfiClean
        /\ ReleasedCallIsClean)'
-    BY <1>1, <1>2, <1>5, SMT
-    DEF FfiCallInv, UnusedCallsAreFfiClean, ReleasedCallIsClean
+    BY <1>1, <1>2, <1>5, <1>55, SMT
+    DEF FfiCallInv, UnusedCallsAreFfiClean, ReleasedCallIsClean,
+        IsReturnedBuffer, HasNoSendInFlight, SendWindowOccupancy,
+        IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
+        IsHandleReleased, HostHoldsNoBuffer,
+        RequestCancellationOfActiveCalls
 <1>7. ClosingChannelCallsCancelRequested'
     BY <1>1, <1>2, <1>3, SMT
     DEF FfiCallInv, ClosingChannelCallsCancelRequested
@@ -2631,6 +2645,7 @@ LEMMA RuntimeChannelPreservesFfiCallInv ==
                        payloads_consumed_by_host, handle_released>>
         /\ UNCHANGED <<call_state, call_channel, events_delivered,
                        submitted>>
+        /\ UNCHANGED buffer_state
     BY <1>1, SMT DEF RuntimeBeginShutdown, L0!RuntimeBeginShutdown,
         L0!CallVars
 \* A channel only ever becomes closing when it belongs to the runtime
@@ -2664,6 +2679,7 @@ LEMMA ChannelOnlyPreservesFfiCallInv ==
                          payloads_consumed_by_host, handle_released>>
           /\ UNCHANGED <<call_state, call_channel, events_delivered,
                          submitted>>
+          /\ UNCHANGED buffer_state
       BY <2>1, SMT DEF ChannelCreate, L0!ChannelCreate, L0!RuntimeVars,
           L0!CallVars, ffi_vars
     <3>2. \A chan \in ChannelIds :
@@ -2690,6 +2706,7 @@ LEMMA ChannelOnlyPreservesFfiCallInv ==
                          payloads_consumed_by_host, handle_released>>
           /\ UNCHANGED <<call_state, call_channel, events_delivered,
                          submitted>>
+          /\ UNCHANGED buffer_state
       BY <2>2, SMT DEF ChannelStartClosing, L0!ChannelStartClosing,
           L0!CallVars
     <3>2. \A chan \in ChannelIds :
@@ -2719,6 +2736,7 @@ LEMMA ChannelCallPreservesFfiCallInv ==
 \* entry to itself and the close moves nothing but the channel.
   <2>1. /\ UNCHANGED <<call_state, call_channel, events_delivered,
                        submitted>>
+  /\ UNCHANGED buffer_state
         /\ UNCHANGED cancel_requested
         /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                        write_done_callback_running,
@@ -2751,20 +2769,28 @@ LEMMA ActiveCallStepKeepsReleasedClean ==
            UNCHANGED <<handle_released, buffers_held_by_host>>,
            \A c \in CallIds : c # cId =>
                /\ (L0!IsActiveCall(c))' = L0!IsActiveCall(c)
+               /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
                /\ (IsDeliveryCallbackRunning(c))' =
                       IsDeliveryCallbackRunning(c)
                /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+               /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+               /\ (\A b \in BufferIds :
+                      (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
     PROVE  ReleasedCallIsClean'
 <1>1. \A c \in CallIds :
           /\ (IsHandleReleased(c))' = IsHandleReleased(c)
           /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
     BY HandleFlagReadingsFrame, BufferReadingsFrame, Zenon
 <1>2. ~IsHandleReleased(cId)
-    BY Zenon DEF FfiCallInv, ReleasedCallIsClean
+    BY SMT DEF FfiCallInv, ReleasedCallIsClean, L0!IsTerminalCall,
+       L0!IsActiveCall, L0!ActiveCallStates, TypeOK, L0!TypeOK, L0!CallStates
 <1>3. ASSUME NEW c \in CallIds, (IsHandleReleased(c))'
-      PROVE  /\ ~(L0!IsActiveCall(c))'
+      PROVE  /\ (L0!IsTerminalCall(c))'
              /\ (HostOwnsNoPayload(c))'
              /\ (HostHoldsNoBuffer(c))'
+             /\ ~(IsDeliveryCallbackRunning(c))'
+             /\ (\A b \in BufferIds : ~(IsReturnedBuffer(c, b))')
+             /\ (HasNoSendInFlight(c))'
   <2>1. c # cId
     BY <1>1, <1>2, <1>3, Zenon
   <2>2. IsHandleReleased(c)
@@ -2832,12 +2858,21 @@ LEMMA CallOnlyPreservesFfiCallInv ==
 \* for it even though it has just become active.
       <4>11. ~IsHandleReleased(cId)
         BY <1>1, <4>0, Zenon DEF FfiCallInv, UnusedCallsAreFfiClean
+      <4>12. \A c \in CallIds : c # cId =>
+                 /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                 /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                 /\ (\A b \in BufferIds :
+                        (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
+        BY <1>1, <3>1, SMT
+        DEF CallStart, L0!CallStart, L0!IsTerminalCall,
+            HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
+            ffi_vars, TypeOK, L0!TypeOK
       <4>1. (/\ ReleasedCallIsClean
              /\ ClosingChannelCallsCancelRequested
              /\ NoDeliveryImpliesNoDebt
              /\ ActiveCallHasNoStatus
              /\ UnusedCallHasNoEvents)'
-        BY <1>1, <4>0, <4>10, <4>11, Zenon
+        BY <1>1, <4>0, <4>10, <4>11, <4>12, Zenon
         DEF FfiCallInv, ReleasedCallIsClean,
             ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -2920,12 +2955,26 @@ LEMMA CallOnlyPreservesFfiCallInv ==
             /\ \A chId \in ChannelIds :
                    (IsClosingChannel(chId))' = IsClosingChannel(chId)
         BY <1>1, <3>1, SendMessageTransfers, Zenon
+      <4>11. ~IsHandleReleased(cId)
+        BY <1>1, <3>1, SMT
+        DEF SendMessage, L0!SendMessage, FfiCallInv, ReleasedCallIsClean,
+            L0!IsTerminalCall, L0!IsActiveCall, L0!ActiveCallStates,
+            TypeOK, L0!TypeOK, L0!CallStates
+      <4>12. \A c \in CallIds : c # cId =>
+                 /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                 /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                 /\ (\A b \in BufferIds :
+                        (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
+        BY <1>1, <3>1, SMT
+        DEF SendMessage, L0!SendMessage, L0!IsTerminalCall,
+            HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
+            TypeOK, L0!TypeOK
       <4>1. (/\ ReleasedCallIsClean
              /\ ClosingChannelCallsCancelRequested
              /\ NoDeliveryImpliesNoDebt
              /\ ActiveCallHasNoStatus
              /\ UnusedCallHasNoEvents)'
-        BY <1>1, <4>0, Zenon
+        BY <1>1, <4>0, <4>11, <4>12, Zenon
         DEF FfiCallInv, ReleasedCallIsClean,
             ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3034,13 +3083,23 @@ LEMMA CallOnlyPreservesFfiCallInv ==
 \* The step needs an active call, and a released one is over, so
 \* ReleasedCallIsClean stays vacuous for cId.
       <4>75. ~IsHandleReleased(cId)
-        BY <1>1, <4>30, Zenon DEF FfiCallInv, ReleasedCallIsClean
+        BY <1>1, <4>30, SMT DEF FfiCallInv, ReleasedCallIsClean, L0!IsTerminalCall,
+           L0!IsActiveCall, L0!ActiveCallStates, TypeOK, L0!TypeOK, L0!CallStates
+      <4>76. \A c \in CallIds :
+                 /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                 /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                 /\ (\A b \in BufferIds :
+                        (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
+        BY <1>1, <4>1, <4>2, SMT
+        DEF EndSend, L0!EndSend, L0!IsTerminalCall,
+            HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
+            ffi_vars, TypeOK, L0!TypeOK
       <4>80. (/\ ReleasedCallIsClean
               /\ ClosingChannelCallsCancelRequested
               /\ NoDeliveryImpliesNoDebt
               /\ ActiveCallHasNoStatus
               /\ UnusedCallHasNoEvents)'
-        BY <1>1, <4>3, <4>30, <4>4, <4>5, <4>6, <4>7, <4>75, SMT
+        BY <1>1, <4>3, <4>30, <4>4, <4>5, <4>6, <4>7, <4>75, <4>76, SMT
         DEF FfiCallInv, ReleasedCallIsClean,
             ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3100,12 +3159,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                      /\ (IsDeliveryCallbackRunning(c))' =
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+                     /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                     /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                     /\ (\A b \in BufferIds :
+                            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
           BY <1>1, <4>1, SMT
           DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
-              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads
+              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
+              L0!IsTerminalCall, HasNoSendInFlight, SendWindowOccupancy,
+              IsReturnedBuffer
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>7, <4>1
@@ -3182,12 +3247,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                      /\ (IsDeliveryCallbackRunning(c))' =
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+                     /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                     /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                     /\ (\A b \in BufferIds :
+                            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
           BY <1>1, <4>1, SMT
           DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
-              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads
+              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
+              L0!IsTerminalCall, HasNoSendInFlight, SendWindowOccupancy,
+              IsReturnedBuffer
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>8, <4>1
@@ -3264,12 +3335,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                      /\ (IsDeliveryCallbackRunning(c))' =
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+                     /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                     /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                     /\ (\A b \in BufferIds :
+                            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
           BY <1>1, <4>1, SMT
           DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
-              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads
+              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
+              L0!IsTerminalCall, HasNoSendInFlight, SendWindowOccupancy,
+              IsReturnedBuffer
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>9, <4>1
@@ -3346,12 +3423,18 @@ LEMMA CallOnlyPreservesFfiCallInv ==
                      /\ (IsDeliveryCallbackRunning(c))' =
                             IsDeliveryCallbackRunning(c)
                      /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+                     /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                     /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                     /\ (\A b \in BufferIds :
+                            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
           BY <1>1, <4>1, SMT
           DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal,
               L0!RuntimeVars, L0!ChannelVars, ffi_vars,
               TypeOK, L0!TypeOK,
               L0!IsActiveCall, L0!ActiveCallStates, L0!CallStates,
-              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads
+              IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
+              L0!IsTerminalCall, HasNoSendInFlight, SendWindowOccupancy,
+              IsReturnedBuffer
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>10, <4>1
@@ -3470,12 +3553,15 @@ LEMMA CancelRequestKeepsFfiCallInv ==
              /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
              /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
     BY CancelRequestTransfers, Zenon
+<1>35. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF RequestCallCancellation, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, Zenon
+    BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3544,12 +3630,48 @@ LEMMA ReleaseKeepsFfiCallInv ==
              /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
              /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
     BY ReleaseTransfers, Zenon
+<1>35. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF ReleaseCallHandle, IsReturnedBuffer
+\* The newly released call satisfies the postcondition by the guard: terminal
+\* by state exclusion, its ledger empty, and no send in flight because a
+\* terminal call has none - the FfiCallInv conjunct carries it.
+<1>36. /\ L0!IsTerminalCall(cId)
+       /\ HasNoSendInFlight(cId)
+    BY SMT DEF ReleaseCallHandle, FfiCallInv, TerminalCallHasNoSendInFlight,
+       L0!IsTerminalCall, L0!IsActiveCall, L0!IsUnusedCall,
+       L0!ActiveCallStates, TypeOK, L0!TypeOK, L0!CallStates
+\* The released set splits: the call this step releases satisfies the
+\* postcondition by the guard and <1>36; every other released call carries it
+\* from the old state through the frames.
+<1>37. ASSUME NEW c \in CallIds, (IsHandleReleased(c))'
+       PROVE  ((/\ L0!IsTerminalCall(c)
+                /\ HostOwnsNoPayload(c)
+                /\ HostHoldsNoBuffer(c)
+                /\ ~IsDeliveryCallbackRunning(c)
+                /\ (\A b \in BufferIds : ~IsReturnedBuffer(c, b))
+                /\ HasNoSendInFlight(c)))'
+  <2>1. CASE c = cId
+    BY <1>37, <2>1, <1>2, <1>3, <1>35, <1>36, Zenon
+    DEF ReleaseCallHandle
+  <2>2. CASE c # cId
+    <3>1. IsHandleReleased(c)
+      BY <1>37, <2>2, <1>3, SMT
+    <3>2. /\ L0!IsTerminalCall(c)
+          /\ HostOwnsNoPayload(c)
+          /\ HostHoldsNoBuffer(c)
+          /\ ~IsDeliveryCallbackRunning(c)
+          /\ (\A b \in BufferIds : ~IsReturnedBuffer(c, b))
+          /\ HasNoSendInFlight(c)
+      BY <3>1, Zenon DEF FfiCallInv, ReleasedCallIsClean
+    <3>3. QED BY <1>37, <2>2, <3>2, <1>2, <1>3, <1>35, Zenon
+  <2>3. QED BY <2>1, <2>2
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, Zenon
+    BY <1>2, <1>3, <1>37, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3612,12 +3734,15 @@ LEMMA DeliveryReturnKeepsFfiCallInv ==
           /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
           /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
     BY DeliveryReturnTransfers, Zenon
+<1>35. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF DeliveryCallbackReturns, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, Zenon
+    BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3691,12 +3816,15 @@ LEMMA EmitWriteDoneKeepsFfiCallInv ==
        /\ ~L0!IsTerminalCall(cId)
     BY <1>3, Zenon
     DEF FfiCallInv, UnusedCallsAreFfiClean, TerminalCallHasNoSendInFlight
+<1>35. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF EmitWriteDone, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, Zenon
+    BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3789,12 +3917,15 @@ LEMMA WriteDoneReturnKeepsFfiCallInv ==
        /\ ~L0!IsTerminalCall(cId)
     BY <1>3, Zenon
     DEF FfiCallInv, UnusedCallsAreFfiClean, TerminalCallHasNoSendInFlight
+<1>35. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF WriteDoneReturns, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, Zenon
+    BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -3907,11 +4038,14 @@ LEMMA ConsumeKeepsFfiCallInv ==
 <1>32. ASSUME NEW c \in CallIds
        PROVE  HostOwnsNoPayload(c) => (HostOwnsNoPayload(c))'
     BY <1>295, <1>296, <1>29, SMT
+<1>35. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF HostConsumesEvent, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, <1>32, Zenon
+    BY <1>2, <1>3, <1>35, <1>32, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -4004,12 +4138,16 @@ LEMMA LendBufferKeepsFfiCallInv ==
 <1>36. SendsInFlightWithinLimit'
     BY <1>33, <1>34, <1>35, MaxSendsInFlightIsPositive, SMT
     DEF SendsInFlightWithinLimit
+<1>37. \A c \in CallIds, b \in BufferIds :
+           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY <1>1, SMT
+    DEF LendSendBuffer, IsFreshBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, Zenon
+    BY <1>2, <1>3, <1>37, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
@@ -4098,12 +4236,18 @@ LEMMA ReturnBufferKeepsFfiCallInv ==
 <1>36. SendsInFlightWithinLimit'
     BY <1>33, <1>34, <1>35, MaxSendsInFlightIsPositive, SMT
     DEF SendsInFlightWithinLimit
+\* The one action that grows the returned set - on a call that holds a lent
+\* buffer, hence is not released; the released calls' sets are untouched.
+<1>38. \A c \in CallIds : c # cId =>
+           \A b \in BufferIds :
+               (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
+    BY SMT DEF HostReturnsBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
 <1>4. (/\ ReleasedCallIsClean
        /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
-    BY <1>2, <1>3, <1>31, Zenon
+    BY <1>2, <1>3, <1>31, <1>38, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
         ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents, IsHandleReleased
@@ -4135,7 +4279,11 @@ LEMMA UnchangedFfiKeepsFfiCallInv ==
                        write_done_callback_running,
                        delivery_callback_running,
                        payloads_consumed_by_host, handle_released,
-                       cancel_requested>>
+                       cancel_requested>>,
+           \* The returned set may only shrink: enough for the released
+           \* calls, whose returned set is already empty.
+           \A c \in CallIds, b \in BufferIds :
+               (IsReturnedBuffer(c, b))' => IsReturnedBuffer(c, b)
     PROVE  FfiCallInv'
 <1>1. QED
     BY SMT
@@ -4165,6 +4313,7 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
                          handle_released, cancel_requested>>
           /\ UNCHANGED <<call_state, call_channel, channel_state,
                          events_delivered, submitted>>
+                       /\ UNCHANGED buffer_state
       BY <2>1, SMT
       DEF NextSafeShutdownFfi, EmitShutdownComplete,
           ShutdownCallbackReturns, EmitResourcesReleased,
@@ -4203,7 +4352,9 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
                               delivery_callback_running,
                               payloads_consumed_by_host, handle_released,
                               cancel_requested>>
-        BY <3>62, SMT DEF FreeReturnedBuffer
+            /\ \A c2 \in CallIds, b2 \in BufferIds :
+                  (IsReturnedBuffer(c2, b2))' => IsReturnedBuffer(c2, b2)
+        BY <1>1, <3>62, SMT DEF FreeReturnedBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
 \* A refused lend writes the status and nothing else, so FfiCallInv reads
@@ -4216,7 +4367,9 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
                               delivery_callback_running,
                               payloads_consumed_by_host, handle_released,
                               cancel_requested>>
-        BY <3>63, SMT DEF RefuseLendTooLarge
+            /\ \A c2 \in CallIds, b2 \in BufferIds :
+                  (IsReturnedBuffer(c2, b2))' => IsReturnedBuffer(c2, b2)
+        BY <3>63, SMT DEF RefuseLendTooLarge, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
     <3>64. CASE \E cId \in CallIds, msg \in Messages :
@@ -4227,7 +4380,9 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
                               delivery_callback_running,
                               payloads_consumed_by_host, handle_released,
                               cancel_requested>>
-        BY <3>64, SMT DEF RefuseLendForSlot
+            /\ \A c2 \in CallIds, b2 \in BufferIds :
+                  (IsReturnedBuffer(c2, b2))' => IsReturnedBuffer(c2, b2)
+        BY <3>64, SMT DEF RefuseLendForSlot, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
     <3>65. CASE \E cId \in CallIds, msg \in Messages, charge \in Sizes :
@@ -4238,7 +4393,9 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
                               delivery_callback_running,
                               payloads_consumed_by_host, handle_released,
                               cancel_requested>>
-        BY <3>65, SMT DEF RefuseLendForBudget
+            /\ \A c2 \in CallIds, b2 \in BufferIds :
+                  (IsReturnedBuffer(c2, b2))' => IsReturnedBuffer(c2, b2)
+        BY <3>65, SMT DEF RefuseLendForBudget, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
     <3>7. QED BY <1>1, <2>2, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
@@ -4279,6 +4436,48 @@ LEMMA NextPreservesFfiCallInv ==
 (***************************************************************************)
 (* FAILURE BOOKKEEPING                                                     *)
 (***************************************************************************)
+
+\* Per runtime: every action writes a slot whose source state is not
+\* FAILED_UNQUIESCED, so the failed slot itself never moves.
+LEMMA FailedRuntimePersists ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  TypeOK /\ IsFailedRuntime(rtId) /\ [Next]_vars =>
+               IsFailedRuntime(rtId)'
+<1>1. ASSUME TypeOK, IsFailedRuntime(rtId), Next
+      PROVE  IsFailedRuntime(rtId)'
+  <2>1. CASE NextSafeRefining
+    BY <1>1, <2>1, SMT
+    DEF NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
+        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
+        RuntimeCreate, RuntimeRelease, RuntimeBeginShutdown,
+        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
+        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive,
+        ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
+        DeliverStatus, DeliverCancelled,
+        L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
+        L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
+        L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
+        L0!NetworkReceive, L0!ReceiveStatus, L0!DeliverInitialMetadata,
+        L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars,
+        IsFailedRuntime, TypeOK, L0!TypeOK, L0!RuntimeStates
+  <2>2. CASE NextSafeFfiOnly
+    BY <1>1, <2>2, FfiOnlyStutters, SMT DEF l0_vars, L0!vars, IsFailedRuntime
+  <2>3. CASE NextFail
+    BY <1>1, <2>3, SMT
+    DEF NextFail, RuntimeFail, L0!RuntimeFail, IsFailedRuntime,
+        TypeOK, L0!TypeOK
+  <2>4. CASE NextExplicitStutter
+    BY <1>1, <2>4, StutterProjects, SMT
+    DEF L0!NextExplicitStutter, L0!RemainFailed, L0!RemainReleased,
+        L0!vars, IsFailedRuntime
+  <2>5. QED BY <1>1, <2>1, <2>2, <2>3, <2>4, NextDecomposition
+        DEF NextByFootprint, NextSafe
+<1>2. CASE UNCHANGED vars
+    BY <1>2 DEF IsFailedRuntime, vars, l0_vars, L0!vars,
+        L0!RuntimeVars, L0!ChannelVars, L0!CallVars, ffi_vars
+<1>3. QED BY <1>1, <1>2
+
 
 \* A failed runtime never recovers: every runtime action writes a slot
 \* whose source state is not FAILED_UNQUIESCED.
@@ -6553,6 +6752,7 @@ LEMMA StutterPreservesFfi ==
                        handle_released, cancel_requested>>
         /\ UNCHANGED <<call_state, call_channel, channel_state,
                        events_delivered, submitted>>
+                     /\ UNCHANGED buffer_state
     BY <1>1, SMT DEF vars, l0_vars, L0!vars, L0!RuntimeVars,
         L0!ChannelVars, L0!CallVars, ffi_vars
   <2>2. FfiTypes'
@@ -6759,6 +6959,38 @@ THEOREM BehaviorEstablishesIndInv ==
     Init /\ [][Next]_vars => []IndInv
 <1>1. QED
     BY InitEstablishesIndInv, IndInvPreserved, PTL
+
+\* The residual guarantee that survives a failure: FAILED_UNQUIESCED is
+\* absorbing.  Stated outside NotFailed on purpose - it is the one promise
+\* that holds exactly when the others' escape hatch has fired.
+THEOREM FailedRuntimeAbsorbing ==
+    Spec => \A rtId \in RuntimeIds :
+                [](IsFailedRuntime(rtId) => []IsFailedRuntime(rtId))
+\* Boxed where Spec is not in scope: a fact proved under a hypothesis
+\* cannot be necessitated.
+<1>0. ASSUME NEW rtId \in RuntimeIds
+      PROVE  [](TypeOK /\ IsFailedRuntime(rtId) /\ [Next]_vars =>
+                    (IsFailedRuntime(rtId))')
+  <2>1. TypeOK /\ IsFailedRuntime(rtId) /\ [Next]_vars =>
+            (IsFailedRuntime(rtId))'
+    BY FailedRuntimePersists
+  <2>2. QED BY <2>1, PTL
+<1>1. ASSUME Spec, NEW rtId \in RuntimeIds
+      PROVE  [](IsFailedRuntime(rtId) => []IsFailedRuntime(rtId))
+  <2>0. /\ Init
+        /\ [][Next]_vars
+        /\ Fairness
+    BY <1>1 DEF Spec
+  <2>1. []IndInv
+    BY <2>0, BehaviorEstablishesIndInv, PTL
+  <2>2. []TypeOK
+    BY <2>1, PTL DEF IndInv
+  <2>3. [](TypeOK /\ IsFailedRuntime(rtId) /\ [Next]_vars =>
+               (IsFailedRuntime(rtId))')
+    BY <1>0
+  <2>4. QED BY <2>0, <2>2, <2>3, PTL
+<1>2. QED BY <1>1
+
 
 THEOREM SafetyTheorem == Spec => []SafetyInvariant
 <1>1. Spec => []IndInv

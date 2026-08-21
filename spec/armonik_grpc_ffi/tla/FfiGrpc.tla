@@ -310,6 +310,10 @@ IsResourcesReleasedCallbackRunning(rtId) ==
 \* void and its memory is gone.
 IsRuntimeDestroyed(rtId) == runtime_destroyed[rtId]
 
+\* The failure is a state of the runtime, and it is absorbing: no action
+\* writes a slot out of it.  FailedRuntimeAbsorbing is the citable form.
+IsFailedRuntime(rtId) == runtime_state[rtId] = "FAILED_UNQUIESCED"
+
 \* Level-0 state read through named predicates: the level-1 spec never
 \* compares a level-0 variable to a literal outside these.
 IsStoppingRuntime(rtId) == runtime_state[rtId] = "STOPPING"
