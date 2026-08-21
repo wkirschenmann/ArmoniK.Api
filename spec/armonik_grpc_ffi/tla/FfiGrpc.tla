@@ -252,12 +252,6 @@ Sizes == 0..Ceiling
 LendStatuses ==
     {"NONE", "OK", "SLOT_BUSY", "BUDGET_BUSY", "MESSAGE_TOO_LARGE"}
 
-\* The request, spoken of as the message it is for.  A guard that reached into
-\* MessageLength would put arithmetic back where the predicates are meant to
-\* hold it, and every proof about a lend would have to carry the lookup.
-IsSendableMessage(msg)     == IsLendable(MessageLength[msg])
-CoversMessage(charge, msg) == CoversRequest(charge, MessageLength[msg])
-
 IsRequestAdmissible(len) ==
     \E charge \in Sizes :
         CoversRequest(charge, len) /\ IsMemoryAvailable(charge)
@@ -433,7 +427,7 @@ TypeOK ==
     /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
-    /\ last_lend_status \in [CallIds \X Messages -> LendStatuses]
+    /\ last_lend_status \in [CallIds -> LendStatuses]
     /\ buffer_charge \in [CallIds \X BufferIds -> Nat]
     /\ buffer_length \in [CallIds \X BufferIds -> Nat]
     \* Int, not Nat: the free subtracts, so staying in Nat would need the
@@ -461,7 +455,7 @@ Init ==
     /\ resources_released_emitted = [rtId \in RuntimeIds |-> FALSE]
     /\ resources_released_callback_running =
            [rtId \in RuntimeIds |-> FALSE]
-    /\ last_lend_status = [q \in CallIds \X Messages |-> "NONE"]
+    /\ last_lend_status = [cId \in CallIds |-> "NONE"]
     /\ buffer_charge = [q \in CallIds \X BufferIds |-> 0]
     /\ buffer_length = [q \in CallIds \X BufferIds |-> 0]
     /\ memory_used = 0
@@ -471,15 +465,14 @@ Init ==
 (***************************************************************************)
 
 \* Level 0 lets a new runtime start as soon as the others are RELEASED, which
-\* covers both observable statuses.  Level 1 refuses until they are quiescent:
-\* the ABI says a new runtime is safe from QUIESCENT onwards, and a criterion
-\* that is sufficient but not necessary is not a criterion.  Strengthening a
-\* guard is what a refinement may do; weakening one is not.
+\* covers both observable statuses.  Level 1 refuses until they are destroyed:
+\* a released handle is still a handle, and the budget its observers report is
+\* one runtime-wide counter, so a successor may not exist while any observer
+\* of the old accounting does.  Strengthening a guard is what a refinement may
+\* do; weakening one is not.
 \* Behind a name so that expanding RuntimeCreate yields one atom: inline, the
 \* quantifier lands in every obligation that reads the action, and it made a
 \* heavy preservation lemma intractable rather than merely slower.
-\* Destroyed, not merely quiescent: a released handle is still a handle, and
-\* the budget its observers report is one runtime-wide counter.
 NoOtherRuntimeOutstanding(rtId) ==
     \A other \in RuntimeIds :
         (other # rtId /\ IsReleasedRuntime(other)) =>
@@ -740,7 +733,7 @@ ReleaseCallHandle(cId) ==
 \* downcall has not returned in between, so nothing can observe a
 \* difference, and splitting them would only be needed to model an
 \* allocation failure.
-LendSendBuffer(cId, b, msg, charge) ==
+LendSendBuffer(cId, b, len, charge) ==
     /\ L0!IsActiveCall(cId)
     /\ ~IsHandleReleased(cId)
     /\ ~IsCancelRequested(cId)
@@ -753,8 +746,8 @@ LendSendBuffer(cId, b, msg, charge) ==
     \* so a length above the ceiling leaves IsMemoryAvailable false in every
     \* state.  A request that does not fit right now is AK_STATUS_BUDGET_BUSY,
     \* recorded by RefuseLendForBudget for the charge that did not fit.
-    /\ IsSendableMessage(msg)
-    /\ CoversMessage(charge, msg)
+    /\ IsLendable(len)
+    /\ CoversRequest(charge, len)
     /\ IsMemoryAvailable(charge)
     /\ buffers_held_by_host' =
            [buffers_held_by_host EXCEPT ![cId] = @ + 1]
@@ -763,9 +756,9 @@ LendSendBuffer(cId, b, msg, charge) ==
     \* the discipline buffer_send already follows.  The counter moves by it
     \* here and back by it at the free, which is what the accounting checks.
     /\ buffer_charge' = [buffer_charge EXCEPT ![<<cId, b>>] = charge]
-    /\ buffer_length' = [buffer_length EXCEPT ![<<cId, b>>] = MessageLength[msg]]
+    /\ buffer_length' = [buffer_length EXCEPT ![<<cId, b>>] = len]
     /\ memory_used' = memory_used + charge
-    /\ last_lend_status' = [last_lend_status EXCEPT ![<<cId, msg>>] = "OK"]
+    /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "OK"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<write_dones_emitted, write_done_callback_running,
                    delivery_callback_running, payloads_consumed_by_host,
@@ -778,10 +771,10 @@ LendSendBuffer(cId, b, msg, charge) ==
 
 \* The three refusals of ak_get_call_buffer.  They write nothing but the status
 \* the downcall returned, so every property proved of the other actions crosses
-\* them unchanged.  What they buy is a frontier the binding can refine and a
-\* liveness antecedent that means something: a refusal is an event, and a
-\* promise conditioned on the absence of one says nothing about the case that
-\* matters.  None of them carries fairness - refusing is never owed.
+\* them unchanged.  What they buy is the observable frontier: the states a
+\* level-2 binding refines its retry decisions against, and the place where
+\* the ABI's status codes get their meaning.  None of them carries fairness -
+\* refusing is never owed.
 ContemplatesLend(cId) ==
     /\ L0!IsActiveCall(cId)
     /\ ~IsHandleReleased(cId)
@@ -794,11 +787,11 @@ ContemplatesLend(cId) ==
 
 \* Permanent, and derived rather than asserted: IsLendable reads the request
 \* and the ceiling, so no return by anyone changes the answer.
-RefuseLendTooLarge(cId, msg) ==
+RefuseLendTooLarge(cId, len) ==
     /\ ContemplatesLend(cId)
-    /\ ~IsSendableMessage(msg)
+    /\ ~IsLendable(len)
     /\ last_lend_status' =
-           [last_lend_status EXCEPT ![<<cId, msg>>] = "MESSAGE_TOO_LARGE"]
+           [last_lend_status EXCEPT ![cId] = "MESSAGE_TOO_LARGE"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -810,11 +803,11 @@ RefuseLendTooLarge(cId, msg) ==
                    resources_released_callback_running,
                    buffer_charge, buffer_length, memory_used>>
 
-RefuseLendForSlot(cId, msg) ==
+RefuseLendForSlot(cId, len) ==
     /\ ContemplatesLend(cId)
-    /\ IsSendableMessage(msg)
+    /\ IsLendable(len)
     /\ ~HasFreeSendSlot(cId)
-    /\ last_lend_status' = [last_lend_status EXCEPT ![<<cId, msg>>] = "SLOT_BUSY"]
+    /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "SLOT_BUSY"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -830,13 +823,13 @@ RefuseLendForSlot(cId, msg) ==
 \* one that did not fit, not the claim that none would.  Guarding it on
 \* ~IsRequestAdmissible instead would make the refusal impossible whenever any
 \* charge fits, and the liveness built on it vacuous in exactly that case.
-RefuseLendForBudget(cId, msg, charge) ==
+RefuseLendForBudget(cId, len, charge) ==
     /\ ContemplatesLend(cId)
-    /\ IsSendableMessage(msg)
+    /\ IsLendable(len)
     /\ HasFreeSendSlot(cId)
-    /\ CoversMessage(charge, msg)
+    /\ CoversRequest(charge, len)
     /\ ~IsMemoryAvailable(charge)
-    /\ last_lend_status' = [last_lend_status EXCEPT ![<<cId, msg>>] = "BUDGET_BUSY"]
+    /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "BUDGET_BUSY"]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -1128,12 +1121,12 @@ Next ==
     \/ \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
-    \/ \E cId \in CallIds, b \in BufferIds, msg \in Messages, charge \in Sizes :
-           LendSendBuffer(cId, b, msg, charge)
-    \/ \E cId \in CallIds, msg \in Messages : RefuseLendTooLarge(cId, msg)
-    \/ \E cId \in CallIds, msg \in Messages : RefuseLendForSlot(cId, msg)
-    \/ \E cId \in CallIds, msg \in Messages, charge \in Sizes :
-           RefuseLendForBudget(cId, msg, charge)
+    \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
+           LendSendBuffer(cId, b, len, charge)
+    \/ \E cId \in CallIds, len \in Sizes : RefuseLendTooLarge(cId, len)
+    \/ \E cId \in CallIds, len \in Sizes : RefuseLendForSlot(cId, len)
+    \/ \E cId \in CallIds, len \in Sizes, charge \in Sizes :
+           RefuseLendForBudget(cId, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
@@ -1281,10 +1274,16 @@ ResourcesReleasedEventually ==
 \* only len and Ceiling, both rigid, so the two forms are equivalent - but the
 \* temporal backend treats every atom as flexible, and inside the antecedent it
 \* cannot know the guard still holds when the room arrives.
-BudgetEventuallyAdmits ==
+BudgetEventuallyHasRoomFor ==
     \A len \in Nat :
         IsLendable(len) =>
             (~IsRequestAdmissible(len) ~> IsRequestAdmissible(len))
+
+\* What ak_channel_release promises: a channel told to close closes, its
+\* calls cancelled and drained on the runtime's own fairness.
+EventualChannelClosed ==
+    \A chId \in ChannelIds :
+        IsClosingChannel(chId) ~> IsClosedChannel(chId)
 
 LivenessProperties ==
     /\ CancellationCompletes
@@ -1299,7 +1298,8 @@ LivenessProperties ==
     /\ CallEventuallyReclaimed
     /\ RuntimeEventuallyQuiescent
     /\ ResourcesReleasedEventually
-    /\ BudgetEventuallyAdmits
+    /\ BudgetEventuallyHasRoomFor
+    /\ EventualChannelClosed
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)

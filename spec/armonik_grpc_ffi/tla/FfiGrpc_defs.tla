@@ -64,12 +64,12 @@ NextSafeShutdownFfi ==
 NextSafeCallFfi ==
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
-    \/ \E cId \in CallIds, b \in BufferIds, msg \in Messages, charge \in Sizes :
-           LendSendBuffer(cId, b, msg, charge)
-    \/ \E cId \in CallIds, msg \in Messages : RefuseLendTooLarge(cId, msg)
-    \/ \E cId \in CallIds, msg \in Messages : RefuseLendForSlot(cId, msg)
-    \/ \E cId \in CallIds, msg \in Messages, charge \in Sizes :
-           RefuseLendForBudget(cId, msg, charge)
+    \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
+           LendSendBuffer(cId, b, len, charge)
+    \/ \E cId \in CallIds, len \in Sizes : RefuseLendTooLarge(cId, len)
+    \/ \E cId \in CallIds, len \in Sizes : RefuseLendForSlot(cId, len)
+    \/ \E cId \in CallIds, len \in Sizes, charge \in Sizes :
+           RefuseLendForBudget(cId, len, charge)
     \/ \E cId \in CallIds, b \in BufferIds :
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :

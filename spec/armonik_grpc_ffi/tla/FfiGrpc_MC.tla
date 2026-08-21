@@ -47,9 +47,9 @@ MC_PayloadIndices == 1..4
 \* sizes.
 MC_MessageLength == [msg \in Messages |-> 1]
 
-\* BudgetEventuallyAdmits quantifies over Nat.  Above the ceiling IsLendable
+\* BudgetEventuallyHasRoomFor quantifies over Nat.  Above the ceiling IsLendable
 \* is false and the property is vacuous, so the bounded range loses nothing.
-MCBudgetEventuallyAdmits ==
+MCBudgetEventuallyHasRoomFor ==
     \A len \in 0..Ceiling :
         (~IsRequestAdmissible(len) ~> IsRequestAdmissible(len))
 

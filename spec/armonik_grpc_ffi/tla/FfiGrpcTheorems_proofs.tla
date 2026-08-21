@@ -260,7 +260,7 @@ LEMMA OnlySendMessageWritesBufferSend ==
 \* back, committing (which also gives back), and releasing the bytes.
 LEMMA OnlyBufferStepsWriteBufferStates ==
     ASSUME [Next]_vars
-    PROVE  \/ \E c \in CallIds, b \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(c, b, msg, ch)
+    PROVE  \/ \E c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(c, b, ln, ch)
            \/ \E c \in CallIds, b \in BufferIds : HostReturnsBuffer(c, b)
            \/ \E c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
            \/ \E c \in CallIds, m \in Messages, b \in BufferIds :
@@ -309,7 +309,7 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
 \* look at and two to hand back.
 LEMMA OnlyBudgetStepsWriteBudget ==
     ASSUME [Next]_vars
-    PROVE  \/ \E c \in CallIds, b \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(c, b, msg, ch)
+    PROVE  \/ \E c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(c, b, ln, ch)
            \/ \E c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
            \/ UNCHANGED <<buffer_charge, memory_used>>
 <1>1. CASE NextSafeRefining
@@ -395,10 +395,10 @@ LEMMA BytesOutstandingType ==
 LEMMA NextPreservesAccounting ==
     ASSUME TypeOK, MemoryAccountingExact, [Next]_vars
     PROVE  MemoryAccountingExact'
-<1>1. CASE \E c \in CallIds, b \in BufferIds, msg \in Messages, ch \in Sizes :
-              LendSendBuffer(c, b, msg, ch)
-  <2>1. PICK c \in CallIds, b \in BufferIds, msg \in Messages, ch \in Sizes :
-            LendSendBuffer(c, b, msg, ch)
+<1>1. CASE \E c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes :
+              LendSendBuffer(c, b, ln, ch)
+  <2>1. PICK c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes :
+            LendSendBuffer(c, b, ln, ch)
     BY <1>1
   <2>2. /\ <<c, b>> \notin OutstandingPairs
         /\ OutstandingPairs' = OutstandingPairs \union {<<c, b>>}
@@ -503,8 +503,8 @@ LEMMA NextPreservesAccounting ==
 LEMMA NextPreservesCeiling ==
     ASSUME TypeOK, MemoryAccountingExact, MemoryWithinCeiling, [Next]_vars
     PROVE  MemoryWithinCeiling'
-<1>1. CASE \E c \in CallIds, b \in BufferIds, msg \in Messages, ch \in Sizes :
-              LendSendBuffer(c, b, msg, ch)
+<1>1. CASE \E c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes :
+              LendSendBuffer(c, b, ln, ch)
     BY <1>1, SMT
     DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, IsMemoryAvailable, MemoryWithinCeiling
@@ -801,7 +801,7 @@ FfiTypes ==
     /\ second_event_owed \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_emitted \in [RuntimeIds -> BOOLEAN]
     /\ resources_released_callback_running \in [RuntimeIds -> BOOLEAN]
-    /\ last_lend_status \in [CallIds \X Messages -> LendStatuses]
+    /\ last_lend_status \in [CallIds -> LendStatuses]
     /\ buffer_charge \in [CallIds \X BufferIds -> Nat]
     /\ buffer_length \in [CallIds \X BufferIds -> Nat]
     /\ memory_used \in Int
@@ -854,8 +854,8 @@ LEMMA LendMovesOneEntry ==
     ASSUME buffer_state \in [CallIds -> [BufferIds -> BufferStates]],
            buffer_send \in [CallIds -> [BufferIds -> Nat]],
            NEW d \in CallIds, NEW e \in BufferIds,
-           NEW msg \in Messages, NEW ch \in Sizes,
-           LendSendBuffer(d, e, msg, ch),
+           NEW ln \in Sizes, NEW ch \in Sizes,
+           LendSendBuffer(d, e, ln, ch),
            NEW x \in CallIds, NEW y \in BufferIds
     PROVE  /\ (buffer_state[x][y])' =
                  IF x = d /\ y = e THEN "lent"
@@ -1095,24 +1095,24 @@ LEMMA FfiOnlyPreservesFfiTypes ==
       BY <1>1, <3>5, SMT DEF DeliveryCallbackReturns, FfiTypes
     <3>6. CASE \E cId \in CallIds : HostConsumesEvent(cId)
       BY <1>1, <3>6, SMT DEF HostConsumesEvent, FfiTypes
-    <3>60. CASE \E cId \in CallIds, bb \in BufferIds, msg \in Messages, ch \in Sizes :
-                   LendSendBuffer(cId, bb, msg, ch)
-      BY <1>1, <3>60, MessageLengthIsNat, SMTT(120)
-      DEF LendSendBuffer, FfiTypes, Sizes, LendStatuses, MessageLengthIsNat
+    <3>60. CASE \E cId \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                   LendSendBuffer(cId, bb, ln, ch)
+      BY <1>1, <3>60, SMTT(120)
+      DEF LendSendBuffer, FfiTypes, Sizes, LendStatuses
     <3>61. CASE \E cId \in CallIds, bb \in BufferIds :
                    HostReturnsBuffer(cId, bb)
       BY <1>1, <3>61, SMT DEF HostReturnsBuffer, HostHoldsSomeBuffer, FfiTypes
     <3>62. CASE \E cId \in CallIds, bb \in BufferIds :
                    FreeReturnedBuffer(cId, bb)
       BY <1>1, <3>62, SMTT(120) DEF FreeReturnedBuffer, FfiTypes
-    <3>63. CASE \E cId \in CallIds, msg \in Messages :
-                   RefuseLendTooLarge(cId, msg)
+    <3>63. CASE \E cId \in CallIds, ln \in Sizes :
+                   RefuseLendTooLarge(cId, ln)
       BY <1>1, <3>63, SMTT(120) DEF RefuseLendTooLarge, FfiTypes, LendStatuses
-    <3>64. CASE \E cId \in CallIds, msg \in Messages :
-                   RefuseLendForSlot(cId, msg)
+    <3>64. CASE \E cId \in CallIds, ln \in Sizes :
+                   RefuseLendForSlot(cId, ln)
       BY <1>1, <3>64, SMTT(120) DEF RefuseLendForSlot, FfiTypes, LendStatuses
-    <3>65. CASE \E cId \in CallIds, msg \in Messages, charge \in Sizes :
-                   RefuseLendForBudget(cId, msg, charge)
+    <3>65. CASE \E cId \in CallIds, ln \in Sizes, charge \in Sizes :
+                   RefuseLendForBudget(cId, ln, charge)
       BY <1>1, <3>65, SMTT(120) DEF RefuseLendForBudget, FfiTypes, LendStatuses
     <3>7. QED BY <1>1, <2>2, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
                   <3>61, <3>62, <3>63, <3>64, <3>65 DEF NextSafeCallFfi
@@ -1146,10 +1146,10 @@ LEMMA NextPreservesBufferTypes == TypeOK /\ Next => BufferTypes'
       PROVE  (buffer_state')\in [CallIds -> [BufferIds -> BufferStates]]
   <2>0. BufferTypes
     BY <1>1, TypeOKSplit
-  <2>1. CASE \E cId \in CallIds, bb \in BufferIds, msg \in Messages, ch \in Sizes :
-                LendSendBuffer(cId, bb, msg, ch)
-    <3>1. PICK c0 \in CallIds, b0 \in BufferIds, msg \in Messages, ch \in Sizes :
-              LendSendBuffer(c0, b0, msg, ch)
+  <2>1. CASE \E cId \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                LendSendBuffer(cId, bb, ln, ch)
+    <3>1. PICK c0 \in CallIds, b0 \in BufferIds, ln \in Sizes, ch \in Sizes :
+              LendSendBuffer(c0, b0, ln, ch)
       BY <2>1
     <3>2. buffer_state' = [buffer_state EXCEPT ![c0][b0] = "lent"]
       BY <3>1, Zenon DEF LendSendBuffer
@@ -1497,8 +1497,8 @@ LEMMA ReleaseTransfers ==
 \* unused, and the handle is live, so a released call never grows a debt.
 LEMMA LendBufferTransfers ==
     ASSUME NEW cId \in CallIds, NEW bb \in BufferIds,
-           NEW msg \in Messages, NEW ch \in Sizes, TypeOK,
-           LendSendBuffer(cId, bb, msg, ch)
+           NEW ln \in Sizes, NEW ch \in Sizes, TypeOK,
+           LendSendBuffer(cId, bb, ln, ch)
     PROVE  /\ L0!IsActiveCall(cId)
            /\ ~L0!IsUnusedCall(cId)
            /\ ~IsHandleReleased(cId)
@@ -1992,8 +1992,8 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ ~EndSend(cId)
            /\ \A msg \in Messages, b \in BufferIds :
                  ~SendMessage(cId, msg, b)
-           /\ \A b \in BufferIds, msg \in Messages, ch \in Sizes :
-                 ~LendSendBuffer(cId, b, msg, ch)
+           /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 ~LendSendBuffer(cId, b, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 <1>0. TypeOK
     BY Zenon DEF StrongInv
@@ -2022,8 +2022,8 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 <1>6. ~EndSend(cId)
     BY <1>4, Zenon DEF EndSend, L0!EndSend, L0!IsActiveCall,
         L0!ActiveCallStates
-<1>7. \A b \in BufferIds, msg \in Messages, ch \in Sizes :
-                 ~LendSendBuffer(cId, b, msg, ch)
+<1>7. \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 ~LendSendBuffer(cId, b, ln, ch)
     BY <1>4, Zenon DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, L0!IsActiveCall, L0!ActiveCallStates
 <1>8. \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
@@ -4077,8 +4077,8 @@ LEMMA ConsumeKeepsFfiCallInv ==
 \* is a started call, and a released one could not have got here.
 LEMMA LendBufferKeepsFfiCallInv ==
     ASSUME NEW cId \in CallIds, NEW bb \in BufferIds,
-           NEW msg \in Messages, NEW ch \in Sizes,
-           TypeOK, FfiCallInv, LendSendBuffer(cId, bb, msg, ch)
+           NEW ln \in Sizes, NEW ch \in Sizes,
+           TypeOK, FfiCallInv, LendSendBuffer(cId, bb, ln, ch)
     PROVE  FfiCallInv'
 <1> HIDE DEF HasNoSendInFlight, HasFreeSendSlot, SendWindowOccupancy,
          IsAwaitingWriteDone, IsWriteDoneCallbackRunning,
@@ -4336,8 +4336,8 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
       BY <1>1, <3>5, DeliveryReturnKeepsFfiCallInv
     <3>6. CASE \E cId \in CallIds : HostConsumesEvent(cId)
       BY <1>1, <3>6, ConsumeKeepsFfiCallInv
-    <3>60. CASE \E cId \in CallIds, bb \in BufferIds, msg \in Messages, ch \in Sizes :
-                   LendSendBuffer(cId, bb, msg, ch)
+    <3>60. CASE \E cId \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                   LendSendBuffer(cId, bb, ln, ch)
       BY <1>1, <3>60, LendBufferKeepsFfiCallInv
     <3>61. CASE \E cId \in CallIds, bb \in BufferIds :
                    HostReturnsBuffer(cId, bb)
@@ -4359,8 +4359,8 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
 \* A refused lend writes the status and nothing else, so FfiCallInv reads
 \* nothing it touches - the free's case, three actions over.
-    <3>63. CASE \E cId \in CallIds, msg \in Messages :
-                   RefuseLendTooLarge(cId, msg)
+    <3>63. CASE \E cId \in CallIds, ln \in Sizes :
+                   RefuseLendTooLarge(cId, ln)
       <4>1. /\ UNCHANGED l0_vars
             /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                               write_done_callback_running,
@@ -4372,8 +4372,8 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
         BY <3>63, SMT DEF RefuseLendTooLarge, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
-    <3>64. CASE \E cId \in CallIds, msg \in Messages :
-                   RefuseLendForSlot(cId, msg)
+    <3>64. CASE \E cId \in CallIds, ln \in Sizes :
+                   RefuseLendForSlot(cId, ln)
       <4>1. /\ UNCHANGED l0_vars
             /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                               write_done_callback_running,
@@ -4385,8 +4385,8 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
         BY <3>64, SMT DEF RefuseLendForSlot, IsReturnedBuffer, TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
-    <3>65. CASE \E cId \in CallIds, msg \in Messages, charge \in Sizes :
-                   RefuseLendForBudget(cId, msg, charge)
+    <3>65. CASE \E cId \in CallIds, ln \in Sizes, charge \in Sizes :
+                   RefuseLendForBudget(cId, ln, charge)
       <4>1. /\ UNCHANGED l0_vars
             /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                               write_done_callback_running,
@@ -4882,8 +4882,8 @@ LEMMA EveryStepEitherSubmitsOrKeepsSubmitted ==
 \* only a lend raises what the host holds.
 LEMMA EveryStepEitherLendsOrKeepsBuffers ==
     ASSUME TypeOK, [Next]_vars
-    PROVE  \/ \E c \in CallIds, bb \in BufferIds, msg \in Messages, ch \in Sizes :
-                 LendSendBuffer(c, bb, msg, ch)
+    PROVE  \/ \E c \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 LendSendBuffer(c, bb, ln, ch)
            \/ \E c \in CallIds, bb \in BufferIds :
                       HostReturnsBuffer(c, bb)
            \/ \E c \in CallIds, m \in Messages,
@@ -4980,8 +4980,8 @@ LEMMA QuietRuntimeStaysReclaimable ==
 \* Same shape on the send side: lending needs an active call, and both
 \* ways of giving a buffer back need one to be held.
   <2>2. (buffers_held_by_host[c])' = buffers_held_by_host[c]
-    <3>1. CASE \E d \in CallIds, bq \in BufferIds, msg \in Messages, ch \in Sizes :
-                  LendSendBuffer(d, bq, msg, ch)
+    <3>1. CASE \E d \in CallIds, bq \in BufferIds, ln \in Sizes, ch \in Sizes :
+                  LendSendBuffer(d, bq, ln, ch)
       BY <1>0, <2>0, <3>1, SMT
       DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, L0!IsActiveCall, L0!ActiveCallStates,
@@ -5132,9 +5132,9 @@ LEMMA NextPreservesFreshBuffers ==
     BY <1>1, <1>2, Zenon DEF UnusedCallsHaveFreshBuffers
 \* Lending is the only step that writes a state onto a fresh buffer, and
 \* it needs an active call.
-<1>4. CASE \E c0 \in CallIds, b0 \in BufferIds, msg \in Messages, ch \in Sizes : 
-              LendSendBuffer(c0, b0, msg, ch)
-  <2>1. PICK d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>4. CASE \E c0 \in CallIds, b0 \in BufferIds, ln \in Sizes, ch \in Sizes : 
+              LendSendBuffer(c0, b0, ln, ch)
+  <2>1. PICK d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>4
   <2>2. d # c
     BY <1>2, <2>1, SMT
@@ -5340,8 +5340,8 @@ LEMMA NextPreservesBufferSendLink ==
     BY <1>1, TypeOKSplit, Zenon DEF TypeOK, L0!TypeOK, BufferTypes
 \* Lending writes a fresh entry, and a fresh entry carries no send, so it
 \* cannot break either implication.
-<1>5. CASE \E c0 \in CallIds, b0 \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(c0, b0, msg, ch)
-  <2>1. PICK d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>5. CASE \E c0 \in CallIds, b0 \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(c0, b0, ln, ch)
+  <2>1. PICK d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>5
   <2>2. /\ (buffer_state[c][b])' =
               IF c = d /\ b = e THEN "lent"
@@ -5535,8 +5535,8 @@ LEMMA NextPreservesLentCountBridge ==
     BY <1>1, Zenon DEF LentCountMatchesBufferStates, IsLentBuffer
   <2>02. buffers_held_by_host \in [CallIds -> Nat]
     BY <1>1, Zenon DEF TypeOK, L0!TypeOK
-  <2>1. CASE \E c0 \in CallIds, b0 \in BufferIds, msg \in Messages, ch \in Sizes : 
-                LendSendBuffer(c0, b0, msg, ch)
+  <2>1. CASE \E c0 \in CallIds, b0 \in BufferIds, ln \in Sizes, ch \in Sizes : 
+                LendSendBuffer(c0, b0, ln, ch)
     <3>1. PICK c \in CallIds, b \in BufferIds :
               /\ buffer_state' = [buffer_state EXCEPT ![c][b] = "lent"]
               /\ buffer_state[c][b] # "lent"
@@ -5893,7 +5893,7 @@ LEMMA QuietRuntimeKeepsNoReturnedBytes ==
     BY <1>1, Zenon DEF NoHostDebt, RuntimeHoldsNoReturnedBytes
 <1>3. \A e \in BufferIds : ~IsLentBuffer(c, e)
     BY <1>2, NoneHeldMeansNoLent, Zenon
-<1>4. CASE \E d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>4. CASE \E d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>2, <1>4, SMT
     DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, IsReturnedBuffer, L0!IsActiveCall,
@@ -7411,8 +7411,8 @@ LEMMA CancelMonotone ==
           BY <1>1, <5>1, SMT DEF RequestCallCancellation, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>2. CASE \E c \in CallIds : ReleaseCallHandle(c)
           BY <1>1, <5>2, SMT DEF ReleaseCallHandle, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>3. CASE \E c \in CallIds, bb \in BufferIds, msg \in Messages, ch \in Sizes :
-                      LendSendBuffer(c, bb, msg, ch)
+        <5>3. CASE \E c \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                      LendSendBuffer(c, bb, ln, ch)
           BY <1>1, <5>3, SMT DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>4. CASE \E c \in CallIds, bb \in BufferIds :
@@ -7429,11 +7429,11 @@ LEMMA CancelMonotone ==
           BY <1>1, <5>7, SMT DEF DeliveryCallbackReturns, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>8. CASE \E c \in CallIds : HostConsumesEvent(c)
           BY <1>1, <5>8, SMT DEF HostConsumesEvent, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>10. CASE \E c \in CallIds, msg \in Messages : RefuseLendTooLarge(c, msg)
+        <5>10. CASE \E c \in CallIds, ln \in Sizes : RefuseLendTooLarge(c, ln)
           BY <1>1, <5>10, SMT DEF RefuseLendTooLarge, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>11. CASE \E c \in CallIds, msg \in Messages : RefuseLendForSlot(c, msg)
+        <5>11. CASE \E c \in CallIds, ln \in Sizes : RefuseLendForSlot(c, ln)
           BY <1>1, <5>11, SMT DEF RefuseLendForSlot, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>12. CASE \E c \in CallIds, msg \in Messages, ch \in Sizes : RefuseLendForBudget(c, msg, ch)
+        <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in Sizes : RefuseLendForBudget(c, ln, ch)
           BY <1>1, <5>12, SMT DEF RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
@@ -7515,8 +7515,8 @@ LEMMA CallbackFrame ==
           BY <1>1, <5>1, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RequestCallCancellation, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>2. CASE \E c \in CallIds : ReleaseCallHandle(c)
           BY <1>1, <5>2, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF ReleaseCallHandle, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>3. CASE \E c \in CallIds, bb \in BufferIds, msg \in Messages, ch \in Sizes :
-                      LendSendBuffer(c, bb, msg, ch)
+        <5>3. CASE \E c \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                      LendSendBuffer(c, bb, ln, ch)
           BY <1>1, <5>3, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>4. CASE \E c \in CallIds, bb \in BufferIds :
@@ -7533,11 +7533,11 @@ LEMMA CallbackFrame ==
           BY <1>1, <5>7, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF DeliveryCallbackReturns, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>8. CASE \E c \in CallIds : HostConsumesEvent(c)
           BY <1>1, <5>8, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF HostConsumesEvent, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>10. CASE \E c \in CallIds, msg \in Messages : RefuseLendTooLarge(c, msg)
+        <5>10. CASE \E c \in CallIds, ln \in Sizes : RefuseLendTooLarge(c, ln)
           BY <1>1, <5>10, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendTooLarge, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>11. CASE \E c \in CallIds, msg \in Messages : RefuseLendForSlot(c, msg)
+        <5>11. CASE \E c \in CallIds, ln \in Sizes : RefuseLendForSlot(c, ln)
           BY <1>1, <5>11, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendForSlot, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>12. CASE \E c \in CallIds, msg \in Messages, ch \in Sizes : RefuseLendForBudget(c, msg, ch)
+        <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in Sizes : RefuseLendForBudget(c, ln, ch)
           BY <1>1, <5>12, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
@@ -13088,14 +13088,14 @@ LEMMA FreeBufferEnabled ==
 LEMMA BufferEntryFrozen ==
     ASSUME TypeOK, [Next]_vars, NEW cId \in CallIds,
            NEW b \in BufferIds,
-           \A msg \in Messages, ch \in Sizes : ~LendSendBuffer(cId, b, msg, ch),
+           \A ln \in Sizes, ch \in Sizes : ~LendSendBuffer(cId, b, ln, ch),
            ~HostReturnsBuffer(cId, b),
            ~FreeReturnedBuffer(cId, b),
            \/ (\A m \in Messages, bs \in BufferIds :
                   ~SendMessage(cId, m, bs))
            \/ ~IsLentBuffer(cId, b)
     PROVE  (buffer_state[cId][b])' = buffer_state[cId][b]
-<1>1. CASE \E d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>1. CASE \E d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>1, SMT DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, TypeOK, L0!TypeOK
 <1>2. CASE \E d \in CallIds, e \in BufferIds : HostReturnsBuffer(d, e)
@@ -13161,7 +13161,7 @@ LEMMA BufferStateFrame ==
           PROVE  <<SendMessage(cId, m, bs)>>_vars <=> SendMessage(cId, m, bs)
       BY <1>1, SendSubscriptCollapses
     <3>2. QED BY <1>2, <3>1
-  <2>3. /\ \A msg \in Messages, ch \in Sizes : ~LendSendBuffer(cId, b, msg, ch)
+  <2>3. /\ \A ln \in Sizes, ch \in Sizes : ~LendSendBuffer(cId, b, ln, ch)
         /\ ~FreeReturnedBuffer(cId, b)
     BY <1>2, Zenon
     DEF LendSendBuffer, RefuseLendTooLarge,
@@ -13175,7 +13175,7 @@ LEMMA BufferStateFrame ==
       PROVE  (IsReturnedBuffer(cId, b))'
   <2>1. ~FreeReturnedBuffer(cId, b)
     BY <1>1, <1>3, BufferSubscriptCollapses
-  <2>2. /\ \A msg \in Messages, ch \in Sizes : ~LendSendBuffer(cId, b, msg, ch)
+  <2>2. /\ \A ln \in Sizes, ch \in Sizes : ~LendSendBuffer(cId, b, ln, ch)
         /\ ~HostReturnsBuffer(cId, b)
         /\ ~IsLentBuffer(cId, b)
     BY <1>3, Zenon
@@ -13187,7 +13187,7 @@ LEMMA BufferStateFrame ==
     DEF IsReturnedBuffer
 <1>4. ASSUME IsFreedBuffer(cId, b)
       PROVE  (IsFreedBuffer(cId, b))'
-  <2>1. /\ \A msg \in Messages, ch \in Sizes : ~LendSendBuffer(cId, b, msg, ch)
+  <2>1. /\ \A ln \in Sizes, ch \in Sizes : ~LendSendBuffer(cId, b, ln, ch)
         /\ ~HostReturnsBuffer(cId, b)
         /\ ~FreeReturnedBuffer(cId, b)
         /\ ~IsLentBuffer(cId, b)
@@ -13216,7 +13216,7 @@ LEMMA LentStaysOrIsReturned ==
     OBVIOUS
 <1>2. ~HostReturnsBuffer(cId, b)
     BY <1>1, BufferSubscriptCollapses
-<1>3. /\ \A msg \in Messages, ch \in Sizes : ~LendSendBuffer(cId, b, msg, ch)
+<1>3. /\ \A ln \in Sizes, ch \in Sizes : ~LendSendBuffer(cId, b, ln, ch)
       /\ ~FreeReturnedBuffer(cId, b)
     BY <1>1, Zenon
     DEF LendSendBuffer, RefuseLendTooLarge,
@@ -13360,8 +13360,8 @@ LEMMA ReturnedBufferStaysOrIsFreed ==
     BY TypeOKSplit, Zenon DEF TypeOK, L0!TypeOK, BufferTypes
 <1>1. ~IsLentBuffer(cId, b) /\ ~IsFreshBuffer(cId, b)
     BY <1>0, SMT DEF IsReturnedBuffer, IsLentBuffer, IsFreshBuffer
-<1>2. CASE \E d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
-  <2>1. PICK d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>2. CASE \E d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
+  <2>1. PICK d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>2
   <2>2. ~(cId = d /\ b = e)
     BY <1>1, <2>1, Zenon DEF LendSendBuffer, RefuseLendTooLarge,
@@ -13718,8 +13718,8 @@ LEMMA FreedStaysFreed ==
       /\ ~IsReturnedBuffer(cId, b)
     BY <1>0, SMT
     DEF IsFreedBuffer, IsLentBuffer, IsFreshBuffer, IsReturnedBuffer
-<1>2. CASE \E d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
-  <2>1. PICK d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>2. CASE \E d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
+  <2>1. PICK d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>2
   <2>2. ~(cId = d /\ b = e)
     BY <1>1, <2>1, Zenon DEF LendSendBuffer, RefuseLendTooLarge,
@@ -13935,15 +13935,15 @@ LEMMA TerminalCallDebtOnlyFalls ==
         TypeOK, L0!TypeOK, L0!CallStates
 \* Lending is the only step that makes a buffer lent, and it needs an
 \* active call.
-<1>2. \A b \in BufferIds, msg \in Messages, ch \in Sizes :
-                 ~LendSendBuffer(cId, b, msg, ch)
+<1>2. \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 ~LendSendBuffer(cId, b, ln, ch)
     BY <1>1, Zenon DEF LendSendBuffer
 <1>3. \A b \in BufferIds :
           ~IsLentBuffer(cId, b) => (~IsLentBuffer(cId, b))'
   <2>1. SUFFICES ASSUME NEW b \in BufferIds, ~IsLentBuffer(cId, b)
                  PROVE  (~IsLentBuffer(cId, b))'
     OBVIOUS
-  <2>2. CASE \E d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+  <2>2. CASE \E d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>2, <2>1, <2>2, SMT DEF LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, IsLentBuffer, TypeOK, L0!TypeOK
   <2>3. CASE \E d \in CallIds, e \in BufferIds : HostReturnsBuffer(d, e)
@@ -14425,7 +14425,7 @@ LEMMA NotReturnedStaysOffLent ==
       /\ submitted \in [CallIds -> Seq(Messages)]
       /\ write_dones_emitted \in [CallIds -> Nat]
     BY TypeOKSplit, Zenon DEF TypeOK, L0!TypeOK, BufferTypes
-<1>1. CASE \E d \in CallIds, e \in BufferIds, msg \in Messages, ch \in Sizes : LendSendBuffer(d, e, msg, ch)
+<1>1. CASE \E d \in CallIds, e \in BufferIds, ln \in Sizes, ch \in Sizes : LendSendBuffer(d, e, ln, ch)
     BY <1>0, <1>1, LendMovesOneEntry, SMT DEF IsReturnedBuffer
 <1>2. CASE \E d \in CallIds, e \in BufferIds : HostReturnsBuffer(d, e)
   <2>1. PICK d \in CallIds, e \in BufferIds : HostReturnsBuffer(d, e)
@@ -15929,8 +15929,8 @@ THEOREM AllCallsBuffersSettle ==
 \* room.  Every buffer out is eventually freed - the chain above - so the
 \* outstanding set empties, the accounting makes the counter zero, and at zero
 \* any lendable size fits.
-THEOREM BudgetEventuallyAdmitsHolds ==
-    Spec => BudgetEventuallyAdmits
+THEOREM BudgetEventuallyHasRoomForHolds ==
+    Spec => BudgetEventuallyHasRoomFor
 \* Boxed where Spec is not in scope, and with no hypothesis in scope either:
 \* a fact proved under one cannot be necessitated.  The guard is handled
 \* outside the temporal reasoning, the property carrying it there.
@@ -16008,18 +16008,52 @@ THEOREM BudgetEventuallyAdmitsHolds ==
   <2>6. <>[]IsRequestAdmissible(len)
     BY <2>5, <2>55, <2>555, PTL
   <2>7. QED BY <2>6, PTL
-<1>2. QED BY <1>1, Zenon DEF BudgetEventuallyAdmits
+<1>2. QED BY <1>1, Zenon DEF BudgetEventuallyHasRoomFor
 
+
+\* The channel side of ak_channel_release: closing settles into closed.
+THEOREM EventualChannelClosedHolds ==
+    Spec => EventualChannelClosed
+<1>1. ASSUME Spec, NEW chId \in ChannelIds
+      PROVE  IsClosingChannel(chId) ~> IsClosedChannel(chId)
+  <2>0. /\ Init
+        /\ [][Next]_vars
+        /\ Fairness
+    BY <1>1 DEF Spec
+  <2>1. []IndInv
+    BY <2>0, BehaviorEstablishesIndInv, PTL
+  <2>2. /\ WF_vars(ChannelFinishClosing(chId))
+    BY <2>0, FairnessAtChannel, IsaT(600)
+  <2>3. /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+        /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
+        /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
+        /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+    BY <2>0, FairnessEverywhere, IsaT(600)
+  <2>4. /\ []IndInv
+        /\ [][Next]_vars
+        /\ WF_vars(ChannelFinishClosing(chId))
+        /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
+        /\ (\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)))
+        /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
+        /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
+        /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        => ((IsClosingChannel(chId)) ~>
+                (IsClosedChannel(chId)))
+    BY ChannelEventuallyCloses, PTL
+  <2>5. QED BY <2>0, <2>1, <2>2, <2>3, <2>4, PTL
+<1>2. QED BY <1>1, IsaT(600) DEF EventualChannelClosed
 
 THEOREM LivenessTheorem == Spec => LivenessProperties
 <1>1. QED
     BY CancellationCompletesHolds, SendsEventuallyAcquittedHolds,
+       EventualChannelClosedHolds,
        PayloadsEventuallyConsumedHolds, ShutdownEventEmittedHolds,
        DeliveryCallbacksReturnHolds, WriteDoneCallbacksReturnHolds,
        ShutdownCallbacksReturnHolds,
        ResourcesReleasedCallbacksReturnHolds, BufferEventuallyFreedHolds,
        CallEventuallyReclaimedHolds, RuntimeEventuallyQuiescentHolds,
-       ResourcesReleasedEventuallyHolds, BudgetEventuallyAdmitsHolds,
+       ResourcesReleasedEventuallyHolds, BudgetEventuallyHasRoomForHolds,
        
        ZenonT(120) DEF LivenessProperties
 

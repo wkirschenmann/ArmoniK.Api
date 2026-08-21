@@ -98,8 +98,8 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ ~EndSend(cId)
            /\ \A msg \in Messages, b \in BufferIds :
                  ~SendMessage(cId, msg, b)
-           /\ \A b \in BufferIds, msg \in Messages, ch \in Sizes :
-                 ~LendSendBuffer(cId, b, msg, ch)
+           /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 ~LendSendBuffer(cId, b, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 
 (***************************************************************************)
@@ -333,8 +333,12 @@ THEOREM RuntimeEventuallyQuiescentHolds ==
 \* The emission budget's own promise, on the state alone: a request the ABI
 \* would consider, refused for want of room, eventually has room.  It says
 \* nothing about who is served.
-THEOREM BudgetEventuallyAdmitsHolds ==
-    Spec => BudgetEventuallyAdmits
+\* The channel side of ak_channel_release: closing settles into closed.
+THEOREM EventualChannelClosedHolds ==
+    Spec => EventualChannelClosed
+
+THEOREM BudgetEventuallyHasRoomForHolds ==
+    Spec => BudgetEventuallyHasRoomFor
 
 \* The release tag's own promise, named so a level-2 binding can refine it
 \* rather than re-derive it: a host that was told to give memory back is told
