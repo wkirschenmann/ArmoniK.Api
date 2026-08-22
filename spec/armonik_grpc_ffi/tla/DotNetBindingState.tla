@@ -60,7 +60,9 @@ VARIABLES
     (***********************************************************************)
     channel_dispose_state,  \* [ChannelIds -> {"unopened", "constructing",
                             \*                 "active", "disposing",
-                            \*                 "disposed"}]
+                            \*                 "released", "disposed"}]:
+                            \* released gave the lease back, disposed
+                            \* completed the public task
 
     (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)
@@ -71,7 +73,9 @@ VARIABLES
     (***********************************************************************)
     consumer_phase,         \* [CallIds -> {"prologue", "application",
                             \*              "drain", "done"}]
-    reader_state,           \* [CallIds -> {"idle", "waiting", "parsing"}]
+    reader_state,           \* [CallIds -> {"idle", "waiting", "parsing",
+                            \*              "finished"}] - finished is the
+                            \* consumed terminal: MoveNext answers false
 
     (***********************************************************************)
     (* The writer.  One value per call is IClientStreamWriter's            *)

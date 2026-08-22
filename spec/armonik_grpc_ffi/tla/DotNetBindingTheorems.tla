@@ -69,6 +69,36 @@ THEOREM ConsumerHandoffPreservesTail ==
                        payloads_consumed_by_host' =
                            payloads_consumed_by_host]_vars
 
+\* The last releaser's public task never completes early: a channel
+\* resolves its DisposeAsync only when another lease is still out - so it
+\* was not the last - or the generation it released has finished tearing
+\* down.  An action theorem, not an invariant: a later channel taking a
+\* lease and releasing it changes no earlier resolution, so no state
+\* predicate can carry this.
+THEOREM LastChannelDisposeAwaitsDestroy ==
+    Spec => \A chId \in ChannelIds :
+                [][ResolveChannelDispose(chId) =>
+                       \/ ~AllLeasesReleased
+                       \/ runtime_dispose_state \in
+                              {"destroyed", "absent"}]_vars
+
+\* A channel's dispose settles its own calls and no one else's: a step
+\* that disposes a call of one channel leaves every call of every other
+\* channel untouched.  An action theorem, not an invariant - ownership is
+\* what the step reads, and no state records which dispose caused which
+\* change.  Stated over the calls NOT owned, because the guard already
+\* names the owned ones and an implication about them would be a
+\* tautology rather than a check.
+THEOREM ChannelDisposeAffectsOnlyOwnedCalls ==
+    Spec => \A chId \in ChannelIds :
+                [][(\E cId \in CallIds :
+                        /\ DisposeCallForChannel(cId)
+                        /\ call_channel[cId] = chId)
+                       => \A other \in CallIds :
+                              call_channel[other] # chId =>
+                                  call_dispose_state'[other]
+                                      = call_dispose_state[other]]_vars
+
 (***************************************************************************)
 (* MANAGED LIVENESS - one theorem per public promise, aggregated last.     *)
 (***************************************************************************)
@@ -80,6 +110,12 @@ THEOREM PendingWriteEventuallySettledHolds ==
     Spec => PendingWriteEventuallySettled
 
 THEOREM CallDisposeCompletesHolds == Spec => CallDisposeCompletes
+
+THEOREM ChannelConstructionCompletesHolds ==
+    Spec => ChannelConstructionCompletes
+
+THEOREM ChannelLeaseEventuallyReleasedHolds ==
+    Spec => ChannelLeaseEventuallyReleased
 
 THEOREM ChannelDisposeCompletesHolds == Spec => ChannelDisposeCompletes
 

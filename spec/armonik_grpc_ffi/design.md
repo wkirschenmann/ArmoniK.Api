@@ -1647,7 +1647,9 @@ class CallState
                                    // full, so there is nothing to wait for
     // Buffers lent by ak_get_call_buffer and not yet given back. Every one
     // of them must be returned, or the call is never reclaimed.
-    ConcurrentBag<ak_buffer> LentBuffers;               // at most MaxSendsInFlight
+    ConcurrentBag<ak_buffer> LentBuffers;               // native depth allows
+                                   // MaxSendsInFlight; this binding exercises one, the
+                                   // writer being single and completing at WRITE_DONE
 }
 
 struct Slot { public ak_bytes Payload; public int Kind; public int Status; }
@@ -1674,9 +1676,11 @@ of a fault. It is also the obligation that lost its synchronous check when
 `ak_call_debt_of` is what puts that check back, in tests and assertions rather than on the
 hot path, and `BufferEventuallyFreed` is what the model asks of the host in exchange.
 
-A refusal (`AK_STATUS_SLOT_BUSY`) surfaces as backpressure on the write stream; it is not an
-error, and it has exactly one cause - this call's window - so WRITE_DONE is a wake-up the host
-can rely on.
+A refusal (`AK_STATUS_SLOT_BUSY`) is backpressure and not an error, with exactly one
+cause - this call's window - so WRITE_DONE is a wake-up the host can rely on. That is a
+property of the ABI and of level 1, for a host that pipelines deeper: this binding never
+meets it, because a write completes at its WRITE_DONE and the window is therefore always
+open at the next lend (`ManagedWriterNeverObservesSlotBusy`).
 
 **The write machine.** `WriteAsync` is a per-call state machine, and its linearization
 is fixed: **a write completes at its WRITE_DONE**, not at the commit. One writer per
@@ -1704,6 +1708,9 @@ deeper-pipelining host is admitted; a SLOT_BUSY observed by this binding is a de
 it, and the invariant is where that shows. The slot counter and the send signal leave
 `CallState` with the wait.
 
+There is no slot wait on this surface: with a single writer completing at its
+WRITE_DONE, the emission that completes one write has already freed the window, so the
+next lend finds it open - `SLOT_BUSY` is unreachable here and the model says so.
 `MESSAGE_TOO_LARGE` faults the write synchronously and enters no wait: the refusal is
 permanent, retrying it would poll against a constant. Cancellation or dispose resolves
 a waiting writer exceptionally, exactly as they resolve a waiting reader; a write
@@ -1758,7 +1765,7 @@ between the trampoline and the application, this is the *only* thing that keeps 
 native actor free to make progress, so it is a rule and not a preference:
 
 - every `TaskCompletionSource` is built with `RunContinuationsAsynchronously`;
-- `RingSignal` and `SendSignal` are latched auto-reset signals whose `Set` never runs a
+- `RingSignal` is a latched auto-reset signal whose `Set` never runs a
   waiter inline - `ManualResetValueTaskSourceCore<bool>` with
   `RunContinuationsAsynchronously = true`, or a `TaskCompletionSource`-based
   `AsyncAutoResetEvent` where that type is unavailable;
@@ -1772,19 +1779,25 @@ is what matters: a `Set` with no waiter must be remembered, or the window betwee
 the ring empty and arming the wait loses the event.
 
 ```csharp
-private bool TryTake(out Slot slot)
+private bool TryPeek(out Slot slot)
 {
     if (Volatile.Read(ref _head) == _tail) { slot = default; return false; }
-    slot = _ring[(int)(_tail & _mask)];   // copied out: the actor may reuse it at once
-    _tail++;
-    return true;
+    slot = _ring[(int)(_tail & _mask)];   // borrowed: the payload is still the runtime's
+    return true;                          // _tail does NOT move here
 }
 
-private async ValueTask<Slot> TakeAsync(CancellationToken ct)
+// The tail advances with the release, never before it: _tail is exactly
+// the runtime's consumed count, which is what lets the model read the
+// ring's tail straight off payloads_consumed_by_host.  Moving it at the
+// copy would put the managed index one ahead for the whole parse and
+// make that mapping false.
+private async ValueTask<T> ReadNextAsync<T>(Func<Slot, T> parse,
+                                            CancellationToken ct)
 {
-    while (!TryTake(out var slot))
+    while (!TryPeek(out var slot))
         await _ringSignal.WaitAsync(ct);
-    return slot;
+    try     { return parse(slot); }        // decode under the borrow
+    finally { ak_event_consumed(slot.Payload.owner); _tail++; }
 }
 ```
 
@@ -2528,6 +2541,16 @@ the lease.  `BeginRuntimeShutdown` fires only when every lease is gone, then
 `FinishDisposeRuntime`, then `FreeRuntimeRoot` - which re-arms the factory to `absent`,
 so the next channel materializes a fresh generation.
 
+**The reader ends.** A consumed terminal leaves the reader finished, and every later
+`MoveNext` answers false at once, as `IAsyncStreamReader` requires - it never waits for
+anything, and nothing in the model represents such a call because it touches no state.
+A finished reader holds nothing, so the drain takes the ring from it as it would from an
+idle one; only a parse in flight or a suspended `MoveNext` makes the drain wait.
+That is also why "every call is disposed in the end" is stated as the application's
+obligation rather than derived: an application looping on a false answer would satisfy a
+read-or-dispose disjunction forever without disposing, so the model asks for the dispose
+directly, as the API does.
+
 **The reader, precisely.** `BeginMoveNext` commits the read whether or not a payload
 exists; `BeginParse` wakes it when a payload arrives and only while the call is still
 active - a dispose that linearized first wins the race, and the waiter then resolves
@@ -2597,6 +2620,15 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
 - **RetryLenMatchesWait**: the remembered length exists exactly while the wait does
 - **DisposeAwaitsDestroy**: the teardown reaching `destroyed` means `ak_runtime_destroy`
   returned for the **current** generation
+- **RuntimeManagerCoherent**: a materialized generation has an identity and a root, an
+  absent one has neither - the manager never claims a runtime it does not hold
+- **LiveChannelUsesCurrentRuntime**: a live channel hangs off the current generation,
+  never an earlier destroyed one
+- **ManagedShutdownHasNoHostDebt**: the shutdown never owes the second event. Every call
+  is settled before its channel releases, and every channel releases before the
+  teardown, so `SHUTDOWN_COMPLETE` finds no host debt and
+  `AK_EVENT_RESOURCES_RELEASED` is unreachable at this level - the level-1 machinery
+  stays modelled and passed through for the refinement
 - **LiveChannelKeepsRuntimeAlive**: a channel holding a lease keeps the runtime
   materialized - a channel is never left pointing at a torn-down runtime
 - **NoRuntimeShutdownWhileLeased**: the native shutdown never starts while any lease is
@@ -2627,10 +2659,16 @@ way out, and no termination is guaranteed past a failure.
 - **PendingWriteEventuallySettled**: a write that reached the buffer settles - it
   commits or aborts, and a committed one completes at its WRITE_DONE, which level 1
   guarantees before the terminal
+- **ChannelConstructionCompletes**: a constructor that began completes - the channel
+  reaches its exposed state, unless the runtime failed under it
 - **CallDisposeCompletes**: a disposed call settles - the drain reaches the terminal,
   releases everything and resolves the status
-- **ChannelDisposeCompletes**: a disposed channel settles - its calls, its handle, its
-  lease
+- **ChannelLeaseEventuallyReleased**: a disposing channel gives its lease back - its
+  calls settled, its handle released
+- **ChannelDisposeCompletes**: the public `DisposeAsync` task completes. For a channel
+  that was not the last holder it completes with its own release; for the last one it
+  waits for the destroy it triggered, which is what its task promised - and
+  `LastChannelDisposeAwaitsDestroy`, an action theorem, is that ordering made citable
 - **RuntimeDisposeCompletes**: a teardown that began completes - destroy, then the root,
   then the factory re-armed
 - **CallRootEventuallyFreed / RuntimeRootEventuallyFreed**: every allocated root dies -

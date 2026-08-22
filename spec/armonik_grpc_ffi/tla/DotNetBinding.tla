@@ -60,12 +60,12 @@ RingOccupancy(cId) == RingHead(cId) - RingTail(cId)
 RingDrained(cId) == RingTail(cId) = RingHead(cId)
 
 ConsumerPhases == {"prologue", "application", "drain", "done"}
-ReaderStates == {"idle", "waiting", "parsing"}
+ReaderStates == {"idle", "waiting", "parsing", "finished"}
 WriterStates == {"idle", "serializing", "waiting_budget",
                  "awaiting_write_done", "closed"}
 CallDisposeStates == {"active", "draining", "disposed"}
 ChannelDisposeStates == {"unopened", "constructing", "active", "disposing",
-                         "disposed"}
+                         "released", "disposed"}
 RuntimeDisposeStates == {"absent", "active", "destroying", "destroyed"}
 HeadersCompletions == {"pending", "succeeded", "failed"}
 StatusCompletions == {"pending", "resolved"}
@@ -75,12 +75,25 @@ StatusCompletions == {"pending", "resolved"}
 \* heterogeneous, which TLC cannot compare.
 NoRetryLen == Ceiling + 2
 
-\* A settled channel holds no lease.  "The last reference released" is
-\* this set being every channel - derived, never counted.
+\* A settled channel holds no lease: it never opened, or it released.
+\* "The last reference released" is this set being every channel -
+\* derived, never counted.  Releasing the lease and completing the
+\* public DisposeAsync are two steps: a channel that released is
+\* "released", and becomes "disposed" - its task complete - only when
+\* nothing is owed to it any more, which for the last releaser means
+\* after ak_runtime_destroy returned.
 ChannelSettled(chId) ==
-    channel_dispose_state[chId] \in {"unopened", "disposed"}
+    channel_dispose_state[chId] \in {"unopened", "released", "disposed"}
 
 AllLeasesReleased == \A chId \in ChannelIds : ChannelSettled(chId)
+
+\* A released channel's task may complete: either some other channel
+\* still holds a lease - so this one was not the last and owes nothing
+\* more - or the generation it released has finished tearing down.
+ChannelDisposeMayResolve(chId) ==
+    /\ channel_dispose_state[chId] = "released"
+    /\ \/ ~AllLeasesReleased
+       \/ runtime_dispose_state \in {"destroyed", "absent"}
 
 \* The binding downcalls on a call only while neither the call nor the
 \* runtime is being torn down.  The channel downcalls carry their own
@@ -205,7 +218,21 @@ FinishDisposeChannel(chId) ==
        \/ /\ channel_state[chId] \in {"closing", "closed"}
           /\ UNCHANGED l1_vars
     /\ channel_dispose_state' =
+           [channel_dispose_state EXCEPT ![chId] = "released"]
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime, runtime_dispose_state,
+                   consumer_phase, reader_state, writer_state, retry_len,
+                   headers_completion, status_completion,
+                   call_dispose_state>>
+
+\* The public DisposeAsync completes.  For a channel that was not the
+\* last it completes with its own release; for the last one it waits for
+\* the destroy it triggered, which is what its task promised.
+ResolveChannelDispose(chId) ==
+    /\ ChannelDisposeMayResolve(chId)
+    /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "disposed"]
+    /\ UNCHANGED l1_vars
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
@@ -314,11 +341,18 @@ ConsumingTerminal(cId) ==
 
 \* The parse completes: the consumer decodes the slot - status and
 \* trailers included when it is the terminal - resolves what it answers,
-\* then releases it.  ak_event_consumed under the reader's right.
+\* then releases it.  ak_event_consumed under the reader's right.  A
+\* consumed terminal leaves the reader finished, which is what makes
+\* every later MoveNext return false at once: the stream is over, so no
+\* further read waits for anything, and none appears in this model - a
+\* false answer touches no state, managed or native.
 FinishConsumePayload(cId) ==
     /\ reader_state[cId] = "parsing"
     /\ F!HostConsumesEvent(cId)
-    /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
+    /\ reader_state' =
+           [reader_state EXCEPT
+                ![cId] = IF ConsumingTerminal(cId) THEN "finished"
+                         ELSE "idle"]
     /\ status_completion' =
            [status_completion EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
@@ -341,11 +375,13 @@ CancelWaiter(cId) ==
                    headers_completion, status_completion,
                    call_dispose_state>>
 
-\* The drain takes the ring once the reader is idle.
+\* The drain takes the ring once no read is outstanding - idle, or
+\* finished on the consumed terminal.  Both hold nothing; only a parse in
+\* flight or a suspended MoveNext makes the drain wait.
 HandoffToDrain(cId) ==
     /\ call_dispose_state[cId] = "draining"
     /\ consumer_phase[cId] \in {"prologue", "application"}
-    /\ reader_state[cId] = "idle"
+    /\ reader_state[cId] \in {"idle", "finished"}
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "drain"]
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -633,6 +669,7 @@ Next ==
            \/ CreateChannel(chId)
            \/ BeginDisposeChannel(chId)
            \/ FinishDisposeChannel(chId)
+           \/ ResolveChannelDispose(chId)
     \/ \E rtId \in RuntimeIds :
            \/ BeginRuntimeShutdown(rtId)
            \/ FinishDisposeRuntime(rtId)
@@ -717,15 +754,24 @@ BindingOwedFairness ==
     /\ \A cId \in CallIds : WF_vars(SerializationSettles(cId))
     /\ \A chId \in ChannelIds : WF_vars(CreateChannel(chId))
     /\ \A chId \in ChannelIds : WF_vars(FinishDisposeChannel(chId))
+    /\ \A chId \in ChannelIds : WF_vars(ResolveChannelDispose(chId))
     /\ \A rtId \in RuntimeIds : WF_vars(BeginRuntimeShutdown(rtId))
     /\ \A rtId \in RuntimeIds : WF_vars(FinishDisposeRuntime(rtId))
     /\ WF_vars(FreeRuntimeRoot)
 
-\* The application's single obligation, per call: begin the next read or
-\* dispose.  Disposing every call it created is the normative half.
+\* What the application owes, per call, in two conjuncts.  The first is
+\* progression while the stream runs: read the next response or dispose.
+\* The second is the API's normative rule, stated as the hypothesis it
+\* is - dispose every call you created - and NOT derived from the first:
+\* once the stream is finished every MoveNext returns false at once, so
+\* an application looping on it would satisfy a disjunction forever
+\* without ever disposing.  PublishedCallEventuallyDisposed rests on
+\* this conjunct, which is why it is an obligation the binding requires
+\* rather than a guarantee it manufactures.
 ApplicationOwedFairness ==
-    \A cId \in CallIds :
-        WF_vars(BeginMoveNext(cId) \/ BeginDisposeCall(cId))
+    /\ \A cId \in CallIds :
+           WF_vars(BeginMoveNext(cId) \/ BeginDisposeCall(cId))
+    /\ \A cId \in CallIds : WF_vars(BeginDisposeCall(cId))
 
 Fairness ==
     /\ RuntimeOwedFairness
@@ -782,7 +828,7 @@ AtMostOneReaderOutstanding ==
 DrainNeverOverlapsApplicationConsumer ==
     \A cId \in CallIds :
         consumer_phase[cId] \in {"drain", "done"} =>
-            reader_state[cId] = "idle"
+            reader_state[cId] \in {"idle", "finished"}
 
 \* A waiting writer holds no lent buffer; the serializing one holds
 \* exactly the one it was lent - waiting while holding is the deadlock
@@ -826,6 +872,29 @@ DisposeAwaitsDestroy ==
         /\ current_runtime # "none"
         /\ runtime_destroyed[current_runtime]
 
+\* The manager's own state is coherent: a materialized generation has an
+\* identity and a root, an absent one has neither.
+RuntimeManagerCoherent ==
+    /\ (runtime_dispose_state = "absent")
+           <=> (current_runtime = "none" /\ ~runtime_root_live)
+    /\ (runtime_dispose_state # "absent")
+           => (current_runtime \in RuntimeIds /\ runtime_root_live)
+
+\* A live channel hangs off the current generation, never an earlier
+\* destroyed one.
+LiveChannelUsesCurrentRuntime ==
+    \A chId \in ChannelIds :
+        channel_dispose_state[chId] \in {"active", "disposing"} =>
+            /\ current_runtime \in RuntimeIds
+            /\ channel_runtime[chId] = current_runtime
+
+\* The level-2 dispose discipline settles every debt before the last
+\* release, so the shutdown never owes the second event: the runtime
+\* finds no host debt when it latches the tag.
+ManagedShutdownHasNoHostDebt ==
+    \A rtId \in RuntimeIds :
+        shutdown_event_emitted[rtId] => ~second_event_owed[rtId]
+
 \* A channel with a live lease keeps the runtime alive.
 LiveChannelKeepsRuntimeAlive ==
     \A chId \in ChannelIds :
@@ -851,7 +920,7 @@ ChannelStateMatchesNative ==
 DisposeLeavesNoManagedWaiter ==
     \A cId \in CallIds :
         call_dispose_state[cId] = "disposed" =>
-            /\ reader_state[cId] = "idle"
+            /\ reader_state[cId] \in {"idle", "finished"}
             /\ writer_state[cId] \in {"idle", "closed"}
             /\ headers_completion[cId] # "pending"
             /\ status_completion[cId] = "resolved"
@@ -883,6 +952,13 @@ PendingWriteEventuallySettled ==
         writer_state[cId] \in {"serializing", "awaiting_write_done"} ~>
             (writer_state[cId] \in {"idle", "closed"} \/ ~F!L0!NotFailed)
 
+\* A constructor that began completes: the channel reaches its exposed
+\* state, unless the runtime failed under it.
+ChannelConstructionCompletes ==
+    \A chId \in ChannelIds :
+        channel_dispose_state[chId] = "constructing" ~>
+            (channel_dispose_state[chId] = "active" \/ ~F!L0!NotFailed)
+
 \* A disposed call settles, a disposing channel settles, the teardown
 \* completes - each unless the runtime failed.
 CallDisposeCompletes ==
@@ -890,6 +966,14 @@ CallDisposeCompletes ==
         call_dispose_state[cId] = "draining" ~>
             (call_dispose_state[cId] = "disposed" \/ ~F!L0!NotFailed)
 
+ChannelLeaseEventuallyReleased ==
+    \A chId \in ChannelIds :
+        channel_dispose_state[chId] = "disposing" ~>
+            (ChannelSettled(chId) \/ ~F!L0!NotFailed)
+
+\* The public task completes: for the last releaser only after the
+\* destroy it triggered returned, which is the contract DisposeAsync
+\* states.
 ChannelDisposeCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "disposing" ~>
@@ -897,8 +981,7 @@ ChannelDisposeCompletes ==
 
 RuntimeDisposeCompletes ==
     (runtime_dispose_state = "destroying") ~>
-        (runtime_dispose_state \in {"destroyed", "absent"}
-             \/ ~F!L0!NotFailed)
+        (runtime_dispose_state = "absent" \/ ~F!L0!NotFailed)
 
 \* Every allocated root dies: the call's at its terminal callback, the
 \* generation's after destroy - the factory then re-arms.
@@ -915,7 +998,8 @@ RuntimeRootEventuallyFreed ==
 \* hypothesis that user parsing terminates.
 InFlightPayloadEventuallyReleased ==
     \A cId \in CallIds :
-        reader_state[cId] = "parsing" ~> reader_state[cId] = "idle"
+        reader_state[cId] = "parsing" ~>
+            reader_state[cId] \in {"idle", "finished"}
 
 \* A waiter is resolved by payload or dispose, never abandoned.
 WaitingReaderEventuallyResolved ==
@@ -923,10 +1007,10 @@ WaitingReaderEventuallyResolved ==
         reader_state[cId] = "waiting" ~>
             (reader_state[cId] # "waiting" \/ ~F!L0!NotFailed)
 
-\* Every published call is disposed in the end: tokens are finite and
-\* globally unique, so the reads dry up and the application's fairness
-\* has only the dispose left - EventualTerminal, the delivery fairness
-\* and the application conjunct carry the proof together.
+\* Every published call is disposed in the end.  This rests on the
+\* application's normative dispose conjunct, not on the reads drying up:
+\* a finished stream answers MoveNext immediately, so no amount of
+\* reading can stand in for the dispose the API requires.
 PublishedCallEventuallyDisposed ==
     \A cId \in CallIds :
         call_token_published[cId] ~>

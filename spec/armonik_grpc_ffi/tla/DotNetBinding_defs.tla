@@ -29,6 +29,9 @@ ManagedSafety ==
     /\ ManagedWriterNeverObservesSlotBusy
     /\ RetryLenMatchesWait
     /\ DisposeAwaitsDestroy
+    /\ RuntimeManagerCoherent
+    /\ LiveChannelUsesCurrentRuntime
+    /\ ManagedShutdownHasNoHostDebt
     /\ LiveChannelKeepsRuntimeAlive
     /\ NoRuntimeShutdownWhileLeased
     /\ ChannelStateMatchesNative
@@ -41,6 +44,8 @@ ManagedLiveness ==
     /\ BudgetCancellationStopsRetry
     /\ PendingWriteEventuallySettled
     /\ CallDisposeCompletes
+    /\ ChannelConstructionCompletes
+    /\ ChannelLeaseEventuallyReleased
     /\ ChannelDisposeCompletes
     /\ RuntimeDisposeCompletes
     /\ CallRootEventuallyFreed
