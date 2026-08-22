@@ -32,7 +32,10 @@ done
 for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          AbstractGrpcTheorems.tla AbstractGrpc_MC.tla \
          FfiGrpcState.tla FfiGrpc.tla FfiGrpc_defs.tla \
-         FfiGrpcTheorems.tla FfiGrpc_MC.tla; do
+         FfiGrpcTheorems.tla FfiGrpc_MC.tla \
+         DotNetBindingState.tla DotNetBinding.tla \
+         DotNetBinding_defs.tla DotNetBindingTheorems.tla \
+         DotNetBinding_MC.tla DotNetBinding_MCdirected.tla; do
   out=$(java -cp "$TLA2TOOLS" tla2sany.SANY "$m" 2>&1)
   # Positive evidence, not the absence of an error word: a launcher failure
   # matches no error pattern, and reporting that as clean is worse than no

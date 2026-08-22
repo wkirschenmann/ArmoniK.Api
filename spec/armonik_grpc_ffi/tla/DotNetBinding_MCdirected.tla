@@ -8,7 +8,7 @@
 (* Run with -coverage 1 and read the action counts.                        *)
 (***************************************************************************)
 
-EXTENDS DotNetBinding, TLC
+EXTENDS DotNetBinding_defs, TLC
 
 (***************************************************************************)
 (* FINITE EXPLORATION BOUND                                                *)
