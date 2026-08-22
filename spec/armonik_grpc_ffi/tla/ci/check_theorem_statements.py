@@ -24,6 +24,7 @@ TLA = os.path.dirname(HERE)
 
 PAIRS = [
     ("FfiGrpcTheorems.tla", "FfiGrpcTheorems_proofs.tla"),
+    ("FfiGrpcEnabledTheorems.tla", "FfiGrpcEnabledTheorems_proofs.tla"),
     ("AbstractGrpcTheorems.tla", "AbstractGrpcTheorems_proofs.tla"),
 ]
 

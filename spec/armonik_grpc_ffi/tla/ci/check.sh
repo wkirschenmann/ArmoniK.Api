@@ -32,7 +32,7 @@ done
 for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          AbstractGrpcTheorems.tla AbstractGrpc_MC.tla \
          FfiGrpcState.tla FfiGrpc.tla FfiGrpc_defs.tla \
-         FfiGrpcTheorems.tla FfiGrpc_MC.tla \
+         FfiGrpcTheorems.tla FfiGrpcEnabledTheorems.tla FfiGrpc_MC.tla \
          DotNetBindingState.tla DotNetBinding.tla \
          DotNetBinding_defs.tla DotNetBindingTheorems.tla \
          DotNetBinding_MC.tla DotNetBinding_MCdirected.tla \

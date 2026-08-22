@@ -24,6 +24,7 @@ TLA = os.path.dirname(HERE)
 
 MODULES = [
     "FfiGrpcTheorems_proofs.tla",
+    "FfiGrpcEnabledTheorems_proofs.tla",
     "AbstractGrpcTheorems_proofs.tla",
 ]
 

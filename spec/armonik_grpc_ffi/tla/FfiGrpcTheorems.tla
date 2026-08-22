@@ -108,47 +108,6 @@ THEOREM DestroyedRuntimeRejectsHandles ==
                  ~RefuseLendForBudget(cId, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
 
-\* The refusal statuses are not dead letters.  TLAPS proves that a dead
-\* action preserves everything, so each status carries its own enabledness
-\* obligation: at any eligible state, the refusal whose guard holds is a
-\* step the model can take.  MESSAGE_TOO_LARGE exhibits its own witness -
-\* one length above the ceiling always exists and is never lendable; the
-\* other two are enabled whenever the state their guard describes arises.
-THEOREM TooLargeRefusalEnabled ==
-    ASSUME NEW cId \in CallIds,
-           L0!IsActiveCall(cId),
-           ~IsHandleReleased(cId),
-           ~IsCancelRequested(cId),
-           HostHoldsNoBuffer(cId)
-    PROVE  /\ Ceiling + 1 \in RequestLengths
-           /\ ~IsLendable(Ceiling + 1)
-           /\ ENABLED RefuseLendTooLarge(cId, Ceiling + 1)
-
-THEOREM SlotRefusalEnabled ==
-    ASSUME NEW cId \in CallIds,
-           L0!IsActiveCall(cId),
-           ~IsHandleReleased(cId),
-           ~IsCancelRequested(cId),
-           HostHoldsNoBuffer(cId),
-           ~HasFreeSendSlot(cId)
-    PROVE  /\ 0 \in Sizes
-           /\ IsLendable(0)
-           /\ ENABLED RefuseLendForSlot(cId, 0)
-
-THEOREM BudgetRefusalEnabled ==
-    ASSUME NEW cId \in CallIds,
-           NEW len \in Sizes,
-           NEW charge \in CandidateCharges,
-           L0!IsActiveCall(cId),
-           ~IsHandleReleased(cId),
-           ~IsCancelRequested(cId),
-           HostHoldsNoBuffer(cId),
-           HasFreeSendSlot(cId),
-           IsLendable(len),
-           CoversRequest(charge, len),
-           ~IsMemoryAvailable(charge)
-    PROVE  ENABLED RefuseLendForBudget(cId, len, charge)
-
 (***************************************************************************)
 (* REFINEMENT - the step half                                              *)
 (***************************************************************************)

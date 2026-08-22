@@ -41,6 +41,14 @@
 
 EXTENDS DotNetBindingState, Naturals, Sequences
 
+\* The instance reaches level 1's theorems as well as its definitions.
+\* What it must not reach is a theorem whose statement WRITES ENABLED:
+\* TLAPS normalizes an instantiated module's statements eagerly, and the
+\* ENABLED-elimination wrapper belongs to the module where the ENABLED is
+\* written, so a substituted one aborts the prover.  A literal WF is fine
+\* - it is a definition's body once expanded - which is why the three
+\* conditional-enabledness theorems live apart in
+\* FfiGrpcEnabledTheorems, a sibling this instance does not drag in.
 F == INSTANCE FfiGrpcTheorems
 
 l1_vars == F!vars
@@ -765,35 +773,49 @@ RuntimeOwedFairness ==
     /\ \A cId \in CallIds : WF_l1_vars(F!ReleaseCallHandle(cId))
 
 BindingOwedFairness ==
-    \* discharges DeliveryCallbackReturns; true: publish a slot and return
-    /\ \A cId \in CallIds : WF_vars(OnEventReturns(cId))
-    \* the same, and frees the root; true: the same bounded work
-    /\ \A cId \in CallIds : WF_vars(TerminalCallbackReturns(cId))
-    \* discharges WriteDoneReturns, completing the write; true: a counter
-    \* and a signal, no user code on the callback thread
-    /\ \A cId \in CallIds : WF_vars(WriteDoneCompletes(cId))
-    \* discharges ShutdownCallbackReturns; true: nothing but a signal
-    /\ \A rtId \in RuntimeIds : WF_vars(ShutdownReturns(rtId))
-    \* discharges the second callback's return; true: the same
-    /\ \A rtId \in RuntimeIds : WF_vars(ResourcesReleasedReturns(rtId))
-    \* resolves the headers and hands the ring over; true: the binding's
-    \* own bounded prologue, no application code inside it
-    /\ \A cId \in CallIds : WF_vars(ConsumeHeader(cId))
+    \* THE SIX HOST HYPOTHESES, in level 1's own tuple.  Stated this way
+    \* on purpose: a weak fairness over l1_vars is what F!Fairness asks
+    \* for, so the discharge is a citation and no enabling bridge is
+    \* needed - and none could be built, TLAPS being unable to expand an
+    \* ENABLED whose action reaches through an instance.  Nothing is
+    \* weakened: each of these level-1 actions occurs in this model only
+    \* inside the coupled action named beside it, which does the managed
+    \* half in the same step, so demanding the level-1 action demands the
+    \* whole step.
+    \* OnEventReturns and TerminalCallbackReturns: the trampoline returns
+    \* after bounded work, the terminal one freeing the root as it goes
+    /\ \A cId \in CallIds :
+           WF_l1_vars(F!DeliveryCallbackReturns(cId))
+    \* WriteDoneCompletes: a counter and a signal, then the write's task
+    /\ \A cId \in CallIds : WF_l1_vars(F!WriteDoneReturns(cId))
+    \* ShutdownReturns: nothing but a signal
+    /\ \A rtId \in RuntimeIds : WF_l1_vars(F!ShutdownCallbackReturns(rtId))
+    \* ResourcesReleasedReturns: the same, for the event this level never
+    \* owes
+    /\ \A rtId \in RuntimeIds :
+           WF_l1_vars(F!ResourcesReleasedCallbackReturns(rtId))
+    \* ConsumeHeader, FinishConsumePayload, DrainRelease: whichever of the
+    \* three the phase admits releases the slot - the last two under the
+    \* stated hypothesis that user parsing terminates
+    /\ \A cId \in CallIds : WF_l1_vars(F!HostConsumesEvent(cId))
+    \* WriteAborted: the disposable wrapper gives the buffer back, on the
+    \* serializing state's exception path as on its refusal path - and
+    \* serializing is the only state that holds one, so this is the only
+    \* return there is
+    /\ \A cId \in CallIds, b \in BufferIds :
+           WF_l1_vars(F!HostReturnsBuffer(cId, b))
+
+    \* THE BINDING'S OWN MACHINERY, in this level's tuple: steps that move
+    \* managed state, so nothing below asks for them and only this level
+    \* can promise them.
     \* wakes a suspended MoveNext once a payload exists; true: the TCS
     \* completion is the binding's, and the pool runs it
     /\ \A cId \in CallIds : WF_vars(BeginParse(cId))
-    \* releases the slot, discharging HostConsumesEvent; true: only under
-    \* the stated hypothesis that user parsing terminates
-    /\ \A cId \in CallIds : WF_vars(FinishConsumePayload(cId))
     \* resolves a waiter caught by a dispose; true: the binding cancels it
     /\ \A cId \in CallIds : WF_vars(CancelWaiter(cId))
     \* gives the drain the ring, without which a dispose cannot end;
     \* true: the binding's own step once no read is outstanding
     /\ \A cId \in CallIds : WF_vars(HandoffToDrain(cId))
-    \* releases what the application abandoned, discharging
-    \* HostConsumesEvent on the dispose path; true: the drain runs no user
-    \* code, so nothing can stall it
-    /\ \A cId \in CallIds : WF_vars(DrainRelease(cId))
     \* the call reaches disposed, so its channel may release its lease;
     \* true: the binding's own step once the drain and writer are settled
     /\ \A cId \in CallIds : WF_vars(FinishDisposeCall(cId))
@@ -802,9 +824,8 @@ BindingOwedFairness ==
     \* resolves a writer caught by a cancel or a dispose; true: the
     \* binding faults the pending write, it waits for nothing
     /\ \A cId \in CallIds : WF_vars(CancelWriterWait(cId))
-    \* the lent buffer goes back or the send commits, which is how
-    \* HostReturnsBuffer is discharged; true: the disposable wrapper
-    \* covers success and exception, under the marshaller hypothesis
+    \* the serializing state ends, by commit or by the wrapper's abort;
+    \* true: under the stated hypothesis that the marshaller terminates
     /\ \A cId \in CallIds : WF_vars(SerializationSettles(cId))
     \* a constructor that began completes; true: one downcall, no wait
     /\ \A chId \in ChannelIds : WF_vars(CreateChannel(chId))
@@ -814,8 +835,7 @@ BindingOwedFairness ==
     \* the public DisposeAsync task completes; true: the binding's own
     \* step as soon as its guard holds
     /\ \A chId \in ChannelIds : WF_vars(ResolveChannelDispose(chId))
-    \* the teardown starts at the last release; true: the binding's own
-    \* downcall, and level 1 owes the drain it waits on
+    \* the teardown starts at the latch; true: the binding's own downcall
     /\ \A rtId \in RuntimeIds : WF_vars(BeginRuntimeShutdown(rtId))
     \* destroy returns, which is what dispose promised; true: the
     \* binding's own downcall once the runtime reached quiescence

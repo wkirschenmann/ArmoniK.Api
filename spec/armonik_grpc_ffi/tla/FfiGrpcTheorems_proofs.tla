@@ -2048,59 +2048,6 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 <1>95. QED
     BY <1>3, <1>6, <1>7, <1>75, <1>8, <1>9
 
-THEOREM TooLargeRefusalEnabled ==
-    ASSUME NEW cId \in CallIds,
-           L0!IsActiveCall(cId),
-           ~IsHandleReleased(cId),
-           ~IsCancelRequested(cId),
-           HostHoldsNoBuffer(cId)
-    PROVE  /\ Ceiling + 1 \in RequestLengths
-           /\ ~IsLendable(Ceiling + 1)
-           /\ ENABLED RefuseLendTooLarge(cId, Ceiling + 1)
-<1>1. Ceiling + 1 \in RequestLengths /\ ~IsLendable(Ceiling + 1)
-    BY CeilingIsPositive, SMT DEF RequestLengths, IsLendable
-<1>2. ENABLED RefuseLendTooLarge(cId, Ceiling + 1)
-    BY CeilingIsPositive, ExpandENABLED, SMT
-    DEF RefuseLendTooLarge, ContemplatesLend, IsLendable,
-        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
-<1>3. QED BY <1>1, <1>2
-
-THEOREM SlotRefusalEnabled ==
-    ASSUME NEW cId \in CallIds,
-           L0!IsActiveCall(cId),
-           ~IsHandleReleased(cId),
-           ~IsCancelRequested(cId),
-           HostHoldsNoBuffer(cId),
-           ~HasFreeSendSlot(cId)
-    PROVE  /\ 0 \in Sizes
-           /\ IsLendable(0)
-           /\ ENABLED RefuseLendForSlot(cId, 0)
-<1>1. 0 \in Sizes /\ IsLendable(0)
-    BY CeilingIsPositive, SMT DEF Sizes, IsLendable
-<1>2. ENABLED RefuseLendForSlot(cId, 0)
-    BY CeilingIsPositive, ExpandENABLED, SMT
-    DEF RefuseLendForSlot, ContemplatesLend, IsLendable,
-        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
-<1>3. QED BY <1>1, <1>2
-
-THEOREM BudgetRefusalEnabled ==
-    ASSUME NEW cId \in CallIds,
-           NEW len \in Sizes,
-           NEW charge \in CandidateCharges,
-           L0!IsActiveCall(cId),
-           ~IsHandleReleased(cId),
-           ~IsCancelRequested(cId),
-           HostHoldsNoBuffer(cId),
-           HasFreeSendSlot(cId),
-           IsLendable(len),
-           CoversRequest(charge, len),
-           ~IsMemoryAvailable(charge)
-    PROVE  ENABLED RefuseLendForBudget(cId, len, charge)
-<1>1. QED
-    BY ExpandENABLED, SMT
-    DEF RefuseLendForBudget, ContemplatesLend,
-        l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
-
 LEMMA DeliveryReturnTransfers ==
     ASSUME NEW cId \in CallIds, TypeOK, DeliveryCallbackReturns(cId)
     PROVE  \A c \in CallIds :
