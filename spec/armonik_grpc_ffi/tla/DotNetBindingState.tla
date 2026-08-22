@@ -9,25 +9,20 @@
 (*                                                                         *)
 (* No new constants.  The managed side adds discipline, not capacity: the  *)
 (* pipelining depths, the byte ceiling and the identity spaces are the     *)
-(* ABI's and arrived at level 1.  The retry cadence is deliberately not a  *)
-(* constant - no property of the model reads it, and the retry liveness    *)
-(* is conditional on cancellation, not on time.                            *)
+(* ABI's and arrived at level 1.  Generations of the reusable runtime are  *)
+(* bounded by the finite RuntimeIds and reopened channels by the finite    *)
+(* ChannelIds - modelling bounds, like BufferIds.                          *)
 (*                                                                         *)
 (* The ring is deliberately NOT here.  Both of its indexes are level-1     *)
 (* state read through level-2 names: the trampoline publishes inside the   *)
 (* delivery callback, so the published prefix IS events_delivered and the  *)
 (* head is its length; a release is ak_event_consumed, so the tail IS      *)
-(* payloads_consumed_by_host.  One counter standing for the outstanding    *)
-(* set is also what makes release order structural: advancing a counter    *)
-(* can only release the oldest.  What level 2 adds about the ring is who   *)
-(* consumes it: the phase machine and the reader below.                    *)
+(* payloads_consumed_by_host.  Advancing a counter can only release the    *)
+(* oldest, which is release order held by representation.                  *)
 (*                                                                         *)
-(* The construction boundary is deliberately atomic: the concrete          *)
-(* constructors allocate the root, perform the native create or start,     *)
-(* and only then return the object, all before any other thread can see    *)
-(* it - so root allocation and the native downcall are one step here       *)
-(* (CreateRuntime, StartCall), and no state exists in which an allocated   *)
-(* object is not yet exposed.                                              *)
+(* Call ownership is not here either: call_channel, the level-0 relation,  *)
+(* already says which channel a call belongs to, and the channel is the    *)
+(* unit of borrowing - a CallInvoker is a stateless view over it.          *)
 (***************************************************************************)
 
 EXTENDS FfiGrpcState
@@ -44,43 +39,77 @@ VARIABLES
     runtime_root_live,      \* BOOLEAN: the shared RuntimeState's GC root
 
     (***********************************************************************)
+    (* The shared runtime, by generation.  The factory materializes it     *)
+    (* with the first channel, tears it down when the last lease goes,     *)
+    (* and may materialize a fresh generation afterwards: the identity of  *)
+    (* the current one is state, so teardown promises attach to it and    *)
+    (* not to some earlier destroyed generation.                           *)
+    (***********************************************************************)
+    current_runtime,        \* RuntimeIds \union {"none"}
+    runtime_dispose_state,  \* {"absent", "active", "destroying",
+                            \*  "destroyed"} - absent means no runtime is
+                            \* materialized; FreeRuntimeRoot re-arms to it
+
+    (***********************************************************************)
+    (* The channels, each holding a lease on the runtime.  A channel is    *)
+    (* the object the application creates and disposes; constructing       *)
+    (* covers the window between the factory's materialization and the     *)
+    (* channel's own ak_channel_create, invisible outside the constructor. *)
+    (* "Last lease released" is derived: every channel is unopened or      *)
+    (* disposed.                                                           *)
+    (***********************************************************************)
+    channel_dispose_state,  \* [ChannelIds -> {"unopened", "constructing",
+                            \*                 "active", "disposing",
+                            \*                 "disposed"}]
+
+    (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)
-    (* the ring - the header prologue, the application, the drain.  The    *)
-    (* reader says what the application's read is doing: idle, waiting on  *)
-    (* an empty ring (a suspended MoveNext), or parsing a taken slot.      *)
-    (* One value per call is the single-reader contract of                 *)
-    (* IAsyncStreamReader made structural: a second concurrent MoveNext    *)
-    (* is unrepresentable, exactly as the API forbids it.                  *)
+    (* the ring; the reader says what the application's read is doing -    *)
+    (* idle, waiting on an empty ring (a suspended MoveNext), or parsing   *)
+    (* a taken slot.  One value per call is IAsyncStreamReader's           *)
+    (* single-read contract made structural.                               *)
     (***********************************************************************)
     consumer_phase,         \* [CallIds -> {"prologue", "application",
                             \*              "drain", "done"}]
     reader_state,           \* [CallIds -> {"idle", "waiting", "parsing"}]
 
     (***********************************************************************)
-    (* The retry protocol.  The state says whether the call waits on the   *)
-    (* budget, and the length says for which request: the wait is entered  *)
-    (* by the budget refusal itself and exits on the successful lend,      *)
-    (* cancellation or dispose.  The wait is cancellable, nothing more:    *)
-    (* no repetition of attempts is promised, no cadence exists.           *)
+    (* The writer.  One value per call is IClientStreamWriter's            *)
+    (* single-writer contract made structural; a write completes at its    *)
+    (* WRITE_DONE, so the .NET surface exercises a native depth of one.    *)
+    (* serializing is the only state that holds a lent buffer.             *)
     (***********************************************************************)
-    retry_state,            \* [CallIds -> {"idle", "awaiting_budget"}]
+    writer_state,           \* [CallIds -> {"idle", "serializing",
+                            \*              "waiting_budget",
+                            \*              "awaiting_write_done",
+                            \*              "closed"}]
     retry_len,              \* [CallIds -> RequestLengths + a sentinel]:
-                            \* the refused request's length, NoRetryLen
-                            \* when not waiting
+                            \* the refused request's length while a wait
+                            \* is in progress, NoRetryLen otherwise
 
     (***********************************************************************)
-    (* Dispose machines.  The call's drives the drain; the runtime's       *)
-    (* starts when the last reference is released, settles the calls       *)
-    (* still open, and only then begins the native shutdown.               *)
+    (* Managed completions.  The public objects that must never be left    *)
+    (* pending: the headers resolve at the prologue or fault at a dispose  *)
+    (* before the metadata; the status is resolved by whoever consumes the *)
+    (* terminal slot - the reader or the drain - which is where its        *)
+    (* payload is decoded.  The writer's completion is writer_state.       *)
     (***********************************************************************)
-    call_dispose_state,     \* [CallIds -> {"active", "draining",
+    headers_completion,     \* [CallIds -> {"pending", "succeeded",
+                            \*              "failed"}]
+    status_completion,      \* [CallIds -> {"pending", "resolved"}]
+
+    (***********************************************************************)
+    (* The call's dispose machine, driving the drain.                      *)
+    (***********************************************************************)
+    call_dispose_state      \* [CallIds -> {"active", "draining",
                             \*              "disposed"}]
-    runtime_dispose_state   \* {"active", "disposing_calls", "destroying",
-                            \*  "destroyed"}
 
 managed_vars == <<call_token_published, call_root_live, runtime_root_live,
+                  current_runtime, runtime_dispose_state,
+                  channel_dispose_state,
                   consumer_phase, reader_state,
-                  retry_state, retry_len,
-                  call_dispose_state, runtime_dispose_state>>
+                  writer_state, retry_len,
+                  headers_completion, status_completion,
+                  call_dispose_state>>
 
 ===============================================================================

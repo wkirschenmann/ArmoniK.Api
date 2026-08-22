@@ -23,22 +23,32 @@ ManagedSafety ==
     /\ ConsumerPhaseMatchesDispose
     /\ AtMostOneReaderOutstanding
     /\ DrainNeverOverlapsApplicationConsumer
-    /\ RetryingCallHoldsNoBuffer
-    /\ RetryOnlyAfterBudgetRefusal
+    /\ WaitingWriterHoldsNoBuffer
+    /\ SerializingWriterHoldsTheBuffer
+    /\ WaitMatchesRefusal
+    /\ ManagedWriterNeverObservesSlotBusy
     /\ RetryLenMatchesWait
     /\ DisposeAwaitsDestroy
+    /\ LiveChannelKeepsRuntimeAlive
+    /\ NoRuntimeShutdownWhileLeased
+    /\ ChannelStateMatchesNative
+    /\ DisposeLeavesNoManagedWaiter
     /\ RingNeverOverflows
 
 \* The managed liveness contract.  Every promise crossing the native
 \* runtime carries the ~NotFailed escape; none rests on a deadline.
 ManagedLiveness ==
     /\ BudgetCancellationStopsRetry
+    /\ PendingWriteEventuallySettled
     /\ CallDisposeCompletes
+    /\ ChannelDisposeCompletes
     /\ RuntimeDisposeCompletes
     /\ CallRootEventuallyFreed
     /\ RuntimeRootEventuallyFreed
     /\ InFlightPayloadEventuallyReleased
     /\ WaitingReaderEventuallyResolved
     /\ PublishedCallEventuallyDisposed
+    /\ HeadersEventuallyResolved
+    /\ StatusEventuallyResolved
 
 ===============================================================================

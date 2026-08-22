@@ -76,7 +76,12 @@ THEOREM ConsumerHandoffPreservesTail ==
 THEOREM BudgetCancellationStopsRetryHolds ==
     Spec => BudgetCancellationStopsRetry
 
+THEOREM PendingWriteEventuallySettledHolds ==
+    Spec => PendingWriteEventuallySettled
+
 THEOREM CallDisposeCompletesHolds == Spec => CallDisposeCompletes
+
+THEOREM ChannelDisposeCompletesHolds == Spec => ChannelDisposeCompletes
 
 THEOREM RuntimeDisposeCompletesHolds == Spec => RuntimeDisposeCompletes
 
@@ -93,6 +98,10 @@ THEOREM WaitingReaderEventuallyResolvedHolds ==
 
 THEOREM PublishedCallEventuallyDisposedHolds ==
     Spec => PublishedCallEventuallyDisposed
+
+THEOREM HeadersEventuallyResolvedHolds == Spec => HeadersEventuallyResolved
+
+THEOREM StatusEventuallyResolvedHolds == Spec => StatusEventuallyResolved
 
 THEOREM ManagedLivenessTheorem == Spec => ManagedLiveness
 

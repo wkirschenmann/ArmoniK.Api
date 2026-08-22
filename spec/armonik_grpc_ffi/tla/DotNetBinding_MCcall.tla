@@ -1,4 +1,4 @@
---------------------------- MODULE DotNetBinding_MC ---------------------------
+--------------------------- MODULE DotNetBinding_MCcall ---------------------------
 (***************************************************************************)
 (* TLC model checking configuration for DotNetBinding.                     *)
 (* Exploration and debugging, not evidence - but during convergence it is  *)
@@ -17,8 +17,18 @@ EXTENDS DotNetBinding_defs, TLC
 \* The managed variables are bounded by the level-0 streams and the finite
 \* phase machines, so bounding the streams is enough for a finite graph.
 StateConstraint ==
-    /\ \A cId \in CallIds : Len(submitted[cId]) <= 2
-    /\ \A cId \in CallIds : Len(received[cId]) <= 2
+    /\ \A cId \in CallIds : Len(submitted[cId]) <= 1
+    /\ \A cId \in CallIds : Len(received[cId]) <= 1
+
+\* The call path, directed: one channel, one runtime, no teardown until
+\* the call is disposed.  Pruning the teardown and the second generation
+\* collapses the graph onto the reader, the writer and the completions -
+\* the actions a blind breadth-first run reaches last.
+CallPathOnly ==
+    runtime_dispose_state = "active" =>
+        \/ \A c \in CallIds : call_dispose_state[c] = "disposed"
+        \/ \A ch \in ChannelIds :
+               channel_dispose_state[ch] # "disposed"
 
 \* Overrides MessageLength: a .cfg constant assignment cannot carry a
 \* function literal.  One byte per message - the ceiling is the subject,
