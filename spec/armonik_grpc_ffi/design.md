@@ -1353,7 +1353,7 @@ retained for replay - and neither has to be traded against the other.
   is released - which the release precondition guarantees is safe. Retained replay bytes are
   the same allocations, held past their WRITE_DONE and bounded separately by
   `max_buffer_size`. Arenas are a natural fit for a pool held by the channel, so the same
-  memory serves every call the channel carries and the steady state costs no allocation.
+  memory serves every call the channel carries and the steady-state fast path allocates nothing the binding controls - no payload, no event object - which is a budget to measure, not an absolute: task completions, scheduling, exception paths and arbitrary marshallers allocate.
 - Receive side: Rust buffers are allocated by Hyper (similar size classes,
   well-managed by jemalloc/system allocator). If fragmentation is measured in production,
   a pool of pre-allocated buffers can be added without ABI change.
@@ -1509,8 +1509,15 @@ every later channel takes a lease on the materialized runtime and creates only i
 ownership being `call_channel`, the level-0 relation - releases its `ak_channel`, then
 its lease; the last lease released is what starts the native shutdown, and only then.
 The runtime is reusable: after a full teardown, the next channel materializes a fresh
-generation. The lease count is the implementation's refcount; the model derives "last"
-from the set of channels not yet settled rather than from a counter.
+generation. The lease count is the implementation's refcount, and the model derives
+"last" from the set of channels not yet settled rather than from a counter. What the code
+must reproduce is not the count but the **latch**: when the count reaches zero, the same
+lock that observed it marks the current generation as no longer acquirable - the model's
+`shutdown_pending` - and only then is the lock released, a strong local reference in hand,
+so shutdown and destroy run outside it. An acquisition arriving afterwards waits for the
+re-arming or creates a fresh generation; it may never take the one whose zero has been
+decided. Deciding the zero and marking it are one step, not two: splitting them is exactly
+the resurrection window the model forbids.
 
 **Dispose is asynchronous, and its task means something.** `NativeGrpcChannel` is
 `IAsyncDisposable`: the task returned by `DisposeAsync` completes once this channel's
@@ -1583,7 +1590,7 @@ private static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* ev
 
 The trampoline is the level-1 callback boundary: it runs on a native thread, and its
 return is what the model calls `DeliveryCallbackReturns` (or `WriteDoneReturns`). Keeping
-it allocation-free and lock-free is not an optimization but the reason the native actor
+it allocation-free on its measured fast path and lock-free is not an optimization but the reason the native actor
 can promise to make progress without the host: the proved liveness assumes the callback
 returns, and nothing else.
 
@@ -2550,6 +2557,20 @@ the lease.  `BeginRuntimeShutdown` fires only when every lease is gone, then
 `FinishDisposeRuntime`, then `FreeRuntimeRoot` - which re-arms the factory to `absent`,
 so the next channel materializes a fresh generation.
 
+**A refused channel creation is not a runtime failure.** `ak_channel_create` performs no
+I/O - connecting is a separate step - so it fails only on a bad configuration
+(`AK_STATUS_INVALID_ARG`), on a runtime handle already gone (`AK_STATUS_HANDLE_STALE`),
+or on a genuine allocation failure (`AK_STATUS_INTERNAL`). Only the third is a failure of
+the runtime, and there the `~NotFailed` escape already covers everything - nothing is
+promised past it. The first two must stay local: a typo in an endpoint cannot be allowed
+to kill the process-wide runtime and every other channel leasing it. So the model carries
+a rollback, `RejectChannelCreation`: the lease goes back, the provisional roots are
+freed, the constructor faults with a configuration error, and if it was the first channel
+the runtime it just materialized is destroyed - its generation retired rather than left
+acquirable. The same principle governs a refused `ak_call_start`: the ABI promises no
+callback for a call that failed to start, so the binding frees the `GCHandle` it prepared
+instead of waiting for a terminal that will never come.
+
 **The reader ends.** A consumed terminal leaves the reader finished, and every later
 `MoveNext` answers false at once, as `IAsyncStreamReader` requires - it never waits for
 anything, and nothing in the model represents such a call because it touches no state.
@@ -2581,16 +2602,47 @@ lend always finds the window open, which `ManagedWriterNeverObservesSlotBusy` st
   the FFI dispatch owe, taken verbatim - same actions, same tuple.  The binding
   restricts none of them, so their extraction from `Spec` toward `F!Fairness` is
   citation, not proof.
-- *Binding-owed* (`BindingOwedFairness`): the callbacks return after bounded work, the
-  waiter wakes or resolves, the drain drains, the hand-off happens, both dispose chains
-  and the whole teardown complete, the constructor finishes, and serialization settles -
-  a disjunction, because whether it commits or aborts is the marshaller's business
-  while *that it settles* is the binding's promise.  These derive the six host conjuncts
-  of `F!Fairness`: the six hypotheses level 1 imposed and could not enforce become
-  theorems here.  Two of them cross user code and carry the one stated hypothesis: user
-  serialization and parsing terminate.  The wrapper covers success and exception;
-  nothing covers code that never comes back.
-- *Application-owed* (`ApplicationOwedFairness`): two weak fairness conjuncts per call.
+- *Binding-owed* (`BindingOwedFairness`), in two halves. The first half is **the six host
+  hypotheses, written in level 1's own tuple**: the four callback returns,
+  `HostConsumesEvent` and `HostReturnsBuffer` as `WF_l1_vars(F!Action)`. That is the
+  shape `F!Fairness` asks for, so the discharge is a citation - and it has to be, because
+  no enabling bridge is constructible at this level: TLAPS cannot expand an `ENABLED`
+  whose action reaches through an instance, as the subsection above records. Nothing is
+  weakened by the shape: each of those level-1 actions occurs in this model only inside
+  the coupled action that does the managed half in the same step, so demanding the
+  level-1 action demands the whole step - the trampoline's return, the slot's release,
+  the buffer's return. Two of the six cross user code and carry the one stated
+  hypothesis: user serialization and parsing terminate; the wrapper covers success and
+  exception, nothing covers code that never comes back. The second half is the binding's
+  own machinery, in this level's tuple, because nothing below asks for it: the waiter
+  wakes or resolves, the hand-off happens, both dispose chains and the whole teardown
+  complete, the constructor finishes, and serialization settles - a disjunction, because
+  whether it commits or aborts is the marshaller's business while *that it settles* is
+  the binding's promise.
+- *Application-owed* (`ApplicationOwedFairness`): one weak fairness conjunct per call -
+  while the response stream is still readable, eventually read from it (or dispose the
+  call early). Nothing at all is asked once the terminal has been consumed: `Dispose` is
+  **not** required for a normally finished call, which is what `Grpc.Core` says of its own
+  `AsyncUnaryCall.Dispose` and its streaming siblings - there, disposing a completed call
+  does nothing, and the method carries the meaning of *early cancellation*. A model that
+  demanded it would prove a discipline stricter than the API it implements.
+
+  **A call therefore settles by itself.** `SettleCall` is binding-owned and weakly fair,
+  and its guard is the end of the call read through level 1's own ownership predicates:
+  the terminal delivered and consumed, the reader finished, the writer idle or closed, the
+  status resolved, and - the hinge - `F!HostOwnsNoPayload` and `F!HostHoldsNoBuffer`.
+  Those last two are exactly what `F!ReleaseCallHandle` waits on, so the managed
+  settlement is the condition that unblocks the native reclamation rather than a parallel
+  state ignoring it. `SettledCallOwesNothing` states the link, and the reclamation itself
+  is not restated here: `F!CallEventuallyReclaimed` promises it, `F!ReleasedCallIsClean`
+  describes what it leaves behind, and level 2 inherits both through the refinement.
+  `BeginDisposeCall` remains, as the early-cancellation path it is in the API, with no
+  fairness demanding that it ever occur.
+
+  One case stays covered by hypothesis, legitimately: an application that abandons a
+  readable stream, neither reading nor disposing. Its call never settles and its channel
+  never releases - a misuse, and the same one level 1 already assumes away with
+  `WF(HostConsumesEvent)`.
   The first is progression while the stream runs - begin the next read or dispose the
   call. The second is the API's own rule stated as the hypothesis it is: dispose every
   call you created.  Beside it sit two conformity hypotheses of
@@ -2652,6 +2704,11 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
   managed channel active without its `ak_channel`, none exposed before it
 - **DisposeLeavesNoManagedWaiter**: a disposed call has its reader idle, its writer
   settled, its headers resolved and its status resolved
+- **SettledCallOwesNothing**: a settled call owes level 1 nothing - no payload, no lent
+  buffer - which is exactly what `F!ReleaseCallHandle` waits on, so the managed
+  settlement is what unblocks the native reclamation.  Its other half is inherited:
+  `F!CallEventuallyReclaimed` promises the reclamation, `F!ReleasedCallIsClean` says what
+  it leaves behind
 - **RingNeverOverflows**: `RingHead - RingTail <= DeliveryCredits + 1`.  Inherited, not
   re-proved: level 1's `PayloadsOwnedWithinCreditsPlusOne` read through the derived
   indexes, which is what lets the trampoline publish without a fullness test
@@ -2674,8 +2731,9 @@ way out, and no termination is guaranteed past a failure.
 - **PendingWriteEventuallySettled**: a write that reached the buffer settles - it
   commits or aborts, and a committed one completes at its WRITE_DONE, which level 1
   guarantees before the terminal
-- **ChannelConstructionCompletes**: a constructor that began completes - the channel
-  reaches its exposed state, unless the runtime failed under it
+- **ChannelConstructionCompletes**: a constructor that began completes, one way or the
+  other - the channel is exposed, or its configuration was refused and it is back to
+  unopened with its lease returned.  A rejection is a completion, not a stall
 - **CallDisposeCompletes**: a disposed call settles - the drain reaches the terminal,
   releases everything and resolves the status
 - **ChannelLeaseEventuallyReleased**: a disposing channel gives its lease back - its
@@ -2690,12 +2748,18 @@ way out, and no termination is guaranteed past a failure.
   the call's at its terminal callback, the generation's after destroy
 - **InFlightPayloadEventuallyReleased**: a parse completes and its slot is released -
   under the stated hypothesis that user parsing terminates
+- **ReadInFlightEventuallyResolved**: a read in flight - suspended or parsing - always
+  resolves: by its payload, by its own token, or by the dispose.  `MoveNext(ct)` is
+  modelled with the contract's two halves, each an action theorem: cancelling a read
+  still in flight cancels **the call** (`ReadCancellationCancelsCall`), and a read that
+  already completed has an inert token, no step cancelling on its behalf
+  (`CompletedReadIgnoresItsToken`)
 - **WaitingReaderEventuallyResolved**: a suspended `MoveNext` is resolved by payload or
   dispose, never abandoned
-- **PublishedCallEventuallyDisposed**: every call the application created is disposed in
-  the end.  It rests on the application's own dispose conjunct - the API's rule stated as
-  the hypothesis it is - and not on reads drying up: a finished stream answers `MoveNext`
-  at once, so no amount of reading could ever stand in for the dispose.  A physical system with an unbounded stream
+- **PublishedCallEventuallySettled**: every call the application created settles in the
+  end - by `SettleCall` when it finishes normally, by the drain when it is disposed
+  early. It is the binding's guarantee, not a user obligation: the only hypothesis it
+  needs is that a readable stream is eventually read.  A physical system with an unbounded stream
   keeps the norm without the theorem
 - **HeadersEventuallyResolved / StatusEventuallyResolved**: the public completions are
   never left pending - the prologue or the dispose resolves the headers, the terminal
@@ -2743,9 +2807,10 @@ actions rather than by induction, and this document must not imply a theorem exi
 
 The public interface, `DotNetBindingTheorems.tla`, declares the obligations the freeze
 requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host
-discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, three action theorems -
-`ConsumerHandoffPreservesTail`, `ChannelDisposeAffectsOnlyOwnedCalls` and
-`LastChannelDisposeAwaitsDestroy` - and one theorem per liveness promise plus their
+discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, six action theorems -
+`ConsumerHandoffPreservesTail`, `ChannelDisposeIsolatesItsCalls`,
+`LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
+`ReadCancellationCancelsCall` and `CompletedReadIgnoresItsToken` - and one theorem per liveness promise plus their
 aggregate.  None of them is proved today.
 
 Refinement mapping, by direct reuse:
@@ -2798,6 +2863,55 @@ definitions *and* theorems as facts; it never needs the three, which speak of re
 actions the managed writer does not realize. Whoever adds a theorem to a level that a
 later one instantiates should keep its statement free of a written `ENABLED`, or name the
 formula.
+
+#### The implementation's risk register
+
+The frontier below says what is not proved and what verifies it instead. This says what
+is likely to go *wrong* while writing the code, and what gate catches it. The two are
+different questions: a subject can be perfectly specified and still be implemented with a
+race. Ordered by what a defect would cost.
+
+| Risk | What it produces | Gate |
+|------|------------------|------|
+| Write TCS or writer state published after the downcall | an immediate WRITE_DONE finds nothing to complete: the write hangs, or a later one is completed twice | publish before the native call, roll back only on synchronous refusal; a test whose callback fires before the downcall returns |
+| Read token, parse, terminal and dispose racing | a call believed cancelled that continues, a payload acquitted twice, a task resolved twice | the model's two halves (`ReadCancellationCancelsCall`, `CompletedReadIgnoresItsToken`); a test per winner of each race |
+| Serializer running while the call is disposed | the buffer returned under a marshaller still writing into it - use after return | one owner for the wrapper, commit and abort atomic and exclusive, returned exactly once |
+| GCHandle on a refused start, or a terminal arriving at once | a root leaked, or freed twice | root before the start; local rollback if the start refuses (no callback is promised); after acceptance the terminal callback is the only releaser |
+| Lease reaching zero beside a concurrent construction | a generation reused after its zero, or two live runtimes | decide the zero and mark the generation non-acquirable under one lock; a strongly concurrent create/dispose test |
+| The ring's memory ordering | a slot published half-visible, a lost wake-up - and only on ARM64 | documented `Volatile`/acquire-release pairs, padding, an ARM64 stress test, latched signals |
+| An exception crossing an `UnmanagedCallersOnly` callback | the process terminates, or native state is never acquitted | catch-all at the trampoline, no user code inside it, an explicit fatal policy for the impossible |
+| A continuation running inline on the callback thread | arbitrary reentrancy, the Tokio thread blocked by user code | `RunContinuationsAsynchronously` everywhere, signals never inline, a test capturing the thread identity |
+| Dispose called twice or concurrently | a double cancel, two drains, or two different tasks for one dispose | decide idempotence and share one completion; a test with N concurrent calls |
+| A cancellation registration or timer outliving the terminal | a stale downcall, a root held, operational noise | disarm atomically at the terminal; the callback tolerates a stale handle |
+| An arbitrary marshaller that allocates, throws, or keeps the sequence | the zero-copy claim overstated, a lifetime violated | generated fast path plus a copying fallback; a stated lifetime contract; exception and retention tests |
+| Budget polling without fairness | unbounded latency, a thundering herd, admitted starvation | backoff with jitter, prompt cancellation, metrics on refusals and waiting time |
+| The receive path unbounded | out of memory despite a correct send budget | decide a capacity or an operational policy before production; memory metrics |
+| Replay holding bytes past WRITE_DONE | memory above what "the write finished" suggests | a separate budget, replay metrics, cancel and retry tests |
+| Handle index or generation exhaustion | a late refusal, or a stale token colliding | retire a saturating slot; a metric, and a test with an artificially small space |
+| `FAILED_UNQUIESCED` with no operational procedure | a process durably degraded, memory unrecoverable | an alert, a debt dump, a documented fail-fast or restart threshold |
+| State tables in this document drifting from the modules | the model transcribed wrongly into the code | generate the tables from one source, or compare them in CI |
+
+**The counters that make a violated hypothesis visible.** Several guarantees above rest on
+the application behaving; production needs to see the breach before it becomes an opaque
+leak. At minimum, in diagnostics: payloads owed, buffers lent, sends submitted and not
+acquitted, callbacks in flight; the runtime's phase, generation and lease count; each
+ring's head, tail and high-water mark; the number and duration of budget refusals, retries
+and cancellations while waiting; stale handles refused and generation slots retired; the
+longest callback; bytes held for replay past WRITE_DONE; and the debt `ak_call_debt_of`
+reports at an abnormal teardown. None of these is a proof. Each is how a broken
+conformance hypothesis is recognized while it is still cheap.
+
+#### After a failed runtime, the binding still owes determinism
+
+`AK_RUNTIME_FAILED_UNQUIESCED` is absorbing, and every promise above carries the
+`~NotFailed` escape - the proofs stop there, legitimately. The binding may not. A
+generation that failed must refuse new channels and new calls at once, resolve every
+managed task still pending rather than abandoning it - readers, writers, headers, status,
+and any constructor waiting on a step that will never come - and leave no `Task` without a
+deterministic outcome. Operationally the failure is terminal for that generation: its
+memory is unreclaimable while it lives, so the policy is fail-fast with the debt reported
+(`ak_call_debt_of`, the counters below) and a restart, not a silent degradation. What the
+model stops promising, the implementation must still answer for.
 
 #### What no level of the specification covers
 

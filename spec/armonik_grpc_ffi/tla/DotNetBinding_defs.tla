@@ -37,6 +37,7 @@ ManagedSafety ==
     /\ ChannelStateMatchesNative
     /\ RuntimeStateMatchesNative
     /\ DisposeLeavesNoManagedWaiter
+    /\ SettledCallOwesNothing
     /\ RingNeverOverflows
 
 \* The managed liveness contract.  Every promise crossing the native
@@ -52,8 +53,9 @@ ManagedLiveness ==
     /\ CallRootEventuallyFreed
     /\ RuntimeRootEventuallyFreed
     /\ InFlightPayloadEventuallyReleased
+    /\ ReadInFlightEventuallyResolved
     /\ WaitingReaderEventuallyResolved
-    /\ PublishedCallEventuallyDisposed
+    /\ PublishedCallEventuallySettled
     /\ HeadersEventuallyResolved
     /\ StatusEventuallyResolved
 

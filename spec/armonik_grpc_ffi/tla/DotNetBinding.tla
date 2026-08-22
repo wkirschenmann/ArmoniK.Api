@@ -27,14 +27,17 @@
 (* lease refcount is derived, never counted: "last" is the set of          *)
 (* channels not yet settled being empty.                                   *)
 (*                                                                         *)
-(* The application owes two progression facts - per call, eventually       *)
-(* begin the next read or dispose (one weak fairness), and dispose every   *)
-(* call it created, which the finite token universe turns into the         *)
-(* theorem PublishedCallEventuallyDisposed - plus two conformity           *)
-(* hypotheses of safety, encoded by representation: MoveNext calls are     *)
-(* serialized (IAsyncStreamReader) and write operations are serialized     *)
-(* (IClientStreamWriter).  Everything else is carried by the binding,      *)
-(* under one stated hypothesis: user serialization and parsing terminate.  *)
+(* The application owes one progression fact per call, and only while the  *)
+(* response stream is readable: begin the next read, or dispose the call   *)
+(* early.  Nothing is asked once the terminal has been consumed - a        *)
+(* finished call settles by itself, Dispose being optional for a completed *)
+(* call in the .NET API - so PublishedCallEventuallySettled is a guarantee *)
+(* of the binding rather than an obligation on the caller.  Beside that    *)
+(* sit two conformity hypotheses of safety, encoded by representation:     *)
+(* MoveNext calls are serialized (IAsyncStreamReader) and write operations *)
+(* are serialized (IClientStreamWriter).  Everything else is carried by    *)
+(* the binding, under one stated hypothesis: user serialization and        *)
+(* parsing terminate.                                                     *)
 (* The disposable wrapper returns the buffer on success and on exception   *)
 (* alike; nothing can cover code that never comes back.                    *)
 (***************************************************************************)
@@ -69,9 +72,17 @@ RingDrained(cId) == RingTail(cId) = RingHead(cId)
 
 ConsumerPhases == {"prologue", "application", "drain", "done"}
 ReaderStates == {"idle", "waiting", "parsing", "finished"}
+
+\* A read is in flight - waiting or parsing - and its token is therefore
+\* armed: MoveNext(ct) cancels the CALL while its own read has not
+\* completed, and must do nothing once that read is done, which is the
+\* contract IAsyncStreamReader states.  The registration is the state:
+\* armed exactly while the read is in flight, so a token firing later
+\* finds nothing to cancel.
+ReadInFlight(cId) == reader_state[cId] \in {"waiting", "parsing"}
 WriterStates == {"idle", "serializing", "waiting_budget",
                  "awaiting_write_done", "closed"}
-CallDisposeStates == {"active", "draining", "disposed"}
+CallDisposeStates == {"active", "draining", "settled"}
 ChannelDisposeStates == {"unopened", "constructing", "active", "disposing",
                          "released", "released_last", "disposed"}
 RuntimeDisposeStates == {"absent", "active", "shutdown_pending",
@@ -210,6 +221,28 @@ CreateChannel(chId) ==
                    headers_completion, status_completion,
                    call_dispose_state>>
 
+\* ak_channel_create refused the configuration.  It performs no I/O, so it
+\* fails only on a bad config or a stale runtime handle - local errors,
+\* not runtime failures: a typo in an endpoint may not kill the
+\* process-wide runtime every other channel leases.  The lease goes back,
+\* and a first channel that fails takes its just-materialized generation
+\* with it, retired rather than left acquirable.  Only an allocation
+\* failure is a runtime failure, and that is F!RuntimeFail's business.
+RejectChannelCreation(chId) ==
+    /\ channel_dispose_state[chId] = "constructing"
+    /\ channel_dispose_state' =
+           [channel_dispose_state EXCEPT ![chId] = "unopened"]
+    /\ IF \A other \in ChannelIds :
+              other # chId => ChannelSettled(other)
+       THEN runtime_dispose_state' = "shutdown_pending"
+       ELSE UNCHANGED runtime_dispose_state
+    /\ UNCHANGED l1_vars
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime,
+                   consumer_phase, reader_state, writer_state, retry_len,
+                   headers_completion, status_completion,
+                   call_dispose_state>>
+
 \* GrpcChannel.DisposeAsync: remembered at once; the binding then settles
 \* this channel's own calls and no one else's.
 BeginDisposeChannel(chId) ==
@@ -230,7 +263,7 @@ FinishDisposeChannel(chId) ==
     /\ channel_dispose_state[chId] = "disposing"
     /\ \A c \in CallIds :
            /\ call_channel[c] = chId
-           => call_dispose_state[c] = "disposed"
+           => call_dispose_state[c] = "settled"
     /\ \/ F!ChannelStartClosing(chId)
        \/ /\ channel_state[chId] \in {"closing", "closed"}
           /\ UNCHANGED l1_vars
@@ -384,6 +417,23 @@ FinishConsumePayload(cId) ==
                    writer_state, retry_len,
                    headers_completion, call_dispose_state>>
 
+\* MoveNext's token fires while its read is in flight: the read loses the
+\* race, resolves exceptionally, and - this is the contract, not a
+\* convenience - the CALL is cancelled, not merely the read.  A token
+\* that fires after its read completed finds ReadInFlight false and does
+\* nothing at all, which is the other half of the same contract.
+CancelReadInFlight(cId) ==
+    /\ ReadInFlight(cId)
+    /\ call_dispose_state[cId] = "active"
+    /\ F!RequestCallCancellation(cId)
+    /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime, runtime_dispose_state,
+                   channel_dispose_state, consumer_phase,
+                   writer_state, retry_len,
+                   headers_completion, status_completion,
+                   call_dispose_state>>
+
 \* A waiter caught by the dispose resolves exceptionally.
 CancelWaiter(cId) ==
     /\ reader_state[cId] = "waiting"
@@ -481,7 +531,7 @@ FinishDisposeCall(cId) ==
     /\ F!L0!HasStatus(cId)
     /\ writer_state[cId] \in {"idle", "closed"}
     /\ status_completion[cId] = "resolved"
-    /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "disposed"]
+    /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "settled"]
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "done"]
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -489,6 +539,32 @@ FinishDisposeCall(cId) ==
                    channel_dispose_state, reader_state,
                    writer_state, retry_len, headers_completion,
                    status_completion>>
+
+\* The call is over and owes nothing, so it settles - no user step, and no
+\* Dispose: for a normally finished call the .NET API says disposing does
+\* nothing, so demanding it would be a discipline stricter than the
+\* surface this binding implements.  The last two conjuncts are exactly
+\* what F!ReleaseCallHandle waits on, so this settlement is the condition
+\* that unblocks the native reclamation rather than a parallel state
+\* ignoring it.
+SettleCall(cId) ==
+    /\ call_dispose_state[cId] = "active"
+    /\ call_token_published[cId]
+    /\ F!L0!IsTerminalCall(cId)
+    /\ RingDrained(cId)
+    /\ reader_state[cId] = "finished"
+    /\ writer_state[cId] \in {"idle", "closed"}
+    /\ status_completion[cId] = "resolved"
+    /\ F!HostOwnsNoPayload(cId)
+    /\ F!HostHoldsNoBuffer(cId)
+    /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "settled"]
+    /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "done"]
+    /\ UNCHANGED l1_vars
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime, runtime_dispose_state,
+                   channel_dispose_state, reader_state,
+                   writer_state, retry_len,
+                   headers_completion, status_completion>>
 
 (***************************************************************************)
 (* THE WRITER.  WriteAsync begins with the lend; a write completes at its  *)
@@ -690,6 +766,7 @@ Next ==
     \/ \E chId \in ChannelIds :
            \/ AcquireLease(chId)
            \/ CreateChannel(chId)
+           \/ RejectChannelCreation(chId)
            \/ BeginDisposeChannel(chId)
            \/ FinishDisposeChannel(chId)
            \/ ResolveChannelDispose(chId)
@@ -703,12 +780,14 @@ Next ==
            \/ BeginParse(cId)
            \/ FinishConsumePayload(cId)
            \/ CancelWaiter(cId)
+           \/ CancelReadInFlight(cId)
            \/ HandoffToDrain(cId)
            \/ ConsumeHeader(cId)
            \/ BeginDisposeCall(cId)
            \/ DisposeCallForChannel(cId)
            \/ DrainRelease(cId)
            \/ FinishDisposeCall(cId)
+           \/ SettleCall(cId)
            \/ CancelWriterWait(cId)
            \/ WriteDoneCompletes(cId)
            \/ CloseWriter(cId)
@@ -813,12 +892,18 @@ BindingOwedFairness ==
     /\ \A cId \in CallIds : WF_vars(BeginParse(cId))
     \* resolves a waiter caught by a dispose; true: the binding cancels it
     /\ \A cId \in CallIds : WF_vars(CancelWaiter(cId))
+    \* a read whose token fired resolves; the binding cancels the call in
+    \* the same step, so nothing is left half-cancelled
+    /\ \A cId \in CallIds : WF_vars(CancelReadInFlight(cId))
     \* gives the drain the ring, without which a dispose cannot end;
     \* true: the binding's own step once no read is outstanding
     /\ \A cId \in CallIds : WF_vars(HandoffToDrain(cId))
-    \* the call reaches disposed, so its channel may release its lease;
+    \* the call reaches settled, so its channel may release its lease;
     \* true: the binding's own step once the drain and writer are settled
     /\ \A cId \in CallIds : WF_vars(FinishDisposeCall(cId))
+    \* a finished call settles with no user step: the .NET API does not
+    \* require Dispose of a completed call, so neither does this model
+    /\ \A cId \in CallIds : WF_vars(SettleCall(cId))
     \* a disposing channel settles the calls it owns; true: its own loop
     /\ \A cId \in CallIds : WF_vars(DisposeCallForChannel(cId))
     \* resolves a writer caught by a cancel or a dispose; true: the
@@ -830,7 +915,7 @@ BindingOwedFairness ==
     \* a constructor that began completes; true: one downcall, no wait
     /\ \A chId \in ChannelIds : WF_vars(CreateChannel(chId))
     \* the lease goes back, without which no teardown starts; true: the
-    \* binding's own step once the channel's calls are disposed
+    \* binding's own step once the channel's calls are settled
     /\ \A chId \in ChannelIds : WF_vars(FinishDisposeChannel(chId))
     \* the public DisposeAsync task completes; true: the binding's own
     \* step as soon as its guard holds
@@ -844,25 +929,20 @@ BindingOwedFairness ==
     \* once no callback of any kind is in flight
     /\ WF_vars(FreeRuntimeRoot)
 
-\* What the application owes, per call, in two conjuncts.  The first is
-\* progression while the stream runs: read the next response or dispose.
-\* The second is the API's normative rule, stated as the hypothesis it
-\* is - dispose every call you created - and NOT derived from the first:
-\* once the stream is finished every MoveNext returns false at once, so
-\* an application looping on it would satisfy a disjunction forever
-\* without ever disposing.  PublishedCallEventuallyDisposed rests on
-\* this conjunct, which is why it is an obligation the binding requires
-\* rather than a guarantee it manufactures.
+\* What the application owes, per call: one conjunct, and only while the
+\* response stream is still readable - read the next response, or dispose
+\* the call early.  Nothing is asked once the terminal has been consumed:
+\* a finished call settles by itself, so Dispose is not required, which
+\* is what the .NET API says of a completed call.  The one case this
+\* leaves to hypothesis is an application that abandons a readable
+\* stream, neither reading nor disposing - the misuse level 1 already
+\* assumes away with its own consumption fairness.
 ApplicationOwedFairness ==
     \* needed so a live call moves at all: the reader's liveness and the
     \* consumption discharge both start from a read the application began.
     \* Not true of every program - assumed of a conforming one
     /\ \A cId \in CallIds :
            WF_vars(BeginMoveNext(cId) \/ BeginDisposeCall(cId))
-    \* needed for PublishedCallEventuallyDisposed, and for every teardown
-    \* that waits on a call being settled.  Assumed likewise: it is the
-    \* API's rule, which no binding mechanism can make true
-    /\ \A cId \in CallIds : WF_vars(BeginDisposeCall(cId))
 
 Fairness ==
     /\ RuntimeOwedFairness
@@ -903,7 +983,7 @@ RuntimeRootSurvivesCallbacks ==
 ConsumerPhaseMatchesDispose ==
     \A cId \in CallIds :
         /\ consumer_phase[cId] = "done" <=>
-               call_dispose_state[cId] = "disposed"
+               call_dispose_state[cId] = "settled"
         /\ consumer_phase[cId] = "drain" =>
                call_dispose_state[cId] = "draining"
         /\ call_dispose_state[cId] = "active" =>
@@ -1038,11 +1118,20 @@ RuntimeStateMatchesNative ==
 \* headers and status resolved.
 DisposeLeavesNoManagedWaiter ==
     \A cId \in CallIds :
-        call_dispose_state[cId] = "disposed" =>
+        call_dispose_state[cId] = "settled" =>
             /\ reader_state[cId] \in {"idle", "finished"}
             /\ writer_state[cId] \in {"idle", "closed"}
             /\ headers_completion[cId] # "pending"
             /\ status_completion[cId] = "resolved"
+
+\* A settled call owes level 1 nothing, so the runtime's own reclamation
+\* is free to take it - and F!CallEventuallyReclaimed, inherited, says it
+\* will.  This is the managed half of that handshake.
+SettledCallOwesNothing ==
+    \A cId \in CallIds :
+        call_dispose_state[cId] = "settled" =>
+            /\ F!HostOwnsNoPayload(cId)
+            /\ F!HostHoldsNoBuffer(cId)
 
 \* Inherited corollary, restated in ring vocabulary.
 RingNeverOverflows ==
@@ -1070,19 +1159,23 @@ PendingWriteEventuallySettled ==
         writer_state[cId] \in {"serializing", "awaiting_write_done"} ~>
             (writer_state[cId] \in {"idle", "closed"} \/ ~F!L0!NotFailed)
 
-\* A constructor that began completes: the channel reaches its exposed
-\* state, unless the runtime failed under it.
+\* A constructor that began completes, one way or the other: the channel
+\* is exposed, or the configuration was refused and it is back to
+\* unopened with its lease returned - a rejection is a completion, not a
+\* stall.  Unless the runtime failed under it.
 ChannelConstructionCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "constructing" ~>
-            (channel_dispose_state[chId] = "active" \/ ~F!L0!NotFailed)
+            (\/ channel_dispose_state[chId] = "active"
+             \/ channel_dispose_state[chId] = "unopened"
+             \/ ~F!L0!NotFailed)
 
 \* A disposed call settles, a disposing channel settles, the teardown
 \* completes - each unless the runtime failed.
 CallDisposeCompletes ==
     \A cId \in CallIds :
         call_dispose_state[cId] = "draining" ~>
-            (call_dispose_state[cId] = "disposed" \/ ~F!L0!NotFailed)
+            (call_dispose_state[cId] = "settled" \/ ~F!L0!NotFailed)
 
 ChannelLeaseEventuallyReleased ==
     \A chId \in ChannelIds :
@@ -1119,20 +1212,27 @@ InFlightPayloadEventuallyReleased ==
         reader_state[cId] = "parsing" ~>
             reader_state[cId] \in {"idle", "finished"}
 
+\* A read in flight resolves: by its payload, by its own cancellation, or
+\* by the dispose - never left pending.
+ReadInFlightEventuallyResolved ==
+    \A cId \in CallIds :
+        ReadInFlight(cId) ~>
+            (~ReadInFlight(cId) \/ ~F!L0!NotFailed)
+
 \* A waiter is resolved by payload or dispose, never abandoned.
 WaitingReaderEventuallyResolved ==
     \A cId \in CallIds :
         reader_state[cId] = "waiting" ~>
             (reader_state[cId] # "waiting" \/ ~F!L0!NotFailed)
 
-\* Every published call is disposed in the end.  This rests on the
-\* application's normative dispose conjunct, not on the reads drying up:
-\* a finished stream answers MoveNext immediately, so no amount of
-\* reading can stand in for the dispose the API requires.
-PublishedCallEventuallyDisposed ==
+\* Every published call settles in the end: by SettleCall when it
+\* finishes normally, by the drain when it is disposed early.  A
+\* guarantee of the binding, not an obligation on the caller - the only
+\* hypothesis it needs is that a readable stream is eventually read.
+PublishedCallEventuallySettled ==
     \A cId \in CallIds :
         call_token_published[cId] ~>
-            (call_dispose_state[cId] = "disposed" \/ ~F!L0!NotFailed)
+            (call_dispose_state[cId] = "settled" \/ ~F!L0!NotFailed)
 
 \* The public completions are never left pending.
 HeadersEventuallyResolved ==

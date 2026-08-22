@@ -75,28 +75,63 @@ THEOREM ConsumerHandoffPreservesTail ==
 \* that was the last resolves its DisposeAsync only once the generation
 \* IT released was destroyed.  An action theorem, the fact being about a
 \* step rather than about a state.
+\* MoveNext's token cancels the CALL, never the read alone: the only
+\* action that resolves a read on its token also requests the call's
+\* cancellation, in the same step.
+THEOREM ReadCancellationCancelsCall ==
+    Spec => \A cId \in CallIds :
+                [][CancelReadInFlight(cId) => cancel_requested'[cId]]_vars
+
+\* A completed read's token is inert: no step cancels on behalf of a read
+\* that is no longer in flight.  The citable shadow of an absence, like
+\* the permanent refusal that enters no wait.
+THEOREM CompletedReadIgnoresItsToken ==
+    Spec => \A cId \in CallIds :
+                [][CancelReadInFlight(cId) => ReadInFlight(cId)]_vars
+
+THEOREM ReadInFlightEventuallyResolvedHolds ==
+    Spec => ReadInFlightEventuallyResolved
+
+\* The latch is posed by the release that empties the set: this is the
+\* half the ordering theorem below cannot carry, and without it a
+\* regression that stopped marking released_last would leave that theorem
+\* vacuously true.
+THEOREM LastReleaseIsLatched ==
+    Spec => \A chId \in ChannelIds :
+                [][(/\ FinishDisposeChannel(chId)
+                    /\ IsLastRelease(chId))
+                       => /\ channel_dispose_state'[chId] = "released_last"
+                          /\ runtime_dispose_state' = "shutdown_pending"]_vars
+
 THEOREM LastChannelDisposeAwaitsDestroy ==
     Spec => \A chId \in ChannelIds :
                 [][(/\ ResolveChannelDispose(chId)
                     /\ channel_dispose_state[chId] = "released_last")
                        => runtime_destroyed[channel_runtime[chId]]]_vars
 
-\* A channel's dispose settles its own calls and no one else's: a step
-\* that disposes a call of one channel leaves every call of every other
-\* channel untouched.  An action theorem, not an invariant - ownership is
-\* what the step reads, and no state records which dispose caused which
-\* change.  Stated over the calls NOT owned, because the guard already
-\* names the owned ones and an implication about them would be a
-\* tautology rather than a check.
-THEOREM ChannelDisposeAffectsOnlyOwnedCalls ==
-    Spec => \A chId \in ChannelIds :
-                [][(\E cId \in CallIds :
-                        /\ DisposeCallForChannel(cId)
-                        /\ call_channel[cId] = chId)
-                       => \A other \in CallIds :
-                              call_channel[other] # chId =>
-                                  call_dispose_state'[other]
-                                      = call_dispose_state[other]]_vars
+\* A channel's dispose settles its own calls and no one else's, stated
+\* per call because that is where the content is: the step belongs to a
+\* channel that is disposing, and it changes nothing of any other call -
+\* not its dispose state, not its reader, its writer, its completions,
+\* nor the level-1 cancellation it might have latched.  An action
+\* theorem, not an invariant: ownership is what the step reads, and no
+\* state records which dispose caused which change.
+THEOREM ChannelDisposeIsolatesItsCalls ==
+    Spec => \A cId \in CallIds :
+                [][DisposeCallForChannel(cId) =>
+                       /\ channel_dispose_state[call_channel[cId]]
+                              = "disposing"
+                       /\ \A other \in CallIds \ {cId} :
+                              /\ call_dispose_state'[other]
+                                     = call_dispose_state[other]
+                              /\ headers_completion'[other]
+                                     = headers_completion[other]
+                              /\ status_completion'[other]
+                                     = status_completion[other]
+                              /\ reader_state'[other] = reader_state[other]
+                              /\ writer_state'[other] = writer_state[other]
+                              /\ cancel_requested'[other]
+                                     = cancel_requested[other]]_vars
 
 (***************************************************************************)
 (* MANAGED LIVENESS - one theorem per public promise, aggregated last.     *)
@@ -131,8 +166,8 @@ THEOREM InFlightPayloadEventuallyReleasedHolds ==
 THEOREM WaitingReaderEventuallyResolvedHolds ==
     Spec => WaitingReaderEventuallyResolved
 
-THEOREM PublishedCallEventuallyDisposedHolds ==
-    Spec => PublishedCallEventuallyDisposed
+THEOREM PublishedCallEventuallySettledHolds ==
+    Spec => PublishedCallEventuallySettled
 
 THEOREM HeadersEventuallyResolvedHolds == Spec => HeadersEventuallyResolved
 
