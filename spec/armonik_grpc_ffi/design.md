@@ -1478,16 +1478,30 @@ See T8.1.
 ```text
 ┌──────────────────────────────────────────┐
 │  NativeCallInvoker : CallInvoker         │
-│    ├── NativeRuntime (SafeHandle)        │
 │    ├── NativeChannel (SafeHandle)        │
+│    │     └── RuntimeLease -> RuntimeState│
 │    ├── Trampoline (static, unmanaged)    │
 │    └── CallState (per call)              │
 │          └── delivery ring + signals     │
 └──────────────────────────────────────────┘
 
 No queue and no thread between the two: the trampoline publishes into the call's own
-ring and the consumer reads it directly.
+ring and the consumer reads it directly.  The RuntimeState is the process's, never an
+invoker's: what the invoker holds is a lease.
 ```
+
+**Lifecycle: the lease belongs to the channel.** A `CallInvoker` is a stateless view;
+the object an application creates and disposes is the channel, so the channel is the
+unit of borrowing.  The first channel materializes the process runtime (the factory
+allocates the shared `RuntimeState` root, calls `ak_runtime_create`, then creates the
+channel - all before the constructor returns); every later channel takes a lease on the
+materialized runtime and creates only its own `ak_channel`.  Disposing a channel
+settles its own calls - and no one else's, ownership being the `call_channel` relation
+the models already carry - releases its `ak_channel`, then its lease; the last lease
+released is what starts the native shutdown, and only then.  The runtime is reusable:
+after a full teardown, the next channel materializes a fresh generation.  The lease
+count is the implementation's refcount; the model's next iteration derives "last" from
+the set of channels not yet settled rather than from a counter.
 
 ### Trampoline
 
@@ -1609,6 +1623,8 @@ class CallState
     int FreeSendSlots;             // bumped on WRITE_DONE; the slot is
                                    // free from the event's emission
     IAsyncSignal SendSignal;       // same discipline as RingSignal
+    TaskCompletionSource WriteTcs; // the pending WriteAsync, completed by
+                                   // its WRITE_DONE; RunContinuationsAsynchronously
     // Buffers lent by ak_get_call_buffer and not yet given back. Every one
     // of them must be returned, or the call is never reclaimed.
     ConcurrentBag<ak_buffer> LentBuffers;               // at most MaxSendsInFlight
@@ -1641,8 +1657,42 @@ hot path, and `BufferEventuallyFreed` is what the model asks of the host in exch
 A refusal (`AK_STATUS_SLOT_BUSY`) surfaces as backpressure on the write stream; it is not an
 error, and it has exactly one cause - this call's window - so WRITE_DONE is a wake-up the host
 can rely on.
-`MaxSendsInFlight = 1`, the default, degenerates to "one outstanding write per call",
-which is what the current managed client already does.
+
+**The write machine.** `WriteAsync` is a per-call state machine, and its linearization
+is fixed: **a write completes at its WRITE_DONE**, not at the commit.  One writer per
+call is `IClientStreamWriter`'s own contract - no concurrent `WriteAsync`, no
+`CompleteAsync` beside a pending write - so the machine has one value per call:
+
+- *idle*: no write pending.  `WriteAsync` begins with the lend;
+- *serializing*: the lend succeeded, the marshaller writes into the lent buffer - the
+  one state that holds a buffer, closed by the disposable wrapper on success and
+  exception alike;
+- *waiting_slot*: `SLOT_BUSY` - the wake-up is this call's next WRITE_DONE, through
+  `SendSignal`, and the retry is a new lend;
+- *waiting_budget*: `BUDGET_BUSY` - the cancellable wait already described, remembering
+  the refused length;
+- *awaiting_write_done*: the commit was accepted; the write's task completes when the
+  WRITE_DONE callback for it returns, which `MaxSendsInFlight >= 1` native depth never
+  changes: with a single writer completing at WRITE_DONE, the .NET surface exercises a
+  depth of one, whatever the native window allows;
+- *closed*: `CompleteAsync` was called (`end_send`) - legal only from idle.
+
+`MESSAGE_TOO_LARGE` faults the write synchronously and enters no wait: the refusal is
+permanent, retrying it would poll against a constant.  Cancellation or dispose resolves
+a waiting writer exceptionally, exactly as they resolve a waiting reader; a write
+already committed settles through its WRITE_DONE, which level 1 guarantees before the
+terminal.  `MaxSendsInFlight = 1`, the default, then loses nothing: the surface never
+asks for more.
+
+**Managed completions.** Three public objects must never be left pending: the headers
+(`ResponseHeadersAsync`), the status (`StatusTcs`, and the unary one-shot that reads
+one message then the status through the same reader), and the pending write above.
+Their resolution rules: the header prologue resolves the headers on delivery; a dispose
+before the metadata faults them, as grpc-dotnet faults `ResponseHeadersAsync` on a
+disposed call; the status resolves at the terminal callback, or at the dispose's end
+with the status the drain already released; the writer resolves as described.  A
+disposed call leaves no managed waiter - reader, writer, headers, status - a property
+the model's next iteration states and proves, not a hope left to habit.
 
 WRITE_DONE must never queue behind a slow message handler - the ABI states it may arrive
 in parallel with data callbacks for the same call - so it stays out of the delivery ring
@@ -2376,6 +2426,17 @@ proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machi
 fairness and the properties below are the specification as written. No proof exists yet -
 the module is TLC-vetted (every action fires, no invariant violation on the explored
 graph) and in pre-proof review; the verification table row is the honest status.
+
+**Coverage, honestly.** What the modules formalize today is the ownership/callback
+kernel: roots, the reader, the drain, the budget wait, the dispose chains, and the six
+host discharges.  Three mechanisms the design above promises are decided and specified
+in prose but not yet in the modules - they are the model's next iteration, before any
+proof: the channel-held lease on the shared runtime (per-channel dispose machines, the
+teardown guarded on the last lease, reusable generations bounded by the finite
+`RuntimeIds`), the write machine (single writer, completion at WRITE_DONE, `SLOT_BUSY`
+wake-up), and the managed completions (headers and status never left pending).  Until
+they land, `RequestRuntimeDispose` reads "the last reference released" as an external
+interpretation rather than a checked property, and nothing below claims otherwise.
 
 **Scope.** The model is the generic bidirectional-streaming call. The five `CallInvoker`
 methods are refinements of it that fix the number of messages in each direction, not
