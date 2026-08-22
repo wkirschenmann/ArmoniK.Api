@@ -69,18 +69,17 @@ THEOREM ConsumerHandoffPreservesTail ==
                        payloads_consumed_by_host' =
                            payloads_consumed_by_host]_vars
 
-\* The last releaser's public task never completes early: a channel
-\* resolves its DisposeAsync only when another lease is still out - so it
-\* was not the last - or the generation it released has finished tearing
-\* down.  An action theorem, not an invariant: a later channel taking a
-\* lease and releasing it changes no earlier resolution, so no state
-\* predicate can carry this.
+\* The last releaser's public task never completes early.  Which channel
+\* emptied the lease set is latched at its release, so the claim is about
+\* that channel and not about whatever the set holds later: a channel
+\* that was the last resolves its DisposeAsync only once the generation
+\* IT released was destroyed.  An action theorem, the fact being about a
+\* step rather than about a state.
 THEOREM LastChannelDisposeAwaitsDestroy ==
     Spec => \A chId \in ChannelIds :
-                [][ResolveChannelDispose(chId) =>
-                       \/ ~AllLeasesReleased
-                       \/ runtime_dispose_state \in
-                              {"destroyed", "absent"}]_vars
+                [][(/\ ResolveChannelDispose(chId)
+                    /\ channel_dispose_state[chId] = "released_last")
+                       => runtime_destroyed[channel_runtime[chId]]]_vars
 
 \* A channel's dispose settles its own calls and no one else's: a step
 \* that disposes a call of one channel leaves every call of every other

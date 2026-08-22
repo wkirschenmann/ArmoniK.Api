@@ -2481,7 +2481,7 @@ proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machi
 the properties below are the specification as written, and they now cover the three
 mechanisms the design promises - the channel-held lease on the reusable shared runtime,
 the write machine, and the managed completions.  No proof exists yet: the modules are
-TLC-vetted (thirty-two of the thirty-three actions fire; the thirty-third is dead by
+TLC-vetted (thirty-three of the thirty-four actions fire; the thirty-fourth is dead by
 design, below) and in pre-proof review.
 
 **Scope.** The model is the generic bidirectional-streaming call.  The five
@@ -2502,7 +2502,13 @@ actions pass through untouched.  `L2!Spec => F!Spec` is therefore the only refin
 prove - `L0!Spec` follows from level 1's `RefinesSpec` by transitivity.  Ownership needs
 no new relation either: `call_channel` already says which channel a call belongs to, and
 `ChannelIds` is the lease identity space, so no `InvokerIds` and no refcount appear -
-"the last lease released" is `AllLeasesReleased`, every channel unopened or disposed.
+"the last lease released" is `AllLeasesReleased`, every channel unopened, released or
+disposed. The release that empties that set says so in its own step: it marks itself
+`released_last` and latches the manager to `shutdown_pending`, which stops any further
+lease. Without the latch a channel constructed between the zero and the destroy would
+resurrect the generation, and the last channel's `DisposeAsync` would complete without
+the destroy it promised - the counter reaching zero has to be decided and recorded at
+once, under the same lock the implementation holds.
 
 **The ring has no variables.** The trampoline publishes inside the delivery callback, so
 the published prefix IS `events_delivered` and the head is its length; a release is
@@ -2520,10 +2526,12 @@ Added variables - all discipline, no capacity:
   `absent` before the first channel and again after a full teardown, so a promise about
   the destroy attaches to the generation that is current, not to some earlier one
 - `channel_dispose_state`: per channel, `unopened` / `constructing` / `active` /
-  `disposing` / `disposed`.  The lease is live exactly between the first two and the
-  last; the teardown's guard reads this function, never a counter
+  `disposing` / `released` / `released_last` / `disposed`.  The lease is live from the
+  construction to the release; `released_last` is the release that emptied the set, and
+  the teardown's guard reads this function, never a counter
 - `consumer_phase`, `reader_state`: which class of consumer has the ring, and what the
-  application's read is doing - `idle`, `waiting` (a suspended `MoveNext`) or `parsing`
+  application's read is doing - `idle`, `waiting` (a suspended `MoveNext`), `parsing`, or
+  `finished` once the terminal was consumed and every later `MoveNext` answers at once
 - `writer_state`, `retry_len`: the write machine and the length its budget wait
   remembers
 - `headers_completion`, `status_completion`: the public objects that must never be left
@@ -2582,8 +2590,10 @@ lend always finds the window open, which `ManagedWriterNeverObservesSlotBusy` st
   theorems here.  Two of them cross user code and carry the one stated hypothesis: user
   serialization and parsing terminate.  The wrapper covers success and exception;
   nothing covers code that never comes back.
-- *Application-owed* (`ApplicationOwedFairness`): one weak fairness per call - eventually
-  begin the next read or dispose the call.  Beside it sit two conformity hypotheses of
+- *Application-owed* (`ApplicationOwedFairness`): two weak fairness conjuncts per call.
+  The first is progression while the stream runs - begin the next read or dispose the
+  call. The second is the API's own rule stated as the hypothesis it is: dispose every
+  call you created.  Beside it sit two conformity hypotheses of
   safety, not progression: `MoveNext` calls are serialized (`IAsyncStreamReader`) and
   writes are serialized (`IClientStreamWriter`), both encoded by the single
   `reader_state` and `writer_state` values.  Nothing else is asked: not feeding the
@@ -2621,6 +2631,10 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
 - **RetryLenMatchesWait**: the remembered length exists exactly while the wait does
 - **DisposeAwaitsDestroy**: the teardown reaching `destroyed` means `ak_runtime_destroy`
   returned for the **current** generation
+- **RuntimeStateMatchesNative**: the manager and the native runtime agree - a generation
+  that has not begun tearing down is running (or failed, the residual guarantee), one
+  being torn down is not destroyed yet, and `destroyed` means the downcall returned for
+  that generation
 - **RuntimeManagerCoherent**: a materialized generation has an identity and a root, an
   absent one has neither - the manager never claims a runtime it does not hold
 - **LiveChannelUsesCurrentRuntime**: a live channel hangs off the current generation,
@@ -2679,11 +2693,9 @@ way out, and no termination is guaranteed past a failure.
 - **WaitingReaderEventuallyResolved**: a suspended `MoveNext` is resolved by payload or
   dispose, never abandoned
 - **PublishedCallEventuallyDisposed**: every call the application created is disposed in
-  the end.  It is a theorem of this model rather than only a norm of the API, and it
-  needs the whole stack to be one: `EventualTerminal` and the delivery fairness bring
-  every call to its terminal and drain its ring, the finite globally-unique token
-  universe stops any reader from reading forever, and the application's own conjunct
-  then has only the dispose left to take.  A physical system with an unbounded stream
+  the end.  It rests on the application's own dispose conjunct - the API's rule stated as
+  the hypothesis it is - and not on reads drying up: a finished stream answers `MoveNext`
+  at once, so no amount of reading could ever stand in for the dispose.  A physical system with an unbounded stream
   keeps the norm without the theorem
 - **HeadersEventuallyResolved / StatusEventuallyResolved**: the public completions are
   never left pending - the prologue or the dispose resolves the headers, the terminal
@@ -2719,15 +2731,9 @@ actions rather than by induction, and this document must not imply a theorem exi
   downcalls their own channel-machine guards, and `BeginRuntimeShutdown` requires every
   lease released - an ordering on dispose, not a safety net.  Level 1's
   `DestroyedRuntimeRejectsHandles` is the runtime's side of the same fact
-- **The second event is dead at this level.** `AK_EVENT_RESOURCES_RELEASED` exists in
-  the ABI and level 1 for a host that still owes memory when the shutdown starts.  This
-  binding never does: a call is disposed only with its ring drained and its writer
-  settled, and the teardown starts only when every channel is settled, so
-  SHUTDOWN_COMPLETE always finds no debt.  `ResourcesReleasedReturns` is therefore the
-  one action of the model that never fires - checked, not assumed: a directed
-  configuration prunes buffer returns before the shutdown event and completes with no
-  violation of "the second event is never emitted".  The action stays for refinement
-  completeness, and its emptiness is a property of the dispose discipline
+- **The second event's unreachability is an invariant, not a construction**:
+  `ManagedShutdownHasNoHostDebt` states it in the manifest and carries a theorem, because
+  a passing model-checking run is not an argument about an action claimed unreachable
 - **BuffersAlwaysReturned / ReleasedEventually**: not invariants but fairness conjuncts -
   the disposable wrapper's WF and the begin-or-dispose WF respectively
 - **RetainedBytesAreEventuallyFreed** stays a native-Rust obligation: the retention is
@@ -2737,9 +2743,10 @@ actions rather than by induction, and this document must not imply a theorem exi
 
 The public interface, `DotNetBindingTheorems.tla`, declares the obligations the freeze
 requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host
-discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`,
-`ConsumerHandoffPreservesTail`, one theorem per liveness promise and their aggregate -
-none of them proved today.
+discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, three action theorems -
+`ConsumerHandoffPreservesTail`, `ChannelDisposeAffectsOnlyOwnedCalls` and
+`LastChannelDisposeAwaitsDestroy` - and one theorem per liveness promise plus their
+aggregate.  None of them is proved today.
 
 Refinement mapping, by direct reuse:
 - the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -
@@ -2759,8 +2766,11 @@ Refinement mapping, by direct reuse:
   `HandoffToDrain` behind any parse in flight, `DrainRelease` until drained, then
   `FinishDisposeCall`
 - `DisposeAsync` on the channel ↔ `BeginDisposeChannel`, `DisposeCallForChannel` per
-  owned call, `FinishDisposeChannel`; and when it held the last lease,
-  `BeginRuntimeShutdown`, `FinishDisposeRuntime`, `FreeRuntimeRoot`
+  owned call, `FinishDisposeChannel` - which marks itself `released_last` and latches the
+  manager when it empties the lease set - then `ResolveChannelDispose`, at once for a
+  channel that was not the last, and for the one that was only once
+  `FinishDisposeRuntime` has returned the destroy of the generation it released -
+  `FreeRuntimeRoot` and the factory's re-arming follow, owing it nothing
 
 Level 2 re-proves none of the window reasoning: with `Spec => F!Spec` established the
 same way level 1 established `Spec => L0!Spec`, the send bound, the credit bound, the
@@ -2898,7 +2908,7 @@ the artefact rather than left to rot:
 | SANY, on the ten SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
-| Level 2 | **Drafted and TLC-vetted, no proofs.** The DotNetBinding modules cover the whole managed contract - the channel-held lease on the reusable shared runtime, the reader, the write machine, the completions - SANY-clean and registered in `ci/check.sh`; the property manifests are bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC (INIT/NEXT with per-action coverage, runs bounded by construction): thirty-two of the thirty-three actions fire across two configurations, one broad and one directed at the call path; `ResourcesReleasedReturns` is dead by design, and a third, directed configuration completes with no violation of "the second event is never emitted", which is the check of that claim. No invariant violation was found. No obligation has been given to TLAPS: nothing level-2 is proved |
+| Level 2 | **Drafted and TLC-vetted, no proofs.** Eight modules exist, SANY-clean and registered in `ci/check.sh`; the manifests are bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in runs bounded by construction: the two safety configurations fire 33 of the 34 actions - `ResourcesReleasedReturns` is dead by design, which `ManagedShutdownHasNoHostDebt` states - with no invariant violation, and `DotNetBinding_MClive` evaluates the fourteen liveness properties under the three fairness tiers, 14 branches over 311640 distinct states, no violation. A bounded run is evidence about what it explored and nothing more: it is not a proof, and no obligation has been given to TLAPS |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
 The partition identity is close to true by construction: `BytesOutstanding` is a sum over the

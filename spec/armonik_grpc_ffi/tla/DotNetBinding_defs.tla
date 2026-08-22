@@ -35,6 +35,7 @@ ManagedSafety ==
     /\ LiveChannelKeepsRuntimeAlive
     /\ NoRuntimeShutdownWhileLeased
     /\ ChannelStateMatchesNative
+    /\ RuntimeStateMatchesNative
     /\ DisposeLeavesNoManagedWaiter
     /\ RingNeverOverflows
 

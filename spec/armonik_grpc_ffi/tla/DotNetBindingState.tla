@@ -46,7 +46,8 @@ VARIABLES
     (* not to some earlier destroyed generation.                           *)
     (***********************************************************************)
     current_runtime,        \* RuntimeIds \union {"none"}
-    runtime_dispose_state,  \* {"absent", "active", "destroying",
+    runtime_dispose_state,  \* {"absent", "active", "shutdown_pending",
+                            \*  "destroying",
                             \*  "destroyed"} - absent means no runtime is
                             \* materialized; FreeRuntimeRoot re-arms to it
 
@@ -60,9 +61,12 @@ VARIABLES
     (***********************************************************************)
     channel_dispose_state,  \* [ChannelIds -> {"unopened", "constructing",
                             \*                 "active", "disposing",
-                            \*                 "released", "disposed"}]:
-                            \* released gave the lease back, disposed
-                            \* completed the public task
+                            \*                 "released",
+                            \*                 "released_last",
+                            \*                 "disposed"}]: released gave
+                            \* the lease back, released_last was the one
+                            \* that emptied the set, disposed completed
+                            \* the public task
 
     (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)

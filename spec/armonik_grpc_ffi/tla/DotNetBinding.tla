@@ -65,8 +65,9 @@ WriterStates == {"idle", "serializing", "waiting_budget",
                  "awaiting_write_done", "closed"}
 CallDisposeStates == {"active", "draining", "disposed"}
 ChannelDisposeStates == {"unopened", "constructing", "active", "disposing",
-                         "released", "disposed"}
-RuntimeDisposeStates == {"absent", "active", "destroying", "destroyed"}
+                         "released", "released_last", "disposed"}
+RuntimeDisposeStates == {"absent", "active", "shutdown_pending",
+                         "destroying", "destroyed"}
 HeadersCompletions == {"pending", "succeeded", "failed"}
 StatusCompletions == {"pending", "resolved"}
 
@@ -76,24 +77,32 @@ StatusCompletions == {"pending", "resolved"}
 NoRetryLen == Ceiling + 2
 
 \* A settled channel holds no lease: it never opened, or it released.
-\* "The last reference released" is this set being every channel -
-\* derived, never counted.  Releasing the lease and completing the
-\* public DisposeAsync are two steps: a channel that released is
-\* "released", and becomes "disposed" - its task complete - only when
-\* nothing is owed to it any more, which for the last releaser means
-\* after ak_runtime_destroy returned.
+\* Releasing the lease and completing the public DisposeAsync are two
+\* steps, and which channel drove the count to zero is remembered rather
+\* than recomputed: the release itself decides it, under the same lock
+\* the implementation holds, and latches the manager to shutdown_pending
+\* so no later lease can resurrect the generation between the zero and
+\* the destroy.
 ChannelSettled(chId) ==
-    channel_dispose_state[chId] \in {"unopened", "released", "disposed"}
+    channel_dispose_state[chId] \in
+        {"unopened", "released", "released_last", "disposed"}
 
 AllLeasesReleased == \A chId \in ChannelIds : ChannelSettled(chId)
 
-\* A released channel's task may complete: either some other channel
-\* still holds a lease - so this one was not the last and owes nothing
-\* more - or the generation it released has finished tearing down.
+\* This release is the one that empties the set: every other channel is
+\* already settled.  Read inside FinishDisposeChannel, so the decision
+\* and the latch are one step.
+IsLastRelease(chId) ==
+    \A other \in ChannelIds : other # chId => ChannelSettled(other)
+
+\* A released channel's task may complete.  One that was not the last
+\* owes nothing more.  The last one waits for the destroy of the
+\* generation IT released - channel_runtime, not whichever runtime
+\* happens to be current later.
 ChannelDisposeMayResolve(chId) ==
-    /\ channel_dispose_state[chId] = "released"
-    /\ \/ ~AllLeasesReleased
-       \/ runtime_dispose_state \in {"destroyed", "absent"}
+    \/ channel_dispose_state[chId] = "released"
+    \/ /\ channel_dispose_state[chId] = "released_last"
+       /\ runtime_destroyed[channel_runtime[chId]]
 
 \* The binding downcalls on a call only while neither the call nor the
 \* runtime is being torn down.  The channel downcalls carry their own
@@ -218,9 +227,14 @@ FinishDisposeChannel(chId) ==
        \/ /\ channel_state[chId] \in {"closing", "closed"}
           /\ UNCHANGED l1_vars
     /\ channel_dispose_state' =
-           [channel_dispose_state EXCEPT ![chId] = "released"]
+           [channel_dispose_state EXCEPT
+                ![chId] = IF IsLastRelease(chId) THEN "released_last"
+                          ELSE "released"]
+    /\ runtime_dispose_state' =
+           IF IsLastRelease(chId) THEN "shutdown_pending"
+           ELSE runtime_dispose_state
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
+                   current_runtime,
                    consumer_phase, reader_state, writer_state, retry_len,
                    headers_completion, status_completion,
                    call_dispose_state>>
@@ -239,11 +253,11 @@ ResolveChannelDispose(chId) ==
                    headers_completion, status_completion,
                    call_dispose_state>>
 
-\* The last lease released: the factory begins the native shutdown.
+\* The latch is set: the factory begins the native shutdown.  No lease
+\* can have been taken since, AcquireLease requiring an active manager.
 BeginRuntimeShutdown(rtId) ==
-    /\ runtime_dispose_state = "active"
+    /\ runtime_dispose_state = "shutdown_pending"
     /\ rtId = current_runtime
-    /\ AllLeasesReleased
     /\ F!RuntimeBeginShutdown(rtId)
     /\ runtime_dispose_state' = "destroying"
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -508,7 +522,8 @@ WriteRefusedTooLarge(cId, len) ==
     /\ F!RefuseLendTooLarge(cId, len)
     /\ ManagedStutter
 
-\* The budget wait's retry succeeds, or converts into the slot wait.
+\* The budget wait's retry succeeds: the window is always open, so a
+\* successful lend is the only way out besides cancel and dispose.
 RetryLendSucceeds(cId, b, charge) ==
     /\ writer_state[cId] = "waiting_budget"
     /\ BindingMayDowncall(cId)
@@ -721,42 +736,92 @@ SerializationSettles(cId) ==
     \/ \E b \in BufferIds : WriteAborted(cId, b)
 
 RuntimeOwedFairness ==
+    \* accepted sends reach the wire, so a committed write can be acquitted
     /\ \A cId \in CallIds : WF_l1_vars(F!NetworkSend(cId))
+    \* a terminal arrives at all, so every call has an end to deliver
     /\ \A cId \in CallIds : WF_l1_vars(F!ReceiveStatus(cId))
+    \* the header reaches the ring, so the prologue can resolve the headers
     /\ \A cId \in CallIds : WF_l1_vars(F!DeliverInitialMetadata(cId))
+    \* a received message reaches the ring, so a waiting reader wakes
     /\ \A cId \in CallIds : WF_l1_vars(F!DeliverMessage(cId))
+    \* the terminal reaches the ring, so the reader or the drain can end
     /\ \A cId \in CallIds : WF_l1_vars(F!DeliverStatus(cId))
+    \* a cancelled call still gets its terminal, so its dispose can finish
     /\ \A cId \in CallIds : WF_l1_vars(F!DeliverCancelled(cId))
+    \* the acquittal comes, which is where a write completes
     /\ \A cId \in CallIds : WF_l1_vars(F!EmitWriteDone(cId))
+    \* the runtime reaches released, without which destroy is refused
     /\ \A rtId \in RuntimeIds : WF_l1_vars(F!RuntimeRelease(rtId))
+    \* the shutdown announces itself, the first link of the teardown chain
     /\ \A rtId \in RuntimeIds : WF_l1_vars(F!EmitShutdownComplete(rtId))
+    \* the second event when owed - never at this level, kept for the lift
     /\ \A rtId \in RuntimeIds : WF_l1_vars(F!EmitResourcesReleased(rtId))
+    \* a closing channel closes, so its calls end and its lease can go
     /\ \A chId \in ChannelIds : WF_l1_vars(F!ChannelFinishClosing(chId))
+    \* returned bytes are freed, which is what recredits the byte budget
     /\ \A cId \in CallIds, b \in BufferIds :
            WF_l1_vars(F!FreeReturnedBuffer(cId, b))
+    \* a settled call is reclaimed, so its arena goes with it
     /\ \A cId \in CallIds : WF_l1_vars(F!ReleaseCallHandle(cId))
 
 BindingOwedFairness ==
+    \* discharges DeliveryCallbackReturns; true: publish a slot and return
     /\ \A cId \in CallIds : WF_vars(OnEventReturns(cId))
+    \* the same, and frees the root; true: the same bounded work
     /\ \A cId \in CallIds : WF_vars(TerminalCallbackReturns(cId))
+    \* discharges WriteDoneReturns, completing the write; true: a counter
+    \* and a signal, no user code on the callback thread
     /\ \A cId \in CallIds : WF_vars(WriteDoneCompletes(cId))
+    \* discharges ShutdownCallbackReturns; true: nothing but a signal
     /\ \A rtId \in RuntimeIds : WF_vars(ShutdownReturns(rtId))
+    \* discharges the second callback's return; true: the same
     /\ \A rtId \in RuntimeIds : WF_vars(ResourcesReleasedReturns(rtId))
+    \* resolves the headers and hands the ring over; true: the binding's
+    \* own bounded prologue, no application code inside it
     /\ \A cId \in CallIds : WF_vars(ConsumeHeader(cId))
+    \* wakes a suspended MoveNext once a payload exists; true: the TCS
+    \* completion is the binding's, and the pool runs it
     /\ \A cId \in CallIds : WF_vars(BeginParse(cId))
+    \* releases the slot, discharging HostConsumesEvent; true: only under
+    \* the stated hypothesis that user parsing terminates
     /\ \A cId \in CallIds : WF_vars(FinishConsumePayload(cId))
+    \* resolves a waiter caught by a dispose; true: the binding cancels it
     /\ \A cId \in CallIds : WF_vars(CancelWaiter(cId))
+    \* gives the drain the ring, without which a dispose cannot end;
+    \* true: the binding's own step once no read is outstanding
     /\ \A cId \in CallIds : WF_vars(HandoffToDrain(cId))
+    \* releases what the application abandoned, discharging
+    \* HostConsumesEvent on the dispose path; true: the drain runs no user
+    \* code, so nothing can stall it
     /\ \A cId \in CallIds : WF_vars(DrainRelease(cId))
+    \* the call reaches disposed, so its channel may release its lease;
+    \* true: the binding's own step once the drain and writer are settled
     /\ \A cId \in CallIds : WF_vars(FinishDisposeCall(cId))
+    \* a disposing channel settles the calls it owns; true: its own loop
     /\ \A cId \in CallIds : WF_vars(DisposeCallForChannel(cId))
+    \* resolves a writer caught by a cancel or a dispose; true: the
+    \* binding faults the pending write, it waits for nothing
     /\ \A cId \in CallIds : WF_vars(CancelWriterWait(cId))
+    \* the lent buffer goes back or the send commits, which is how
+    \* HostReturnsBuffer is discharged; true: the disposable wrapper
+    \* covers success and exception, under the marshaller hypothesis
     /\ \A cId \in CallIds : WF_vars(SerializationSettles(cId))
+    \* a constructor that began completes; true: one downcall, no wait
     /\ \A chId \in ChannelIds : WF_vars(CreateChannel(chId))
+    \* the lease goes back, without which no teardown starts; true: the
+    \* binding's own step once the channel's calls are disposed
     /\ \A chId \in ChannelIds : WF_vars(FinishDisposeChannel(chId))
+    \* the public DisposeAsync task completes; true: the binding's own
+    \* step as soon as its guard holds
     /\ \A chId \in ChannelIds : WF_vars(ResolveChannelDispose(chId))
+    \* the teardown starts at the last release; true: the binding's own
+    \* downcall, and level 1 owes the drain it waits on
     /\ \A rtId \in RuntimeIds : WF_vars(BeginRuntimeShutdown(rtId))
+    \* destroy returns, which is what dispose promised; true: the
+    \* binding's own downcall once the runtime reached quiescence
     /\ \A rtId \in RuntimeIds : WF_vars(FinishDisposeRuntime(rtId))
+    \* the root dies and the factory re-arms; true: the binding's own step
+    \* once no callback of any kind is in flight
     /\ WF_vars(FreeRuntimeRoot)
 
 \* What the application owes, per call, in two conjuncts.  The first is
@@ -769,8 +834,14 @@ BindingOwedFairness ==
 \* this conjunct, which is why it is an obligation the binding requires
 \* rather than a guarantee it manufactures.
 ApplicationOwedFairness ==
+    \* needed so a live call moves at all: the reader's liveness and the
+    \* consumption discharge both start from a read the application began.
+    \* Not true of every program - assumed of a conforming one
     /\ \A cId \in CallIds :
            WF_vars(BeginMoveNext(cId) \/ BeginDisposeCall(cId))
+    \* needed for PublishedCallEventuallyDisposed, and for every teardown
+    \* that waits on a call being settled.  Assumed likewise: it is the
+    \* API's rule, which no binding mechanism can make true
     /\ \A cId \in CallIds : WF_vars(BeginDisposeCall(cId))
 
 Fairness ==
@@ -818,10 +889,14 @@ ConsumerPhaseMatchesDispose ==
         /\ call_dispose_state[cId] = "active" =>
                consumer_phase[cId] \in {"prologue", "application"}
 
-\* The reader exists only where the application reads.
+\* An outstanding read - waiting or parsing - exists only where the
+\* application reads; one value per call is what makes it unique,
+\* matching IAsyncStreamReader's single-read contract.  Finished is not
+\* outstanding: it is the stable fact that the stream ended, and it
+\* survives the hand-off and the dispose.
 AtMostOneReaderOutstanding ==
     \A cId \in CallIds :
-        reader_state[cId] # "idle" =>
+        reader_state[cId] \in {"waiting", "parsing"} =>
             consumer_phase[cId] = "application"
 
 \* The drain never runs beside an application read.
@@ -904,16 +979,40 @@ LiveChannelKeepsRuntimeAlive ==
 
 \* The native shutdown never starts while any lease is out.
 NoRuntimeShutdownWhileLeased ==
-    runtime_dispose_state \in {"destroying", "destroyed"} =>
-        AllLeasesReleased
+    runtime_dispose_state \in
+        {"shutdown_pending", "destroying", "destroyed"} =>
+            AllLeasesReleased
 
-\* The channel machine and the native channel agree.
+\* The channel machine and the native channel agree, state by state: an
+\* unbuilt channel has no native half, an exposed one is open, a
+\* disposing one is open or already latched closing by the runtime, and
+\* a released one is closing or closed - never open, the release having
+\* closed it.
 ChannelStateMatchesNative ==
     \A chId \in ChannelIds :
         /\ channel_dispose_state[chId] \in {"unopened", "constructing"} =>
                channel_state[chId] = "none"
-        /\ channel_dispose_state[chId] \in {"active", "disposing"} =>
-               channel_state[chId] # "none"
+        /\ channel_dispose_state[chId] = "active" =>
+               channel_state[chId] = "open"
+        /\ channel_dispose_state[chId] = "disposing" =>
+               channel_state[chId] \in {"open", "closing", "closed"}
+        /\ channel_dispose_state[chId] \in
+               {"released", "released_last", "disposed"} =>
+                   channel_state[chId] \in {"closing", "closed"}
+
+\* The manager's state and the native runtime agree: a generation that
+\* has not begun tearing down is running (or failed, the residual
+\* guarantee), one being torn down is not yet destroyed, and the
+\* destroyed state means the downcall returned for that generation.
+RuntimeStateMatchesNative ==
+    /\ runtime_dispose_state \in {"active", "shutdown_pending"} =>
+           /\ ~runtime_destroyed[current_runtime]
+           /\ runtime_state[current_runtime] \in
+                  {"RUNNING", "FAILED_UNQUIESCED"}
+    /\ runtime_dispose_state = "destroying" =>
+           ~runtime_destroyed[current_runtime]
+    /\ runtime_dispose_state = "destroyed" =>
+           runtime_destroyed[current_runtime]
 
 \* A disposed call left no managed waiter: reader idle, writer settled,
 \* headers and status resolved.
@@ -935,8 +1034,7 @@ RingNeverOverflows ==
 (***************************************************************************)
 
 \* A waiting write stops waiting once cancellation or dispose arrives -
-\* the budget wait promises nothing else; the slot wait also progresses,
-\* below.
+\* the budget wait promises nothing else, and no other wait exists.
 BudgetCancellationStopsRetry ==
     \A cId \in CallIds :
         (/\ writer_state[cId] = "waiting_budget"
@@ -980,7 +1078,7 @@ ChannelDisposeCompletes ==
             (channel_dispose_state[chId] = "disposed" \/ ~F!L0!NotFailed)
 
 RuntimeDisposeCompletes ==
-    (runtime_dispose_state = "destroying") ~>
+    (runtime_dispose_state \in {"shutdown_pending", "destroying"}) ~>
         (runtime_dispose_state = "absent" \/ ~F!L0!NotFailed)
 
 \* Every allocated root dies: the call's at its terminal callback, the
