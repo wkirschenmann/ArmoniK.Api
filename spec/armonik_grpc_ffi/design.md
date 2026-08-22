@@ -1721,8 +1721,9 @@ terminal.
 (`ResponseHeadersAsync`), the status (`StatusTcs`), and the pending write above.
 
 The headers resolve when the prologue consumes slot 0; a dispose before the metadata
-resolves them by the call's cancellation or error, following the configured exception
-policy, as grpc-dotnet resolves `ResponseHeadersAsync` on a disposed call.
+faults them with an `RpcException` carrying `StatusCode.Cancelled`, the one exception
+type this binding uses for every cancelled path - see the frontier section, where that
+decision is stated.
 
 **The status is resolved by whoever consumes the terminal slot, never by the callback.**
 The terminal callback copies `ak_bytes`, the kind and the code into the ring, publishes
@@ -2768,12 +2769,87 @@ inherited rather than restated.
 
 #### What no level of the specification covers
 
-The models assume state updates are atomic and sequentially consistent. The memory model
-is outside that: a missing `Volatile.Write` on `head` produces a ring that violates
-everything proved above, and neither level 1 nor level 2 will catch it. The release/acquire
-pairing is a coding rule, and it belongs in review rather than among the proof obligations,
-where listing it would suggest a coverage that does not exist. It is the price of a
-zero-copy SPSC ring, and it is worth paying, but it is worth naming.
+The models assume state updates are atomic and sequentially consistent; concrete memory
+ordering, encodings and the code the models abstract on purpose sit outside that
+assumption.  This is the closed frontier: twelve subjects deliberately outside every
+level, each with what verifies it instead. The list exists so that none of them is mistaken for a gap - a
+proof obligation nobody wrote - and so that none is reopened as one. No further level of
+refinement would help with any of them: they are properties of concrete memory, of
+encodings, or of code the models abstract on purpose.
+
+| Subject | Verified by |
+|---------|-------------|
+| **The ring's memory model** - `Volatile` pairing, acquire/release, false sharing | Code review and a race test, ARM64 included |
+| **No inline continuation** - every TCS `RunContinuationsAsynchronously`, every signal latched | Review, plus a test that no user code runs on a callback thread |
+| **Serialized bytes** - arbitrary `Marshaller<T>` round-trips | Protobuf round-trip tests |
+| **Exact metadata, status and trailers**, and the .NET exception mapping | gRPC conformance tests |
+| **The five `CallInvoker` shapes' cardinalities** - the model is the generic bidirectional call | A test per shape |
+| **`CallOptions` in full** - deadline, credentials, headers | Still declared missing work, not a hidden claim |
+| **The lease refcount's algorithm** and the singleton's publication | A concurrent create/dispose race test |
+| **The handles' concrete encoding** - widths, allocation, type discrimination | ABI header work and stale-handle tests |
+| **Budget polling's cadence, backoff and starvation** | Nothing: deliberately not guaranteed, and the model says so |
+| **Payload owner identity** - FIFO release is a conformance hypothesis | `ak_call_debt_of` in assertions and tests |
+| **The `WriteTcs` publication race** around the send downcall | A directed race test |
+| **A compilable C ABI**, layouts, versioning, protocol encodings, tri-language tests | The header and conformance phase of the binding plan |
+
+**The memory model is the price of the ring.** A missing `Volatile.Write` on `head`
+produces a ring that violates everything proved above, and neither level 1 nor level 2
+will catch it. The release/acquire pairing is a coding rule, and it belongs in review
+rather than among the proof obligations, where listing it would suggest a coverage that
+does not exist. It is the price of a zero-copy SPSC ring, and it is worth paying, but it
+is worth naming.
+
+Four of the twelve carry a decision the implementation must not improvise, so the
+decision is here rather than in the code that will need it.
+
+**Cancellation faults with `RpcException`.** A call disposed or cancelled before its
+metadata arrives resolves `ResponseHeadersAsync` - and every other pending managed object
+of that call - with an `RpcException` carrying `StatusCode.Cancelled`. One rule, one
+exception type, whatever the path: no `ThrowOperationCanceledOnCancellation` option is
+ported, so calling code stays in the `RpcException` world grpc-dotnet callers already
+handle. The model states that nothing is left pending
+(`DisposeLeavesNoManagedWaiter`); which exception carries the failure is this decision.
+
+**The lease refcount is a lock and a counter.** The factory's lock guards one pair - the
+current runtime and the number of leases out - so acquisition and last release are
+decided under the same lock, and `ak_runtime_destroy` is called outside it once the
+counter reached zero. It costs one uncontended lock per channel construction and
+disposal, never anything on a hot path, and it is obviously correct where an
+`Interlocked` counter would need an argument about resurrection that the model does not
+supply: level 2 derives "the last release" from the set of settled channels, and the code
+must reach the same conclusion by counting.
+
+**The write TCS is published before the commit, and rolled back on refusal.** The
+WRITE_DONE callback may run the moment `ak_call_send_message` accepts, so the TCS has to
+be reachable from `CallState` before the downcall - a callback that finds nothing would
+lose the completion the write is waiting on. If the commit is refused instead, the same
+`using` scope that returns the buffer withdraws the TCS and faults it. Publishing after
+the acceptance would need a landing slot for a callback that arrived early, which is more
+machinery for the same guarantee.
+
+**The handles' encoding is a property, not yet a layout.** Three properties must hold, and
+the widths that carry them belong with the C header, where `ak_abi_version` and the struct
+layouts are chosen and where the tri-language tests live:
+
+- a stale handle is refused, never dereferenced - the generation counter is the
+  implementation of the released and destroyed states the models carry, and nothing else;
+- a live handle of the wrong kind is refused as an argument error rather than resolved
+  against the wrong object: index spaces are per kind, so a channel's index is plausibly a
+  live call's index and the generations of two spaces climb in parallel. Either a kind tag
+  in the handle or a kind field in the slot discriminates them; the slot field is the
+  cheaper of the two, and the choice belongs with the slot map's design;
+- generation wraparound is impossible by construction, not merely improbable: a slot whose
+  generation would saturate is retired instead of reused. One comparison at allocation
+  buys a structural argument where a width alone would only buy a large number.
+
+The arithmetic that will size them, recorded so it is not redone: an index space covers
+*simultaneous* objects - a runtime, a handful of channels, the concurrent calls, and per
+call at most `MaxSendsInFlight` buffers and `DeliveryCredits + 1` payload owners - while a
+generation counts a slot's *reuses over the whole process lifetime*. Sustaining a hundred
+thousand calls a second for ten years is some three times ten to the thirteenth calls; over
+four thousand slots that is under two to the thirty-third reuses each. The index wants
+twelve to sixteen bits, the generation something above thirty-two, and the two together
+leave room in a machine word for the kind.
 
 ### TLAPS Proof
 
