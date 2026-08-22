@@ -10,8 +10,8 @@
 (* No new constants.  The managed side adds discipline, not capacity: the  *)
 (* pipelining depths, the byte ceiling and the identity spaces are the     *)
 (* ABI's and arrived at level 1.  The retry cadence is deliberately not a  *)
-(* constant - no property of the model reads it, and the one liveness      *)
-(* about the retry loop is conditional on cancellation, not on time.      *)
+(* constant - no property of the model reads it, and the retry liveness    *)
+(* is conditional on cancellation, not on time.                            *)
 (*                                                                         *)
 (* The ring is deliberately NOT here.  Both of its indexes are level-1     *)
 (* state read through level-2 names: the trampoline publishes inside the   *)
@@ -20,7 +20,7 @@
 (* payloads_consumed_by_host.  One counter standing for the outstanding    *)
 (* set is also what makes release order structural: advancing a counter    *)
 (* can only release the oldest.  What level 2 adds about the ring is who   *)
-(* consumes it, which is consumer_phase below.                             *)
+(* consumes it: the phase machine and the in-flight reservation below.     *)
 (***************************************************************************)
 
 EXTENDS FfiGrpcState
@@ -36,13 +36,16 @@ VARIABLES
     runtime_root_live,      \* BOOLEAN: the invoker's GC root
 
     (***********************************************************************)
-    (* The ring's consumer, in phases: the header prologue owning slot 0,  *)
-    (* the application while the call is live, the drain after dispose,    *)
-    (* done when the call is disposed.  One value per call is the          *)
-    (* single-consumer discipline made structural.                         *)
+    (* The ring's consumer.  The phase says which class of consumer has    *)
+    (* the ring - the header prologue, the application, the drain - and    *)
+    (* the in-flight flag says a read is actually in progress: the slot    *)
+    (* was taken and its parse has not completed.  The flag is what makes  *)
+    (* the application-to-drain hand-off expressible: the drain starts     *)
+    (* behind a parse in flight, never beside it.                          *)
     (***********************************************************************)
     consumer_phase,         \* [CallIds -> {"prologue", "application",
                             \*              "drain", "done"}]
+    consumer_in_flight,     \* [CallIds -> BOOLEAN]: a read is in progress
 
     (***********************************************************************)
     (* Completion asynchrony.  A callback completes a TCS and returns; the *)
@@ -54,23 +57,29 @@ VARIABLES
                             \* not yet run
 
     (***********************************************************************)
-    (* The retry protocol.  One flag per call - retrying or not - carries  *)
-    (* BudgetCancellationStopsRetry and MessageTooLargeIsNotRetried with   *)
-    (* no counter anywhere, and RetryingCallHoldsNoBuffer is the guard on  *)
-    (* entering the waiting state.                                         *)
+    (* The retry protocol.  The state says whether the call waits on the   *)
+    (* budget, and the length says for which request: the wait is entered  *)
+    (* by the budget refusal itself, repeats only the same request, and    *)
+    (* exits on the successful lend, cancellation or dispose.              *)
     (***********************************************************************)
     retry_state,            \* [CallIds -> {"idle", "awaiting_budget"}]
+    retry_len,              \* [CallIds -> RequestLengths + a sentinel]:
+                            \* the refused request's length, NoRetryLen
+                            \* when not waiting
 
     (***********************************************************************)
     (* Dispose machines.  The call's drives the drain; the runtime's       *)
-    (* orders every teardown downcall before ak_runtime_destroy.           *)
+    (* starts at the public DisposeAsync, disposes the calls it still      *)
+    (* holds, and only then begins the native shutdown.                    *)
     (***********************************************************************)
     call_dispose_state,     \* [CallIds -> {"active", "draining",
                             \*              "disposed"}]
-    runtime_dispose_state   \* {"active", "destroying", "destroyed"}
+    runtime_dispose_state   \* {"active", "disposing_calls", "destroying",
+                            \*  "destroyed"}
 
 managed_vars == <<call_token_published, call_root_live, runtime_root_live,
-                  consumer_phase, pending_continuations,
-                  retry_state, call_dispose_state, runtime_dispose_state>>
+                  consumer_phase, consumer_in_flight, pending_continuations,
+                  retry_state, retry_len,
+                  call_dispose_state, runtime_dispose_state>>
 
 ===============================================================================

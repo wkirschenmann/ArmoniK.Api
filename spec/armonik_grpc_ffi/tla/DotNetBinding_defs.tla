@@ -12,23 +12,32 @@
 
 EXTENDS DotNetBinding
 
-\* The managed safety contract.  ManagedTypeOK is deliberately not a
-\* conjunct: it says the state is well typed, not what the binding
-\* guarantees, exactly as TypeOK is kept out of the level-0 and level-1
-\* manifests.
+\* The managed safety contract.  ManagedTypeOK is a conjunct, like TypeOK
+\* in level 0's SafetyCore; the manifest checker treats both as structural
+\* and the document lists the guarantees.
 ManagedSafety ==
+    /\ ManagedTypeOK
     /\ TokenPublishedBeforeStart
     /\ RootSurvivesCallbacks
     /\ RuntimeRootSurvivesCallbacks
     /\ ConsumerPhaseMatchesDispose
+    /\ AtMostOneConsumerInFlight
+    /\ DrainNeverOverlapsApplicationConsumer
     /\ RetryingCallHoldsNoBuffer
+    /\ RetryOnlyAfterBudgetRefusal
+    /\ RetryLenMatchesWait
     /\ DisposeAwaitsDestroy
     /\ RingNeverOverflows
 
-\* The managed liveness contract.  Both are conditional on the fairness
-\* tiers of DotNetBinding, never on a deadline.
+\* The managed liveness contract.  Every promise crossing the native
+\* runtime carries the ~NotFailed escape; none rests on a deadline.
 ManagedLiveness ==
     /\ BudgetCancellationStopsRetry
+    /\ CallDisposeCompletes
     /\ RuntimeDisposeCompletes
+    /\ CallRootEventuallyFreed
+    /\ RuntimeRootEventuallyFreed
+    /\ InFlightPayloadEventuallyReleased
+    /\ QueuedContinuationEventuallyRuns
 
 ===============================================================================

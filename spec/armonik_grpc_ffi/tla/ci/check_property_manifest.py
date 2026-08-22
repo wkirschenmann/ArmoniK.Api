@@ -27,7 +27,7 @@ DOC = os.path.join(SPEC, "design.md")
 
 # Structural conjuncts of a manifest that the document deliberately does not
 # list: they say the state is well typed, not what the library guarantees.
-STRUCTURAL = {"TypeOK"}
+STRUCTURAL = {"TypeOK", "ManagedTypeOK"}
 
 # Guarantees about an action rather than about a state, which no conjunction
 # of state predicates can carry.  Each must be a declared theorem.
