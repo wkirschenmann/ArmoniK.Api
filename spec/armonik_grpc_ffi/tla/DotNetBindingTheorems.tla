@@ -80,14 +80,26 @@ THEOREM ConsumerHandoffPreservesTail ==
 \* cancellation, in the same step.
 THEOREM ReadCancellationCancelsCall ==
     Spec => \A cId \in CallIds :
-                [][CancelReadInFlight(cId) => cancel_requested'[cId]]_vars
+                [][(CancelWaitingRead(cId) \/ CancelParsingRead(cId))
+                       => /\ cancel_requested'[cId]
+                          /\ call_dispose_state'[cId] = "draining"]_vars
 
-\* A completed read's token is inert: no step cancels on behalf of a read
-\* that is no longer in flight.  The citable shadow of an absence, like
-\* the permanent refusal that enters no wait.
-THEOREM CompletedReadIgnoresItsToken ==
+\* A completed read's token is inert.  The content is not that the
+\* reaction respects its own guard - it does, trivially - but that the
+\* firing itself arms nothing once the read is over: a request can only
+\* be raised on a read in flight, so no step of a finished or idle reader
+\* ever cancels the call on a stale token's behalf.
+THEOREM CompletedReadTokenArmsNothing ==
     Spec => \A cId \in CallIds :
-                [][CancelReadInFlight(cId) => ReadInFlight(cId)]_vars
+                [][(/\ ~ReadInFlight(cId)
+                    /\ ~read_cancel_pending[cId])
+                       => ~read_cancel_pending'[cId]]_vars
+
+THEOREM PendingReadCancellationEventuallyObservedHolds ==
+    Spec => PendingReadCancellationEventuallyObserved
+
+THEOREM CancelledReadEventuallyDrainsCallHolds ==
+    Spec => CancelledReadEventuallyDrainsCall
 
 THEOREM ReadInFlightEventuallyResolvedHolds ==
     Spec => ReadInFlightEventuallyResolved

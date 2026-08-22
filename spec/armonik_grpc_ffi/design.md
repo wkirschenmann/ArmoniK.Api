@@ -1531,7 +1531,8 @@ channel's asynchronous one, and `await using` is the documented pattern.
 
 ```csharp
 // Rooted for the runtime's lifetime. Runs on a Tokio thread: it publishes
-// one ring slot and returns. No user code, no allocation, and no path that
+// one ring slot and returns. No user code, no binding-managed payload allocation on
+// the measured fast path, and no path that
 // can throw - which is what makes it total.
 [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
 private static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* evt)
@@ -2576,10 +2577,9 @@ instead of waiting for a terminal that will never come.
 anything, and nothing in the model represents such a call because it touches no state.
 A finished reader holds nothing, so the drain takes the ring from it as it would from an
 idle one; only a parse in flight or a suspended `MoveNext` makes the drain wait.
-That is also why "every call is disposed in the end" is stated as the application's
-obligation rather than derived: an application looping on a false answer would satisfy a
-read-or-dispose disjunction forever without disposing, so the model asks for the dispose
-directly, as the API does.
+A finished reader reports the call's terminal result, which is not always the value
+`false`: a call that ended in error keeps producing the same `RpcException`, and
+`finished` names the stable terminal outcome rather than one particular answer.
 
 **The reader, precisely.** `BeginMoveNext` commits the read whether or not a payload
 exists; `BeginParse` wakes it when a payload arrives and only while the call is still
@@ -2700,6 +2700,15 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
   materialized - a channel is never left pointing at a torn-down runtime
 - **NoRuntimeShutdownWhileLeased**: the native shutdown never starts while any lease is
   out
+- **RejectedChannelHasNoNativeHalf**: a channel whose configuration was refused never
+  got its native half - and holds no lease, which `ChannelSettled` covers
+- **ReadCancelPendingOnlyInFlight**: a cancellation request is armed only on a read that
+  is in flight.  That is what makes a late token inert: `MoveNext`'s registration dies
+  with the read it belongs to, so a token firing after its own read completed has nothing
+  to arm - the identity of the operation is the flag's lifetime rather than an epoch
+- **CancelledParseStillOwnsItsSlot**: a cancelled parse keeps its slot.  A synchronous
+  marshaller already writing cannot be preempted, so the reader stays in
+  `parsing_cancelled` until it returns and the release happens there, exactly once
 - **ChannelStateMatchesNative**: the channel machine and the native channel agree - no
   managed channel active without its `ak_channel`, none exposed before it
 - **DisposeLeavesNoManagedWaiter**: a disposed call has its reader idle, its writer
@@ -2748,12 +2757,19 @@ way out, and no termination is guaranteed past a failure.
   the call's at its terminal callback, the generation's after destroy
 - **InFlightPayloadEventuallyReleased**: a parse completes and its slot is released -
   under the stated hypothesis that user parsing terminates
+- **PendingReadCancellationEventuallyObserved**: a request that landed is acted on.  The
+  token's firing carries no fairness - a token that never fires is the normal case, and no
+  promise may turn a possibility into an obligation - but the binding's reaction to one
+  that did is owed
+- **CancelledReadEventuallyDrainsCall**: a cancelled read leaves the call on its way out,
+  with no further user action.  `MoveNext`'s token cancels the call, so the binding drains
+  it: the application does not have to read again or dispose to see it settle
 - **ReadInFlightEventuallyResolved**: a read in flight - suspended or parsing - always
   resolves: by its payload, by its own token, or by the dispose.  `MoveNext(ct)` is
   modelled with the contract's two halves, each an action theorem: cancelling a read
   still in flight cancels **the call** (`ReadCancellationCancelsCall`), and a read that
   already completed has an inert token, no step cancelling on its behalf
-  (`CompletedReadIgnoresItsToken`)
+  (`CompletedReadTokenArmsNothing`)
 - **WaitingReaderEventuallyResolved**: a suspended `MoveNext` is resolved by payload or
   dispose, never abandoned
 - **PublishedCallEventuallySettled**: every call the application created settles in the
@@ -2810,7 +2826,7 @@ requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host
 discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, six action theorems -
 `ConsumerHandoffPreservesTail`, `ChannelDisposeIsolatesItsCalls`,
 `LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
-`ReadCancellationCancelsCall` and `CompletedReadIgnoresItsToken` - and one theorem per liveness promise plus their
+`ReadCancellationCancelsCall` and `CompletedReadTokenArmsNothing` - and one theorem per liveness promise plus their
 aggregate.  None of them is proved today.
 
 Refinement mapping, by direct reuse:
@@ -2874,7 +2890,7 @@ race. Ordered by what a defect would cost.
 | Risk | What it produces | Gate |
 |------|------------------|------|
 | Write TCS or writer state published after the downcall | an immediate WRITE_DONE finds nothing to complete: the write hangs, or a later one is completed twice | publish before the native call, roll back only on synchronous refusal; a test whose callback fires before the downcall returns |
-| Read token, parse, terminal and dispose racing | a call believed cancelled that continues, a payload acquitted twice, a task resolved twice | the model's two halves (`ReadCancellationCancelsCall`, `CompletedReadIgnoresItsToken`); a test per winner of each race |
+| Read token, parse, terminal and dispose racing | a call believed cancelled that continues, a payload acquitted twice, a task resolved twice | the model's two halves (`ReadCancellationCancelsCall`, `CompletedReadTokenArmsNothing`); a test per winner of each race |
 | Serializer running while the call is disposed | the buffer returned under a marshaller still writing into it - use after return | one owner for the wrapper, commit and abort atomic and exclusive, returned exactly once |
 | GCHandle on a refused start, or a terminal arriving at once | a root leaked, or freed twice | root before the start; local rollback if the start refuses (no callback is promised); after acceptance the terminal callback is the only releaser |
 | Lease reaching zero beside a concurrent construction | a generation reused after its zero, or two live runtimes | decide the zero and mark the generation non-acquirable under one lock; a strongly concurrent create/dispose test |

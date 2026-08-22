@@ -71,7 +71,8 @@ RingOccupancy(cId) == RingHead(cId) - RingTail(cId)
 RingDrained(cId) == RingTail(cId) = RingHead(cId)
 
 ConsumerPhases == {"prologue", "application", "drain", "done"}
-ReaderStates == {"idle", "waiting", "parsing", "finished"}
+ReaderStates == {"idle", "waiting", "parsing", "parsing_cancelled",
+                 "finished"}
 
 \* A read is in flight - waiting or parsing - and its token is therefore
 \* armed: MoveNext(ct) cancels the CALL while its own read has not
@@ -79,12 +80,14 @@ ReaderStates == {"idle", "waiting", "parsing", "finished"}
 \* contract IAsyncStreamReader states.  The registration is the state:
 \* armed exactly while the read is in flight, so a token firing later
 \* finds nothing to cancel.
-ReadInFlight(cId) == reader_state[cId] \in {"waiting", "parsing"}
+ReadInFlight(cId) ==
+    reader_state[cId] \in {"waiting", "parsing", "parsing_cancelled"}
 WriterStates == {"idle", "serializing", "waiting_budget",
                  "awaiting_write_done", "closed"}
 CallDisposeStates == {"active", "draining", "settled"}
-ChannelDisposeStates == {"unopened", "constructing", "active", "disposing",
-                         "released", "released_last", "disposed"}
+ChannelDisposeStates == {"unopened", "constructing", "rejected", "active",
+                         "disposing", "released", "released_last",
+                         "disposed"}
 RuntimeDisposeStates == {"absent", "active", "shutdown_pending",
                          "destroying", "destroyed"}
 HeadersCompletions == {"pending", "succeeded", "failed"}
@@ -104,7 +107,7 @@ NoRetryLen == Ceiling + 2
 \* the destroy.
 ChannelSettled(chId) ==
     channel_dispose_state[chId] \in
-        {"unopened", "released", "released_last", "disposed"}
+        {"unopened", "rejected", "released", "released_last", "disposed"}
 
 AllLeasesReleased == \A chId \in ChannelIds : ChannelSettled(chId)
 
@@ -140,6 +143,7 @@ ManagedTypeOK ==
     /\ channel_dispose_state \in [ChannelIds -> ChannelDisposeStates]
     /\ consumer_phase \in [CallIds -> ConsumerPhases]
     /\ reader_state \in [CallIds -> ReaderStates]
+    /\ read_cancel_pending \in [CallIds -> BOOLEAN]
     /\ writer_state \in [CallIds -> WriterStates]
     /\ retry_len \in [CallIds -> F!RequestLengths \union {NoRetryLen}]
     /\ headers_completion \in [CallIds -> HeadersCompletions]
@@ -159,6 +163,7 @@ ManagedInit ==
     /\ channel_dispose_state = [ch \in ChannelIds |-> "unopened"]
     /\ consumer_phase = [c \in CallIds |-> "prologue"]
     /\ reader_state = [c \in CallIds |-> "idle"]
+    /\ read_cancel_pending = [c \in CallIds |-> FALSE]
     /\ writer_state = [c \in CallIds |-> "idle"]
     /\ retry_len = [c \in CallIds |-> NoRetryLen]
     /\ headers_completion = [c \in CallIds |-> "pending"]
@@ -189,6 +194,7 @@ CreateRuntime(rtId, chId) ==
            [channel_dispose_state EXCEPT ![chId] = "constructing"]
     /\ UNCHANGED <<call_token_published, call_root_live, consumer_phase,
                    reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -203,6 +209,7 @@ AcquireLease(chId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -218,6 +225,7 @@ CreateChannel(chId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -226,12 +234,14 @@ CreateChannel(chId) ==
 \* not runtime failures: a typo in an endpoint may not kill the
 \* process-wide runtime every other channel leases.  The lease goes back,
 \* and a first channel that fails takes its just-materialized generation
-\* with it, retired rather than left acquirable.  Only an allocation
+\* with it, retired rather than left acquirable - the constructor's own
+\* local resources go, while the shared RuntimeState's root lives until
+\* that destroy.  Only an allocation
 \* failure is a runtime failure, and that is F!RuntimeFail's business.
 RejectChannelCreation(chId) ==
     /\ channel_dispose_state[chId] = "constructing"
     /\ channel_dispose_state' =
-           [channel_dispose_state EXCEPT ![chId] = "unopened"]
+           [channel_dispose_state EXCEPT ![chId] = "rejected"]
     /\ IF \A other \in ChannelIds :
               other # chId => ChannelSettled(other)
        THEN runtime_dispose_state' = "shutdown_pending"
@@ -240,6 +250,7 @@ RejectChannelCreation(chId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -253,6 +264,7 @@ BeginDisposeChannel(chId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -277,6 +289,7 @@ FinishDisposeChannel(chId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -291,6 +304,7 @@ ResolveChannelDispose(chId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -304,6 +318,7 @@ BeginRuntimeShutdown(rtId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, channel_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -316,6 +331,7 @@ FinishDisposeRuntime(rtId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, channel_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -337,6 +353,7 @@ FreeRuntimeRoot ==
     /\ UNCHANGED <<call_token_published, call_root_live,
                    channel_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -356,6 +373,7 @@ StartCall(cId, chId) ==
     /\ UNCHANGED <<runtime_root_live, current_runtime,
                    runtime_dispose_state, channel_dispose_state,
                    consumer_phase, reader_state, writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -370,6 +388,7 @@ BeginMoveNext(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -385,6 +404,7 @@ BeginParse(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -408,6 +428,7 @@ FinishConsumePayload(cId) ==
            [reader_state EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "finished"
                          ELSE "idle"]
+    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ status_completion' =
            [status_completion EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
@@ -417,16 +438,69 @@ FinishConsumePayload(cId) ==
                    writer_state, retry_len,
                    headers_completion, call_dispose_state>>
 
-\* MoveNext's token fires while its read is in flight: the read loses the
-\* race, resolves exceptionally, and - this is the contract, not a
-\* convenience - the CALL is cancelled, not merely the read.  A token
-\* that fires after its read completed finds ReadInFlight false and does
-\* nothing at all, which is the other half of the same contract.
-CancelReadInFlight(cId) ==
+\* MoveNext's token fires.  The environment's step, not the binding's: it
+\* carries no fairness, because a token that never fires is the normal
+\* case and no promise may turn a possibility into an obligation.  The
+\* request belongs to the read in flight and dies with it, so a token
+\* firing after its own read completed finds no read to arm and does
+\* nothing at all - the other half of IAsyncStreamReader's contract, held
+\* by the flag's lifetime rather than by an epoch.
+RequestReadCancellation(cId) ==
     /\ ReadInFlight(cId)
+    /\ ~read_cancel_pending[cId]
+    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = TRUE]
+    /\ UNCHANGED l1_vars
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime, runtime_dispose_state,
+                   channel_dispose_state, consumer_phase, reader_state,
+                   writer_state, retry_len,
+                   headers_completion, status_completion,
+                   call_dispose_state>>
+
+\* The binding reacts to a request on a suspended read: the read resolves
+\* exceptionally and the CALL is cancelled - the contract cancels the
+\* call, not the read alone - and the call goes to its drain in the same
+\* step, so no further user action is needed to settle it.
+CancelWaitingRead(cId) ==
+    /\ read_cancel_pending[cId]
+    /\ reader_state[cId] = "waiting"
     /\ call_dispose_state[cId] = "active"
     /\ F!RequestCallCancellation(cId)
     /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
+    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
+    /\ call_dispose_state' =
+           [call_dispose_state EXCEPT ![cId] = "draining"]
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime, runtime_dispose_state,
+                   channel_dispose_state, consumer_phase,
+                   writer_state, retry_len,
+                   headers_completion, status_completion>>
+
+\* A request that lands on a parse cannot preempt it: a synchronous
+\* marshaller already writing is not interruptible, so the slot stays
+\* this reader's until it returns.  The call is cancelled at once; the
+\* payload is not abandoned.
+CancelParsingRead(cId) ==
+    /\ read_cancel_pending[cId]
+    /\ reader_state[cId] = "parsing"
+    /\ call_dispose_state[cId] = "active"
+    /\ F!RequestCallCancellation(cId)
+    /\ reader_state' = [reader_state EXCEPT ![cId] = "parsing_cancelled"]
+    /\ call_dispose_state' =
+           [call_dispose_state EXCEPT ![cId] = "draining"]
+    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
+                   current_runtime, runtime_dispose_state,
+                   channel_dispose_state, consumer_phase,
+                   read_cancel_pending, writer_state, retry_len,
+                   headers_completion, status_completion>>
+
+\* The cancelled parse returns: its slot is released exactly once, here
+\* and nowhere else, and the reader is done.
+FinishCancelledParse(cId) ==
+    /\ reader_state[cId] = "parsing_cancelled"
+    /\ F!HostConsumesEvent(cId)
+    /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
+    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase,
@@ -439,6 +513,7 @@ CancelWaiter(cId) ==
     /\ reader_state[cId] = "waiting"
     /\ call_dispose_state[cId] # "active"
     /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
+    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
@@ -460,6 +535,7 @@ HandoffToDrain(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, reader_state,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
 
@@ -477,6 +553,7 @@ ConsumeHeader(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, reader_state,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    status_completion, call_dispose_state>>
 
 \* DisposeAsync on a call - also fired by its channel's dispose.  Latches
@@ -497,6 +574,7 @@ BeginDisposeCall(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    status_completion>>
 
 \* A disposing channel settles its own calls - and no one else's:
@@ -519,6 +597,7 @@ DrainRelease(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, call_dispose_state>>
 
 \* The drain finished, the writer settled, the status resolved by the
@@ -537,7 +616,8 @@ FinishDisposeCall(cId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, reader_state,
-                   writer_state, retry_len, headers_completion,
+                   writer_state, retry_len,
+                   read_cancel_pending, headers_completion,
                    status_completion>>
 
 \* The call is over and owes nothing, so it settles - no user step, and no
@@ -564,6 +644,7 @@ SettleCall(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, reader_state,
                    writer_state, retry_len,
+                   read_cancel_pending,
                    headers_completion, status_completion>>
 
 (***************************************************************************)
@@ -581,7 +662,8 @@ WriteLendSucceeds(cId, b, len, charge) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
-                   retry_len, headers_completion, status_completion,
+                   retry_len,
+                   read_cancel_pending, headers_completion, status_completion,
                    call_dispose_state>>
 
 \* BUDGET_BUSY: the cancellable wait, remembering the refused length.
@@ -596,7 +678,7 @@ WriteRefusedBudget(cId, len, charge) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
                    headers_completion, status_completion,
-                   call_dispose_state>>
+                   call_dispose_state, read_cancel_pending>>
 
 \* MESSAGE_TOO_LARGE: the write faults synchronously - permanent refusal,
 \* no wait, no retry.
@@ -618,7 +700,7 @@ RetryLendSucceeds(cId, b, charge) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
                    headers_completion, status_completion,
-                   call_dispose_state>>
+                   call_dispose_state, read_cancel_pending>>
 
 \* Serialization completed: the commit is accepted and the write is in
 \* flight, its task to be completed by WRITE_DONE.
@@ -630,7 +712,8 @@ CommitWrite(cId, msg, b) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
-                   retry_len, headers_completion, status_completion,
+                   retry_len,
+                   read_cancel_pending, headers_completion, status_completion,
                    call_dispose_state>>
 
 \* Serialization threw, or the commit is refused (cancellation latched):
@@ -642,7 +725,8 @@ WriteAborted(cId, b) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
-                   retry_len, headers_completion, status_completion,
+                   retry_len,
+                   read_cancel_pending, headers_completion, status_completion,
                    call_dispose_state>>
 
 \* A waiting write caught by cancellation or dispose resolves
@@ -659,7 +743,7 @@ CancelWriterWait(cId) ==
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
                    headers_completion, status_completion,
-                   call_dispose_state>>
+                   call_dispose_state, read_cancel_pending>>
 
 \* The WRITE_DONE callback returns: the write in flight - there is at
 \* most one, the writer being single - completes its task.
@@ -671,7 +755,8 @@ WriteDoneCompletes(cId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
-                   retry_len, headers_completion, status_completion,
+                   retry_len,
+                   read_cancel_pending, headers_completion, status_completion,
                    call_dispose_state>>
 
 \* CompleteAsync: end_send, legal only beside no pending write.
@@ -683,7 +768,8 @@ CloseWriter(cId) ==
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
-                   retry_len, headers_completion, status_completion,
+                   retry_len,
+                   read_cancel_pending, headers_completion, status_completion,
                    call_dispose_state>>
 
 (***************************************************************************)
@@ -708,7 +794,8 @@ TerminalCallbackReturns(cId) ==
     /\ UNCHANGED <<call_token_published, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase, reader_state,
-                   writer_state, retry_len, headers_completion,
+                   writer_state, retry_len,
+                   read_cancel_pending, headers_completion,
                    status_completion, call_dispose_state>>
 
 \* The runtime-level callbacks return without touching managed call state.
@@ -780,7 +867,10 @@ Next ==
            \/ BeginParse(cId)
            \/ FinishConsumePayload(cId)
            \/ CancelWaiter(cId)
-           \/ CancelReadInFlight(cId)
+           \/ RequestReadCancellation(cId)
+           \/ CancelWaitingRead(cId)
+           \/ CancelParsingRead(cId)
+           \/ FinishCancelledParse(cId)
            \/ HandoffToDrain(cId)
            \/ ConsumeHeader(cId)
            \/ BeginDisposeCall(cId)
@@ -892,9 +982,11 @@ BindingOwedFairness ==
     /\ \A cId \in CallIds : WF_vars(BeginParse(cId))
     \* resolves a waiter caught by a dispose; true: the binding cancels it
     /\ \A cId \in CallIds : WF_vars(CancelWaiter(cId))
-    \* a read whose token fired resolves; the binding cancels the call in
-    \* the same step, so nothing is left half-cancelled
-    /\ \A cId \in CallIds : WF_vars(CancelReadInFlight(cId))
+    \* a request that landed is acted on - the trigger itself carries no
+    \* fairness, so nothing here obliges a cancellation to happen
+    /\ \A cId \in CallIds : WF_vars(CancelWaitingRead(cId))
+    /\ \A cId \in CallIds : WF_vars(CancelParsingRead(cId))
+    /\ \A cId \in CallIds : WF_vars(FinishCancelledParse(cId))
     \* gives the drain the ring, without which a dispose cannot end;
     \* true: the binding's own step once no read is outstanding
     /\ \A cId \in CallIds : WF_vars(HandoffToDrain(cId))
@@ -913,7 +1005,10 @@ BindingOwedFairness ==
     \* true: under the stated hypothesis that the marshaller terminates
     /\ \A cId \in CallIds : WF_vars(SerializationSettles(cId))
     \* a constructor that began completes; true: one downcall, no wait
-    /\ \A chId \in ChannelIds : WF_vars(CreateChannel(chId))
+    \* the downcall owes a RESULT, not a success: a refused configuration
+    \* is an answer, and the constructor's task ends either way
+    /\ \A chId \in ChannelIds :
+           WF_vars(CreateChannel(chId) \/ RejectChannelCreation(chId))
     \* the lease goes back, without which no teardown starts; true: the
     \* binding's own step once the channel's calls are settled
     /\ \A chId \in ChannelIds : WF_vars(FinishDisposeChannel(chId))
@@ -1090,8 +1185,9 @@ NoRuntimeShutdownWhileLeased ==
 \* closed it.
 ChannelStateMatchesNative ==
     \A chId \in ChannelIds :
-        /\ channel_dispose_state[chId] \in {"unopened", "constructing"} =>
-               channel_state[chId] = "none"
+        /\ channel_dispose_state[chId] \in
+               {"unopened", "constructing", "rejected"} =>
+                   channel_state[chId] = "none"
         /\ channel_dispose_state[chId] = "active" =>
                channel_state[chId] = "open"
         /\ channel_dispose_state[chId] = "disposing" =>
@@ -1099,6 +1195,13 @@ ChannelStateMatchesNative ==
         /\ channel_dispose_state[chId] \in
                {"released", "released_last", "disposed"} =>
                    channel_state[chId] \in {"closing", "closed"}
+
+\* A rejected channel never got its native half, and holds no lease -
+\* ChannelSettled says the second, this says the first.
+RejectedChannelHasNoNativeHalf ==
+    \A chId \in ChannelIds :
+        channel_dispose_state[chId] = "rejected" =>
+            channel_state[chId] = "none"
 
 \* The manager's state and the native runtime agree: a generation that
 \* has not begun tearing down is running (or failed, the residual
@@ -1167,7 +1270,7 @@ ChannelConstructionCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "constructing" ~>
             (\/ channel_dispose_state[chId] = "active"
-             \/ channel_dispose_state[chId] = "unopened"
+             \/ channel_dispose_state[chId] = "rejected"
              \/ ~F!L0!NotFailed)
 
 \* A disposed call settles, a disposing channel settles, the teardown
@@ -1211,6 +1314,35 @@ InFlightPayloadEventuallyReleased ==
     \A cId \in CallIds :
         reader_state[cId] = "parsing" ~>
             reader_state[cId] \in {"idle", "finished"}
+
+\* A cancellation request is armed only on a read that is in flight, which
+\* is what makes a late token inert: there is nothing for it to arm.
+ReadCancelPendingOnlyInFlight ==
+    \A cId \in CallIds :
+        read_cancel_pending[cId] => ReadInFlight(cId)
+
+\* A cancelled parse still owns its slot: the reader stays in
+\* parsing_cancelled until the marshaller returns, and the release
+\* happens there and only there.
+CancelledParseStillOwnsItsSlot ==
+    \A cId \in CallIds :
+        reader_state[cId] = "parsing_cancelled" =>
+            RingOccupancy(cId) > 0
+
+\* A request that landed is acted on - the reaction is the binding's, and
+\* it does not wait for the application.
+PendingReadCancellationEventuallyObserved ==
+    \A cId \in CallIds :
+        read_cancel_pending[cId] ~>
+            (~read_cancel_pending[cId] \/ ~F!L0!NotFailed)
+
+\* A cancelled read leaves the call on its way out, with no further user
+\* action needed: the contract cancelled the call, so the binding drains
+\* it.
+CancelledReadEventuallyDrainsCall ==
+    \A cId \in CallIds :
+        read_cancel_pending[cId] ~>
+            (call_dispose_state[cId] # "active" \/ ~F!L0!NotFailed)
 
 \* A read in flight resolves: by its payload, by its own cancellation, or
 \* by the dispose - never left pending.

@@ -78,8 +78,16 @@ VARIABLES
     consumer_phase,         \* [CallIds -> {"prologue", "application",
                             \*              "drain", "done"}]
     reader_state,           \* [CallIds -> {"idle", "waiting", "parsing",
-                            \*              "finished"}] - finished is the
-                            \* consumed terminal: MoveNext answers false
+                            \*              "parsing_cancelled",
+                            \*              "finished"}]: finished is the
+                            \* consumed terminal - the stable terminal
+                            \* result, which a failed call reports as its
+                            \* status rather than as a further message
+    read_cancel_pending,    \* [CallIds -> BOOLEAN]: MoveNext's token fired
+                            \* on the read now in flight.  Armed only
+                            \* while that read lives, so a token firing
+                            \* after its read completed arms nothing -
+                            \* the identity is the flag's lifetime
 
     (***********************************************************************)
     (* The writer.  One value per call is IClientStreamWriter's            *)
@@ -107,7 +115,9 @@ VARIABLES
     status_completion,      \* [CallIds -> {"pending", "resolved"}]
 
     (***********************************************************************)
-    (* The call's dispose machine, driving the drain.                      *)
+    (* The call's own machine: active, draining once a dispose or a read  *)
+    (* cancellation began, settled when it owes nothing - settled being    *)
+    (* the end of the call, not a user's Dispose.                          *)
     (***********************************************************************)
     call_dispose_state      \* [CallIds -> {"active", "draining",
                             \*              "disposed"}]
@@ -115,7 +125,7 @@ VARIABLES
 managed_vars == <<call_token_published, call_root_live, runtime_root_live,
                   current_runtime, runtime_dispose_state,
                   channel_dispose_state,
-                  consumer_phase, reader_state,
+                  consumer_phase, reader_state, read_cancel_pending,
                   writer_state, retry_len,
                   headers_completion, status_completion,
                   call_dispose_state>>

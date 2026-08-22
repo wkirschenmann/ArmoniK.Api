@@ -34,6 +34,9 @@ ManagedSafety ==
     /\ ManagedShutdownHasNoHostDebt
     /\ LiveChannelKeepsRuntimeAlive
     /\ NoRuntimeShutdownWhileLeased
+    /\ RejectedChannelHasNoNativeHalf
+    /\ ReadCancelPendingOnlyInFlight
+    /\ CancelledParseStillOwnsItsSlot
     /\ ChannelStateMatchesNative
     /\ RuntimeStateMatchesNative
     /\ DisposeLeavesNoManagedWaiter
@@ -54,6 +57,8 @@ ManagedLiveness ==
     /\ RuntimeRootEventuallyFreed
     /\ InFlightPayloadEventuallyReleased
     /\ ReadInFlightEventuallyResolved
+    /\ PendingReadCancellationEventuallyObserved
+    /\ CancelledReadEventuallyDrainsCall
     /\ WaitingReaderEventuallyResolved
     /\ PublishedCallEventuallySettled
     /\ HeadersEventuallyResolved
