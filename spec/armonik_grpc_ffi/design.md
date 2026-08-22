@@ -1451,9 +1451,11 @@ freeing any - and a signal on the wrong edge is a wake-up that never comes. A
 signal or an epoch can be added later without changing the contract, since the poll remains
 correct in its presence. What the poll does *not* give on its own is freedom from
 starvation: another call can win the capacity between the observation and the retry. Level 2
-owes the honest contract there - retry until cancellation or deadline, or a queue if
-acquisition under recurring capacity is to be promised - along with the cadence, the backoff
-and the cancellation of the poll itself.
+states the honest contract there: the wait is cancellable and nothing more - cancellation
+and dispose end it, the successful lend ends it, and no repetition of attempts, cadence or
+backoff is promised, because a promise of attempts would prove nothing (a refused retry
+changes nothing observable) while acquisition would need the arbitration discussed above.
+The cadence and the backoff are implementation choices, verified by review and tests.
 
 A fatal ceiling - the rejected alternative - would be wrong, not merely pessimistic:
 `AK_RUNTIME_FAILED_UNQUIESCED` is absorbing and `ak_runtime_destroy` is refused from it
@@ -2378,17 +2380,26 @@ graph) and in pre-proof review; the verification table row is the honest status.
 **Scope.** The model is the generic bidirectional-streaming call. The five `CallInvoker`
 methods are refinements of it that fix the number of messages in each direction, not
 separate machines, so none is modelled. The start/send command queue is level-1 stutter.
-The .NET async runtime is not modelled either: what matters about it - a completion never
-runs its continuation on the signaling callback's thread - is held by construction, see
-below. The memory model of the ring stays a coding rule for review, outside every level.
+The .NET async runtime is not modelled: completions signal and continuations run
+elsewhere - `RunContinuationsAsynchronously` on every TCS is an implementation rule
+verified by review and tests, not a theorem, and the model carries no counter pretending
+otherwise. The memory model of the ring stays a coding rule for review, outside every
+level.
 
 **Reuse is direct.** `DotNetBindingState` extends `FfiGrpcState`, so the level-0 and
 level-1 variables are the same variables, not mapped copies; the level-1 machinery is
 reached through `F == INSTANCE FfiGrpcTheorems`. A coupled action conjoins the level-1
-action it rides on (`StartCall` conjoins `F!CallStart`); a managed-only action leaves
-`F!vars` unchanged; the runtime's own actions pass through untouched. `L2!Spec => F!Spec`
-is therefore the only refinement to prove - `L0!Spec` follows from level 1's
-`RefinesSpec` by transitivity.
+action it rides on; a managed-only action leaves `F!vars` unchanged; the runtime's own
+actions pass through untouched. `L2!Spec => F!Spec` is therefore the only refinement to
+prove - `L0!Spec` follows from level 1's `RefinesSpec` by transitivity.
+
+**Construction is atomic with exposure.** The concrete constructors allocate the GC
+root, perform the native downcall, and only then return the object - no other thread
+ever sees a constructed-but-unexposed state, so neither does the model: `CreateRuntime`
+conjoins the invoker's root with `ak_runtime_create`, `StartCall` conjoins the call's
+token and root with `ak_call_start`. There is nothing to dispose before construction -
+`RequestRuntimeDispose` is guarded on the invoker existing - and the application's
+fairness can only ever act on an exposed call.
 
 **The ring has no variables.** The trampoline publishes inside the delivery callback, so
 the published prefix IS `events_delivered` and the head is its length; a release is
@@ -2396,20 +2407,19 @@ the published prefix IS `events_delivered` and the head is its length; a release
 state read through level-2 names (`RingHead`, `RingTail`), and two of the obligations the
 ring owes come free of proof: release order is held by representation - advancing a
 counter can only release the oldest - and a payload cannot be released twice for the same
-reason. What level 2 adds about the ring is who consumes it, and whether a read is
-actually in progress.
+reason. What level 2 adds about the ring is who consumes it, and what the reader is
+doing.
 
 Added variables - all discipline, no capacity:
 - `call_token_published`, `call_root_live`, `runtime_root_live`: the GCHandle plumbing -
-  the token exists before the start, the roots outlive the callbacks
+  token and root born with the start, roots outliving the callbacks
 - `consumer_phase`: prologue (owns slot 0), application, drain, done - which class of
   consumer has the ring
-- `consumer_in_flight`: a read is in progress - the slot was taken and its parse has not
-  completed. This is what makes the application-to-drain hand-off expressible: the drain
-  starts behind a parse in flight, never beside it, and `HandoffToDrain` is the step that
-  waits for it
-- `pending_continuations`: completions signaled and not yet run - the queue between a
-  callback completing a TCS and the continuation executing
+- `reader_state`: idle, waiting, parsing - what the application's read is doing. A
+  suspended `MoveNext` on an empty ring is a state (`waiting`), distinct from a taken
+  slot being parsed (`parsing`); one value per call is `IAsyncStreamReader`'s
+  single-read contract made structural - a second concurrent `MoveNext` is
+  unrepresentable, exactly as the API forbids it
 - `retry_state`, `retry_len`: whether the call waits on the budget, and for which
   request - the refused length is remembered, `NoRetryLen` when not waiting
 - `call_dispose_state`, `runtime_dispose_state`: the two dispose machines. The call's
@@ -2419,32 +2429,37 @@ Added variables - all discipline, no capacity:
   settled does `BeginRuntimeShutdown` conjoin the native shutdown - the ordering that
   makes `NoDowncallAfterDestroy` structural
 
-**The consumer, precisely.** `BeginConsumePayload` (MoveNext) reserves the sole right to
-read the current slot; `FinishConsumePayload` conjoins `F!HostConsumesEvent` and gives
-the right back - the parse is a state, not an instant, so two readers are distinguishable
-from one reading twice, and a dispose during a parse waits: `BeginDisposeCall` moves the
-dispose machine at once, but the ring reaches the drain only through `HandoffToDrain`,
-which requires no read in flight. The prologue's read of slot 0 stays atomic: it is the
-binding's own bounded code, nothing of the application runs inside it.
+**The reader, precisely.** `BeginMoveNext` commits the read whether or not a payload
+exists - a suspended read is `waiting`; `BeginParse` wakes it when a payload arrives
+(the TCS completion, binding-owed); `FinishConsumePayload` conjoins
+`F!HostConsumesEvent` when the parse completes; and a waiter caught by a dispose is
+resolved by the binding (`CancelWaiter`) - the suspended `MoveNext` completes
+exceptionally, it does not linger on a ring it no longer owns. The drain takes the ring
+only through `HandoffToDrain`, which requires the reader idle: a parse completes first,
+a waiter is resolved first, the drain starts behind them, never beside them. The
+prologue's read of slot 0 stays atomic: it is the binding's own bounded code, nothing of
+the application runs inside it.
 
-**The retry, causally.** The budget refusal itself enters the wait: `ObserveBudgetRefusal`
-conjoins `F!RefuseLendForBudget` with the transition to `awaiting_budget` and remembers
-the refused length, so no trace observes BUDGET_BUSY without the retry loop it promises.
-While waiting, only the remembered request runs: `RetryBudgetRefusedAgain` (same length),
-`RetryLendSucceeds` (the OK ends the wait inside the same downcall), or `LeaveBudgetWait`
-on cancellation or dispose. The lend family's passthroughs are guarded idle, so no other
-length can be asked meanwhile - and MESSAGE_TOO_LARGE has no entry into the wait at all:
-`RetryOnlyAfterBudgetRefusal` is the citable form of that absence.
+**The retry, causally - and its exact promise.** The budget refusal itself enters the
+wait: `ObserveBudgetRefusal` conjoins `F!RefuseLendForBudget` with the transition to
+`awaiting_budget` and remembers the refused length, so no trace observes BUDGET_BUSY
+without the wait it promises. While waiting, only the remembered request may run - the
+lend family's passthroughs are guarded idle - and MESSAGE_TOO_LARGE has no entry into
+the wait at all: `RetryOnlyAfterBudgetRefusal` is the citable form of that absence. The
+wait is cancellable and nothing more: `LeaveBudgetWait` on cancellation or dispose,
+`RetryLendSucceeds` when `ak_get_call_buffer` returns OK for the remembered request. No
+repetition of attempts is promised and no action models one - a refused retry changes
+nothing observable, so a promise of attempts would be indistinguishable from stuttering
+and prove nothing; what acquisition would need is the arbitration discussed with the
+budget wake-up, not a stronger claim about polling.
 
 **The roots, at their real linearization points.** The terminal callback's return is the
 call root's last access, so `TerminalCallbackReturns` frees the root in the same step -
-one linearization point, matching the code's last instruction, not a separate fair action
-after it. A published call that never started has no terminal callback:
-`FreeUnstartedCallRoot` frees it at its dispose. `PublishCallToken` is guarded by the
-teardown states, so no root is allocated into a call or a runtime being torn down. The
-invoker's root dies after `ak_runtime_destroy` returned, later than every callback of
-every kind - and every callback of every kind, the call ones included, keeps it alive,
-because all of them carry `runtime_ctx`.
+one linearization point, matching the code's last instruction. With construction atomic
+there is no published-but-unstarted call and no orphan root path. The invoker's root
+dies after `ak_runtime_destroy` returned, later than every callback of every kind - and
+every callback of every kind, the call ones included, keeps it alive, because all of
+them carry `runtime_ctx`.
 
 **Fairness comes in three tiers, and the tiers are the point of the level.**
 - *Runtime-owed* (`RuntimeOwedFairness`): the thirteen level-1 families the runtime and
@@ -2452,19 +2467,20 @@ because all of them carry `runtime_ctx`.
   none of them, so their extraction from `Spec` toward `F!Fairness` is citation, not
   proof.
 - *Binding-owed* (`BindingOwedFairness`): the trampoline returns callbacks after bounded
-  work and queues the continuation; the disposable wrapper returns the lent buffer on
-  success and on exception alike; the drain, the hand-off and both dispose chains
-  complete on their own; the thread pool runs queued continuations. These derive the six
-  host conjuncts of `F!Fairness` - the six hypotheses level 1 imposed and could not
-  enforce become theorems here, and deriving them is the point of the level. Two of them
-  cross user code and carry the one stated hypothesis: user serialization and parsing
-  terminate. The wrapper covers success and exception; no wrapper can fire inside a call
-  that never returns.
+  work; the disposable wrapper returns the lent buffer on success and on exception
+  alike; the waiter wake-up, the waiter resolution at dispose, the drain, the hand-off
+  and both dispose chains complete on their own. These derive the six host conjuncts of
+  `F!Fairness` - the six hypotheses level 1 imposed and could not enforce become
+  theorems here, and deriving them is the point of the level. Two of them cross user
+  code and carry the one stated hypothesis: user serialization and parsing terminate.
+  The wrapper covers success and exception; nothing covers code that never comes back.
 - *Application-owed* (`ApplicationOwedFairness`): one weak fairness per call - eventually
-  begin the next read or dispose the call. Disposing every call it created is normative
-  in the API, and the same conjunct encodes it: a naturally finished call still meets an
-  explicit `DisposeAsync`. Nothing else is asked: not feeding the request stream (sends
-  are triggers, never owed), not completing it, not any cadence.
+  begin the next read or dispose the call. Disposing every call it created when it is
+  done with it is normative in the API - a naturally finished call still meets an
+  explicit `DisposeAsync` - but deliberately not a theorem: an application legitimately
+  streaming forever satisfies the fairness through its reads alone, and "done with it"
+  is a notion the model cannot see. Nothing else is asked: not feeding the request
+  stream (sends are triggers, never owed), not completing it, not any cadence.
 
 #### Level-2 safety invariants (to be proved by TLAPS)
 
@@ -2473,8 +2489,8 @@ Every name below is a conjunct of `ManagedSafety` in `DotNetBinding_defs.tla`, a
 in either direction. `ManagedTypeOK` is also a conjunct, structural like `TypeOK` in
 level 0's `SafetyCore`, with its own public theorem.
 
-- **TokenPublishedBeforeStart**: a used call published its GCHandle before
-  `ak_call_start` carried it
+- **TokenPublishedBeforeStart**: no used call without its token - born in the same step
+  as `ak_call_start`
 - **RootSurvivesCallbacks**: a delivery or WRITE_DONE callback in flight resolves its
   `call_ctx` to a live root - freed by the terminal callback's own return, its last
   access
@@ -2484,10 +2500,11 @@ level 0's `SafetyCore`, with its own public theorem.
 - **ConsumerPhaseMatchesDispose**: the phase machine and the dispose machine never
   disagree - done exactly when disposed, drain only while draining, active calls in
   prologue or application
-- **AtMostOneConsumerInFlight**: the read reservation exists only where the application
-  reads; the boolean is what makes the reader unique
+- **AtMostOneConsumerInFlight**: the reader - waiting or parsing - exists only where the
+  application reads; one value per call is what makes it unique
 - **DrainNeverOverlapsApplicationConsumer**: the drain never runs beside an application
-  read - the hand-off happens strictly after the parse in flight
+  read, suspended or parsing - the hand-off happens strictly after the reader returns to
+  idle
 - **RetryingCallHoldsNoBuffer**: a call waiting on the budget holds no lent buffer.
   Waiting for capacity while holding capacity is a deadlock no invariant over
   `bytes_used` would find, because every number stays consistent throughout
@@ -2505,8 +2522,8 @@ level 0's `SafetyCore`, with its own public theorem.
 The conjuncts of `ManagedLiveness` in `DotNetBinding_defs.tla`, bound by the same
 checker. Every promise crossing the native runtime carries the `~NotFailed` escape, like
 every level-0 and level-1 promise: a failed runtime is the contract's one admitted way
-out, and `DisposeAsync` then surfaces the failure rather than a clean teardown - no
-destroyed state is promised past a failure.
+out, and no termination is guaranteed past a failure - `DisposeAsync` in particular
+promises nothing once the runtime failed.
 
 - **BudgetCancellationStopsRetry**: a waiting call stops waiting once cancellation or
   dispose arrives. The conditional shape is the whole property and no unconditional one
@@ -2524,13 +2541,10 @@ destroyed state is promised past a failure.
 - **RuntimeDisposeCompletes**: the invoker's dispose completes from the public request
   on - calls settled, shutdown chain, destroy - unless the runtime failed
 - **CallRootEventuallyFreed / RuntimeRootEventuallyFreed**: every allocated root dies -
-  the call's at its terminal callback or its unstarted dispose, the invoker's after
-  destroy
-- **InFlightPayloadEventuallyReleased**: a reserved read completes and its slot is
-  released - under the stated hypothesis that user parsing terminates, which the
-  binding's WF on `FinishConsumePayload` encodes
-- **QueuedContinuationEventuallyRuns**: once the terminal is in, no callback queues
-  anything more, and the thread pool drains the queue
+  the call's at its terminal callback, the invoker's after destroy
+- **InFlightPayloadEventuallyReleased**: a parse completes and its slot is released -
+  under the stated hypothesis that user parsing terminates, which the binding's WF on
+  `FinishConsumePayload` encodes
 
 #### Held by construction, not stated as invariants
 
@@ -2538,12 +2552,13 @@ Like level 0's monotone transitions: true of every behaviour, by the shape of th
 actions rather than by induction, and this document must not imply a theorem exists.
 
 - **ContinuationsAsync**: no completion runs a continuation on the callback's thread.
-  The model has no action that both completes and continues - a callback queues into
-  `pending_continuations` and returns; `RunContinuation` is its own later step, and
-  `QueuedContinuationEventuallyRuns` is the citable consequence. With no dispatcher
-  between the trampoline and the application this is the only thing keeping user code
-  off the Tokio thread, and it is what makes the callback-return fairness the binding's
-  to promise
+  In the model, no action both returns a callback and performs an application step; in
+  the implementation, every TCS is `RunContinuationsAsynchronously` and every signal is
+  latched - an implementation rule verified by review and tests, deliberately not
+  restated as a counter the model would prove things about. With no dispatcher between
+  the trampoline and the application this is the only thing keeping user code off the
+  Tokio thread, and it is what makes the callback-return fairness the binding's to
+  promise
 - **MessageTooLargeIsNotRetried**: no action enters the budget wait from
   MESSAGE_TOO_LARGE - the refusal is permanent by construction, so a retry would poll
   forever against a condition no return by anyone can change. The absence is the
@@ -2551,11 +2566,13 @@ actions rather than by induction, and this document must not imply a theorem exi
 - **PayloadsReleasedInOrder / ReleasedAtMostOnce**: the release counter can only advance
   by one, so the order is the data structure and a double release cannot be expressed.
   This is the price level 1's counter abstraction charged, paid by representation - and
-  it is also why the hand-off preserves the tail: `HandoffToDrain` touches no level-1
-  state at all
-- **SingleStreamConsumer**: `consumer_phase` is one value per call, every consuming
-  action is guarded by its phase, and the in-flight reservation is unique by
-  representation - the prologue, the application and the drain hand over, never overlap
+  the hand-off preserves the tail for the same reason: `HandoffToDrain` touches no
+  level-1 state, and `ConsumerHandoffPreservesTail` states it as a public theorem so
+  nobody reads `CallRootEventuallyFreed` as carrying it
+- **SingleStreamConsumer**: `consumer_phase` is one value per call, `reader_state` one
+  value per call, every consuming action guarded by both - the prologue, the
+  application and the drain hand over, never overlap, and two concurrent `MoveNext` are
+  unrepresentable
 - **NoDowncallAfterDestroy**: the call downcalls carry `BindingMayDowncall`, the channel
   and runtime downcalls their own runtime-level guards, and `BeginRuntimeShutdown`
   requires every call disposed first - an ordering on dispose, not a safety net.
@@ -2570,20 +2587,24 @@ actions rather than by induction, and this document must not imply a theorem exi
 
 The public interface, `DotNetBindingTheorems.tla`, declares the obligations the freeze
 requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host
-discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, one theorem per liveness promise
-and their aggregate - none of them proved today.
+discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, `ConsumerHandoffPreservesTail`,
+one theorem per liveness promise and their aggregate - none of them proved today.
 
 Refinement mapping, by direct reuse:
-- `GCHandle.Alloc(callState)` ↔ `PublishCallToken`, before `StartCall` can fire
-- `OnEvent` publishes a slot and completes a TCS ↔ `OnEventReturns` conjoins the level-1
-  callback return and queues the continuation; the terminal one is
+- `new NativeCallInvoker(...)` ↔ `CreateRuntime` - root and `ak_runtime_create` in one
+  step, the constructor returning only afterwards
+- the call constructor ↔ `StartCall` - `GCHandle.Alloc`, `ak_call_start` and exposure in
+  one step
+- `OnEvent` publishes a slot and completes a TCS ↔ `OnEventReturns`; the terminal one is
   `TerminalCallbackReturns`, which also frees the call root
-- `MoveNext` and its parse ↔ `BeginConsumePayload` then `FinishConsumePayload`, the
-  latter conjoining `F!HostConsumesEvent` - valid precisely because the released payload
-  is the oldest, which the counter representation guarantees
-- `DisposeAsync` on a call ↔ `BeginDisposeCall` (latches cancellation), `HandoffToDrain`
-  behind any parse in flight, then `FinishDisposeCall` once drained with the terminal
-  released
+- `MoveNext`, its suspension and its parse ↔ `BeginMoveNext`, `BeginParse`,
+  `FinishConsumePayload`, the latter conjoining `F!HostConsumesEvent` - valid precisely
+  because the released payload is the oldest, which the counter representation
+  guarantees
+- `DisposeAsync` on a call ↔ `BeginDisposeCall` (latches cancellation), `CancelWaiter`
+  for a suspended read, `HandoffToDrain` behind any parse in flight, then
+  `FinishDisposeCall` once drained with the terminal released - a started call always
+  has a terminal to drain, construction being atomic with the start
 - `DisposeAsync` on the invoker ↔ `RequestRuntimeDispose`, `DisposeCallForRuntime` per
   remaining call, `BeginRuntimeShutdown` (conjoins `F!RuntimeBeginShutdown`), then
   `FinishDisposeRuntime` (conjoins `F!RuntimeDestroy`)

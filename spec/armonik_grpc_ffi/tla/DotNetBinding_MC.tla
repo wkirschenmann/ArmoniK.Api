@@ -19,7 +19,6 @@ EXTENDS DotNetBinding_defs, TLC
 StateConstraint ==
     /\ \A cId \in CallIds : Len(submitted[cId]) <= 2
     /\ \A cId \in CallIds : Len(received[cId]) <= 2
-    /\ \A cId \in CallIds : pending_continuations[cId] <= 3
 
 \* Overrides MessageLength: a .cfg constant assignment cannot carry a
 \* function literal.  One byte per message - the ceiling is the subject,

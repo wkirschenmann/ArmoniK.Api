@@ -26,7 +26,7 @@ THEOREM RefinesSpec == Spec => F!Spec
 (* enforce them; the binding's own fairness implies each.  The two that    *)
 (* involve user code - parsing and serialization - hold under the stated   *)
 (* hypothesis that user code terminates: the wrapper covers success and    *)
-(* exception, nothing covers a call that never returns.                    *)
+(* exception, nothing covers code that never comes back.                   *)
 (***************************************************************************)
 
 THEOREM DeliveryCallbackReturnsDischarged ==
@@ -59,6 +59,16 @@ THEOREM ManagedTypeOKHolds == Spec => []ManagedTypeOK
 
 THEOREM ManagedSafetyHolds == Spec => []ManagedSafety
 
+\* The hand-off moves no level-1 state: in particular the release counter
+\* is untouched, so the drain resumes exactly where the application
+\* stopped.  Structural - HandoffToDrain stutters on l1_vars - and stated
+\* so nobody reads CallRootEventuallyFreed as carrying it.
+THEOREM ConsumerHandoffPreservesTail ==
+    Spec => \A cId \in CallIds :
+                [][HandoffToDrain(cId) =>
+                       payloads_consumed_by_host' =
+                           payloads_consumed_by_host]_vars
+
 (***************************************************************************)
 (* MANAGED LIVENESS - one theorem per public promise, aggregated last.     *)
 (***************************************************************************)
@@ -77,9 +87,6 @@ THEOREM RuntimeRootEventuallyFreedHolds ==
 
 THEOREM InFlightPayloadEventuallyReleasedHolds ==
     Spec => InFlightPayloadEventuallyReleased
-
-THEOREM QueuedContinuationEventuallyRunsHolds ==
-    Spec => QueuedContinuationEventuallyRuns
 
 THEOREM ManagedLivenessTheorem == Spec => ManagedLiveness
 

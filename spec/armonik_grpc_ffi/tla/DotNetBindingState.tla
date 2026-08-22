@@ -20,7 +20,14 @@
 (* payloads_consumed_by_host.  One counter standing for the outstanding    *)
 (* set is also what makes release order structural: advancing a counter    *)
 (* can only release the oldest.  What level 2 adds about the ring is who   *)
-(* consumes it: the phase machine and the in-flight reservation below.     *)
+(* consumes it: the phase machine and the reader below.                    *)
+(*                                                                         *)
+(* The construction boundary is deliberately atomic: the concrete          *)
+(* constructors allocate the root, perform the native create or start,     *)
+(* and only then return the object, all before any other thread can see    *)
+(* it - so root allocation and the native downcall are one step here       *)
+(* (CreateRuntime, StartCall), and no state exists in which an allocated   *)
+(* object is not yet exposed.                                              *)
 (***************************************************************************)
 
 EXTENDS FfiGrpcState
@@ -31,36 +38,30 @@ VARIABLES
     (* and runtime_ctx - the arguments level 1 does not model - is that    *)
     (* they resolve to live objects whenever a callback runs.              *)
     (***********************************************************************)
-    call_token_published,   \* [CallIds -> BOOLEAN]: GCHandle.Alloc done
+    call_token_published,   \* [CallIds -> BOOLEAN]: GCHandle.Alloc done,
+                            \* in the same step as ak_call_start
     call_root_live,         \* [CallIds -> BOOLEAN]: the call's GC root
     runtime_root_live,      \* BOOLEAN: the invoker's GC root
 
     (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)
-    (* the ring - the header prologue, the application, the drain - and    *)
-    (* the in-flight flag says a read is actually in progress: the slot    *)
-    (* was taken and its parse has not completed.  The flag is what makes  *)
-    (* the application-to-drain hand-off expressible: the drain starts     *)
-    (* behind a parse in flight, never beside it.                          *)
+    (* the ring - the header prologue, the application, the drain.  The    *)
+    (* reader says what the application's read is doing: idle, waiting on  *)
+    (* an empty ring (a suspended MoveNext), or parsing a taken slot.      *)
+    (* One value per call is the single-reader contract of                 *)
+    (* IAsyncStreamReader made structural: a second concurrent MoveNext    *)
+    (* is unrepresentable, exactly as the API forbids it.                  *)
     (***********************************************************************)
     consumer_phase,         \* [CallIds -> {"prologue", "application",
                             \*              "drain", "done"}]
-    consumer_in_flight,     \* [CallIds -> BOOLEAN]: a read is in progress
-
-    (***********************************************************************)
-    (* Completion asynchrony.  A callback completes a TCS and returns; the *)
-    (* continuation runs as its own later step.  Modelling the two as      *)
-    (* separate actions is what makes ContinuationsAsync structural: no    *)
-    (* behaviour exists in which user code runs inside the callback.       *)
-    (***********************************************************************)
-    pending_continuations,  \* [CallIds -> Nat]: completions signaled and
-                            \* not yet run
+    reader_state,           \* [CallIds -> {"idle", "waiting", "parsing"}]
 
     (***********************************************************************)
     (* The retry protocol.  The state says whether the call waits on the   *)
     (* budget, and the length says for which request: the wait is entered  *)
-    (* by the budget refusal itself, repeats only the same request, and    *)
-    (* exits on the successful lend, cancellation or dispose.              *)
+    (* by the budget refusal itself and exits on the successful lend,      *)
+    (* cancellation or dispose.  The wait is cancellable, nothing more:    *)
+    (* no repetition of attempts is promised, no cadence exists.           *)
     (***********************************************************************)
     retry_state,            \* [CallIds -> {"idle", "awaiting_budget"}]
     retry_len,              \* [CallIds -> RequestLengths + a sentinel]:
@@ -78,7 +79,7 @@ VARIABLES
                             \*  "destroyed"}
 
 managed_vars == <<call_token_published, call_root_live, runtime_root_live,
-                  consumer_phase, consumer_in_flight, pending_continuations,
+                  consumer_phase, reader_state,
                   retry_state, retry_len,
                   call_dispose_state, runtime_dispose_state>>
 

@@ -38,6 +38,5 @@ ManagedLiveness ==
     /\ CallRootEventuallyFreed
     /\ RuntimeRootEventuallyFreed
     /\ InFlightPayloadEventuallyReleased
-    /\ QueuedContinuationEventuallyRuns
 
 ===============================================================================
