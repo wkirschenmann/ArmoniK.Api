@@ -21,7 +21,7 @@ ManagedSafety ==
     /\ RootSurvivesCallbacks
     /\ RuntimeRootSurvivesCallbacks
     /\ ConsumerPhaseMatchesDispose
-    /\ AtMostOneConsumerInFlight
+    /\ AtMostOneReaderOutstanding
     /\ DrainNeverOverlapsApplicationConsumer
     /\ RetryingCallHoldsNoBuffer
     /\ RetryOnlyAfterBudgetRefusal
@@ -38,5 +38,7 @@ ManagedLiveness ==
     /\ CallRootEventuallyFreed
     /\ RuntimeRootEventuallyFreed
     /\ InFlightPayloadEventuallyReleased
+    /\ WaitingReaderEventuallyResolved
+    /\ PublishedCallEventuallyDisposed
 
 ===============================================================================

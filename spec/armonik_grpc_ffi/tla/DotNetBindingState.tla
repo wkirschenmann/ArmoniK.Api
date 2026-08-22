@@ -41,7 +41,7 @@ VARIABLES
     call_token_published,   \* [CallIds -> BOOLEAN]: GCHandle.Alloc done,
                             \* in the same step as ak_call_start
     call_root_live,         \* [CallIds -> BOOLEAN]: the call's GC root
-    runtime_root_live,      \* BOOLEAN: the invoker's GC root
+    runtime_root_live,      \* BOOLEAN: the shared RuntimeState's GC root
 
     (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)
@@ -70,8 +70,8 @@ VARIABLES
 
     (***********************************************************************)
     (* Dispose machines.  The call's drives the drain; the runtime's       *)
-    (* starts at the public DisposeAsync, disposes the calls it still      *)
-    (* holds, and only then begins the native shutdown.                    *)
+    (* starts when the last reference is released, settles the calls       *)
+    (* still open, and only then begins the native shutdown.               *)
     (***********************************************************************)
     call_dispose_state,     \* [CallIds -> {"active", "draining",
                             \*              "disposed"}]

@@ -88,6 +88,12 @@ THEOREM RuntimeRootEventuallyFreedHolds ==
 THEOREM InFlightPayloadEventuallyReleasedHolds ==
     Spec => InFlightPayloadEventuallyReleased
 
+THEOREM WaitingReaderEventuallyResolvedHolds ==
+    Spec => WaitingReaderEventuallyResolved
+
+THEOREM PublishedCallEventuallyDisposedHolds ==
+    Spec => PublishedCallEventuallyDisposed
+
 THEOREM ManagedLivenessTheorem == Spec => ManagedLiveness
 
 ===============================================================================

@@ -28,16 +28,17 @@
 (* rule verified by review and tests, not a theorem.  The memory model of  *)
 (* the ring stays a coding rule for review, outside every level.           *)
 (*                                                                         *)
-(* The application's obligations are exactly two facts: per call, it       *)
-(* eventually begins the next read or disposes the call (one weak          *)
-(* fairness), and disposing every call it created when done with it is     *)
-(* normative in the API - not a theorem: a reader may read forever, and    *)
-(* "done" is a notion the model cannot see.  Everything                    *)
-(* else - the four callback returns, the buffer return, the drain, the     *)
-(* roots - is carried by the binding, under one stated hypothesis: user    *)
-(* serialization and parsing terminate.  The disposable wrapper returns    *)
-(* the buffer on success and on exception alike; nothing can cover code    *)
-(* that never comes back.                                                  *)
+(* The application owes two progression facts - per call, eventually       *)
+(* begin the next read or dispose (one weak fairness), and dispose every   *)
+(* call it created, which the finite token universe turns into the         *)
+(* theorem PublishedCallEventuallyDisposed - plus one conformity           *)
+(* hypothesis of safety: MoveNext calls are serialized, as                 *)
+(* IAsyncStreamReader requires, which the single reader_state value        *)
+(* encodes by representation.  Everything else - the four callback         *)
+(* returns, the buffer return, the drain, the roots - is carried by the    *)
+(* binding, under one stated hypothesis: user serialization and parsing    *)
+(* terminate.  The disposable wrapper returns the buffer on success and    *)
+(* on exception alike; nothing can cover code that never comes back.       *)
 (***************************************************************************)
 
 EXTENDS DotNetBindingState, Naturals, Sequences
@@ -111,14 +112,18 @@ ManagedInit ==
 Init == F!Init /\ ManagedInit
 
 (***************************************************************************)
-(* CONSTRUCTION - atomic with exposure.  The concrete constructors         *)
-(* allocate the root, perform the native downcall, and only then return    *)
-(* the object: no other thread sees a constructed-but-unexposed state, so  *)
-(* neither does the model.                                                 *)
+(* CONSTRUCTION - atomic with exposure.  The runtime belongs to the        *)
+(* process: the factory materializes it at first use, every invoker        *)
+(* borrows it (a refcount above this model, verified by tests), and the    *)
+(* last release tears it down.  The factory's materialization allocates    *)
+(* the RuntimeState root, performs the native create and only then         *)
+(* publishes the holder - no thread sees a half-built runtime, so neither  *)
+(* does the model.  A call's constructor is the same shape at call scope.  *)
 (***************************************************************************)
 
-\* new NativeCallInvoker(...): the invoker's root and ak_runtime_create in
-\* one step.  Dispose cannot precede this - there is no object to dispose.
+\* The process factory materializes the runtime at first use: the shared
+\* RuntimeState's root and ak_runtime_create in one step.  Dispose cannot
+\* precede this - there is nothing to release.
 CreateRuntime(rtId) ==
     /\ ~runtime_root_live
     /\ runtime_dispose_state = "active"
@@ -160,10 +165,14 @@ BeginMoveNext(cId) ==
                    consumer_phase, retry_state, retry_len,
                    call_dispose_state, runtime_dispose_state>>
 
-\* A payload exists: the suspended MoveNext wakes and takes the slot.  The
-\* wake-up is the binding's (the TCS completion), so it carries WF.
+\* A payload exists and the call is still active: the suspended MoveNext
+\* wakes and takes the slot.  The wake-up is the binding's (the TCS
+\* completion), so it carries WF.  A dispose that linearized first wins:
+\* the waiter then resolves through CancelWaiter, never by parsing a ring
+\* the drain already owns.
 BeginParse(cId) ==
     /\ reader_state[cId] = "waiting"
+    /\ call_dispose_state[cId] = "active"
     /\ RingOccupancy(cId) > 0
     /\ reader_state' = [reader_state EXCEPT ![cId] = "parsing"]
     /\ UNCHANGED l1_vars
@@ -210,10 +219,10 @@ HandoffToDrain(cId) ==
 (* MANAGED-ONLY ACTIONS - the dispose machines and the retry exits.        *)
 (***************************************************************************)
 
-\* The public DisposeAsync on the invoker: remembered, not deferred - the
-\* binding then disposes the calls it still holds, and only when they are
-\* settled does the native shutdown begin.  Guarded on the invoker
-\* existing: there is no object to dispose before CreateRuntime.
+\* The last reference released: the process factory begins the teardown.
+\* Remembered, not deferred - the binding settles the calls still open,
+\* and only then does the native shutdown begin.  Guarded on the runtime
+\* existing: there is nothing to release before CreateRuntime.
 RequestRuntimeDispose ==
     /\ runtime_root_live
     /\ runtime_dispose_state = "active"
@@ -336,7 +345,7 @@ BeginDisposeCall(cId) ==
                    consumer_phase, reader_state, retry_state, retry_len,
                    runtime_dispose_state>>
 
-\* The invoker's dispose settles the calls it still holds, one by one.
+\* The teardown settles every call still open, one by one.
 DisposeCallForRuntime(cId) ==
     /\ runtime_dispose_state = "disposing_calls"
     /\ BeginDisposeCall(cId)
@@ -617,10 +626,10 @@ ConsumerPhaseMatchesDispose ==
         /\ call_dispose_state[cId] = "active" =>
                consumer_phase[cId] \in {"prologue", "application"}
 
-\* The reader exists only where the application reads; one value per call
-\* is what makes it unique, matching IAsyncStreamReader's single-read
-\* contract.
-AtMostOneConsumerInFlight ==
+\* The reader - waiting or parsing - exists only where the application
+\* reads; one value per call is what makes it unique, matching
+\* IAsyncStreamReader's single-read contract.
+AtMostOneReaderOutstanding ==
     \A cId \in CallIds :
         reader_state[cId] # "idle" =>
             consumer_phase[cId] = "application"
@@ -711,10 +720,26 @@ RuntimeRootEventuallyFreed ==
 
 \* A parse completes and its slot is released - under the stated
 \* hypothesis that user parsing terminates, which the binding's WF on
-\* FinishConsumePayload encodes; a waiter is resolved by payload or
-\* dispose, never abandoned to a ring it no longer owns.
+\* FinishConsumePayload encodes.
 InFlightPayloadEventuallyReleased ==
     \A cId \in CallIds :
         reader_state[cId] = "parsing" ~> reader_state[cId] = "idle"
+
+\* A waiter is resolved by payload or dispose, never abandoned: the
+\* level-1 delivery liveness brings the payload and BeginParse is fair,
+\* or the dispose arrives and CancelWaiter is fair.
+WaitingReaderEventuallyResolved ==
+    \A cId \in CallIds :
+        reader_state[cId] = "waiting" ~>
+            (reader_state[cId] # "waiting" \/ ~F!L0!NotFailed)
+
+\* Every published call is disposed in the end.  This is a theorem of the
+\* model, not only a norm of the API: occurrence tokens are globally
+\* unique and finite, so no reader reads forever - the reads dry up, the
+\* application's fairness has only the dispose left to take.
+PublishedCallEventuallyDisposed ==
+    \A cId \in CallIds :
+        call_token_published[cId] ~>
+            (call_dispose_state[cId] = "disposed" \/ ~F!L0!NotFailed)
 
 ===============================================================================

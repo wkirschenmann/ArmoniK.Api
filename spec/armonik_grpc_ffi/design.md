@@ -2393,12 +2393,19 @@ action it rides on; a managed-only action leaves `F!vars` unchanged; the runtime
 actions pass through untouched. `L2!Spec => F!Spec` is therefore the only refinement to
 prove - `L0!Spec` follows from level 1's `RefinesSpec` by transitivity.
 
-**Construction is atomic with exposure.** The concrete constructors allocate the GC
-root, perform the native downcall, and only then return the object - no other thread
-ever sees a constructed-but-unexposed state, so neither does the model: `CreateRuntime`
-conjoins the invoker's root with `ak_runtime_create`, `StartCall` conjoins the call's
-token and root with `ak_call_start`. There is nothing to dispose before construction -
-`RequestRuntimeDispose` is guarded on the invoker existing - and the application's
+**The runtime belongs to the process, and construction is atomic with exposure.** The
+binding keeps one shared runtime, materialized by the factory at first use and torn
+down when the last reference goes: `CreateRuntime` conjoins the shared `RuntimeState`'s
+root with `ak_runtime_create`, and `RequestRuntimeDispose` is the last release reaching
+the factory - the per-invoker borrowing is a refcount above this model, an
+implementation detail verified by tests, like `RunContinuationsAsynchronously`. An
+invoker's own constructor borrows the materialized runtime, creates its channel eagerly
+(`ak_channel_create` - the channel object, as `GrpcChannel.ForAddress` creates it; the
+network connection is the transport's lazy business, below every level of the model)
+and returns; it needs no state machine here because every downcall it later makes is
+already sequenced by the channel and call guards of level 1. The same atomicity holds
+at call scope: `StartCall` conjoins the call's token and root with `ak_call_start`, so
+no thread - and no model state - ever sees a half-built object, and the application's
 fairness can only ever act on an exposed call.
 
 **The ring has no variables.** The trampoline publishes inside the delivery callback, so
@@ -2423,18 +2430,19 @@ Added variables - all discipline, no capacity:
 - `retry_state`, `retry_len`: whether the call waits on the budget, and for which
   request - the refused length is remembered, `NoRetryLen` when not waiting
 - `call_dispose_state`, `runtime_dispose_state`: the two dispose machines. The call's
-  drives the drain. The runtime's starts at the public `DisposeAsync`
-  (`RequestRuntimeDispose` records it as `disposing_calls`), the binding then disposes
-  every call it still holds (`DisposeCallForRuntime`, weakly fair), and only when all are
+  drives the drain. The runtime's starts when the last reference is released
+  (`RequestRuntimeDispose` records it as `disposing_calls`), the binding then settles
+  every call still open (`DisposeCallForRuntime`, weakly fair), and only when all are
   settled does `BeginRuntimeShutdown` conjoin the native shutdown - the ordering that
   makes `NoDowncallAfterDestroy` structural
 
 **The reader, precisely.** `BeginMoveNext` commits the read whether or not a payload
 exists - a suspended read is `waiting`; `BeginParse` wakes it when a payload arrives
-(the TCS completion, binding-owed); `FinishConsumePayload` conjoins
-`F!HostConsumesEvent` when the parse completes; and a waiter caught by a dispose is
-resolved by the binding (`CancelWaiter`) - the suspended `MoveNext` completes
-exceptionally, it does not linger on a ring it no longer owns. The drain takes the ring
+(the TCS completion, binding-owed) and only while the call is still active: a dispose
+that linearized first wins the race, and the waiter then resolves through
+`CancelWaiter` - the suspended `MoveNext` completes exceptionally, it does not linger
+on a ring it no longer owns, and never parses one the drain already claimed.
+`FinishConsumePayload` conjoins `F!HostConsumesEvent` when the parse completes. The drain takes the ring
 only through `HandoffToDrain`, which requires the reader idle: a parse completes first,
 a waiter is resolved first, the drain starts behind them, never beside them. The
 prologue's read of slot 0 stays atomic: it is the binding's own bounded code, nothing of
@@ -2456,7 +2464,8 @@ budget wake-up, not a stronger claim about polling.
 **The roots, at their real linearization points.** The terminal callback's return is the
 call root's last access, so `TerminalCallbackReturns` frees the root in the same step -
 one linearization point, matching the code's last instruction. With construction atomic
-there is no published-but-unstarted call and no orphan root path. The invoker's root
+there is no published-but-unstarted call and no orphan root path. The shared
+`RuntimeState`'s root
 dies after `ak_runtime_destroy` returned, later than every callback of every kind - and
 every callback of every kind, the call ones included, keeps it alive, because all of
 them carry `runtime_ctx`.
@@ -2475,12 +2484,15 @@ them carry `runtime_ctx`.
   code and carry the one stated hypothesis: user serialization and parsing terminate.
   The wrapper covers success and exception; nothing covers code that never comes back.
 - *Application-owed* (`ApplicationOwedFairness`): one weak fairness per call - eventually
-  begin the next read or dispose the call. Disposing every call it created when it is
-  done with it is normative in the API - a naturally finished call still meets an
-  explicit `DisposeAsync` - but deliberately not a theorem: an application legitimately
-  streaming forever satisfies the fairness through its reads alone, and "done with it"
-  is a notion the model cannot see. Nothing else is asked: not feeding the request
-  stream (sends are triggers, never owed), not completing it, not any cadence.
+  begin the next read or dispose the call. Disposing every call it created is normative
+  in the API, and in this model it is also a theorem (`PublishedCallEventuallyDisposed`):
+  occurrence tokens are globally unique and finite, so no reader reads forever - the
+  reads dry up and the fairness has only the dispose left to take. A physical system
+  with an unbounded stream keeps the norm without the theorem. Beside the fairness sits
+  one conformity hypothesis of safety, not progression: `MoveNext` calls are serialized,
+  as `IAsyncStreamReader` requires - the single `reader_state` value encodes it by
+  representation. Nothing else is asked: not feeding the request stream (sends are
+  triggers, never owed), not completing it, not any cadence.
 
 #### Level-2 safety invariants (to be proved by TLAPS)
 
@@ -2500,8 +2512,8 @@ level 0's `SafetyCore`, with its own public theorem.
 - **ConsumerPhaseMatchesDispose**: the phase machine and the dispose machine never
   disagree - done exactly when disposed, drain only while draining, active calls in
   prologue or application
-- **AtMostOneConsumerInFlight**: the reader - waiting or parsing - exists only where the
-  application reads; one value per call is what makes it unique
+- **AtMostOneReaderOutstanding**: the reader - waiting or parsing - exists only where
+  the application reads; one value per call is what makes it unique
 - **DrainNeverOverlapsApplicationConsumer**: the drain never runs beside an application
   read, suspended or parsing - the hand-off happens strictly after the reader returns to
   idle
@@ -2538,13 +2550,18 @@ promises nothing once the runtime failed.
   warrants paying for it
 - **CallDisposeCompletes**: a disposed call settles - the drain reaches the terminal and
   releases everything, unless the runtime failed
-- **RuntimeDisposeCompletes**: the invoker's dispose completes from the public request
-  on - calls settled, shutdown chain, destroy - unless the runtime failed
+- **RuntimeDisposeCompletes**: the teardown completes from the last release on - calls
+  settled, shutdown chain, destroy - unless the runtime failed
 - **CallRootEventuallyFreed / RuntimeRootEventuallyFreed**: every allocated root dies -
-  the call's at its terminal callback, the invoker's after destroy
+  the call's at its terminal callback, the shared runtime's after destroy
 - **InFlightPayloadEventuallyReleased**: a parse completes and its slot is released -
   under the stated hypothesis that user parsing terminates, which the binding's WF on
   `FinishConsumePayload` encodes
+- **WaitingReaderEventuallyResolved**: a suspended `MoveNext` is resolved by payload or
+  dispose, never abandoned - the level-1 delivery liveness brings the payload and
+  `BeginParse` is fair, or the dispose arrives and `CancelWaiter` is fair
+- **PublishedCallEventuallyDisposed**: every call the application created is disposed in
+  the end - a theorem here because the token universe is finite, the norm everywhere
 
 #### Held by construction, not stated as invariants
 
@@ -2572,7 +2589,9 @@ actions rather than by induction, and this document must not imply a theorem exi
 - **SingleStreamConsumer**: `consumer_phase` is one value per call, `reader_state` one
   value per call, every consuming action guarded by both - the prologue, the
   application and the drain hand over, never overlap, and two concurrent `MoveNext` are
-  unrepresentable
+  unrepresentable. The representation encodes what the API requires of the caller:
+  the serialization of `MoveNext` is the application's conformity hypothesis, not a
+  guarantee the binding manufactures
 - **NoDowncallAfterDestroy**: the call downcalls carry `BindingMayDowncall`, the channel
   and runtime downcalls their own runtime-level guards, and `BeginRuntimeShutdown`
   requires every call disposed first - an ordering on dispose, not a safety net.
@@ -2591,8 +2610,10 @@ discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, `ConsumerHandoffPreserve
 one theorem per liveness promise and their aggregate - none of them proved today.
 
 Refinement mapping, by direct reuse:
-- `new NativeCallInvoker(...)` ↔ `CreateRuntime` - root and `ak_runtime_create` in one
-  step, the constructor returning only afterwards
+- the factory's first use ↔ `CreateRuntime` - the shared `RuntimeState`'s root and
+  `ak_runtime_create` in one step; an invoker's constructor borrows it (refcount above
+  the model) and creates its channel object eagerly, the connection staying the
+  transport's lazy business
 - the call constructor ↔ `StartCall` - `GCHandle.Alloc`, `ak_call_start` and exposure in
   one step
 - `OnEvent` publishes a slot and completes a TCS ↔ `OnEventReturns`; the terminal one is
@@ -2605,9 +2626,9 @@ Refinement mapping, by direct reuse:
   for a suspended read, `HandoffToDrain` behind any parse in flight, then
   `FinishDisposeCall` once drained with the terminal released - a started call always
   has a terminal to drain, construction being atomic with the start
-- `DisposeAsync` on the invoker ↔ `RequestRuntimeDispose`, `DisposeCallForRuntime` per
-  remaining call, `BeginRuntimeShutdown` (conjoins `F!RuntimeBeginShutdown`), then
-  `FinishDisposeRuntime` (conjoins `F!RuntimeDestroy`)
+- the last invoker's `DisposeAsync` reaching the factory ↔ `RequestRuntimeDispose`,
+  `DisposeCallForRuntime` per call still open, `BeginRuntimeShutdown` (conjoins
+  `F!RuntimeBeginShutdown`), then `FinishDisposeRuntime` (conjoins `F!RuntimeDestroy`)
 
 Level 2 re-proves none of the window reasoning: with `Spec => F!Spec` established the
 same way level 1 established `Spec => L0!Spec`, the send bound, the credit bound, the
