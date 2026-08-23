@@ -26,7 +26,7 @@ StateConstraint ==
 \* the actions a blind breadth-first run reaches last.
 CallPathOnly ==
     runtime_dispose_state = "active" =>
-        \/ \A c \in CallIds : call_dispose_state[c] = "disposed"
+        \/ \A c \in CallIds : call_dispose_state[c] = "settled"
         \/ \A ch \in ChannelIds :
                channel_dispose_state[ch] # "disposed"
 

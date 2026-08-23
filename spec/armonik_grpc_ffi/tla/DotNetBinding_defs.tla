@@ -41,6 +41,7 @@ ManagedSafety ==
     /\ RuntimeStateMatchesNative
     /\ DisposeLeavesNoManagedWaiter
     /\ SettledCallOwesNothing
+    /\ SpentSystemOwesNothing
     /\ RingNeverOverflows
 
 \* The managed liveness contract.  Every promise crossing the native

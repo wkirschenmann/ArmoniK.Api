@@ -28,6 +28,7 @@ done
 "$PY" ci/check_abi_coverage.py || fail=1
 "$PY" ci/check_proofs_present.py || fail=1
 "$PY" ci/check_arity.py || fail=1
+"$PY" ci/check_state_literals.py || fail=1
 
 for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          AbstractGrpcTheorems.tla AbstractGrpc_MC.tla \

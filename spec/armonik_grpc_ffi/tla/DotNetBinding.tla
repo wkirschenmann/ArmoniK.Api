@@ -1341,6 +1341,23 @@ InFlightPayloadEventuallyReleased ==
         reader_state[cId] \in {"parsing", "parsing_cancelled"} ~>
             reader_state[cId] \in {"idle", "finished"}
 
+\* Quiescence is clean.  A system whose channels are all spent and whose
+\* runtime is back to absent owes nothing: no live generation root, and no
+\* published call left unsettled - and DisposeLeavesNoManagedWaiter then
+\* carries the rest, since a settled call has its reader, its writer and
+\* its public objects resolved.  It is also what a legitimate terminal
+\* state looks like: a configuration whose finite channel set is spent -
+\* every channel refused or disposed - has nothing left to do, which is
+\* quiescence and not a stall.  A stall with work outstanding breaks this,
+\* and breaks the liveness properties besides.
+SpentSystemOwesNothing ==
+    (/\ AllLeasesReleased
+     /\ runtime_dispose_state = "absent")
+        => /\ ~runtime_root_live
+           /\ \A cId \in CallIds :
+                  call_token_published[cId] =>
+                      call_dispose_state[cId] = "settled"
+
 \* A cancellation request is armed only on a read that is in flight, which
 \* is what makes a late token inert: there is nothing for it to arm.
 ReadCancelPendingOnlyInFlight ==
