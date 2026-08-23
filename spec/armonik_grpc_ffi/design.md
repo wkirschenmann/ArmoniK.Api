@@ -1811,6 +1811,14 @@ private bool TryPeek(out Slot slot)
 // FinishConsumePayload / FinishCancelledParse, and HandoffToDrain; the
 // code below marks which line is which, because an ordering that differs
 // from the machine's is a divergence no amount of prose will catch.
+// One read, one winner, one owner of the slot.  Three races meet here and
+// each gets its own linearization point: taking the ring's consumer from
+// the drain, deciding the read's result against its token, and giving the
+// payload back.  Every step names the action it realizes, because an
+// ordering that differs from the machine's is a divergence prose does not
+// reveal.
+private enum Claim { Acquired, Empty, Lost }
+
 private sealed class ReadOp
 {
     private int _state;                        // 0 reading, 1 won, 2 cancelled
@@ -1820,9 +1828,10 @@ private sealed class ReadOp
     // The token fired.  Cancel the CALL - that is what
     // MoveNext(CancellationToken) means - but only if this read had not
     // already completed, so a token arriving after the fact cancels
-    // nothing.  It never waits for the parser: DisposeAsync may already be
-    // waiting for this callback, and waiting back would close the cycle.
-    // TLA: RequestReadCancellation, then CancelWaitingRead / CancelParsingRead.
+    // nothing.  It never waits for the marshaller: DisposeAsync may
+    // already be waiting for this callback, and waiting back closes the
+    // cycle.
+    // TLA: RequestReadCancellation, then CancelWaitingRead / CancelParsingRead
     public void Fire()
     {
         if (Interlocked.CompareExchange(ref _state, 2, 0) == 0)
@@ -1832,8 +1841,11 @@ private sealed class ReadOp
     public bool TryWin() => Interlocked.CompareExchange(ref _state, 1, 0) == 0;
 }
 
-private async ValueTask<T> ReadNextAsync<T>(Func<Slot, T> parse,
-                                            CancellationToken ct)
+// MoveNext shaped as the interface has it: bool, with Current set when it
+// returns true.  All four outcomes - message, clean end, failed end,
+// cancelled - plus a decode failure have to come out of one path, because
+// they share the release.
+private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
 {
     // Published before Register, because Register runs the callback inline
     // when the token is already cancelled: it has to find THIS read, not
@@ -1843,70 +1855,103 @@ private async ValueTask<T> ReadNextAsync<T>(Func<Slot, T> parse,
     var op = new ReadOp(this);
     PublishWaiting(op);          // reader := waiting, _read := op, one store
     var reg = ct.Register(static o => ((ReadOp)o!).Fire(), op);
+    Slot slot;
     try
     {
-        // Slot 0 is the metadata and belongs to the prologue, never to the
-        // marshaller of T.  This wait is part of THIS read, inside this
+        // Slot 0 is the metadata and belongs to the prologue, never to a
+        // response marshaller.  This wait is part of THIS read, inside this
         // registration's lifetime, so a token firing here faults the read
-        // and the headers together.  Idempotent: whoever gets here first
+        // and the headers together.  Idempotent: whoever arrives first
         // consumes the header and hands the ring to the application.
-        // TLA: ConsumeHeader, and CancelWaitingRead on the token's side.
+        // TLA: ConsumeHeader, and CancelWaitingRead on the token's side
         await EnsureHeadersAsync().ConfigureAwait(false);
 
-        // Take the consumer, atomically, against the drain: a peek is an
-        // observation and confers nothing, so the transition to parsing is
-        // what makes this read the slot's owner.  The drain's own handoff
-        // takes the ring only from an idle or finished reader, so exactly
-        // one of the two wins.
+        // An empty ring is not a lost race.  The claim distinguishes them,
+        // because a bool cannot: nothing published yet means wait, the drain
+        // holding the consumer means end exceptionally.  The transition is
+        // the only thing that confers ownership - the signal is a wake-up
+        // and grants nothing - and it is latched, so a publication landing
+        // between the empty observation and the wait is not lost.
         // TLA: BeginParseEvent against HandoffToDrain
-        if (!TryBeginParse(out var slot))      // waiting -> parsing, or lost
-            throw Cancelled();                 // the drain took the ring
-
-        // The borrow lasts exactly as long as the parse: native bytes are
-        // readable while the reader is parsing and not after.
-        // TLA: ParsingReadOwnsItsSlot
-        T value = parse(slot);
-
-        // Disarm before deciding: DisposeAsync returns only once no
-        // callback of this registration runs or ever will, so the winner is
-        // settled and cannot change under the decision.
-        await reg.DisposeAsync().ConfigureAwait(false);
-        bool won = op.TryWin();
-
-        // Only now give the payload back - after the winner is known, and
-        // with the terminal decoded first, since no one else can produce
-        // that status once the slot is gone.  One step, whichever way the
-        // race went, and the release happens exactly once.
-        // TLA: FinishConsumePayload if this read won, FinishCancelledParse
-        // if the token did.
-        if (IsTerminal(slot)) ResolveStatus(slot);
-        ak_event_consumed(slot.Payload.owner);
-        _tail++;
-        PublishIdleOrFinished(slot);           // reader := idle | finished
-
-        if (!won) throw Cancelled();
-        return value;
-    }
-    catch (OperationCanceledException)
-    {
-        // Every cancellation leaves this binding as an RpcException
-        // carrying StatusCode.Cancelled, one rule whatever the cause, so
-        // no caller has to ask which token fired.
-        throw Cancelled();
+        while (true)
+        {
+            var claim = TryBeginParse(out slot);   // waiting -> parsing, or not
+            if (claim == Claim.Acquired) break;
+            if (claim == Claim.Lost) throw Cancelled();
+            await _ringSignal.WaitAsync(_callCancelled).ConfigureAwait(false);
+        }
     }
     finally
     {
-        // Idempotent, and reached twice on the success path by design -
-        // the disarm above is the one that orders the decision, this one
-        // covers every path that left before it.  DisposeAsync and not
-        // Unregister: it waits for a callback already running, which is
-        // what makes the read's identity its registration's lifetime
-        // rather than an epoch.  Outside every lock that callback could
-        // need, and the callback never waits for the parser: either way
-        // round would deadlock here.
+        // Reached on every path that never took a slot.  Idempotent.
         await reg.DisposeAsync().ConfigureAwait(false);
     }
+
+    // From here the slot is this read's, and the borrow lasts exactly as
+    // long as the decode: native bytes are readable while the reader is
+    // parsing and not after.
+    // TLA: ParsingReadOwnsItsSlot
+    object? message = null;
+    Status? end = null;
+    Exception? decodeFailure = null;
+    try
+    {
+        // Branch on the sum BEFORE any marshaller runs.  A terminal slot
+        // carries the status, the trailers and an error message - never a
+        // message of the response type - so handing it to that marshaller
+        // decodes the wrong format.
+        if (IsTerminal(slot)) end = DecodeStatus(slot);
+        else                  message = ParseCurrent(slot);
+    }
+    catch (Exception e)
+    {
+        decodeFailure = e;       // remembered, not thrown: the slot is ours
+    }
+
+    // Disarm before deciding: DisposeAsync returns only once no callback of
+    // this registration runs or ever will, so the winner is settled and
+    // cannot change under the decision.  One arbiter decides between the
+    // token and everything else, a decode failure included.
+    await reg.DisposeAsync().ConfigureAwait(false);
+    bool won = op.TryWin();
+
+    // Unconditional, whatever happened above: resolve the terminal status
+    // if one was decoded - no one else can produce it once the slot is
+    // gone - acquit the slot exactly once, and republish the reader.  This
+    // is one step of the machine, so nothing may leave the method between
+    // its parts.
+    // TLA: FinishConsumePayload if this read won, FinishCancelledParse if
+    // the token did
+    try
+    {
+        if (end is not null) ResolveStatus(end.Value);
+    }
+    finally
+    {
+        ak_event_consumed(slot.Payload.owner);
+        _tail++;
+        PublishIdleOrFinished(slot);           // reader := idle | finished
+    }
+
+    // Only now the public result, and only for the winner.
+    if (!won) throw Cancelled();               // the token got there first
+    if (decodeFailure is not null)
+    {
+        // A stream whose bytes do not decode cannot continue, so this
+        // faults the call as well as the read.  The token had its chance at
+        // the same arbiter and lost; there is no second policy.
+        CancelAndDrain();
+        throw decodeFailure;
+    }
+    if (end is not null)
+    {
+        if (!end.Value.Ok) throw new RpcException(end.Value);
+        return false;                          // the stream ended cleanly
+    }
+    Current = (T)message!;
+    return true;
 }
+
 ```
 
 **Five rules make that sketch normative rather than illustrative**, and each names the
@@ -1934,28 +1979,71 @@ is taken by a transition, not by a peek: `TryBeginParse` moves the reader from `
 ring only from an idle or finished reader - and this read cannot both believe they hold the
 tail.
 
-The payload goes back *after* the winner is known. This is the ordering the model fixes and
-the one an implementation is most likely to get wrong: `FinishConsumePayload` and
-`FinishCancelledParse` are each a single step that acquits the slot, resolves the terminal
-status if that is what it held, and republishes the reader. Releasing before the decision
-splits that step in two, and the state in between - tail advanced, result undecided, reader
-still owning the operation - is one the machine does not have. No level below will ever
-formalize it, so the code must not create it.
+The payload goes back *after* the winner is known, and it goes back on every path. This is
+the ordering the model fixes and the one an implementation is most likely to get wrong:
+`FinishConsumePayload` and `FinishCancelledParse` are each a single step that acquits the
+slot, resolves the terminal status if that is what it held, and republishes the reader.
+Releasing before the decision splits that step in two, and the state in between - tail
+advanced, result undecided, reader still owning the operation - is one the machine does not
+have. No level below will ever formalize it, so the code must not create it. The mirror
+mistake is as easy: moving the release out of a guaranteed block to fix the ordering leaves
+a throwing marshaller holding the slot for good, and `InFlightPayloadEventuallyReleased`
+then has no implementation. So the decode's outcome is *remembered* rather than thrown -
+value, end, or failure - and the release runs unconditionally once the marshaller has
+returned control, however it returned it. Only a marshaller that never returns at all is
+left to the stated hypothesis.
+
+**A read has four outcomes, and the branch on which comes first.** `BeginParseEvent` takes
+an *event*, and the ring carries a sum: a message, or the terminal one bearing the status
+and the trailers. The terminal payload is not a message of the response type, so the branch
+has to precede any marshaller - decoding it as `T` reads the wrong format, and `GetStatus`
+loses the only copy of the status when the slot is released. After the release the winner
+decides: a message becomes `Current` and `true`; a clean end becomes `false`; a failing end
+becomes the stable `RpcException`; and a token that won becomes `Cancelled` whatever the
+slot held, the status still resolved if the slot was terminal.
+
+**A decode failure and the token share one arbiter.** They can cross, so the order must be
+decided rather than left to chance, and one `CompareExchange` per read decides both: if the
+token won, the call is already cancelled and `Cancelled` is the truthful answer, the failed
+bytes being of no further interest. If the read won, the decode failure is published and it
+cancels the call too - a stream whose bytes do not decode cannot continue. One arbiter, one
+winner, no second policy to keep consistent.
+
+**An empty ring is not a lost race.** After the metadata is consumed it is entirely normal
+for no message or terminal to have been published yet, and the model simply stays in
+`waiting` until `BeginParseEvent` becomes enabled. A boolean `Try` cannot say which
+happened, so the claim is three-valued: acquired, empty, lost. Empty waits on the signal;
+lost means the drain holds the consumer and the read ends exceptionally. The signal is a
+wake-up and confers nothing - only the transition does - and it must be latched, or a
+publication landing between the empty observation and the wait is lost and the read hangs
+on a stream that has already spoken.
 
 These are what the model states: `ReadCancellationSettled` says a posted request is not
 carried away by the normal end of a read, `LiveRequestOnlyDischargedByReaction` says only
 the binding's reaction may discharge it, and `ParsingReadOwnsItsSlot` says the borrow lasts
-exactly as long as the parse. An implementation that tests the token last, or releases
-before deciding, satisfies none of them.
+exactly as long as the parse. An implementation that tests the token last, releases before
+deciding, or releases only on the paths that did not throw, satisfies none of them.
 
-**The directed tests this path owes**, one per window, and each asserting the same three
-things - the task resolves exactly once, `ak_event_consumed` runs exactly once, and no
-cancellation is attributed to a later read: a token already cancelled before `MoveNext`;
-cancellation while waiting for the metadata; cancellation before and after `TryPeek`;
-cancellation during `parse`; cancellation between the disarm and the decision; a callback
-already running when `DisposeAsync` begins; the read winning just before the callback; and
-a previous read's token firing during the next read. The last two are the ones a single
-CompareExchange exists for, and the only ones that fail silently when it is missing.
+**The directed tests this path owes**, each asserting the same three things - the task
+resolves exactly once, `ak_event_consumed` runs exactly once, and no cancellation is
+attributed to a later read.
+
+On the races: a token already cancelled before `MoveNext`; cancellation while waiting for
+the metadata; cancellation before and after the claim; cancellation during the decode;
+cancellation between the disarm and the decision; a callback already running when
+`DisposeAsync` begins; the read winning just before the callback; a previous read's token
+firing during the next read. The last two are what the single `CompareExchange` exists for,
+and the only ones that fail silently without it.
+
+On the outcomes: a message; a clean end, which must answer `false`; a failing end, which
+must answer the same `RpcException` every time; Trailers-Only, where the terminal is the
+first event after the metadata; and an empty ring - metadata consumed, nothing published
+for a controlled interval, then a message - where `MoveNext` must stay pending and deliver
+that message rather than reporting cancellation.
+
+On the decode: a message marshaller that throws; a trailers decoder that throws; each of
+those crossing the read token; and each crossing a concurrent `Dispose`. Every one of them
+must show the tail advanced by exactly one and a single `ak_event_consumed`.
 
 **Slot 0 is always the metadata**, and level 0 proves it: `EventStreamShape` says the
 first delivered event of a used call is `INITIAL_METADATA`, and the ABI never skips it,
@@ -2592,7 +2680,7 @@ New liveness guarantees:
   request is eventually served would need an arbitration the ABI does not have - a FIFO
   waiter or a reserved permit - and a fairness on the host's retry *invocation*, not on
   the successful lend; stating it on the success would assume the very selection it
-  claims to prove. What a retry loop is owed is level 2's `BudgetWaitEndsWhenHopeless`
+  claims to prove. What a retry loop is owed is level 2's `BudgetWaitEndsWhenHopeless`.
 
 #### Fairness
 
