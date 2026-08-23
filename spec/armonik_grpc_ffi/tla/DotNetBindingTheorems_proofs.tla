@@ -8,6 +8,12 @@
 
 EXTENDS DotNetBinding_defs, TLAPS
 
+\* The perimeter groups are notation: an action states its frame through
+\* them, so every obligation that reads a frame needs them unfolded.  One
+\* USE here rather than five names in a hundred DEF lists.
+USE DEF ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+        ReaderVars, WriterVars
+
 (***************************************************************************)
 (* REFINEMENT - the initial predicate and the fairness.                    *)
 (*                                                                         *)

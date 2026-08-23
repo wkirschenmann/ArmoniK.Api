@@ -199,11 +199,7 @@ CreateRuntime(rtId, chId) ==
     /\ runtime_dispose_state' = "active"
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "constructing"]
-    /\ UNCHANGED <<call_token_published, call_root_live, consumer_phase,
-                   reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars>>
 
 \* A later channel's constructor borrows the materialized runtime: the
 \* lease is taken under the factory's lock, no native step.
@@ -213,12 +209,7 @@ AcquireLease(chId) ==
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "constructing"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars>>
 
 \* ak_channel_create on the current runtime: the constructor returns and
 \* the channel object is exposed.  Binding-owed - a constructor that
@@ -229,12 +220,7 @@ CreateChannel(chId) ==
     /\ L1!ChannelCreate(chId, current_runtime)
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "active"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars>>
 
 \* ak_channel_create refused the configuration.  It performs no I/O, so it
 \* fails only on a bad config or a stale runtime handle - local errors,
@@ -254,12 +240,8 @@ RejectChannelCreation(chId) ==
        THEN runtime_dispose_state' = "shutdown_pending"
        ELSE UNCHANGED runtime_dispose_state
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars, runtime_root_live,
+               current_runtime>>
 
 \* GrpcChannel.DisposeAsync: remembered at once; the binding then settles
 \* this channel's own calls and no one else's.
@@ -268,12 +250,7 @@ BeginDisposeChannel(chId) ==
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "disposing"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars>>
 
 \* ak_channel_release once every owned call is settled: the channel's
 \* native half closes and the lease is gone.  A channel the runtime
@@ -293,12 +270,8 @@ FinishDisposeChannel(chId) ==
     /\ runtime_dispose_state' =
            IF IsLastRelease(chId) THEN "shutdown_pending"
            ELSE runtime_dispose_state
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars, runtime_root_live,
+               current_runtime>>
 
 \* The public DisposeAsync completes.  For a channel that was not the
 \* last it completes with its own release; for the last one it waits for
@@ -308,12 +281,7 @@ ResolveChannelDispose(chId) ==
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "disposed"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars>>
 
 \* The latch is set: the factory begins the native shutdown.  No lease
 \* can have been taken since, AcquireLease requiring an active manager.
@@ -322,12 +290,8 @@ BeginRuntimeShutdown(rtId) ==
     /\ rtId = current_runtime
     /\ L1!RuntimeBeginShutdown(rtId)
     /\ runtime_dispose_state' = "destroying"
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, channel_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedChannelVars, ManagedCallVars, ReaderVars,
+               WriterVars, runtime_root_live, current_runtime>>
 
 \* ak_runtime_destroy returns AK_STATUS_OK for the current generation.
 FinishDisposeRuntime(rtId) ==
@@ -335,12 +299,8 @@ FinishDisposeRuntime(rtId) ==
     /\ rtId = current_runtime
     /\ L1!RuntimeDestroy(rtId)
     /\ runtime_dispose_state' = "destroyed"
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, channel_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedChannelVars, ManagedCallVars, ReaderVars,
+               WriterVars, runtime_root_live, current_runtime>>
 
 \* The generation's root dies after destroy, later than every callback of
 \* every kind - and the factory re-arms: a fresh generation may follow.
@@ -357,12 +317,7 @@ FreeRuntimeRoot ==
     /\ current_runtime' = "none"
     /\ runtime_dispose_state' = "absent"
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live,
-                   channel_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars>>
 
 (***************************************************************************)
 (* THE CALLS - construction, reader, dispose.                              *)
@@ -377,12 +332,9 @@ StartCall(cId, chId) ==
     /\ L1!CallStart(cId, chId)
     /\ call_token_published' = [call_token_published EXCEPT ![cId] = TRUE]
     /\ call_root_live' = [call_root_live EXCEPT ![cId] = TRUE]
-    /\ UNCHANGED <<runtime_root_live, current_runtime,
-                   runtime_dispose_state, channel_dispose_state,
-                   consumer_phase, reader_state, writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
+               WriterVars, headers_completion, status_completion,
+               call_dispose_state>>
 
 \* MoveNext called: the reader is committed, payload or not.
 BeginMoveNext(cId) ==
@@ -392,13 +344,8 @@ BeginMoveNext(cId) ==
     /\ reader_state[cId] = "idle"
     /\ reader_state' = [reader_state EXCEPT ![cId] = "waiting"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               WriterVars, consumer_phase, read_cancel_pending>>
 
 \* The suspended MoveNext wakes and takes the event at the ring's tail: a
 \* message, or the terminal one carrying the status and the trailers -
@@ -413,13 +360,8 @@ BeginParseEvent(cId) ==
     /\ RingOccupancy(cId) > 0
     /\ reader_state' = [reader_state EXCEPT ![cId] = "parsing"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               WriterVars, consumer_phase, read_cancel_pending>>
 
 \* Everything this level holds about one call, as a single term.  The
 \* isolation theorem compares this rather than listing components, because
@@ -470,11 +412,9 @@ FinishConsumePayload(cId) ==
     /\ status_completion' =
            [status_completion EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   headers_completion, call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, consumer_phase,
+               headers_completion, call_dispose_state>>
 
 \* MoveNext's token fires.  The environment's step, not the binding's: it
 \* carries no fairness, because a token that never fires is the normal
@@ -489,12 +429,8 @@ RequestReadCancellation(cId) ==
     /\ call_dispose_state[cId] = "active"
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = TRUE]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   writer_state, retry_len,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               WriterVars, consumer_phase, reader_state>>
 
 \* The binding reacts to a request on a suspended read: the read resolves
 \* exceptionally and the CALL is cancelled - the contract cancels the
@@ -516,10 +452,9 @@ CancelWaitingRead(cId) ==
     /\ headers_completion' =
            [headers_completion EXCEPT
                 ![cId] = IF @ = "pending" THEN "failed" ELSE @]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   writer_state, retry_len, status_completion>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, consumer_phase,
+               status_completion>>
 
 \* A request that lands on a parse cannot preempt it: a synchronous
 \* marshaller already writing is not interruptible, so the slot stays
@@ -534,11 +469,9 @@ CancelParsingRead(cId) ==
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ call_dispose_state' =
            [call_dispose_state EXCEPT ![cId] = "draining"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   headers_completion, status_completion>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, consumer_phase,
+               headers_completion, status_completion>>
 
 \* The cancelled parse returns: its slot is released exactly once, here
 \* and nowhere else, and the reader is done.  When the slot it held was
@@ -556,11 +489,9 @@ FinishCancelledParse(cId) ==
     /\ status_completion' =
            [status_completion EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   read_cancel_pending, writer_state, retry_len,
-                   headers_completion, call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, consumer_phase,
+               read_cancel_pending, headers_completion, call_dispose_state>>
 
 \* A waiter caught by the dispose resolves exceptionally.
 CancelWaiter(cId) ==
@@ -569,12 +500,8 @@ CancelWaiter(cId) ==
     /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               WriterVars, consumer_phase>>
 
 \* The drain takes the ring once no read is outstanding - idle, or
 \* finished on the consumed terminal.  Both hold nothing; only a parse in
@@ -585,13 +512,8 @@ HandoffToDrain(cId) ==
     /\ reader_state[cId] \in {"idle", "finished"}
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "drain"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               WriterVars, reader_state, read_cancel_pending>>
 
 \* The prologue owns slot 0: it releases the header, resolves the headers
 \* completion, and hands the ring to the application.
@@ -603,12 +525,9 @@ ConsumeHeader(cId) ==
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "application"]
     /\ headers_completion' =
            [headers_completion EXCEPT ![cId] = "succeeded"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   status_completion, call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, reader_state,
+               read_cancel_pending, status_completion, call_dispose_state>>
 
 \* DisposeAsync on a call - also fired by its channel's dispose.  Latches
 \* cancellation if the call can still take one, and faults a headers task
@@ -624,12 +543,9 @@ BeginDisposeCall(cId) ==
        \/ /\ \/ ~L1!L0!IsActiveCall(cId)
              \/ cancel_requested[cId]
           /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   status_completion>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
+               WriterVars, call_token_published, call_root_live,
+               status_completion>>
 
 \* A disposing channel settles its own calls - and no one else's:
 \* ownership is call_channel, the level-0 relation.
@@ -647,12 +563,9 @@ DrainRelease(cId) ==
     /\ status_completion' =
            [status_completion EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
+               WriterVars, call_token_published, call_root_live,
+               headers_completion, call_dispose_state>>
 
 \* The drain finished, the writer settled, the status resolved by the
 \* consumer that parsed the terminal: the call is disposed, and a dispose
@@ -667,12 +580,9 @@ FinishDisposeCall(cId) ==
     /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "settled"]
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "done"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending, headers_completion,
-                   status_completion>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, reader_state,
+               read_cancel_pending, headers_completion, status_completion>>
 
 \* The call is over and owes nothing, so it settles - no user step, and no
 \* Dispose: for a normally finished call the .NET API says disposing does
@@ -694,12 +604,9 @@ SettleCall(cId) ==
     /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "settled"]
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "done"]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending,
-                   headers_completion, status_completion>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, reader_state,
+               read_cancel_pending, headers_completion, status_completion>>
 
 (***************************************************************************)
 (* THE WRITER.  WriteAsync begins with the lend; a write completes at its  *)
@@ -713,12 +620,8 @@ WriteLendSucceeds(cId, b, len, charge) ==
     /\ BindingMayDowncall(cId)
     /\ L1!LendSendBuffer(cId, b, len, charge)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "serializing"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   retry_len,
-                   read_cancel_pending, headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
 
 \* BUDGET_BUSY: the cancellable wait, remembering the refused length.
 WriteRefusedBudget(cId, len, charge) ==
@@ -728,11 +631,8 @@ WriteRefusedBudget(cId, len, charge) ==
     /\ L1!RefuseLendForBudget(cId, len, charge)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "waiting_budget"]
     /\ retry_len' = [retry_len EXCEPT ![cId] = len]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   headers_completion, status_completion,
-                   call_dispose_state, read_cancel_pending>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars>>
 
 \* MESSAGE_TOO_LARGE: the write faults synchronously - permanent refusal,
 \* no wait, no retry.
@@ -750,11 +650,8 @@ RetryLendSucceeds(cId, b, charge) ==
     /\ L1!LendSendBuffer(cId, b, retry_len[cId], charge)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "serializing"]
     /\ retry_len' = [retry_len EXCEPT ![cId] = NoRetryLen]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   headers_completion, status_completion,
-                   call_dispose_state, read_cancel_pending>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars>>
 
 \* Serialization completed: the commit is accepted and the write is in
 \* flight, its task to be completed by WRITE_DONE.
@@ -763,12 +660,8 @@ CommitWrite(cId, msg, b) ==
     /\ BindingMayDowncall(cId)
     /\ L1!SendMessage(cId, msg, b)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "awaiting_write_done"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   retry_len,
-                   read_cancel_pending, headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
 
 \* Serialization threw, or the commit is refused (cancellation latched):
 \* the disposable wrapper returns the buffer and the write faults.
@@ -776,12 +669,8 @@ WriteAborted(cId, b) ==
     /\ writer_state[cId] = "serializing"
     /\ L1!HostReturnsBuffer(cId, b)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "idle"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   retry_len,
-                   read_cancel_pending, headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
 
 \* A waiting write caught by cancellation or dispose resolves
 \* exceptionally, like the waiting reader.
@@ -794,11 +683,8 @@ CancelWriterWait(cId) ==
     /\ writer_state' = [writer_state EXCEPT ![cId] = "idle"]
     /\ retry_len' = [retry_len EXCEPT ![cId] = NoRetryLen]
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   headers_completion, status_completion,
-                   call_dispose_state, read_cancel_pending>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars>>
 
 \* The WRITE_DONE callback returns: the write in flight - there is at
 \* most one, the writer being single - completes its task.
@@ -807,12 +693,8 @@ WriteDoneCompletes(cId) ==
     /\ writer_state' =
            [writer_state EXCEPT
                 ![cId] = IF @ = "awaiting_write_done" THEN "idle" ELSE @]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   retry_len,
-                   read_cancel_pending, headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
 
 \* CompleteAsync: end_send, legal only beside no pending write.
 CloseWriter(cId) ==
@@ -820,12 +702,8 @@ CloseWriter(cId) ==
     /\ BindingMayDowncall(cId)
     /\ L1!EndSend(cId)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "closed"]
-    /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   retry_len,
-                   read_cancel_pending, headers_completion, status_completion,
-                   call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
 
 (***************************************************************************)
 (* CALLBACK RETURNS AND ROOTS                                              *)
@@ -846,12 +724,9 @@ TerminalCallbackReturns(cId) ==
     /\ L1!L0!HasStatus(cId)
     /\ L1!DeliveryCallbackReturns(cId)
     /\ call_root_live' = [call_root_live EXCEPT ![cId] = FALSE]
-    /\ UNCHANGED <<call_token_published, runtime_root_live,
-                   current_runtime, runtime_dispose_state,
-                   channel_dispose_state, consumer_phase, reader_state,
-                   writer_state, retry_len,
-                   read_cancel_pending, headers_completion,
-                   status_completion, call_dispose_state>>
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
+               WriterVars, call_token_published, headers_completion,
+               status_completion, call_dispose_state>>
 
 \* The runtime-level callbacks return without touching managed call state.
 ShutdownReturns(rtId) ==

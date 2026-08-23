@@ -124,6 +124,20 @@ VARIABLES
     call_dispose_state      \* [CallIds -> {"active", "draining",
                             \*              "settled"}]
 
+\* The managed state by perimeter, for the actions' UNCHANGED and for
+\* nothing else.  An action that leaves a perimeter alone says so in one
+\* term, which is what lets a goal about one variable be settled by one
+\* equality instead of a walk through fourteen.  managed_vars stays flat:
+\* it is the shape every proved obligation is written against.
+ManagedRuntimeVars == <<runtime_root_live, current_runtime,
+                        runtime_dispose_state>>
+ManagedChannelVars == <<channel_dispose_state>>
+ManagedCallVars == <<call_token_published, call_root_live,
+                     headers_completion, status_completion,
+                     call_dispose_state>>
+ReaderVars == <<consumer_phase, reader_state, read_cancel_pending>>
+WriterVars == <<writer_state, retry_len>>
+
 managed_vars == <<call_token_published, call_root_live, runtime_root_live,
                   current_runtime, runtime_dispose_state,
                   channel_dispose_state,
