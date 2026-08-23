@@ -418,6 +418,7 @@ LEMMA CoreBoundsTheRing ==
 THEOREM ManagedIndInvImpliesSafety == ManagedIndInv => ManagedSafety
     \* Projection for the carried conjuncts, derivation for the rest.
     BY CoreBoundsTheRing
-    DEF ManagedIndInv, ManagedMachineInv, ManagedSafety
+    DEF ManagedIndInv, ManagedMachineInv, ReaderInv, WriterInv,
+        LifecycleInv, ManagedSafety
 
 ===============================================================================

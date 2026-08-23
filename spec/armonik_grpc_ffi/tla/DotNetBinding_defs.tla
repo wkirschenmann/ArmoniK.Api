@@ -50,18 +50,24 @@ ManagedSafety ==
 \* conjunct proved derivable leaves the induction and never returns.
 \* RingNeverOverflows is the first: the ring's occupancy IS level 1's owed
 \* payload count, and F!IndInv already bounds it.
-ManagedMachineInv ==
-    /\ TokenPublishedBeforeStart
-    /\ RootSurvivesCallbacks
-    /\ RuntimeRootSurvivesCallbacks
+ReaderInv ==
     /\ ConsumerPhaseMatchesDispose
     /\ AtMostOneReaderOutstanding
     /\ DrainNeverOverlapsApplicationConsumer
+    /\ ReadCancelPendingOnlyInFlight
+    /\ ParsingReadOwnsItsSlot
+
+WriterInv ==
     /\ WaitingWriterHoldsNoBuffer
     /\ SerializingWriterHoldsTheBuffer
     /\ WaitMatchesRefusal
     /\ ManagedWriterNeverObservesSlotBusy
     /\ RetryLenMatchesWait
+
+LifecycleInv ==
+    /\ TokenPublishedBeforeStart
+    /\ RootSurvivesCallbacks
+    /\ RuntimeRootSurvivesCallbacks
     /\ DisposeAwaitsDestroy
     /\ RuntimeManagerCoherent
     /\ LiveChannelUsesCurrentRuntime
@@ -69,13 +75,18 @@ ManagedMachineInv ==
     /\ LiveChannelKeepsRuntimeAlive
     /\ NoRuntimeShutdownWhileLeased
     /\ RejectedChannelHasNoNativeHalf
-    /\ ReadCancelPendingOnlyInFlight
-    /\ ParsingReadOwnsItsSlot
     /\ ChannelStateMatchesNative
     /\ RuntimeStateMatchesNative
     /\ DisposeLeavesNoManagedWaiter
     /\ SettledCallOwesNothing
     /\ AbsentRuntimeOwesNothing
+
+\* By perimeter, on level 1's own decomposition pattern: a preservation
+\* step cites the machine its action touches and frames the rest.
+ManagedMachineInv ==
+    /\ ReaderInv
+    /\ WriterInv
+    /\ LifecycleInv
 
 ManagedIndInv ==
     /\ F!IndInv
