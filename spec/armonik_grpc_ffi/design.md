@@ -1806,11 +1806,13 @@ private bool TryPeek(out Slot slot)
 // ordering that differs from the machine's is a divergence prose does not
 // reveal.
 //
-// Helpers of the acquittal section are total by contract: ResolveStatus is
-// a TrySet and never throws, PublishIdleOrFinished never throws,
-// ak_event_consumed is the void downcall, and CancelAndDrain is idempotent,
-// non-blocking and non-throwing.  An exception from any of them would jump
-// out of a sequence the machine performs as one step.
+// Helpers of the acquittal section are total by contract - they never
+// throw, because an exception would jump out of a sequence the machine
+// performs as one step: ResolveStatus is a TrySet,
+// StatusFromDecodeFailure only wraps, PublishIdleOrFinished publishes and
+// pumps, ak_event_consumed is the void downcall.  AbortWaitingRead and
+// CancelAndDrain are idempotent, non-blocking and non-throwing besides,
+// because a token callback runs them.
 private enum Claim { Acquired, Empty, Lost }
 
 private sealed class ReadOp
@@ -1835,11 +1837,10 @@ private sealed class ReadOp
     public bool TryWin() => Interlocked.CompareExchange(ref _state, 1, 0) == 0;
 }
 
-// MoveNext shaped as the interface has it: bool, with Current set when it
-// returns true.  All five issues - message, clean end, failed end,
-// cancelled, decode failure - leave by one path, because they share the
-// acquittal.
-private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
+// The interface's own signature.  All five issues - message, clean end,
+// failed end, cancelled, decode failure - leave by one path, because they
+// share the acquittal.
+public async Task<bool> MoveNext(CancellationToken ct)
 {
     // Published before Register, because Register runs the callback inline
     // when the token is already cancelled: it has to find THIS read, not
@@ -1848,7 +1849,21 @@ private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
     // TLA: BeginMoveNext
     var op = new ReadOp(this);
     PublishWaiting(op);          // reader := waiting, _read := op, one store
-    var reg = ct.Register(static o => ((ReadOp)o!).Fire(), op);
+
+    CancellationTokenRegistration reg;
+    try
+    {
+        reg = ct.Register(static o => ((ReadOp)o!).Fire(), op);
+    }
+    catch
+    {
+        // Register throws ObjectDisposedException when the caller's source
+        // is already disposed.  Nothing is armed, so nothing is disarmed -
+        // but a read is published with no one to run it, and the next
+        // MoveNext would see a phantom concurrent read.
+        AbortWaitingRead(op);
+        throw;
+    }
 
     Slot slot;
     try
@@ -1880,15 +1895,20 @@ private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
     {
         // A cancelled wait leaves as the binding's one public rule, never as
         // OperationCanceledException: no caller has to ask which token
-        // fired.  Disarmed first, so no callback of this read can reach the
-        // next one.  Leaving waiting is CancelAndDrain's, atomically.
+        // fired.  Disarm, then settle the published read - disarming stops a
+        // late callback but does not retract the operation.
         await reg.DisposeAsync().ConfigureAwait(false);
+        AbortWaitingRead(op);
         throw Cancelled();
     }
     catch
     {
-        // Any other pre-ownership failure: disarm, then let it out as it is.
+        // Any other exit before ownership - a header decode, an internal
+        // fault, or the lost claim - settles the same way.  On a lost claim
+        // AbortWaitingRead finds the drain already holding the consumer and
+        // changes nothing.
         await reg.DisposeAsync().ConfigureAwait(false);
+        AbortWaitingRead(op);
         throw;
     }
     // NO finally around the block above: a finally runs on the normal exit
@@ -1901,7 +1921,7 @@ private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
     // parsing and not after.
     // TLA: ParsingReadOwnsItsSlot
     bool terminal = IsTerminal(slot);           // read before any release
-    object? message = null;
+    T? message = default;
     Status? end = null;
     Exception? decodeFailure = null;
     try
@@ -1921,9 +1941,7 @@ private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
     // A terminal always yields a terminal outcome, even when its decode
     // failed.  After the release nobody can produce one: the event is gone
     // and its trailers with it, so GetStatus, the drain and the settlement
-    // would wait forever on a status no step can still resolve.  The
-    // fallback is stable and synthetic, and every later read and GetStatus
-    // answers from it.
+    // would wait forever on a status no step can still resolve.
     if (terminal && end is null) end = StatusFromDecodeFailure(decodeFailure);
 
     bool won;
@@ -1940,32 +1958,39 @@ private async ValueTask<bool> MoveNextAsync(CancellationToken ct)
     {
         // One step of the machine, so nothing leaves between its parts:
         // resolve the status, acquit the slot exactly once, republish the
-        // reader.  Guaranteed even if the disarm above throws, and no helper
-        // here receives anything that still reaches the native payload.
+        // reader and pump a drain that is owed.  Guaranteed even if the
+        // disarm above throws, and no helper here receives anything that
+        // still reaches the native payload.
         // TLA: FinishConsumePayload if this read won, FinishCancelledParse
-        // if the token did
+        // if the token did, then HandoffToDrain
         if (end is not null) ResolveStatus(end.Value);
         ak_event_consumed(slot.Payload.owner);
         _tail++;
-        PublishIdleOrFinished(terminal);       // reader := idle | finished
+        PublishIdleOrFinished(terminal);   // publishes, then pumps if owed
     }
 
     // Only now the public result, and only for the winner.
     if (!won) throw Cancelled();               // the token got there first
-    if (decodeFailure is not null)
-    {
-        // A stream whose bytes do not decode cannot continue, so this faults
-        // the call as well as the read.  The token had its chance at the
-        // same arbiter and lost; there is no second policy.
-        CancelAndDrain();
-        throw decodeFailure;
-    }
     if (terminal)
     {
+        // The terminal answers from the status, a failed decode included:
+        // the synthetic value is what every later read and GetStatus report,
+        // and the read that consumed the terminal must not answer something
+        // else.  A stable terminal result is what IAsyncStreamReader
+        // promises.
         if (!end.Value.Ok) throw new RpcException(end.Value);
         return false;                          // the stream ended cleanly
     }
-    Current = (T)message!;
+    if (decodeFailure is not null)
+    {
+        // A message that will not decode leaves the stream unusable, so this
+        // faults the call as well as the read.  The token had its chance at
+        // the same arbiter and lost; there is no second policy.  Rethrown
+        // with its stack intact.
+        CancelAndDrain();
+        ExceptionDispatchInfo.Capture(decodeFailure).Throw();
+    }
+    Current = message!;
     return true;
 }
 
@@ -2050,6 +2075,33 @@ bytes being of no further interest. If the read won, the decode failure is publi
 cancels the call too - a stream whose bytes do not decode cannot continue. One arbiter, one
 winner, no second policy to keep consistent.
 
+**A read that fails before it owns anything must still be retracted.** Publishing the
+operation before `ct.Register` is what makes an already-cancelled token find the right read,
+but it also means the publication can outlive the attempt: `Register` throws
+`ObjectDisposedException` when the caller's source has already been disposed, and at that
+point nothing is armed to disarm - yet a read stands published with no one to run it, and
+the next `MoveNext` sees a phantom concurrent read. The same hole opens on any pre-ownership
+exit: disarming the registration stops a late callback, it does not retract the operation.
+So there is one primitive for it, `AbortWaitingRead(op)`: if `op` is still the current read
+and the reader is still `waiting` it removes it, and if a dispose or the drain has already
+taken the consumer it changes nothing at all. It never touches a slot, and it is idempotent
+against a concurrent `CancelAndDrain`. Moving the publication after `Register` is not the
+alternative - that loses the already-cancelled token, which is the case the order exists
+for.
+
+**Leaving a parse must wake the drain that is owed.** `CancelAndDrain` on a parsing reader
+cancels the call and marks the drain owed without taking the slot, which is right - the
+marshaller keeps its borrow. But the model then gets `HandoffToDrain` from weak fairness the
+moment the reader is no longer parsing, and code has no spontaneous fairness: an action that
+becomes enabled runs only if something schedules it. The gap matters most exactly where it
+is hardest to see, on a parse that held the *terminal*: after its release no further native
+event will ever arrive to set the ring's signal, so a drain owed to a bit and nothing else
+is owed forever, and `DisposeAsync` never completes. `PublishIdleOrFinished` therefore
+publishes *and* pumps: it observes the owed flag in the same atomic step as the
+republication and schedules exactly one drain continuation, single-flight, with no user code
+inline and no waiting under the atomic. The ring's signal is a data wake-up and must not
+double as an ownership-change wake-up; conflating them is how this stall hides.
+
 **A terminal always yields a terminal outcome, even when its decode fails.** This is the
 one place where an exception cannot simply be reported: once the slot is released the event
 is gone and its trailers with it, so nothing can produce the status afterwards - not the
@@ -2058,9 +2110,13 @@ drain, which finds an empty ring, and not a later read.  `GetStatus`, the settle
 `StatusEventuallyResolved` failing in the code while holding in the model.  So a terminal
 whose decode throws resolves a stable synthetic status - `Internal`, carrying the decode
 error - before the release, and every later read and `GetStatus` answers from that same
-value.  The current read still reports what its arbiter decided: the decode failure if it
-won, `Cancelled` if the token did.  Cancelling the call afterwards is not a substitute -
-`ak_call_cancel` on a call that has already ended produces nothing to decode.
+value - and so does the read that consumed it.  That last point is the one easy to get
+wrong: answering the raw decode exception there while every later read answers the synthetic
+`RpcException` gives two different terminal results for one stream, where
+`IAsyncStreamReader` promises the same answer every time.  So the terminal branch answers
+from the status, always; a token that won still reports `Cancelled`, and the status is
+resolved either way.  Cancelling the call afterwards is not a substitute - `ak_call_cancel`
+on a call that has already ended produces nothing to decode.
 
 **An empty ring is not a lost race.** After the metadata is consumed it is entirely normal
 for no message or terminal to have been published yet, and the model simply stays in
@@ -2096,7 +2152,21 @@ that message rather than reporting cancellation.
 
 On the decode: a message marshaller that throws; a trailers decoder that throws; each of
 those crossing the read token; and each crossing a concurrent `Dispose`. Every one of them
-must show the tail advanced by exactly one and a single `ak_event_consumed`.
+must show the tail advanced by exactly one and a single `ak_event_consumed`. A failed
+terminal decode is checked twice over: the read that consumed it and several reads after it,
+plus `GetStatus`, must all report the same synthetic status.
+
+On the exits that own nothing: a token taken from a source disposed before `MoveNext`, so
+`Register` throws; an injected failure in `EnsureHeadersAsync`; an injected failure in the
+signal wait; each crossed with a concurrent `Dispose`. After every one of them no read may
+remain published - the next `MoveNext` must not be refused as concurrent - and no callback
+may reach a later read.
+
+And the one that decides whether the drain has a mechanism at all: the reader holds the
+terminal, a token or a dispose wins while the marshaller is deliberately blocked, and no
+further native callback is allowed. When the marshaller is released, `ak_event_consumed`
+must be exactly one, the drain must take the consumer, and `DisposeAsync` must complete.
+Nothing but an explicit wake-up makes that trace pass; a flag alone hangs it.
 
 **Slot 0 is always the metadata**, and level 0 proves it: `EventStreamShape` says the
 first delivered event of a used call is `INITIAL_METADATA`, and the ABI never skips it,
