@@ -1803,10 +1803,54 @@ private bool TryPeek(out Slot slot)
 private async ValueTask<T> ReadNextAsync<T>(Func<Slot, T> parse,
                                             CancellationToken ct)
 {
-    while (!TryPeek(out var slot))
-        await _ringSignal.WaitAsync(ct);
-    try     { return parse(slot); }        // decode under the borrow
-    finally { ak_event_consumed(slot.Payload.owner); _tail++; }
+    // The token cancels the CALL, not this read alone - that is what
+    // MoveNext(CancellationToken) means.  CancelAndDrain is the binding's
+    // reaction: ak_call_cancel, then the call moves to its drain in the
+    // same act, so nothing further is asked of the application.  It also
+    // trips _callCancelled, the call-wide token every wait below observes.
+    var reg = ct.Register(static c => ((Call)c!).CancelAndDrain(), this);
+    try
+    {
+        // Woken by a payload, or by the call's cancellation - a dispose
+        // or this read's own token.  Either way the wait ends; it never
+        // resolves with a value it does not own.  The wait's own
+        // OperationCanceledException does not escape: every cancellation
+        // leaves this binding as an RpcException carrying
+        // StatusCode.Cancelled, one rule whatever the cause, so no caller
+        // has to ask which token fired.
+        while (!TryPeek(out var slot))
+        {
+            try { await _ringSignal.WaitAsync(_callCancelled).ConfigureAwait(false); }
+            catch (OperationCanceledException) { throw Cancelled(); }
+        }
+
+        // The slot is this reader's until parse returns.  A cancellation
+        // landing here cannot preempt a synchronous marshaller, and does
+        // not abandon what it holds: the call is cancelled at once, the
+        // release still happens below, and exactly once.  When the slot
+        // is the terminal one, decoding it also resolves the status - the
+        // drain and the settlement need it, and after the release no one
+        // else can produce it.
+        // The slot is released either way, but a read whose token fired
+        // during the parse does not return a value: its own result is
+        // exceptional, which is what CancelParsingRead says.  The status
+        // it decoded is still kept - the drain and the settlement need it.
+        try
+        {
+            var value = parse(slot);           // decode under the borrow
+            if (_callCancelled.IsCancellationRequested) throw Cancelled();
+            return value;
+        }
+        finally { ak_event_consumed(slot.Payload.owner); _tail++; }
+    }
+    finally
+    {
+        // Dispose, not Unregister: it waits for a callback already
+        // running, which is what makes the read's identity its
+        // registration's lifetime rather than an epoch.  Awaited, and
+        // outside every lock that callback could need.
+        await reg.DisposeAsync().ConfigureAwait(false);
+    }
 }
 ```
 
@@ -2510,8 +2554,9 @@ actions pass through untouched.  `L2!Spec => F!Spec` is therefore the only refin
 prove - `L0!Spec` follows from level 1's `RefinesSpec` by transitivity.  Ownership needs
 no new relation either: `call_channel` already says which channel a call belongs to, and
 `ChannelIds` is the lease identity space, so no `InvokerIds` and no refcount appear -
-"the last lease released" is `AllLeasesReleased`, every channel unopened, released or
-disposed. The release that empties that set says so in its own step: it marks itself
+"the last lease released" is `AllLeasesReleased`, every channel unopened, rejected,
+released, `released_last` or disposed. The release that empties that set says so in its
+own step: it marks itself
 `released_last` and latches the manager to `shutdown_pending`, which stops any further
 lease. Without the latch a channel constructed between the zero and the destroy would
 resurrect the generation, and the last channel's `DisposeAsync` would complete without
@@ -2533,13 +2578,15 @@ Added variables - all discipline, no capacity:
 - `current_runtime`, `runtime_dispose_state`: the shared runtime by generation -
   `absent` before the first channel and again after a full teardown, so a promise about
   the destroy attaches to the generation that is current, not to some earlier one
-- `channel_dispose_state`: per channel, `unopened` / `constructing` / `active` /
-  `disposing` / `released` / `released_last` / `disposed`.  The lease is live from the
-  construction to the release; `released_last` is the release that emptied the set, and
-  the teardown's guard reads this function, never a counter
+- `channel_dispose_state`: per channel, `unopened` / `constructing` / `rejected` /
+  `active` / `disposing` / `released` / `released_last` / `disposed`.  The lease is live
+  from the construction to the release; `rejected` is a refused creation, terminal and
+  holding no lease; `released_last` is the release that emptied the set, and the
+  teardown's guard reads this function, never a counter
 - `consumer_phase`, `reader_state`: which class of consumer has the ring, and what the
-  application's read is doing - `idle`, `waiting` (a suspended `MoveNext`), `parsing`, or
-  `finished` once the terminal was consumed and every later `MoveNext` answers at once
+  application's read is doing - `idle`, `waiting` (a suspended `MoveNext`), `parsing`,
+  `parsing_cancelled` (a parse whose token fired, still holding its slot), or `finished`
+  once the terminal was consumed and every later `MoveNext` answers at once
 - `writer_state`, `retry_len`: the write machine and the length its budget wait
   remembers
 - `headers_completion`, `status_completion`: the public objects that must never be left
@@ -2587,6 +2634,55 @@ active - a dispose that linearized first wins the race, and the waiter then reso
 through `CancelWaiter`, never parsing a ring the drain already claimed.
 `FinishConsumePayload` conjoins `F!HostConsumesEvent` when the parse completes, and it
 is where the status is resolved if the slot it just decoded was the terminal one.
+
+**The read's token, precisely - and who wins the race.** `MoveNext(ct)`'s cancellation
+is three distinct things, and keeping them apart is what makes the path correct.
+`RequestReadCancellation` is the *firing*: the environment's step, carrying no fairness,
+because a token that never fires is the normal case and no promise may turn a possibility
+into an obligation.  `CancelWaitingRead` and `CancelParsingRead` are the binding's
+*reactions*: owed, and each cancels **the call** - which is what
+`IAsyncStreamReader<T>.MoveNext(CancellationToken)` means - and moves it to its drain in
+the same step, so settling needs no further act from the application.
+
+The race that matters is between a request and the read finishing normally. A request
+that linearized before the end of the read must win: otherwise the parse completes, the
+flag is cleared, and a cancellation the application asked for is silently lost.
+`ReadCancellationSettled` is the rule - while the call is still `active`, a posted request
+blocks the normal completion, so only a reaction may discharge it. Once the call has left
+`active`, something else already cancelled it or it had already ended, and the request has
+nothing left to obtain; the completion may then carry it away.
+`LiveRequestOnlyDischargedByReaction` states exactly this as an action theorem, and it is
+the half no liveness property on the flag alone can express: a flag going away proves
+nothing, since any step clearing it satisfies such a property.
+`PendingReadCancellationEventuallyObserved` therefore targets the effect - the call has
+left `active`, and either it was cancelled or it had already ended.
+
+The other direction is the late token, and it is inert by construction: a request is
+armed only on a read in flight (`ReadCancelPendingOnlyInFlight`), so a token firing after
+its own read completed finds nothing to arm.  **This abstraction is not free, and the
+implementation owes it a rule.** The identity of the operation is the flag's lifetime
+rather than an epoch, which is sound only if the previous registration's callback cannot
+still run after the next read is published. So the normative discipline is:
+`CancellationTokenRegistration.Dispose()` before publishing the reader back to
+`idle`/`finished`, and its return awaited - `Dispose` waits for a callback already
+running, which is precisely the guarantee needed. `Unregister()` does **not** suffice:
+unlike `Dispose` it does not wait for an executing callback. The `Dispose` must happen
+outside any lock the callback itself could need, or the wait deadlocks. An implementation
+that cannot honour this must instead carry a read id captured by the callback and refuse a
+notification that no longer matches the current operation - and then that id belongs in
+the model, because the flag alone would attribute a stale callback to the wrong read.
+
+**A cancelled parse keeps its slot, and still decodes the terminal.** A synchronous
+marshaller already writing cannot be preempted, so `CancelParsingRead` moves the reader to
+`parsing_cancelled` rather than abandoning the payload it owns, and
+`FinishCancelledParse` is the single point where that slot is released -
+`CancelledParseReleasesItsSlotOnce` says no other step may advance this call's tail while
+that parse is outstanding, and that the one that does moves it by exactly one.  When the
+slot it held was the terminal one, the status is decoded and kept all the same: the read's
+own result is exceptional because its token won, but `GetStatus`, the drain and the
+settlement all need that status, and once the slot is released no other consumer can
+decode it.  Leaving it undecoded would strand the call - the drain would find an empty
+ring and the dispose would wait forever on a status nobody can produce.
 
 **The writer, precisely.** `WriteLendSucceeds` enters `serializing`;
 `WriteRefusedBudget` enters the cancellable wait, `RetryLendSucceeds` leaves it,
@@ -2668,8 +2764,9 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
   returned
 - **ConsumerPhaseMatchesDispose**: the phase machine and the call's dispose machine never
   disagree
-- **AtMostOneReaderOutstanding**: the reader - waiting or parsing - exists only where
-  the application reads; one value per call is what makes it unique
+- **AtMostOneReaderOutstanding**: an outstanding read exists only where the application
+  reads; one value per call is what makes it unique.  Stated over `ReadInFlight`, so a
+  cancelled parse counts - it still holds a slot
 - **DrainNeverOverlapsApplicationConsumer**: the drain never runs beside an application
   read, suspended or parsing
 - **WaitingWriterHoldsNoBuffer**: a write waiting on the budget holds no lent buffer -
@@ -2708,7 +2805,8 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
   to arm - the identity of the operation is the flag's lifetime rather than an epoch
 - **CancelledParseStillOwnsItsSlot**: a cancelled parse keeps its slot.  A synchronous
   marshaller already writing cannot be preempted, so the reader stays in
-  `parsing_cancelled` until it returns and the release happens there, exactly once
+  `parsing_cancelled` until it returns and the release happens there - exactly once, which
+  `CancelledParseReleasesItsSlotOnce` states on level 1's own consumption counter
 - **ChannelStateMatchesNative**: the channel machine and the native channel agree - no
   managed channel active without its `ak_channel`, none exposed before it
 - **DisposeLeavesNoManagedWaiter**: a disposed call has its reader idle, its writer
@@ -2741,8 +2839,10 @@ way out, and no termination is guaranteed past a failure.
   commits or aborts, and a committed one completes at its WRITE_DONE, which level 1
   guarantees before the terminal
 - **ChannelConstructionCompletes**: a constructor that began completes, one way or the
-  other - the channel is exposed, or its configuration was refused and it is back to
-  unopened with its lease returned.  A rejection is a completion, not a stall
+  other - the channel is exposed, or its configuration was refused and it ends in
+  `rejected` with its lease returned.  A rejection is a terminal outcome and a completion,
+  not a stall, which is why the fairness is on the disjunction of the two issues: what is
+  owed is a result, not a success
 - **CallDisposeCompletes**: a disposed call settles - the drain reaches the terminal,
   releases everything and resolves the status
 - **ChannelLeaseEventuallyReleased**: a disposing channel gives its lease back - its
@@ -2756,11 +2856,15 @@ way out, and no termination is guaranteed past a failure.
 - **CallRootEventuallyFreed / RuntimeRootEventuallyFreed**: every allocated root dies -
   the call's at its terminal callback, the generation's after destroy
 - **InFlightPayloadEventuallyReleased**: a parse completes and its slot is released -
-  under the stated hypothesis that user parsing terminates
+  under the stated hypothesis that user parsing terminates.  Both states that own a slot
+  are covered, `parsing` and `parsing_cancelled`: a cancelled parse holds its payload
+  exactly as a live one does
 - **PendingReadCancellationEventuallyObserved**: a request that landed is acted on.  The
   token's firing carries no fairness - a token that never fires is the normal case, and no
   promise may turn a possibility into an obligation - but the binding's reaction to one
-  that did is owed
+  that did is owed.  The target is the effect rather than the flag's disappearance,
+  because only the effect is the promise: the call has left `active`, and either it was
+  cancelled or it had already ended
 - **CancelledReadEventuallyDrainsCall**: a cancelled read leaves the call on its way out,
   with no further user action.  `MoveNext`'s token cancels the call, so the binding drains
   it: the application does not have to read again or dispose to see it settle
@@ -2823,11 +2927,12 @@ actions rather than by induction, and this document must not imply a theorem exi
 
 The public interface, `DotNetBindingTheorems.tla`, declares the obligations the freeze
 requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host
-discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, six action theorems -
+discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, eight action theorems -
 `ConsumerHandoffPreservesTail`, `ChannelDisposeIsolatesItsCalls`,
 `LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
-`ReadCancellationCancelsCall` and `CompletedReadTokenArmsNothing` - and one theorem per liveness promise plus their
-aggregate.  None of them is proved today.
+`ReadCancellationCancelsCall`, `CompletedReadTokenArmsNothing`,
+`LiveRequestOnlyDischargedByReaction` and `CancelledParseReleasesItsSlotOnce` - and one
+theorem per liveness promise plus their aggregate.  None of them is proved today.
 
 Refinement mapping, by direct reuse:
 - the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -
@@ -2899,6 +3004,7 @@ race. Ordered by what a defect would cost.
 | A continuation running inline on the callback thread | arbitrary reentrancy, the Tokio thread blocked by user code | `RunContinuationsAsynchronously` everywhere, signals never inline, a test capturing the thread identity |
 | Dispose called twice or concurrently | a double cancel, two drains, or two different tasks for one dispose | decide idempotence and share one completion; a test with N concurrent calls |
 | A cancellation registration or timer outliving the terminal | a stale downcall, a root held, operational noise | disarm atomically at the terminal; the callback tolerates a stale handle |
+| A read's registration callback running after the next read is published | the cancellation is attributed to the wrong read, and the model's flag-lifetime identity is false | `CancellationTokenRegistration.Dispose()` awaited before republishing the reader, outside any lock the callback needs - `Unregister()` does not wait; failing that, a read id in the model |
 | An arbitrary marshaller that allocates, throws, or keeps the sequence | the zero-copy claim overstated, a lifetime violated | generated fast path plus a copying fallback; a stated lifetime contract; exception and retention tests |
 | Budget polling without fairness | unbounded latency, a thundering herd, admitted starvation | backoff with jitter, prompt cancellation, metrics on refusals and waiting time |
 | The receive path unbounded | out of memory despite a correct send budget | decide a capacity or an operational policy before production; memory metrics |
@@ -3057,10 +3163,10 @@ the artefact rather than left to rot:
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
 | `ci/check_theorem_statements.py` | 72 declarations - 71 theorems and one public lemma - each restated verbatim in its proofs module, across three declaration/proof pairs |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
-| SANY, on the ten SANY-clean modules | Green |
+| SANY, on the twenty SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
-| Level 2 | **Drafted and TLC-vetted, no proofs.** Eight modules exist, SANY-clean and registered in `ci/check.sh`; the manifests are bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in runs bounded by construction: the two safety configurations fire 33 of the 34 actions - `ResourcesReleasedReturns` is dead by design, which `ManagedShutdownHasNoHostDebt` states - with no invariant violation, and `DotNetBinding_MClive` evaluates the fourteen liveness properties under the three fairness tiers, 14 branches over 311640 distinct states, no violation. A bounded run is evidence about what it explored and nothing more: it is not a proof, and no obligation has been given to TLAPS |
+| Level 2 | **Drafted and TLC-vetted, no proofs.** Nine modules exist, SANY-clean and registered in `ci/check.sh`; the manifests hold 26 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in runs bounded by construction: the safety configurations fire every action but `ResourcesReleasedReturns`, dead by design and stated so by `ManagedShutdownHasNoHostDebt`, with no invariant violation, and `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches clean at every checkpoint. `DotNetBinding_MCwitness` is a witness rather than a check: its target is stated negatively, so its violation trace is the evidence that a cancelled parse can hold the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for, which would otherwise be dead code. A bounded run is evidence about what it explored and nothing more: it is not a proof, and no obligation has been given to TLAPS |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
 The partition identity is close to true by construction: `BytesOutstanding` is a sum over the

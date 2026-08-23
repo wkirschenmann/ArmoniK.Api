@@ -56,17 +56,19 @@ VARIABLES
     (* the object the application creates and disposes; constructing       *)
     (* covers the window between the factory's materialization and the     *)
     (* channel's own ak_channel_create, invisible outside the constructor. *)
-    (* "Last lease released" is derived: every channel is unopened or      *)
-    (* disposed.                                                           *)
+    (* "Last lease released" is derived: no channel still holds a lease -  *)
+    (* each is unopened, rejected, released, released_last or disposed.    *)
     (***********************************************************************)
     channel_dispose_state,  \* [ChannelIds -> {"unopened", "constructing",
+                            \*                 "rejected",
                             \*                 "active", "disposing",
                             \*                 "released",
                             \*                 "released_last",
-                            \*                 "disposed"}]: released gave
-                            \* the lease back, released_last was the one
-                            \* that emptied the set, disposed completed
-                            \* the public task
+                            \*                 "disposed"}]: rejected is a
+                            \* refused creation, terminal and holding no
+                            \* lease; released gave the lease back,
+                            \* released_last was the one that emptied the
+                            \* set, disposed completed the public task
 
     (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)
@@ -120,7 +122,7 @@ VARIABLES
     (* the end of the call, not a user's Dispose.                          *)
     (***********************************************************************)
     call_dispose_state      \* [CallIds -> {"active", "draining",
-                            \*              "disposed"}]
+                            \*              "settled"}]
 
 managed_vars == <<call_token_published, call_root_live, runtime_root_live,
                   current_runtime, runtime_dispose_state,

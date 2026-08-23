@@ -95,6 +95,34 @@ THEOREM CompletedReadTokenArmsNothing ==
                     /\ ~read_cancel_pending[cId])
                        => ~read_cancel_pending'[cId]]_vars
 
+\* A posted request outlives every step but its own reaction.  This is
+\* what forbids the lost cancellation: while the call is still active, no
+\* normal completion of the read may clear the flag, and the only two
+\* steps that may are the binding's reactions - both of which cancel the
+\* call as they discharge it.  Without this, a token that linearized
+\* before the end of a parse could be swallowed by that parse finishing.
+THEOREM LiveRequestOnlyDischargedByReaction ==
+    Spec => \A cId \in CallIds :
+                [][(/\ read_cancel_pending[cId]
+                    /\ call_dispose_state[cId] = "active"
+                    /\ ~read_cancel_pending'[cId])
+                       => \/ CancelWaitingRead(cId)
+                          \/ CancelParsingRead(cId)]_vars
+
+\* The cancelled parse's slot is acquitted once, and by one action.
+\* While that parse is outstanding no other step may advance the call's
+\* tail - the header's consumer is in the prologue and the drain's is
+\* past the application, neither of which can hold a cancelled parse -
+\* and the step that does advance it moves it by exactly one.  Stated on
+\* level 1's own consumption counter, which is where an over-release
+\* would show.
+THEOREM CancelledParseReleasesItsSlotOnce ==
+    Spec => \A cId \in CallIds :
+                [][(/\ reader_state[cId] = "parsing_cancelled"
+                    /\ RingTail(cId)' # RingTail(cId))
+                       => /\ FinishCancelledParse(cId)
+                          /\ RingTail(cId)' = RingTail(cId) + 1]_vars
+
 THEOREM PendingReadCancellationEventuallyObservedHolds ==
     Spec => PendingReadCancellationEventuallyObserved
 

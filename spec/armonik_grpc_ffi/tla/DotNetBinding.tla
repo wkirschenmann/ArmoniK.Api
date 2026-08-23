@@ -414,15 +414,28 @@ ConsumingTerminal(cId) ==
     /\ F!L0!HasStatus(cId)
     /\ RingTail(cId) = RingHead(cId) - 1
 
+\* A posted request is discharged by the binding's reaction and by
+\* nothing else while the call is live.  The escape is not a weakening:
+\* once the call has left "active" something already cancelled it or it
+\* had already ended, so the request has nothing left to obtain and the
+\* completion may carry it away.  Without this, a read finishing normally
+\* would swallow a token that linearized before the end of the read -
+\* losing the cancellation IAsyncStreamReader promises to honour.
+ReadCancellationSettled(cId) ==
+    \/ ~read_cancel_pending[cId]
+    \/ call_dispose_state[cId] # "active"
+
 \* The parse completes: the consumer decodes the slot - status and
 \* trailers included when it is the terminal - resolves what it answers,
 \* then releases it.  ak_event_consumed under the reader's right.  A
-\* consumed terminal leaves the reader finished, which is what makes
-\* every later MoveNext return false at once: the stream is over, so no
-\* further read waits for anything, and none appears in this model - a
-\* false answer touches no state, managed or native.
+\* consumed terminal leaves the reader finished, the stable fact that the
+\* stream ended: every later MoveNext answers from it at once, false when
+\* the status is OK and an RpcException when it is not.  Either answer is
+\* fixed and touches no state, managed or native, which is why no such
+\* read appears in this model.
 FinishConsumePayload(cId) ==
     /\ reader_state[cId] = "parsing"
+    /\ ReadCancellationSettled(cId)
     /\ F!HostConsumesEvent(cId)
     /\ reader_state' =
            [reader_state EXCEPT
@@ -448,6 +461,7 @@ FinishConsumePayload(cId) ==
 RequestReadCancellation(cId) ==
     /\ ReadInFlight(cId)
     /\ ~read_cancel_pending[cId]
+    /\ call_dispose_state[cId] = "active"
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = TRUE]
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -486,27 +500,36 @@ CancelParsingRead(cId) ==
     /\ call_dispose_state[cId] = "active"
     /\ F!RequestCallCancellation(cId)
     /\ reader_state' = [reader_state EXCEPT ![cId] = "parsing_cancelled"]
+    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ call_dispose_state' =
            [call_dispose_state EXCEPT ![cId] = "draining"]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase,
-                   read_cancel_pending, writer_state, retry_len,
+                   writer_state, retry_len,
                    headers_completion, status_completion>>
 
 \* The cancelled parse returns: its slot is released exactly once, here
-\* and nowhere else, and the reader is done.
+\* and nowhere else, and the reader is done.  When the slot it held was
+\* the terminal one, the status is decoded and kept all the same: the
+\* read's own result is exceptional because its token won, but GetStatus,
+\* the drain and the settlement all need that status, and once this slot
+\* is gone no other consumer can decode it.
 FinishCancelledParse(cId) ==
     /\ reader_state[cId] = "parsing_cancelled"
     /\ F!HostConsumesEvent(cId)
-    /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
-    /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
+    /\ reader_state' =
+           [reader_state EXCEPT
+                ![cId] = IF ConsumingTerminal(cId) THEN "finished"
+                         ELSE "idle"]
+    /\ status_completion' =
+           [status_completion EXCEPT
+                ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   headers_completion, status_completion,
-                   call_dispose_state>>
+                   read_cancel_pending, writer_state, retry_len,
+                   headers_completion, call_dispose_state>>
 
 \* A waiter caught by the dispose resolves exceptionally.
 CancelWaiter(cId) ==
@@ -1084,15 +1107,16 @@ ConsumerPhaseMatchesDispose ==
         /\ call_dispose_state[cId] = "active" =>
                consumer_phase[cId] \in {"prologue", "application"}
 
-\* An outstanding read - waiting or parsing - exists only where the
-\* application reads; one value per call is what makes it unique,
-\* matching IAsyncStreamReader's single-read contract.  Finished is not
-\* outstanding: it is the stable fact that the stream ended, and it
-\* survives the hand-off and the dispose.
+\* An outstanding read exists only where the application reads; one value
+\* per call is what makes it unique, matching IAsyncStreamReader's
+\* single-read contract.  A cancelled parse is still outstanding - it
+\* holds a slot - which is why this is stated over ReadInFlight rather
+\* than over a list of states of its own.  Finished is not outstanding:
+\* it is the stable fact that the stream ended, and it survives the
+\* hand-off and the dispose.
 AtMostOneReaderOutstanding ==
     \A cId \in CallIds :
-        reader_state[cId] \in {"waiting", "parsing"} =>
-            consumer_phase[cId] = "application"
+        ReadInFlight(cId) => consumer_phase[cId] = "application"
 
 \* The drain never runs beside an application read.
 DrainNeverOverlapsApplicationConsumer ==
@@ -1263,9 +1287,9 @@ PendingWriteEventuallySettled ==
             (writer_state[cId] \in {"idle", "closed"} \/ ~F!L0!NotFailed)
 
 \* A constructor that began completes, one way or the other: the channel
-\* is exposed, or the configuration was refused and it is back to
-\* unopened with its lease returned - a rejection is a completion, not a
-\* stall.  Unless the runtime failed under it.
+\* is exposed, or the configuration was refused and it ends in rejected
+\* with its lease returned - a terminal outcome, and a completion rather
+\* than a stall.  Unless the runtime failed under it.
 ChannelConstructionCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "constructing" ~>
@@ -1309,10 +1333,12 @@ RuntimeRootEventuallyFreed ==
         (~runtime_root_live \/ ~F!L0!NotFailed)
 
 \* A parse completes and its slot is released - under the stated
-\* hypothesis that user parsing terminates.
+\* hypothesis that user parsing terminates.  Both states that own a slot
+\* are covered: a cancelled parse holds its payload exactly as a live one
+\* does, and releasing it is what the property is about.
 InFlightPayloadEventuallyReleased ==
     \A cId \in CallIds :
-        reader_state[cId] = "parsing" ~>
+        reader_state[cId] \in {"parsing", "parsing_cancelled"} ~>
             reader_state[cId] \in {"idle", "finished"}
 
 \* A cancellation request is armed only on a read that is in flight, which
@@ -1330,11 +1356,19 @@ CancelledParseStillOwnsItsSlot ==
             RingOccupancy(cId) > 0
 
 \* A request that landed is acted on - the reaction is the binding's, and
-\* it does not wait for the application.
+\* it does not wait for the application.  The target is the effect rather
+\* than the disappearance of the flag, because only the effect is the
+\* promise: the call has left "active", and either it was cancelled or it
+\* had already ended, in which case there was nothing left to cancel.  A
+\* flag going away proves nothing on its own; what the application is
+\* owed is the cancellation.
 PendingReadCancellationEventuallyObserved ==
     \A cId \in CallIds :
-        read_cancel_pending[cId] ~>
-            (~read_cancel_pending[cId] \/ ~F!L0!NotFailed)
+        (read_cancel_pending[cId] /\ call_dispose_state[cId] = "active") ~>
+            \/ /\ call_dispose_state[cId] # "active"
+               /\ \/ F!IsCancelRequested(cId)
+                  \/ ~F!L0!IsActiveCall(cId)
+            \/ ~F!L0!NotFailed
 
 \* A cancelled read leaves the call on its way out, with no further user
 \* action needed: the contract cancelled the call, so the binding drains
