@@ -1904,11 +1904,16 @@ public async Task<bool> MoveNext(CancellationToken ct)
     catch
     {
         // Any other exit before ownership - a header decode, an internal
-        // fault, or the lost claim - settles the same way.  On a lost claim
-        // AbortWaitingRead finds the drain already holding the consumer and
-        // changes nothing.
+        // fault, or the lost claim - settles the same way, and then drains:
+        // a header that failed to decode leaves slot 0 owed on a call that
+        // is otherwise still active, which nothing else would collect.  Both
+        // helpers are idempotent, so on a lost claim they find the drain
+        // already holding the consumer and change nothing.  The cancelled
+        // path above needs no drain call: whatever tripped _callCancelled
+        // ran CancelAndDrain already.
         await reg.DisposeAsync().ConfigureAwait(false);
         AbortWaitingRead(op);
+        CancelAndDrain();
         throw;
     }
     // NO finally around the block above: a finally runs on the normal exit
@@ -1978,7 +1983,8 @@ public async Task<bool> MoveNext(CancellationToken ct)
         // and the read that consumed the terminal must not answer something
         // else.  A stable terminal result is what IAsyncStreamReader
         // promises.
-        if (!end.Value.Ok) throw new RpcException(end.Value);
+        if (end.Value.StatusCode != StatusCode.OK)
+            throw new RpcException(end.Value);
         return false;                          // the stream ended cleanly
     }
     if (decodeFailure is not null)
@@ -2075,6 +2081,19 @@ bytes being of no further interest. If the read won, the decode failure is publi
 cancels the call too - a stream whose bytes do not decode cannot continue. One arbiter, one
 winner, no second policy to keep consistent.
 
+**`EnsureHeadersAsync` is total about slot 0.** The prologue owns the metadata, and a decode
+that throws while holding it is the one exit where retracting the read is not enough: the
+reader is gone, the call is still active, `HeadersTask` is faulted for good, and slot 0 is
+still owed. Every later `MoveNext` re-observes the same faulted task while the call can
+neither progress nor settle without the application disposing it. So the contract is the
+terminal's: **when the header decode returns control, normally or by exception, slot 0 is
+either acquitted exactly once or handed to a drain that is actually scheduled.** The sketch
+takes the second form - the pre-ownership catch faults the headers, retracts the read and
+calls `CancelAndDrain`, whose handoff collects the slot - which keeps the acquittal in one
+place rather than two. A failing header decode therefore makes the call unusable and drains
+it, which is the honest outcome: nothing can be read from a stream whose metadata did not
+parse.
+
 **A read that fails before it owns anything must still be retracted.** Publishing the
 operation before `ct.Register` is what makes an already-cancelled token find the right read,
 but it also means the publication can outlive the attempt: `Register` throws
@@ -2160,7 +2179,12 @@ On the exits that own nothing: a token taken from a source disposed before `Move
 `Register` throws; an injected failure in `EnsureHeadersAsync`; an injected failure in the
 signal wait; each crossed with a concurrent `Dispose`. After every one of them no read may
 remain published - the next `MoveNext` must not be refused as concurrent - and no callback
-may reach a later read.
+may reach a later read. The header failure is checked further, because it is the only one
+holding a slot: inject after slot 0 is acquired and before the `Metadata` is built, then
+assert `HeadersTask` faulted exactly once, `ak_event_consumed` exactly once for that owner
+whether immediately or through the drain, the tail advanced by exactly one, the call drained
+with no further act from the application, `DisposeAsync` completed, and no second attempt
+decoding bytes already returned.
 
 And the one that decides whether the drain has a mechanism at all: the reader holds the
 terminal, a token or a dispose wins while the marshaller is deliberately blocked, and no
