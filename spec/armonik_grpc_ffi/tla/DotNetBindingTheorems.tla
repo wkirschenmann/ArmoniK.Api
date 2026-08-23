@@ -18,7 +18,17 @@ EXTENDS DotNetBinding_defs
 
 THEOREM RefinesInit == Init => F!Init
 
-THEOREM RefinesNext == [Next]_vars => [F!Next]_l1_vars
+\* Relative to the invariant, unlike level 1's own RefinesNext, and for a
+\* reason worth naming: two coupled actions witness a level-1 existential
+\* with a piece of MANAGED state - CreateChannel passes current_runtime as
+\* the runtime of the new channel, RetryLendSucceeds passes retry_len[cId]
+\* as the length being lent.  That those values lie in the sets level 1
+\* quantifies over is an invariant of this level, not a syntactic fact:
+\* current_runtime may be "none", and retry_len may be the sentinel.  So
+\* the projection holds on reachable states, which is what ManagedSafety
+\* characterizes.  RefinesSpec composes it with ManagedSafetyHolds and is
+\* unconditional again.
+THEOREM RefinesNext == ManagedSafety /\ [Next]_vars => [F!Next]_l1_vars
 
 THEOREM RefinesSpec == Spec => F!Spec
 

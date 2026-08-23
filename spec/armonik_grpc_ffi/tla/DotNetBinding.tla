@@ -147,7 +147,12 @@ ManagedTypeOK ==
     /\ reader_state \in [CallIds -> ReaderStates]
     /\ read_cancel_pending \in [CallIds -> BOOLEAN]
     /\ writer_state \in [CallIds -> WriterStates]
-    /\ retry_len \in [CallIds -> F!RequestLengths \union {NoRetryLen}]
+    \* Sizes, not RequestLengths: only a budget refusal parks a length for
+    \* the retry, and a budget refusal is only ever pronounced on a length
+    \* the window admits - a too-large request faults without waiting.  The
+    \* refinement needs exactly this: the parked length must be one level 1
+    \* can lend.
+    /\ retry_len \in [CallIds -> F!Sizes \union {NoRetryLen}]
     /\ headers_completion \in [CallIds -> HeadersCompletions]
     /\ status_completion \in [CallIds -> StatusCompletions]
     /\ call_dispose_state \in [CallIds -> CallDisposeStates]

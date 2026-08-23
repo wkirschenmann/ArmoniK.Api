@@ -3299,7 +3299,7 @@ discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, eight action theorems -
 `LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
 `ReadCancellationCancelsCall`, `CompletedReadTokenArmsNothing`,
 `LiveRequestOnlyDischargedByReaction` and `CancelledParseReleasesItsSlotOnce` - and one
-theorem per liveness promise plus their aggregate.  Proved so far: `RefinesInit`, the fairness projection `Fairness => F!Fairness` family by family, and the six host discharges - 71 obligations.  The rest is owed, `RefinesNext` and the inductive invariant being where the count grows.
+theorem per liveness promise plus their aggregate.  Proved so far: `RefinesInit`, the fairness projection `Fairness => F!Fairness` family by family, the six host discharges, and `RefinesNext` - one projection lemma per disjunct of `Next`, 163 obligations in all.  `RefinesNext` is stated relative to `ManagedSafety`, unlike level 1's own, and the proof is what found the reason: two coupled actions witness a level-1 existential with managed state - `CreateChannel` passes `current_runtime`, `RetryLendSucceeds` passes `retry_len[cId]` - and that those values lie in the sets level 1 quantifies over is an invariant, not a syntactic fact.  The same proof tightened `retry_len`'s typing from `RequestLengths` to `Sizes`: only a budget refusal parks a length, and one is only ever pronounced on a length the window admits.  `RefinesSpec` recomposes with `ManagedSafetyHolds` and is unconditional again.  The rest is owed, the inductive invariant being where the count grows.
 
 Refinement mapping, by direct reuse:
 - the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -
