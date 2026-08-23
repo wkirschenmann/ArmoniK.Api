@@ -3596,4 +3596,40 @@ LEMMA KeepsWriteAborted ==
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21
+
+(***************************************************************************)
+(* LEVEL 1'S OWN INDUCTIVE STEP, CITED                                     *)
+(*                                                                         *)
+(* Level 1 proved this; level 2 uses it.  The prefix counts INSTANCE hops   *)
+(* and nothing else: level 1's theorems state their hypotheses with the     *)
+(* IsFiniteSet that reached FfiGrpcState by EXTENDS, and EXTENDS prefixes   *)
+(* nothing, so one INSTANCE hop later they read L1!IsFiniteSet.             *)
+(* L1!L0!IsFiniteSet is a different symbol - the copy FfiGrpc made for its  *)
+(* own use, two hops away - well formed, same meaning, and it does not      *)
+(* match.  Getting that wrong costs a Zenon timeout rather than a clean     *)
+(* refusal, because both symbols are opaque one-argument operators.         *)
+(***************************************************************************)
+
+LEMMA L1Assumptions ==
+    /\ "none" \notin RuntimeIds /\ "none" \notin ChannelIds
+    /\ "none" \notin CallIds
+    /\ L1!IsFiniteSet(CallIds) /\ L1!IsFiniteSet(ChannelIds)
+    /\ L1!IsFiniteSet(RuntimeIds)
+    /\ MaxSendsInFlight \in Nat \ {0} /\ DeliveryCredits \in Nat \ {0}
+    /\ Ceiling \in Nat \ {0} /\ MessageLength \in [Messages -> Nat]
+    /\ L1!IsFiniteSet(BufferIds) /\ BufferIds # {}
+    BY NoneNotInRuntimeIds, NoneNotInChannelIds, NoneNotInCallIds,
+       FiniteCallIds, FiniteChannelIds, FiniteRuntimeIds,
+       MaxSendsInFlightIsPositive, DeliveryCreditsArePositive,
+       CeilingIsPositive, MessageLengthIsNat,
+       BufferIdsAreAFiniteNonemptySet, Zenon
+    DEF L1!IsFiniteSet, IsFiniteSet
+
+LEMMA L1StepPreservesL1Inv ==
+    L1!IndInv /\ [L1!Next]_(L1!vars) => L1!IndInv'
+    BY L1Assumptions, L1!IndInvPreserved, Zenon
+
+LEMMA L1InitEstablishesL1Inv == L1!Init => L1!IndInv
+    BY L1Assumptions, L1!InitEstablishesIndInv, Zenon
+
 ===============================================================================
