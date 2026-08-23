@@ -5,10 +5,10 @@
 (* SPEC UNDER CONVERGENCE - no proofs exist for this module yet.           *)
 (*                                                                         *)
 (* What this level proves, once frozen:                                    *)
-(*  1. Spec => F!Spec - the refinement.  Everything proved at levels 0     *)
+(*  1. Spec => L1!Spec - the refinement.  Everything proved at levels 0    *)
 (*     and 1 is inherited through it; L0!Spec follows by transitivity      *)
 (*     from level 1's RefinesSpec, never re-proved here.                   *)
-(*  2. The six host fairness conjuncts of F!Fairness become theorems.      *)
+(*  2. The six host fairness conjuncts of L1!Fairness become theorems.     *)
 (*     The other thirteen - the runtime's and the FFI dispatch's - are     *)
 (*     taken verbatim into Fairness below.                                 *)
 (*  3. The managed-side contract: the channel-held lease on the shared     *)
@@ -52,9 +52,9 @@ EXTENDS DotNetBindingState, Naturals, Sequences
 \* - it is a definition's body once expanded - which is why the three
 \* conditional-enabledness theorems live apart in
 \* FfiGrpcEnabledTheorems, a sibling this instance does not drag in.
-F == INSTANCE FfiGrpcTheorems
+L1 == INSTANCE FfiGrpcTheorems
 
-l1_vars == F!vars
+l1_vars == L1!vars
 vars == <<l1_vars, managed_vars>>
 
 ManagedStutter == UNCHANGED managed_vars
@@ -152,7 +152,7 @@ ManagedTypeOK ==
     \* the window admits - a too-large request faults without waiting.  The
     \* refinement needs exactly this: the parked length must be one level 1
     \* can lend.
-    /\ retry_len \in [CallIds -> F!Sizes \union {NoRetryLen}]
+    /\ retry_len \in [CallIds -> L1!Sizes \union {NoRetryLen}]
     /\ headers_completion \in [CallIds -> HeadersCompletions]
     /\ status_completion \in [CallIds -> StatusCompletions]
     /\ call_dispose_state \in [CallIds -> CallDisposeStates]
@@ -177,7 +177,7 @@ ManagedInit ==
     /\ status_completion = [c \in CallIds |-> "pending"]
     /\ call_dispose_state = [c \in CallIds |-> "active"]
 
-Init == F!Init /\ ManagedInit
+Init == L1!Init /\ ManagedInit
 
 (***************************************************************************)
 (* THE FACTORY AND THE CHANNELS.  The first channel materializes the       *)
@@ -193,7 +193,7 @@ Init == F!Init /\ ManagedInit
 CreateRuntime(rtId, chId) ==
     /\ runtime_dispose_state = "absent"
     /\ channel_dispose_state[chId] = "unopened"
-    /\ F!RuntimeCreate(rtId)
+    /\ L1!RuntimeCreate(rtId)
     /\ runtime_root_live' = TRUE
     /\ current_runtime' = rtId
     /\ runtime_dispose_state' = "active"
@@ -226,7 +226,7 @@ AcquireLease(chId) ==
 CreateChannel(chId) ==
     /\ channel_dispose_state[chId] = "constructing"
     /\ current_runtime # "none"
-    /\ F!ChannelCreate(chId, current_runtime)
+    /\ L1!ChannelCreate(chId, current_runtime)
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "active"]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -244,7 +244,7 @@ CreateChannel(chId) ==
 \* with it, retired rather than left acquirable - the constructor's own
 \* local resources go, while the shared RuntimeState's root lives until
 \* that destroy.  Only an allocation
-\* failure is a runtime failure, and that is F!RuntimeFail's business.
+\* failure is a runtime failure, and that is L1!RuntimeFail's business.
 RejectChannelCreation(chId) ==
     /\ channel_dispose_state[chId] = "constructing"
     /\ channel_dispose_state' =
@@ -283,7 +283,7 @@ FinishDisposeChannel(chId) ==
     /\ \A c \in CallIds :
            /\ call_channel[c] = chId
            => call_dispose_state[c] = "settled"
-    /\ \/ F!ChannelStartClosing(chId)
+    /\ \/ L1!ChannelStartClosing(chId)
        \/ /\ channel_state[chId] \in {"closing", "closed"}
           /\ UNCHANGED l1_vars
     /\ channel_dispose_state' =
@@ -320,7 +320,7 @@ ResolveChannelDispose(chId) ==
 BeginRuntimeShutdown(rtId) ==
     /\ runtime_dispose_state = "shutdown_pending"
     /\ rtId = current_runtime
-    /\ F!RuntimeBeginShutdown(rtId)
+    /\ L1!RuntimeBeginShutdown(rtId)
     /\ runtime_dispose_state' = "destroying"
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, channel_dispose_state,
@@ -333,7 +333,7 @@ BeginRuntimeShutdown(rtId) ==
 FinishDisposeRuntime(rtId) ==
     /\ runtime_dispose_state = "destroying"
     /\ rtId = current_runtime
-    /\ F!RuntimeDestroy(rtId)
+    /\ L1!RuntimeDestroy(rtId)
     /\ runtime_dispose_state' = "destroyed"
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, channel_dispose_state,
@@ -374,7 +374,7 @@ StartCall(cId, chId) ==
     /\ ~call_token_published[cId]
     /\ BindingMayDowncall(cId)
     /\ channel_dispose_state[chId] = "active"
-    /\ F!CallStart(cId, chId)
+    /\ L1!CallStart(cId, chId)
     /\ call_token_published' = [call_token_published EXCEPT ![cId] = TRUE]
     /\ call_root_live' = [call_root_live EXCEPT ![cId] = TRUE]
     /\ UNCHANGED <<runtime_root_live, current_runtime,
@@ -436,7 +436,7 @@ ManagedCallState(cId) ==
 \* The consumed slot is the terminal one exactly when it is the last
 \* published event of a call that has its status.
 ConsumingTerminal(cId) ==
-    /\ F!L0!HasStatus(cId)
+    /\ L1!L0!HasStatus(cId)
     /\ RingTail(cId) = RingHead(cId) - 1
 
 \* A posted request is discharged by the binding's reaction and by
@@ -461,7 +461,7 @@ ReadCancellationSettled(cId) ==
 FinishConsumePayload(cId) ==
     /\ reader_state[cId] = "parsing"
     /\ ReadCancellationSettled(cId)
-    /\ F!HostConsumesEvent(cId)
+    /\ L1!HostConsumesEvent(cId)
     /\ reader_state' =
            [reader_state EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "finished"
@@ -508,7 +508,7 @@ CancelWaitingRead(cId) ==
     /\ read_cancel_pending[cId]
     /\ reader_state[cId] = "waiting"
     /\ call_dispose_state[cId] = "active"
-    /\ F!RequestCallCancellation(cId)
+    /\ L1!RequestCallCancellation(cId)
     /\ reader_state' = [reader_state EXCEPT ![cId] = "idle"]
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ call_dispose_state' =
@@ -529,7 +529,7 @@ CancelParsingRead(cId) ==
     /\ read_cancel_pending[cId]
     /\ reader_state[cId] = "parsing"
     /\ call_dispose_state[cId] = "active"
-    /\ F!RequestCallCancellation(cId)
+    /\ L1!RequestCallCancellation(cId)
     /\ reader_state' = [reader_state EXCEPT ![cId] = "parsing_cancelled"]
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ call_dispose_state' =
@@ -548,7 +548,7 @@ CancelParsingRead(cId) ==
 \* is gone no other consumer can decode it.
 FinishCancelledParse(cId) ==
     /\ reader_state[cId] = "parsing_cancelled"
-    /\ F!HostConsumesEvent(cId)
+    /\ L1!HostConsumesEvent(cId)
     /\ reader_state' =
            [reader_state EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "finished"
@@ -599,7 +599,7 @@ ConsumeHeader(cId) ==
     /\ consumer_phase[cId] = "prologue"
     /\ call_dispose_state[cId] = "active"
     /\ RingTail(cId) = 0
-    /\ F!HostConsumesEvent(cId)
+    /\ L1!HostConsumesEvent(cId)
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "application"]
     /\ headers_completion' =
            [headers_completion EXCEPT ![cId] = "succeeded"]
@@ -620,8 +620,8 @@ BeginDisposeCall(cId) ==
     /\ headers_completion' =
            [headers_completion EXCEPT
                 ![cId] = IF @ = "pending" THEN "failed" ELSE @]
-    /\ \/ F!RequestCallCancellation(cId)
-       \/ /\ \/ ~F!L0!IsActiveCall(cId)
+    /\ \/ L1!RequestCallCancellation(cId)
+       \/ /\ \/ ~L1!L0!IsActiveCall(cId)
              \/ cancel_requested[cId]
           /\ UNCHANGED l1_vars
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -643,7 +643,7 @@ DisposeCallForChannel(cId) ==
 \* the dispose never depends on bytes it already returned.
 DrainRelease(cId) ==
     /\ consumer_phase[cId] = "drain"
-    /\ F!HostConsumesEvent(cId)
+    /\ L1!HostConsumesEvent(cId)
     /\ status_completion' =
            [status_completion EXCEPT
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
@@ -661,7 +661,7 @@ FinishDisposeCall(cId) ==
     /\ call_dispose_state[cId] = "draining"
     /\ consumer_phase[cId] = "drain"
     /\ RingDrained(cId)
-    /\ F!L0!HasStatus(cId)
+    /\ L1!L0!HasStatus(cId)
     /\ writer_state[cId] \in {"idle", "closed"}
     /\ status_completion[cId] = "resolved"
     /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "settled"]
@@ -678,19 +678,19 @@ FinishDisposeCall(cId) ==
 \* Dispose: for a normally finished call the .NET API says disposing does
 \* nothing, so demanding it would be a discipline stricter than the
 \* surface this binding implements.  The last two conjuncts are exactly
-\* what F!ReleaseCallHandle waits on, so this settlement is the condition
+\* what L1!ReleaseCallHandle waits on, so this settlement is the condition
 \* that unblocks the native reclamation rather than a parallel state
 \* ignoring it.
 SettleCall(cId) ==
     /\ call_dispose_state[cId] = "active"
     /\ call_token_published[cId]
-    /\ F!L0!IsTerminalCall(cId)
+    /\ L1!L0!IsTerminalCall(cId)
     /\ RingDrained(cId)
     /\ reader_state[cId] = "finished"
     /\ writer_state[cId] \in {"idle", "closed"}
     /\ status_completion[cId] = "resolved"
-    /\ F!HostOwnsNoPayload(cId)
-    /\ F!HostHoldsNoBuffer(cId)
+    /\ L1!HostOwnsNoPayload(cId)
+    /\ L1!HostHoldsNoBuffer(cId)
     /\ call_dispose_state' = [call_dispose_state EXCEPT ![cId] = "settled"]
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "done"]
     /\ UNCHANGED l1_vars
@@ -711,7 +711,7 @@ SettleCall(cId) ==
 WriteLendSucceeds(cId, b, len, charge) ==
     /\ writer_state[cId] = "idle"
     /\ BindingMayDowncall(cId)
-    /\ F!LendSendBuffer(cId, b, len, charge)
+    /\ L1!LendSendBuffer(cId, b, len, charge)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "serializing"]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
@@ -725,7 +725,7 @@ WriteRefusedBudget(cId, len, charge) ==
     /\ writer_state[cId] = "idle"
     /\ BindingMayDowncall(cId)
     /\ ~cancel_requested[cId]
-    /\ F!RefuseLendForBudget(cId, len, charge)
+    /\ L1!RefuseLendForBudget(cId, len, charge)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "waiting_budget"]
     /\ retry_len' = [retry_len EXCEPT ![cId] = len]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -739,7 +739,7 @@ WriteRefusedBudget(cId, len, charge) ==
 WriteRefusedTooLarge(cId, len) ==
     /\ writer_state[cId] = "idle"
     /\ BindingMayDowncall(cId)
-    /\ F!RefuseLendTooLarge(cId, len)
+    /\ L1!RefuseLendTooLarge(cId, len)
     /\ ManagedStutter
 
 \* The budget wait's retry succeeds: the window is always open, so a
@@ -747,7 +747,7 @@ WriteRefusedTooLarge(cId, len) ==
 RetryLendSucceeds(cId, b, charge) ==
     /\ writer_state[cId] = "waiting_budget"
     /\ BindingMayDowncall(cId)
-    /\ F!LendSendBuffer(cId, b, retry_len[cId], charge)
+    /\ L1!LendSendBuffer(cId, b, retry_len[cId], charge)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "serializing"]
     /\ retry_len' = [retry_len EXCEPT ![cId] = NoRetryLen]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
@@ -761,7 +761,7 @@ RetryLendSucceeds(cId, b, charge) ==
 CommitWrite(cId, msg, b) ==
     /\ writer_state[cId] = "serializing"
     /\ BindingMayDowncall(cId)
-    /\ F!SendMessage(cId, msg, b)
+    /\ L1!SendMessage(cId, msg, b)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "awaiting_write_done"]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
@@ -774,7 +774,7 @@ CommitWrite(cId, msg, b) ==
 \* the disposable wrapper returns the buffer and the write faults.
 WriteAborted(cId, b) ==
     /\ writer_state[cId] = "serializing"
-    /\ F!HostReturnsBuffer(cId, b)
+    /\ L1!HostReturnsBuffer(cId, b)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "idle"]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
@@ -788,7 +788,7 @@ WriteAborted(cId, b) ==
 CancelWriterWait(cId) ==
     /\ writer_state[cId] = "waiting_budget"
     /\ \/ cancel_requested[cId]
-       \/ ~F!L0!IsActiveCall(cId)
+       \/ ~L1!L0!IsActiveCall(cId)
        \/ call_dispose_state[cId] # "active"
        \/ runtime_dispose_state # "active"
     /\ writer_state' = [writer_state EXCEPT ![cId] = "idle"]
@@ -803,7 +803,7 @@ CancelWriterWait(cId) ==
 \* The WRITE_DONE callback returns: the write in flight - there is at
 \* most one, the writer being single - completes its task.
 WriteDoneCompletes(cId) ==
-    /\ F!WriteDoneReturns(cId)
+    /\ L1!WriteDoneReturns(cId)
     /\ writer_state' =
            [writer_state EXCEPT
                 ![cId] = IF @ = "awaiting_write_done" THEN "idle" ELSE @]
@@ -818,7 +818,7 @@ WriteDoneCompletes(cId) ==
 CloseWriter(cId) ==
     /\ writer_state[cId] = "idle"
     /\ BindingMayDowncall(cId)
-    /\ F!EndSend(cId)
+    /\ L1!EndSend(cId)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "closed"]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
@@ -834,8 +834,8 @@ CloseWriter(cId) ==
 \* A non-terminal delivery callback returns after publishing the slot and
 \* completing the TCS the event answers.
 OnEventReturns(cId) ==
-    /\ ~F!L0!HasStatus(cId)
-    /\ F!DeliveryCallbackReturns(cId)
+    /\ ~L1!L0!HasStatus(cId)
+    /\ L1!DeliveryCallbackReturns(cId)
     /\ ManagedStutter
 
 \* The terminal callback's return: the call root's last access frees it.
@@ -843,8 +843,8 @@ OnEventReturns(cId) ==
 \* status payload (code, message, trailers) is the terminal consumer's to
 \* parse.
 TerminalCallbackReturns(cId) ==
-    /\ F!L0!HasStatus(cId)
-    /\ F!DeliveryCallbackReturns(cId)
+    /\ L1!L0!HasStatus(cId)
+    /\ L1!DeliveryCallbackReturns(cId)
     /\ call_root_live' = [call_root_live EXCEPT ![cId] = FALSE]
     /\ UNCHANGED <<call_token_published, runtime_root_live,
                    current_runtime, runtime_dispose_state,
@@ -855,11 +855,11 @@ TerminalCallbackReturns(cId) ==
 
 \* The runtime-level callbacks return without touching managed call state.
 ShutdownReturns(rtId) ==
-    /\ F!ShutdownCallbackReturns(rtId)
+    /\ L1!ShutdownCallbackReturns(rtId)
     /\ ManagedStutter
 
 ResourcesReleasedReturns(rtId) ==
-    /\ F!ResourcesReleasedCallbackReturns(rtId)
+    /\ L1!ResourcesReleasedCallbackReturns(rtId)
     /\ ManagedStutter
 
 (***************************************************************************)
@@ -870,29 +870,29 @@ ResourcesReleasedReturns(rtId) ==
 
 RuntimeSteps ==
     \/ \E rtId \in RuntimeIds :
-           \/ F!EmitShutdownComplete(rtId)
-           \/ F!EmitResourcesReleased(rtId)
-           \/ F!RuntimeRelease(rtId)
-           \/ F!RuntimeFail(rtId)
-           \/ F!RemainFailed(rtId)
-    \/ F!RemainReleased
-    \/ \E chId \in ChannelIds : F!ChannelFinishClosing(chId)
+           \/ L1!EmitShutdownComplete(rtId)
+           \/ L1!EmitResourcesReleased(rtId)
+           \/ L1!RuntimeRelease(rtId)
+           \/ L1!RuntimeFail(rtId)
+           \/ L1!RemainFailed(rtId)
+    \/ L1!RemainReleased
+    \/ \E chId \in ChannelIds : L1!ChannelFinishClosing(chId)
     \/ \E cId \in CallIds :
-           \/ F!EmitWriteDone(cId)
-           \/ F!NetworkSend(cId)
-           \/ F!ReceiveStatus(cId)
-           \/ F!DeliverInitialMetadata(cId)
-           \/ F!DeliverMessage(cId)
-           \/ F!DeliverStatus(cId)
-           \/ F!DeliverCancelled(cId)
-           \/ F!ReleaseCallHandle(cId)
-    \/ \E cId \in CallIds, msg \in Messages : F!NetworkReceive(cId, msg)
-    \/ \E cId \in CallIds, b \in BufferIds : F!FreeReturnedBuffer(cId, b)
+           \/ L1!EmitWriteDone(cId)
+           \/ L1!NetworkSend(cId)
+           \/ L1!ReceiveStatus(cId)
+           \/ L1!DeliverInitialMetadata(cId)
+           \/ L1!DeliverMessage(cId)
+           \/ L1!DeliverStatus(cId)
+           \/ L1!DeliverCancelled(cId)
+           \/ L1!ReleaseCallHandle(cId)
+    \/ \E cId \in CallIds, msg \in Messages : L1!NetworkReceive(cId, msg)
+    \/ \E cId \in CallIds, b \in BufferIds : L1!FreeReturnedBuffer(cId, b)
 
 BindingDowncalls ==
     \E cId \in CallIds :
         /\ BindingMayDowncall(cId)
-        /\ F!RequestCallCancellation(cId)
+        /\ L1!RequestCallCancellation(cId)
 
 Passthrough == (RuntimeSteps \/ BindingDowncalls) /\ ManagedStutter
 
@@ -940,13 +940,13 @@ Next ==
            \/ TerminalCallbackReturns(cId)
     \/ \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     \/ \E cId \in CallIds, b \in BufferIds,
-         len \in F!Sizes, charge \in F!Sizes :
+         len \in L1!Sizes, charge \in L1!Sizes :
            WriteLendSucceeds(cId, b, len, charge)
-    \/ \E cId \in CallIds, len \in F!Sizes, charge \in F!CandidateCharges :
+    \/ \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
            WriteRefusedBudget(cId, len, charge)
-    \/ \E cId \in CallIds, len \in F!RequestLengths :
+    \/ \E cId \in CallIds, len \in L1!RequestLengths :
            WriteRefusedTooLarge(cId, len)
-    \/ \E cId \in CallIds, b \in BufferIds, charge \in F!Sizes :
+    \/ \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
            RetryLendSucceeds(cId, b, charge)
     \/ \E cId \in CallIds, msg \in Messages, b \in BufferIds :
            CommitWrite(cId, msg, b)
@@ -973,36 +973,36 @@ SerializationSettles(cId) ==
 
 RuntimeOwedFairness ==
     \* accepted sends reach the wire, so a committed write can be acquitted
-    /\ \A cId \in CallIds : WF_l1_vars(F!NetworkSend(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!NetworkSend(cId))
     \* a terminal arrives at all, so every call has an end to deliver
-    /\ \A cId \in CallIds : WF_l1_vars(F!ReceiveStatus(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!ReceiveStatus(cId))
     \* the header reaches the ring, so the prologue can resolve the headers
-    /\ \A cId \in CallIds : WF_l1_vars(F!DeliverInitialMetadata(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverInitialMetadata(cId))
     \* a received message reaches the ring, so a waiting reader wakes
-    /\ \A cId \in CallIds : WF_l1_vars(F!DeliverMessage(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverMessage(cId))
     \* the terminal reaches the ring, so the reader or the drain can end
-    /\ \A cId \in CallIds : WF_l1_vars(F!DeliverStatus(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverStatus(cId))
     \* a cancelled call still gets its terminal, so its dispose can finish
-    /\ \A cId \in CallIds : WF_l1_vars(F!DeliverCancelled(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverCancelled(cId))
     \* the acquittal comes, which is where a write completes
-    /\ \A cId \in CallIds : WF_l1_vars(F!EmitWriteDone(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!EmitWriteDone(cId))
     \* the runtime reaches released, without which destroy is refused
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(F!RuntimeRelease(rtId))
+    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!RuntimeRelease(rtId))
     \* the shutdown announces itself, the first link of the teardown chain
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(F!EmitShutdownComplete(rtId))
+    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitShutdownComplete(rtId))
     \* the second event when owed - never at this level, kept for the lift
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(F!EmitResourcesReleased(rtId))
+    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitResourcesReleased(rtId))
     \* a closing channel closes, so its calls end and its lease can go
-    /\ \A chId \in ChannelIds : WF_l1_vars(F!ChannelFinishClosing(chId))
+    /\ \A chId \in ChannelIds : WF_l1_vars(L1!ChannelFinishClosing(chId))
     \* returned bytes are freed, which is what recredits the byte budget
     /\ \A cId \in CallIds, b \in BufferIds :
-           WF_l1_vars(F!FreeReturnedBuffer(cId, b))
+           WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
     \* a settled call is reclaimed, so its arena goes with it
-    /\ \A cId \in CallIds : WF_l1_vars(F!ReleaseCallHandle(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!ReleaseCallHandle(cId))
 
 BindingOwedFairness ==
     \* THE SIX HOST HYPOTHESES, in level 1's own tuple.  Stated this way
-    \* on purpose: a weak fairness over l1_vars is what F!Fairness asks
+    \* on purpose: a weak fairness over l1_vars is what L1!Fairness asks
     \* for, so the discharge is a citation and no enabling bridge is
     \* needed - and none could be built, TLAPS being unable to expand an
     \* ENABLED whose action reaches through an instance.  Nothing is
@@ -1013,25 +1013,25 @@ BindingOwedFairness ==
     \* OnEventReturns and TerminalCallbackReturns: the trampoline returns
     \* after bounded work, the terminal one freeing the root as it goes
     /\ \A cId \in CallIds :
-           WF_l1_vars(F!DeliveryCallbackReturns(cId))
+           WF_l1_vars(L1!DeliveryCallbackReturns(cId))
     \* WriteDoneCompletes: a counter and a signal, then the write's task
-    /\ \A cId \in CallIds : WF_l1_vars(F!WriteDoneReturns(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!WriteDoneReturns(cId))
     \* ShutdownReturns: nothing but a signal
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(F!ShutdownCallbackReturns(rtId))
+    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
     \* ResourcesReleasedReturns: the same, for the event this level never
     \* owes
     /\ \A rtId \in RuntimeIds :
-           WF_l1_vars(F!ResourcesReleasedCallbackReturns(rtId))
+           WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
     \* ConsumeHeader, FinishConsumePayload, DrainRelease: whichever of the
     \* three the phase admits releases the slot - the last two under the
     \* stated hypothesis that user parsing terminates
-    /\ \A cId \in CallIds : WF_l1_vars(F!HostConsumesEvent(cId))
+    /\ \A cId \in CallIds : WF_l1_vars(L1!HostConsumesEvent(cId))
     \* WriteAborted: the disposable wrapper gives the buffer back, on the
     \* serializing state's exception path as on its refusal path - and
     \* serializing is the only state that holds one, so this is the only
     \* return there is
     /\ \A cId \in CallIds, b \in BufferIds :
-           WF_l1_vars(F!HostReturnsBuffer(cId, b))
+           WF_l1_vars(L1!HostReturnsBuffer(cId, b))
 
     \* THE BINDING'S OWN MACHINERY, in this level's tuple: steps that move
     \* managed state, so nothing below asks for them and only this level
@@ -1112,7 +1112,7 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 \* The GCHandle exists from the same step as ak_call_start.
 TokenPublishedBeforeStart ==
     \A cId \in CallIds :
-        ~F!L0!IsUnusedCall(cId) => call_token_published[cId]
+        ~L1!L0!IsUnusedCall(cId) => call_token_published[cId]
 
 \* Every call callback in flight resolves its call_ctx to a live root.
 RootSurvivesCallbacks ==
@@ -1293,13 +1293,13 @@ DisposeLeavesNoManagedWaiter ==
             /\ status_completion[cId] = "resolved"
 
 \* A settled call owes level 1 nothing, so the runtime's own reclamation
-\* is free to take it - and F!CallEventuallyReclaimed, inherited, says it
+\* is free to take it - and L1!CallEventuallyReclaimed, inherited, says it
 \* will.  This is the managed half of that handshake.
 SettledCallOwesNothing ==
     \A cId \in CallIds :
         call_dispose_state[cId] = "settled" =>
-            /\ F!HostOwnsNoPayload(cId)
-            /\ F!HostHoldsNoBuffer(cId)
+            /\ L1!HostOwnsNoPayload(cId)
+            /\ L1!HostHoldsNoBuffer(cId)
 
 \* Inherited corollary, restated in ring vocabulary.
 RingNeverOverflows ==
@@ -1316,7 +1316,7 @@ BudgetWaitEndsWhenHopeless ==
     \A cId \in CallIds :
         (/\ writer_state[cId] = "waiting_budget"
          /\ \/ cancel_requested[cId]
-            \/ ~F!L0!IsActiveCall(cId)
+            \/ ~L1!L0!IsActiveCall(cId)
             \/ call_dispose_state[cId] # "active"
             \/ runtime_dispose_state # "active")
             ~> writer_state[cId] # "waiting_budget"
@@ -1326,7 +1326,7 @@ BudgetWaitEndsWhenHopeless ==
 PendingWriteEventuallySettled ==
     \A cId \in CallIds :
         writer_state[cId] \in {"serializing", "awaiting_write_done"} ~>
-            (writer_state[cId] \in {"idle", "closed"} \/ ~F!L0!NotFailed)
+            (writer_state[cId] \in {"idle", "closed"} \/ ~L1!L0!NotFailed)
 
 \* A constructor that began completes, one way or the other: the channel
 \* is exposed, or the configuration was refused and it ends in rejected
@@ -1337,19 +1337,19 @@ ChannelConstructionCompletes ==
         channel_dispose_state[chId] = "constructing" ~>
             (\/ channel_dispose_state[chId] = "active"
              \/ channel_dispose_state[chId] = "rejected"
-             \/ ~F!L0!NotFailed)
+             \/ ~L1!L0!NotFailed)
 
 \* A draining call settles, a disposing channel settles, the teardown
 \* completes - each unless the runtime failed.
 CallDisposeCompletes ==
     \A cId \in CallIds :
         call_dispose_state[cId] = "draining" ~>
-            (call_dispose_state[cId] = "settled" \/ ~F!L0!NotFailed)
+            (call_dispose_state[cId] = "settled" \/ ~L1!L0!NotFailed)
 
 ChannelLeaseEventuallyReleased ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "disposing" ~>
-            (ChannelSettled(chId) \/ ~F!L0!NotFailed)
+            (ChannelSettled(chId) \/ ~L1!L0!NotFailed)
 
 \* The public task completes: for the last releaser only after the
 \* destroy it triggered returned, which is the contract DisposeAsync
@@ -1357,22 +1357,22 @@ ChannelLeaseEventuallyReleased ==
 ChannelDisposeCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "disposing" ~>
-            (channel_dispose_state[chId] = "disposed" \/ ~F!L0!NotFailed)
+            (channel_dispose_state[chId] = "disposed" \/ ~L1!L0!NotFailed)
 
 RuntimeDisposeCompletes ==
     (runtime_dispose_state \in {"shutdown_pending", "destroying"}) ~>
-        (runtime_dispose_state = "absent" \/ ~F!L0!NotFailed)
+        (runtime_dispose_state = "absent" \/ ~L1!L0!NotFailed)
 
 \* Every allocated root dies: the call's at its terminal callback, the
 \* generation's after destroy - the factory then re-arms.
 CallRootEventuallyFreed ==
     \A cId \in CallIds :
         call_root_live[cId] ~>
-            (~call_root_live[cId] \/ ~F!L0!NotFailed)
+            (~call_root_live[cId] \/ ~L1!L0!NotFailed)
 
 RuntimeRootEventuallyFreed ==
     (runtime_root_live /\ runtime_dispose_state # "active") ~>
-        (~runtime_root_live \/ ~F!L0!NotFailed)
+        (~runtime_root_live \/ ~L1!L0!NotFailed)
 
 \* A parse completes and its slot is released - under the stated
 \* hypothesis that user parsing terminates.  Both states that own a slot
@@ -1382,6 +1382,71 @@ InFlightPayloadEventuallyReleased ==
     \A cId \in CallIds :
         reader_state[cId] \in {"parsing", "parsing_cancelled"} ~>
             reader_state[cId] \in {"idle", "finished"}
+
+\* GLUE - facts the induction needs that no public conjunct states.  Both
+\* are pure machine truths TLC confirms over the full graph; neither is a
+\* promise anyone outside the proofs should cite, so they live in the core
+\* and not in ManagedSafety.
+
+\* A runtime never returns to NOT_INIT, and destruction requires RELEASED,
+\* so an uncreated runtime cannot be a destroyed one.  Unguarded: true
+\* even while some other runtime has failed, where level 1's
+\* DestroyedRuntimeIsClean - which implies it - hides behind NotFailed.
+NotInitRuntimeIsUndestroyed ==
+    \A rtId \in RuntimeIds :
+        runtime_state[rtId] = "NOT_INIT" => ~runtime_destroyed[rtId]
+
+\* The teardown starts only once every lease is back, every channel is
+\* then settled, and a settled channel settled its calls first - so from
+\* the shutdown on, no published call is left unsettled.  FreeRuntimeRoot
+\* carries this fact across destroyed -> absent, where the public
+\* AbsentRuntimeOwesNothing takes over.
+TeardownLeavesCallsSettled ==
+    runtime_dispose_state \in {"shutdown_pending", "destroying",
+                               "destroyed"} =>
+        \A cId \in CallIds :
+            call_token_published[cId] =>
+                call_dispose_state[cId] = "settled"
+
+\* A cancelled parse carries no pending request: the reaction that put the
+\* reader in parsing_cancelled discharged the request in the same step, and
+\* the trigger cannot re-arm - it requires a call still active, and that
+\* same reaction moved the call to draining.  Without this, the release of
+\* a cancelled parse would leave a request pointing at an idle reader.
+CancelledParseHasNoPendingRequest ==
+    \A cId \in CallIds :
+        reader_state[cId] = "parsing_cancelled" =>
+            ~read_cancel_pending[cId]
+
+\* In the prologue the reader has taken nothing yet: a parse begins only
+\* in the application phase, so the only occupant of the ring - the
+\* metadata - is never a slot some read owns.  Without this, the header's
+\* consumption could not show it steals no parsing reader's slot.
+PrologueReaderOnlyWaits ==
+    \A cId \in CallIds :
+        consumer_phase[cId] = "prologue" =>
+            reader_state[cId] \in {"idle", "waiting"}
+
+\* Past the prologue the headers have an answer: the application phase is
+\* entered only by ConsumeHeader, which resolves them, and every path to
+\* the drain either went through that or faulted them as it cancelled.
+\* This is what lets a settlement prove it leaves no pending waiter
+\* without re-walking the history of how the call got there.
+PastPrologueHeadersAnswered ==
+    \A cId \in CallIds :
+        consumer_phase[cId] \in {"application", "drain", "done"} =>
+            headers_completion[cId] # "pending"
+
+\* A status and the terminal state are the same fact, failure or not: the
+\* delivery that records the status is the step that makes the call
+\* terminal, and a failure freezes both together.  Level 0 packages this
+\* equivalence inside StrongInv behind NotFailed, so the unguarded truth
+\* has to be restated here for the steps that free a root on a call whose
+\* status has arrived.
+StatusMeansTerminal ==
+    \A cId \in CallIds :
+        ~L1!L0!IsUnusedCall(cId) =>
+            (L1!L0!HasStatus(cId) <=> L1!L0!IsTerminalCall(cId))
 
 \* No manager, no lease, no debt.  Whenever the runtime is back to absent
 \* and no channel holds a lease, nothing is owed: no live generation root,
@@ -1430,9 +1495,9 @@ PendingReadCancellationEventuallyObserved ==
     \A cId \in CallIds :
         (read_cancel_pending[cId] /\ call_dispose_state[cId] = "active") ~>
             \/ /\ call_dispose_state[cId] # "active"
-               /\ \/ F!IsCancelRequested(cId)
-                  \/ ~F!L0!IsActiveCall(cId)
-            \/ ~F!L0!NotFailed
+               /\ \/ L1!IsCancelRequested(cId)
+                  \/ ~L1!L0!IsActiveCall(cId)
+            \/ ~L1!L0!NotFailed
 
 \* A cancelled read leaves the call on its way out, with no further user
 \* action needed: the contract cancelled the call, so the binding drains
@@ -1440,20 +1505,20 @@ PendingReadCancellationEventuallyObserved ==
 CancelledReadEventuallyDrainsCall ==
     \A cId \in CallIds :
         read_cancel_pending[cId] ~>
-            (call_dispose_state[cId] # "active" \/ ~F!L0!NotFailed)
+            (call_dispose_state[cId] # "active" \/ ~L1!L0!NotFailed)
 
 \* A read in flight resolves: by its payload, by its own cancellation, or
 \* by the dispose - never left pending.
 ReadInFlightEventuallyResolved ==
     \A cId \in CallIds :
         ReadInFlight(cId) ~>
-            (~ReadInFlight(cId) \/ ~F!L0!NotFailed)
+            (~ReadInFlight(cId) \/ ~L1!L0!NotFailed)
 
 \* A waiter is resolved by payload or dispose, never abandoned.
 WaitingReaderEventuallyResolved ==
     \A cId \in CallIds :
         reader_state[cId] = "waiting" ~>
-            (reader_state[cId] # "waiting" \/ ~F!L0!NotFailed)
+            (reader_state[cId] # "waiting" \/ ~L1!L0!NotFailed)
 
 \* Every published call settles in the end: by SettleCall when it
 \* finishes normally, by the drain when it is disposed early.  A
@@ -1462,19 +1527,19 @@ WaitingReaderEventuallyResolved ==
 PublishedCallEventuallySettled ==
     \A cId \in CallIds :
         call_token_published[cId] ~>
-            (call_dispose_state[cId] = "settled" \/ ~F!L0!NotFailed)
+            (call_dispose_state[cId] = "settled" \/ ~L1!L0!NotFailed)
 
 \* The public completions are never left pending.
 HeadersEventuallyResolved ==
     \A cId \in CallIds :
         (headers_completion[cId] = "pending"
-             /\ ~F!L0!IsUnusedCall(cId)) ~>
-            (headers_completion[cId] # "pending" \/ ~F!L0!NotFailed)
+             /\ ~L1!L0!IsUnusedCall(cId)) ~>
+            (headers_completion[cId] # "pending" \/ ~L1!L0!NotFailed)
 
 StatusEventuallyResolved ==
     \A cId \in CallIds :
         (status_completion[cId] = "pending"
-             /\ ~F!L0!IsUnusedCall(cId)) ~>
-            (status_completion[cId] = "resolved" \/ ~F!L0!NotFailed)
+             /\ ~L1!L0!IsUnusedCall(cId)) ~>
+            (status_completion[cId] = "resolved" \/ ~L1!L0!NotFailed)
 
 ===============================================================================

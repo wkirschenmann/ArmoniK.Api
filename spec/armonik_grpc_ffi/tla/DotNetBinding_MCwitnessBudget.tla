@@ -26,10 +26,10 @@ EXTENDS DotNetBinding_MCdirected
 HopelessBudgetWaitUnreachable ==
     \A cId \in CallIds :
         ~(/\ writer_state[cId] = "waiting_budget"
-          /\ ~F!L0!IsActiveCall(cId)
-          /\ ~F!L0!IsUnusedCall(cId)
+          /\ ~L1!L0!IsActiveCall(cId)
+          /\ ~L1!L0!IsUnusedCall(cId)
           /\ call_dispose_state[cId] = "active"
           /\ ~cancel_requested[cId]
-          /\ F!L0!NotFailed)
+          /\ L1!L0!NotFailed)
 
 ===============================================================================

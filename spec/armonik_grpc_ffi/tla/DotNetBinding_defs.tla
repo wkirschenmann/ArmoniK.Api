@@ -6,7 +6,7 @@
 (* FfiGrpc_defs.                                                           *)
 (*                                                                         *)
 (* The inductive invariant is NOT here yet: it is a proof artifact, and    *)
-(* no proof exists for this level.  It will layer over F!IndInv the way    *)
+(* no proof exists for this level.  It will layer over L1!IndInv the way   *)
 (* level 1 layered over level 0.                                           *)
 (***************************************************************************)
 
@@ -49,7 +49,7 @@ ManagedSafety ==
 \* ManagedSafety is DERIVED from this by ManagedIndInvImpliesSafety, so a
 \* conjunct proved derivable leaves the induction and never returns.
 \* RingNeverOverflows is the first: the ring's occupancy IS level 1's owed
-\* payload count, and F!IndInv already bounds it.
+\* payload count, and L1!IndInv already bounds it.
 ReaderInv ==
     /\ ConsumerPhaseMatchesDispose
     /\ AtMostOneReaderOutstanding
@@ -88,10 +88,19 @@ ManagedMachineInv ==
     /\ WriterInv
     /\ LifecycleInv
 
+ManagedGlue ==
+    /\ NotInitRuntimeIsUndestroyed
+    /\ TeardownLeavesCallsSettled
+    /\ CancelledParseHasNoPendingRequest
+    /\ PrologueReaderOnlyWaits
+    /\ PastPrologueHeadersAnswered
+    /\ StatusMeansTerminal
+
 ManagedIndInv ==
-    /\ F!IndInv
+    /\ L1!IndInv
     /\ ManagedTypeOK
     /\ ManagedMachineInv
+    /\ ManagedGlue
 
 \* The managed liveness contract.  Every promise crossing the native
 \* runtime carries the ~NotFailed escape; none rests on a deadline.

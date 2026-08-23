@@ -26,6 +26,6 @@ CancelledTerminalParseUnreachable ==
     \A cId \in CallIds :
         ~(/\ reader_state[cId] = "parsing_cancelled"
           /\ ConsumingTerminal(cId)
-          /\ F!L0!NotFailed)
+          /\ L1!L0!NotFailed)
 
 ===============================================================================

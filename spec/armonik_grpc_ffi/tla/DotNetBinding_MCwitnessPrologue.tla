@@ -24,6 +24,6 @@ PrologueReadCancellationUnreachable ==
         ~(/\ consumer_phase[cId] = "prologue"
           /\ reader_state[cId] = "waiting"
           /\ read_cancel_pending[cId]
-          /\ F!L0!NotFailed)
+          /\ L1!L0!NotFailed)
 
 ===============================================================================

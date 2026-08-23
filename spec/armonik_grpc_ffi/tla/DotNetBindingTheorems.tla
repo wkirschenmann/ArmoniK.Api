@@ -16,7 +16,7 @@ EXTENDS DotNetBinding_defs
 (* L0!Spec follows from level 1's RefinesSpec by transitivity.             *)
 (***************************************************************************)
 
-THEOREM RefinesInit == Init => F!Init
+THEOREM RefinesInit == Init => L1!Init
 
 \* Relative to the invariant, unlike level 1's own RefinesNext, and for a
 \* reason worth naming: two coupled actions witness a level-1 existential
@@ -28,9 +28,9 @@ THEOREM RefinesInit == Init => F!Init
 \* the projection holds on reachable states, which is what ManagedSafety
 \* characterizes.  RefinesSpec composes it with ManagedSafetyHolds and is
 \* unconditional again.
-THEOREM RefinesNext == ManagedSafety /\ [Next]_vars => [F!Next]_l1_vars
+THEOREM RefinesNext == ManagedSafety /\ [Next]_vars => [L1!Next]_l1_vars
 
-THEOREM RefinesSpec == Spec => F!Spec
+THEOREM RefinesSpec == Spec => L1!Spec
 
 (***************************************************************************)
 (* DISCHARGE OF THE SIX HOST HYPOTHESES - the point of the level.  Level 1 *)
@@ -43,25 +43,25 @@ THEOREM RefinesSpec == Spec => F!Spec
 
 THEOREM DeliveryCallbackReturnsDischarged ==
     Spec => \A cId \in CallIds :
-                WF_l1_vars(F!DeliveryCallbackReturns(cId))
+                WF_l1_vars(L1!DeliveryCallbackReturns(cId))
 
 THEOREM WriteDoneReturnsDischarged ==
-    Spec => \A cId \in CallIds : WF_l1_vars(F!WriteDoneReturns(cId))
+    Spec => \A cId \in CallIds : WF_l1_vars(L1!WriteDoneReturns(cId))
 
 THEOREM ShutdownCallbackReturnsDischarged ==
     Spec => \A rtId \in RuntimeIds :
-                WF_l1_vars(F!ShutdownCallbackReturns(rtId))
+                WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
 
 THEOREM ResourcesReleasedCallbackReturnsDischarged ==
     Spec => \A rtId \in RuntimeIds :
-                WF_l1_vars(F!ResourcesReleasedCallbackReturns(rtId))
+                WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
 
 THEOREM HostConsumesEventDischarged ==
-    Spec => \A cId \in CallIds : WF_l1_vars(F!HostConsumesEvent(cId))
+    Spec => \A cId \in CallIds : WF_l1_vars(L1!HostConsumesEvent(cId))
 
 THEOREM HostReturnsBufferDischarged ==
     Spec => \A cId \in CallIds, b \in BufferIds :
-                WF_l1_vars(F!HostReturnsBuffer(cId, b))
+                WF_l1_vars(L1!HostReturnsBuffer(cId, b))
 
 (***************************************************************************)
 (* MANAGED SAFETY                                                          *)

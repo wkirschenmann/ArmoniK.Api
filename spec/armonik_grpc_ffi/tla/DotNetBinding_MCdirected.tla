@@ -26,11 +26,13 @@ StateConstraint ==
 MC_MessageLength == [msg \in Messages |-> 1]
 
 \* The level-1 safety aggregate, under a cfg-citable name.
-MC_L1Safety == F!SafetyInvariant
+MC_L1Safety == L1!SafetyInvariant
+
+MC_Glue == ManagedGlue
 
 (***************************************************************************)
 (* TLC WORKAROUND                                                          *)
-(* TLC cannot resolve doubly-instantiated variable tuples (F!l0_vars is    *)
+(* TLC cannot resolve doubly-instantiated variable tuples (L1!l0_vars is   *)
 (* L0!vars seen through two INSTANCE layers).  Both tuple definitions are  *)
 (* overridden in every configuration with flat lists of the shared         *)
 (* variables, exactly as FfiGrpc_MC overrides l0_vars.                     *)
