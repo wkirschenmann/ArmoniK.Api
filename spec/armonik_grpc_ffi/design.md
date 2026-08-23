@@ -1762,12 +1762,11 @@ There is no dispatcher thread and no process-wide host queue. The trampoline pub
 into the call's own ring and the consumer reads it directly, so an event crosses one
 buffer instead of two and nothing is allocated to describe it.
 
-What used to justify the dedicated thread does not survive inspection: the release
-(`ak_event_consumed`) happens in the application's parse, on the pool, whichever way the
-event was routed. A dispatcher never protected `PayloadsEventuallyConsumed` - that
-hypothesis rests on the application in both designs. What it did protect was routing
-under pool pressure, and that is bought more cheaply by keeping every wakeup off the
-Tokio thread.
+A dedicated dispatcher thread would buy nothing here. The release
+(`ak_event_consumed`) happens in the application's parse, on the pool, however the event
+was routed, so no dispatcher can protect `PayloadsEventuallyConsumed` - that hypothesis
+rests on the application either way. What a dispatcher does protect is routing under pool
+pressure, and keeping every wakeup off the Tokio thread buys the same thing more cheaply.
 
 **Nothing may run user code on the callback's thread.** With no dispatcher standing
 between the trampoline and the application, this is the *only* thing that keeps the
@@ -3228,7 +3227,7 @@ the artefact rather than left to rot:
 |---------|--------|
 | Specification described in this document | Current |
 | Model-checking configurations | Nine configurations exist - five at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
-| Level 1, one pass at `--stretch 1` | **11421 obligations, all proved, 10m42s at `--threads 12`**, this revision, plus **23 obligations in 26s** for `FfiGrpcEnabledTheorems_proofs` - the three conditional-enabledness theorems, which live in their own pair for the reason given below and sum back to the 11444 of the previous revision. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
+| Level 1, one pass at `--stretch 1` | **11421 obligations, all proved, 10m42s at `--threads 12`**, this revision, plus **23 obligations in 26s** for `FfiGrpcEnabledTheorems_proofs` - the three conditional-enabledness theorems, which live in their own pair for the reason given below, so the level's total is 11444. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
 | Level 0, one pass at `--stretch 1` | **1805 obligations, all proved, 2m13s at `--threads 12`**, this revision - the event-trace conjuncts `EventStreamShape` and `MessageEventsMatchDelivered` joined `SafetyCore`, so the level-0 module changed and was re-proved in full |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
