@@ -385,4 +385,39 @@ THEOREM RefinesNext == ManagedSafety /\ [Next]_vars => [F!Next]_l1_vars
         BY <1>2 DEF vars
     <1>3. QED
         BY <1>1, <1>2
+
+(***************************************************************************)
+(* THE INDUCTIVE CORE IMPLIES THE SAFETY CONTRACT                          *)
+(*                                                                         *)
+(* The derivation is the point: every conjunct proved here leaves the      *)
+(* induction for good.  The bridge predicates are named because the        *)
+(* content is arithmetic - a solver sees an equality of differences where  *)
+(* an unfold sees two unrelated operators.                                 *)
+(***************************************************************************)
+
+\* The ring's occupancy IS level 1's owed payload count: same difference,
+\* two names, one on each side of the instance.
+LEMMA RingOccupancyIsOwedPayloads ==
+    \A cId \in CallIds : RingOccupancy(cId) = F!OwedPayloads(cId)
+    BY DEF RingOccupancy, RingHead, RingTail, F!OwedPayloads
+
+\* F!IndInv bounds the owed count by the credits plus the terminal.
+LEMMA CoreBoundsTheRing ==
+    ManagedIndInv => RingNeverOverflows
+    <1>1. ASSUME ManagedIndInv
+          PROVE  \A cId \in CallIds :
+                     F!OwedPayloads(cId) <= DeliveryCredits + 1
+        BY <1>1 DEF ManagedIndInv, F!IndInv, F!FfiCallInv,
+                    F!PayloadsOwnedWithinCreditsPlusOne,
+                    F!HostOwnsAtMostCreditsPlusOne
+    <1>2. QED
+        \* SMT: the goal is a bound carried across an equality of integer
+        \* differences, which Zenon does not do.
+        BY <1>1, RingOccupancyIsOwedPayloads, SMT DEF RingNeverOverflows
+
+THEOREM ManagedIndInvImpliesSafety == ManagedIndInv => ManagedSafety
+    \* Projection for the carried conjuncts, derivation for the rest.
+    BY CoreBoundsTheRing
+    DEF ManagedIndInv, ManagedMachineInv, ManagedSafety
+
 ===============================================================================

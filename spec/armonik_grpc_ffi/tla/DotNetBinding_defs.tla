@@ -44,6 +44,44 @@ ManagedSafety ==
     /\ AbsentRuntimeOwesNothing
     /\ RingNeverOverflows
 
+\* The inductive core, on level 1's own pattern: the typing, the machine
+\* coherence carried as such, and level 1's core - everything else in
+\* ManagedSafety is DERIVED from this by ManagedIndInvImpliesSafety, so a
+\* conjunct proved derivable leaves the induction and never returns.
+\* RingNeverOverflows is the first: the ring's occupancy IS level 1's owed
+\* payload count, and F!IndInv already bounds it.
+ManagedMachineInv ==
+    /\ TokenPublishedBeforeStart
+    /\ RootSurvivesCallbacks
+    /\ RuntimeRootSurvivesCallbacks
+    /\ ConsumerPhaseMatchesDispose
+    /\ AtMostOneReaderOutstanding
+    /\ DrainNeverOverlapsApplicationConsumer
+    /\ WaitingWriterHoldsNoBuffer
+    /\ SerializingWriterHoldsTheBuffer
+    /\ WaitMatchesRefusal
+    /\ ManagedWriterNeverObservesSlotBusy
+    /\ RetryLenMatchesWait
+    /\ DisposeAwaitsDestroy
+    /\ RuntimeManagerCoherent
+    /\ LiveChannelUsesCurrentRuntime
+    /\ ManagedShutdownHasNoHostDebt
+    /\ LiveChannelKeepsRuntimeAlive
+    /\ NoRuntimeShutdownWhileLeased
+    /\ RejectedChannelHasNoNativeHalf
+    /\ ReadCancelPendingOnlyInFlight
+    /\ ParsingReadOwnsItsSlot
+    /\ ChannelStateMatchesNative
+    /\ RuntimeStateMatchesNative
+    /\ DisposeLeavesNoManagedWaiter
+    /\ SettledCallOwesNothing
+    /\ AbsentRuntimeOwesNothing
+
+ManagedIndInv ==
+    /\ F!IndInv
+    /\ ManagedTypeOK
+    /\ ManagedMachineInv
+
 \* The managed liveness contract.  Every promise crossing the native
 \* runtime carries the ~NotFailed escape; none rests on a deadline.
 ManagedLiveness ==
