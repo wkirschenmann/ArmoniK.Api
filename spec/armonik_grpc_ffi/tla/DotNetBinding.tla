@@ -1478,6 +1478,22 @@ PrologueReaderOnlyWaits ==
         consumer_phase[cId] = "prologue" =>
             reader_state[cId] \in {"idle", "waiting"}
 
+\* The prologue has released nothing: its own consumption is the first
+\* release a call makes, and PrologueReaderOnlyWaits keeps a parse off the
+\* ring until the phase advances.  ConsumeHeader's guard names this tail,
+\* so without it the prologue has no step of its own to take.
+PrologueHasReleasedNothing ==
+    \A cId \in CallIds :
+        consumer_phase[cId] = "prologue" => RingTail(cId) = 0
+
+\* A finished reader drained the ring: the terminal is the last event a
+\* call publishes and the reader reaches "finished" only by consuming it,
+\* so nothing is left above the tail.  Without it a debt could stand in a
+\* state no consumer's guard admits.
+FinishedReaderDrainedTheRing ==
+    \A cId \in CallIds :
+        reader_state[cId] = "finished" => RingDrained(cId)
+
 \* Past the prologue the headers have an answer: the application phase is
 \* entered only by ConsumeHeader, which resolves them, and every path to
 \* the drain either went through that or faulted them as it cancelled.
