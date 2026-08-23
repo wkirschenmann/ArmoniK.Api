@@ -952,90 +952,132 @@ Next ==
            CommitWrite(cId, msg, b)
     \/ \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
 
-(***************************************************************************)
-(* FAIRNESS - three tiers.  The runtime's and the FFI dispatch's thirteen  *)
-(* families are taken verbatim from level 1; the binding's tier derives    *)
-(* the six host conjuncts and completes what it began; the application's   *)
-(* tier is one conjunct per call.  Serialization settling is disjunction   *)
-(* fairness: which branch fires is the allocator's or the marshaller's     *)
-(* business, that one fires is the binding's promise - under the stated    *)
-(* hypothesis that user code terminates.  The budget wait is not a         *)
-(* disjunction: CancelWriterWait is one action whose guard names several   *)
-(* causes, and nothing promises a successful retry, so no fairness here    *)
-(* implies the budget ever becomes available.  No slot wait exists at all: *)
-(* a write completes at its WRITE_DONE, so the next lend always finds the  *)
-(* window open, which ManagedWriterNeverObservesSlotBusy states.           *)
-(***************************************************************************)
+(**************************************************************************)
+(* FAIRNESS - three tiers, and every conjunct is an action of THIS level.  *)
+(* A conjunct names a step of this module and promises it eventually       *)
+(* fires, so what each tier owes is legible from what it names: the        *)
+(* runtime's thirteen families, the binding's own machinery, and four      *)
+(* hypotheses about application code.  Nothing is assumed in level 1's     *)
+(* tuple - level 1's fairness is a conclusion here, derived from these     *)
+(* conjuncts and from nothing else, which is what makes this level a       *)
+(* refinement and not a restatement.                                       *)
+(*                                                                         *)
+(* The tier a conjunct sits in is a claim about who guarantees it, so a    *)
+(* step that waits on user code belongs to the application however much    *)
+(* binding code surrounds it: the two marshaller returns are there, not    *)
+(* here.  Serialization settling is disjunction fairness - which branch    *)
+(* fires is the allocator's or the marshaller's business, that one fires   *)
+(* is what is promised.  The budget wait is not a disjunction:             *)
+(* CancelWriterWait is one action whose guard names several causes, and    *)
+(* nothing promises a successful retry, so no fairness here implies the    *)
+(* budget ever becomes available.  No slot wait exists at all: a write     *)
+(* completes at its WRITE_DONE, so the next lend always finds the window   *)
+(* open, which ManagedWriterNeverObservesSlotBusy states.                  *)
+(**************************************************************************)
+
+\* The runtime's own steps, named one at a time.  Passthrough takes them
+\* as a disjunction, which is all safety needs; fairness needs each one as
+\* an action of this module, because a weak fairness stated over level 1's
+\* tuple would assume the very promise this level exists to discharge.
+\* PassthroughReachesNext pins these definitions to Next, so a passthrough
+\* that drifts out of it fails a proof instead of quietly weakening Spec.
+PassNetworkSend(cId) == L1!NetworkSend(cId) /\ ManagedStutter
+PassReceiveStatus(cId) == L1!ReceiveStatus(cId) /\ ManagedStutter
+PassDeliverInitialMetadata(cId) ==
+    L1!DeliverInitialMetadata(cId) /\ ManagedStutter
+PassDeliverMessage(cId) == L1!DeliverMessage(cId) /\ ManagedStutter
+PassDeliverStatus(cId) == L1!DeliverStatus(cId) /\ ManagedStutter
+PassDeliverCancelled(cId) == L1!DeliverCancelled(cId) /\ ManagedStutter
+PassEmitWriteDone(cId) == L1!EmitWriteDone(cId) /\ ManagedStutter
+PassReleaseCallHandle(cId) == L1!ReleaseCallHandle(cId) /\ ManagedStutter
+PassFreeReturnedBuffer(cId, b) ==
+    L1!FreeReturnedBuffer(cId, b) /\ ManagedStutter
+PassRuntimeRelease(rtId) == L1!RuntimeRelease(rtId) /\ ManagedStutter
+PassEmitShutdownComplete(rtId) ==
+    L1!EmitShutdownComplete(rtId) /\ ManagedStutter
+PassEmitResourcesReleased(rtId) ==
+    L1!EmitResourcesReleased(rtId) /\ ManagedStutter
+PassChannelFinishClosing(chId) ==
+    L1!ChannelFinishClosing(chId) /\ ManagedStutter
+
+\* The serializing state ends, by commit or by the wrapper's abort.  It is
+\* also the whole of what discharges HostReturnsBuffer: whenever the host
+\* holds a buffer the writer is serializing, so this is enabled, and each
+\* branch either gives the buffer back or hands it to the runtime, which
+\* leaves nothing for the level-1 action to still be owed.
+\* The delivery trampoline's return, whichever event it carried: the two
+\* split on the status and cover it, so this is enabled exactly when level
+\* 1's family is.
+DeliveryReturns(cId) == OnEventReturns(cId) \/ TerminalCallbackReturns(cId)
+
+\* The abort at whichever buffer the writer holds.  Named because a
+\* quantifier written inside an action is not something ExpandENABLED can
+\* find a witness for: the proof reaches the settling through this.
+WriteAbortsSomewhere(cId) == \E b \in BufferIds : WriteAborted(cId, b)
 
 SerializationSettles(cId) ==
+    \/ WriteAbortsSomewhere(cId)
     \/ \E msg \in Messages, b \in BufferIds : CommitWrite(cId, msg, b)
-    \/ \E b \in BufferIds : WriteAborted(cId, b)
 
+\* What the runtime owes, one conjunct per level-1 family, each carried by
+\* the passthrough that is that family and nothing more.  The transfer to
+\* level 1 is one for one.
 RuntimeOwedFairness ==
     \* accepted sends reach the wire, so a committed write can be acquitted
-    /\ \A cId \in CallIds : WF_l1_vars(L1!NetworkSend(cId))
+    /\ \A cId \in CallIds : WF_vars(PassNetworkSend(cId))
     \* a terminal arrives at all, so every call has an end to deliver
-    /\ \A cId \in CallIds : WF_l1_vars(L1!ReceiveStatus(cId))
+    /\ \A cId \in CallIds : WF_vars(PassReceiveStatus(cId))
     \* the header reaches the ring, so the prologue can resolve the headers
-    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverInitialMetadata(cId))
+    /\ \A cId \in CallIds : WF_vars(PassDeliverInitialMetadata(cId))
     \* a received message reaches the ring, so a waiting reader wakes
-    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverMessage(cId))
+    /\ \A cId \in CallIds : WF_vars(PassDeliverMessage(cId))
     \* the terminal reaches the ring, so the reader or the drain can end
-    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverStatus(cId))
+    /\ \A cId \in CallIds : WF_vars(PassDeliverStatus(cId))
     \* a cancelled call still gets its terminal, so its dispose can finish
-    /\ \A cId \in CallIds : WF_l1_vars(L1!DeliverCancelled(cId))
+    /\ \A cId \in CallIds : WF_vars(PassDeliverCancelled(cId))
     \* the acquittal comes, which is where a write completes
-    /\ \A cId \in CallIds : WF_l1_vars(L1!EmitWriteDone(cId))
-    \* the runtime reaches released, without which destroy is refused
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!RuntimeRelease(rtId))
-    \* the shutdown announces itself, the first link of the teardown chain
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitShutdownComplete(rtId))
-    \* the second event when owed - never at this level, kept for the lift
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitResourcesReleased(rtId))
-    \* a closing channel closes, so its calls end and its lease can go
-    /\ \A chId \in ChannelIds : WF_l1_vars(L1!ChannelFinishClosing(chId))
+    /\ \A cId \in CallIds : WF_vars(PassEmitWriteDone(cId))
+    \* a settled call is reclaimed, so its arena goes with it
+    /\ \A cId \in CallIds : WF_vars(PassReleaseCallHandle(cId))
     \* returned bytes are freed, which is what recredits the byte budget
     /\ \A cId \in CallIds, b \in BufferIds :
-           WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
-    \* a settled call is reclaimed, so its arena goes with it
-    /\ \A cId \in CallIds : WF_l1_vars(L1!ReleaseCallHandle(cId))
+           WF_vars(PassFreeReturnedBuffer(cId, b))
+    \* the runtime reaches released, without which destroy is refused
+    /\ \A rtId \in RuntimeIds : WF_vars(PassRuntimeRelease(rtId))
+    \* the shutdown announces itself, the first link of the teardown chain
+    /\ \A rtId \in RuntimeIds : WF_vars(PassEmitShutdownComplete(rtId))
+    \* the second event when owed - never at this level, kept for the lift
+    /\ \A rtId \in RuntimeIds : WF_vars(PassEmitResourcesReleased(rtId))
+    \* a closing channel closes, so its calls end and its lease can go
+    /\ \A chId \in ChannelIds : WF_vars(PassChannelFinishClosing(chId))
 
+\* What the binding owes: steps whose only wait is on the binding's own
+\* code, on the thread pool, or on a downcall that cannot block.  No
+\* conjunct here waits on application code, and none is stated over level
+\* 1's tuple; the four callback returns are what discharge level 1's four
+\* trampoline families, one for one.
 BindingOwedFairness ==
-    \* THE SIX HOST HYPOTHESES, in level 1's own tuple.  Stated this way
-    \* on purpose: a weak fairness over l1_vars is what L1!Fairness asks
-    \* for, so the discharge is a citation and no enabling bridge is
-    \* needed - and none could be built, TLAPS being unable to expand an
-    \* ENABLED whose action reaches through an instance.  Nothing is
-    \* weakened: each of these level-1 actions occurs in this model only
-    \* inside the coupled action named beside it, which does the managed
-    \* half in the same step, so demanding the level-1 action demands the
-    \* whole step.
-    \* OnEventReturns and TerminalCallbackReturns: the trampoline returns
-    \* after bounded work, the terminal one freeing the root as it goes
-    /\ \A cId \in CallIds :
-           WF_l1_vars(L1!DeliveryCallbackReturns(cId))
-    \* WriteDoneCompletes: a counter and a signal, then the write's task
-    /\ \A cId \in CallIds : WF_l1_vars(L1!WriteDoneReturns(cId))
-    \* ShutdownReturns: nothing but a signal
-    /\ \A rtId \in RuntimeIds : WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
-    \* ResourcesReleasedReturns: the same, for the event this level never
-    \* owes
-    /\ \A rtId \in RuntimeIds :
-           WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
-    \* ConsumeHeader, FinishConsumePayload, DrainRelease: whichever of the
-    \* three the phase admits releases the slot - the last two under the
-    \* stated hypothesis that user parsing terminates
-    /\ \A cId \in CallIds : WF_l1_vars(L1!HostConsumesEvent(cId))
-    \* WriteAborted: the disposable wrapper gives the buffer back, on the
-    \* serializing state's exception path as on its refusal path - and
-    \* serializing is the only state that holds one, so this is the only
-    \* return there is
-    /\ \A cId \in CallIds, b \in BufferIds :
-           WF_l1_vars(L1!HostReturnsBuffer(cId, b))
-
-    \* THE BINDING'S OWN MACHINERY, in this level's tuple: steps that move
-    \* managed state, so nothing below asks for them and only this level
-    \* can promise them.
+    \* the delivery trampoline returns after bounded work, the terminal one
+    \* freeing the call root as it goes.  The disjunction is exhaustive and
+    \* exclusive - the two split on HasStatus - so it is enabled exactly
+    \* when level 1's family is
+    /\ \A cId \in CallIds : WF_vars(DeliveryReturns(cId))
+    \* the WRITE_DONE trampoline returns: a counter and a signal, then the
+    \* write's task
+    /\ \A cId \in CallIds : WF_vars(WriteDoneCompletes(cId))
+    \* the shutdown trampoline returns: nothing but a signal
+    /\ \A rtId \in RuntimeIds : WF_vars(ShutdownReturns(rtId))
+    \* the same, for the event this level never owes
+    /\ \A rtId \in RuntimeIds : WF_vars(ResourcesReleasedReturns(rtId))
+    \* the prologue releases slot 0 and resolves the headers, and it is the
+    \* only way out of the prologue on a live call; true: decoding metadata
+    \* is the binding's own code, and a decode that throws drains the call
+    /\ \A cId \in CallIds : WF_vars(ConsumeHeader(cId))
+    \* the drain releases what is left, the only consumer its phase admits
+    \* and the only step that can empty the ring; true: the drain decodes
+    \* no payload - it releases them - and the terminal's status decode is
+    \* the binding's, with a synthetic status when it throws
+    /\ \A cId \in CallIds : WF_vars(DrainRelease(cId))
     \* wakes a suspended MoveNext once a payload exists; true: the TCS
     \* completion is the binding's, and the pool runs it
     /\ \A cId \in CallIds : WF_vars(BeginParseEvent(cId))
@@ -1045,7 +1087,6 @@ BindingOwedFairness ==
     \* fairness, so nothing here obliges a cancellation to happen
     /\ \A cId \in CallIds : WF_vars(CancelWaitingRead(cId))
     /\ \A cId \in CallIds : WF_vars(CancelParsingRead(cId))
-    /\ \A cId \in CallIds : WF_vars(FinishCancelledParse(cId))
     \* gives the drain the ring, without which a dispose cannot end;
     \* true: the binding's own step once no read is outstanding
     /\ \A cId \in CallIds : WF_vars(HandoffToDrain(cId))
@@ -1060,9 +1101,6 @@ BindingOwedFairness ==
     \* resolves a writer caught by a cancel or a dispose; true: the
     \* binding faults the pending write, it waits for nothing
     /\ \A cId \in CallIds : WF_vars(CancelWriterWait(cId))
-    \* the serializing state ends, by commit or by the wrapper's abort;
-    \* true: under the stated hypothesis that the marshaller terminates
-    /\ \A cId \in CallIds : WF_vars(SerializationSettles(cId))
     \* a constructor that began completes; true: one downcall, no wait
     \* the downcall owes a RESULT, not a success: a refused configuration
     \* is an answer, and the constructor's task ends either way
@@ -1083,20 +1121,33 @@ BindingOwedFairness ==
     \* once no callback of any kind is in flight
     /\ WF_vars(FreeRuntimeRoot)
 
-\* What the application owes, per call: one conjunct, and only while the
-\* response stream is still readable - read the next response, or dispose
-\* the call early.  Nothing is asked once the terminal has been consumed:
-\* a finished call settles by itself, so Dispose is not required, which
-\* is what the .NET API says of a completed call.  The one case this
-\* leaves to hypothesis is an application that abandons a readable
-\* stream, neither reading nor disposing - the misuse level 1 already
-\* assumes away with its own consumption fairness.
+\* What the application owes, and the whole of it: use the stream, and let
+\* the code it hands us come back.  These are the four conjuncts a
+\* conforming program satisfies and a misbehaving one does not, and they
+\* are stated here rather than among the binding's promises because the
+\* tier is the contract: a hypothesis about user code sitting in another
+\* tier reads as a guarantee the binding cannot keep.  Nothing is asked
+\* once the terminal has been consumed - a finished call settles by
+\* itself, so Dispose is not required, which is what the .NET API says of
+\* a completed call.
 ApplicationOwedFairness ==
-    \* needed so a live call moves at all: the reader's liveness and the
-    \* consumption discharge both start from a read the application began.
-    \* Not true of every program - assumed of a conforming one
+    \* the stream is used at all: read the next response, or dispose the
+    \* call early.  The reader's liveness and the consumption discharge
+    \* both start from a read the application began, so an application
+    \* that abandons a readable stream is the one case left to hypothesis
     /\ \A cId \in CallIds :
            WF_vars(BeginMoveNext(cId) \/ BeginDisposeCall(cId))
+    \* the read marshaller returns.  It runs inline on the application's
+    \* thread and holds the slot while it does, and the only other exit
+    \* from a parse is a cancellation request, which carries no fairness -
+    \* so nothing but this makes a parse end
+    /\ \A cId \in CallIds : WF_vars(FinishConsumePayload(cId))
+    \* the read marshaller returns when its read was cancelled too: a
+    \* synchronous marshaller already writing is not interruptible, so the
+    \* slot stays this reader's until it comes back, cancelled or not
+    /\ \A cId \in CallIds : WF_vars(FinishCancelledParse(cId))
+    \* the write marshaller returns, by writing the message or by throwing
+    /\ \A cId \in CallIds : WF_vars(SerializationSettles(cId))
 
 Fairness ==
     /\ RuntimeOwedFairness

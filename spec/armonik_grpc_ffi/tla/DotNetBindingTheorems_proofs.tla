@@ -23,111 +23,785 @@ EXTENDS DotNetBinding_defs, TLAPS
 THEOREM RefinesInit == Init => L1!Init
     BY DEF Init
 
-LEMMA FairnessRefines == Fairness => L1!Fairness
-    \* One step per family rather than one goal for all nineteen.  The
-    \* monolithic form is what Isabelle cannot close: expanding an
-    \* instantiated Fairness through the substitution builds a single
-    \* enormous goal, and under several threads it starves its
-    \* neighbours besides, so a run reports failures that a single-
-    \* threaded one does not.  Each step here is a projection of a
-    \* conjunction; only the QED assembles them, with every conjunct
-    \* already a fact.
-    <1>1. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!NetworkSend(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>2. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!ReceiveStatus(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>3. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!DeliverInitialMetadata(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>4. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!DeliverMessage(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>5. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!DeliverStatus(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>6. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!DeliverCancelled(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>7. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!EmitWriteDone(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>8. Fairness => \A rtId \in RuntimeIds :
-              WF_l1_vars(L1!RuntimeRelease(rtId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>9. Fairness => \A rtId \in RuntimeIds :
-              WF_l1_vars(L1!EmitShutdownComplete(rtId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>10. Fairness => \A rtId \in RuntimeIds :
-              WF_l1_vars(L1!EmitResourcesReleased(rtId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>11. Fairness => \A chId \in ChannelIds :
-              WF_l1_vars(L1!ChannelFinishClosing(chId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>12. Fairness => \A cId \in CallIds, b \in BufferIds :
-              WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>13. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!ReleaseCallHandle(cId))
-        BY Isa DEF Fairness, RuntimeOwedFairness
-    <1>14. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!DeliveryCallbackReturns(cId))
-        BY Isa DEF Fairness, BindingOwedFairness
-    <1>15. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!WriteDoneReturns(cId))
-        BY Isa DEF Fairness, BindingOwedFairness
-    <1>16. Fairness => \A rtId \in RuntimeIds :
-              WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
-        BY Isa DEF Fairness, BindingOwedFairness
-    <1>17. Fairness => \A rtId \in RuntimeIds :
-              WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
-        BY Isa DEF Fairness, BindingOwedFairness
-    <1>18. Fairness => \A cId \in CallIds :
-              WF_l1_vars(L1!HostConsumesEvent(cId))
-        BY Isa DEF Fairness, BindingOwedFairness
-    <1>19. Fairness => \A cId \in CallIds, b \in BufferIds :
-              WF_l1_vars(L1!HostReturnsBuffer(cId, b))
-        BY Isa DEF Fairness, BindingOwedFairness
-    <1>20. QED
-        BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19 DEF L1!Fairness, l1_vars
-
 (***************************************************************************)
-(* DISCHARGE OF THE SIX HOST HYPOTHESES                                    *)
+(* THE FAIRNESS TRANSFER                                                   *)
 (*                                                                         *)
-(* Each is a conjunct of BindingOwedFairness, written in level 1's own      *)
-(* tuple for exactly this reason: the discharge is a citation rather than   *)
-(* an enabling argument.  Isabelle, because the conclusion is a WF_ atom    *)
-(* and Zenon cannot read one at all.                                       *)
+(* Level 1 asks for nineteen weak-fairness families over its own tuple and *)
+(* this level states none of them: every conjunct of its fairness is an    *)
+(* action of this module.  So each family is earned rather than restated,  *)
+(* and the shape is three statements per family - the level-2 step         *)
+(* projects onto the level-1 one, the level-1 enabledness brings the       *)
+(* level-2 one, and PTL turns the two into the weak fairness.              *)
+(*                                                                         *)
+(* Each is stated boxed, with the state-level fact as its own step: a      *)
+(* lemma proved at a fixed state and boxed by PTL in the citing step needs *)
+(* the citation instantiated before necessitation, and that instantiation  *)
+(* is what fails.                                                         *)
+(*                                                                         *)
+(* THE RUNTIME'S THIRTEEN.  Each is carried by the passthrough that is     *)
+(* that family and nothing more, so the transfer is one for one and the    *)
+(* frame is the whole proof.                                               *)
 (***************************************************************************)
 
-THEOREM DeliveryCallbackReturnsDischarged ==
-    Spec => \A cId \in CallIds :
-                WF_l1_vars(L1!DeliveryCallbackReturns(cId))
-    BY Isa DEF Spec, Fairness, BindingOwedFairness
+LEMMA NetworkSendProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassNetworkSend(cId)>>_vars => <<L1!NetworkSend(cId)>>_l1_vars)
+<1>1. <<PassNetworkSend(cId)>>_vars => <<L1!NetworkSend(cId)>>_l1_vars
+    BY SMT DEF PassNetworkSend, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
 
-THEOREM WriteDoneReturnsDischarged ==
-    Spec => \A cId \in CallIds : WF_l1_vars(L1!WriteDoneReturns(cId))
-    BY Isa DEF Spec, Fairness, BindingOwedFairness
+LEMMA NetworkSendBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!NetworkSend(cId)>>_l1_vars
+                  => ENABLED <<PassNetworkSend(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!NetworkSend(cId)>>_l1_vars
+          => ENABLED <<PassNetworkSend(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassNetworkSend, ManagedStutter, ManagedTypeOK, L1!NetworkSend,
+       L1!L0!NetworkSend, L1!L0!ChannelVars, L1!L0!IsActiveCall,
+       L1!L0!RuntimeVars, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
 
-THEOREM ShutdownCallbackReturnsDischarged ==
-    Spec => \A rtId \in RuntimeIds :
-                WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
-    BY Isa DEF Spec, Fairness, BindingOwedFairness
+THEOREM NetworkSendLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassNetworkSend(cId))
+           => WF_l1_vars(L1!NetworkSend(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassNetworkSend(cId))
+      PROVE  WF_l1_vars(L1!NetworkSend(cId))
+    BY <1>1, NetworkSendProjects, NetworkSendBridge, PTL
+<1>2. QED BY <1>1, PTL
 
-THEOREM ResourcesReleasedCallbackReturnsDischarged ==
-    Spec => \A rtId \in RuntimeIds :
-                WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
-    BY Isa DEF Spec, Fairness, BindingOwedFairness
+LEMMA ReceiveStatusProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassReceiveStatus(cId)>>_vars => <<L1!ReceiveStatus(cId)>>_l1_vars)
+<1>1. <<PassReceiveStatus(cId)>>_vars => <<L1!ReceiveStatus(cId)>>_l1_vars
+    BY SMT DEF PassReceiveStatus, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
 
-THEOREM HostConsumesEventDischarged ==
-    Spec => \A cId \in CallIds : WF_l1_vars(L1!HostConsumesEvent(cId))
-    BY Isa DEF Spec, Fairness, BindingOwedFairness
+LEMMA ReceiveStatusBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!ReceiveStatus(cId)>>_l1_vars
+                  => ENABLED <<PassReceiveStatus(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!ReceiveStatus(cId)>>_l1_vars
+          => ENABLED <<PassReceiveStatus(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassReceiveStatus, ManagedStutter, ManagedTypeOK,
+       L1!ReceiveStatus, L1!L0!ReceiveStatus, L1!L0!ChannelVars,
+       L1!L0!IsActiveCall, L1!L0!RuntimeVars, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
 
-THEOREM HostReturnsBufferDischarged ==
-    Spec => \A cId \in CallIds, b \in BufferIds :
-                WF_l1_vars(L1!HostReturnsBuffer(cId, b))
-    BY Isa DEF Spec, Fairness, BindingOwedFairness
+THEOREM ReceiveStatusLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassReceiveStatus(cId))
+           => WF_l1_vars(L1!ReceiveStatus(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassReceiveStatus(cId))
+      PROVE  WF_l1_vars(L1!ReceiveStatus(cId))
+    BY <1>1, ReceiveStatusProjects, ReceiveStatusBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverInitialMetadataProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassDeliverInitialMetadata(cId)>>_vars => <<L1!DeliverInitialMetadata(cId)>>_l1_vars)
+<1>1. <<PassDeliverInitialMetadata(cId)>>_vars => <<L1!DeliverInitialMetadata(cId)>>_l1_vars
+    BY SMT DEF PassDeliverInitialMetadata, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverInitialMetadataBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!DeliverInitialMetadata(cId)>>_l1_vars
+                  => ENABLED <<PassDeliverInitialMetadata(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!DeliverInitialMetadata(cId)>>_l1_vars
+          => ENABLED <<PassDeliverInitialMetadata(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassDeliverInitialMetadata, ManagedStutter, ManagedTypeOK,
+       L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata,
+       L1!L0!ChannelVars, L1!L0!IsActiveCall, L1!L0!RuntimeVars,
+       L1!HandPayloadToHost, L1!HasFreeDeliverySlot, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM DeliverInitialMetadataLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassDeliverInitialMetadata(cId))
+           => WF_l1_vars(L1!DeliverInitialMetadata(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassDeliverInitialMetadata(cId))
+      PROVE  WF_l1_vars(L1!DeliverInitialMetadata(cId))
+    BY <1>1, DeliverInitialMetadataProjects, DeliverInitialMetadataBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverMessageProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassDeliverMessage(cId)>>_vars => <<L1!DeliverMessage(cId)>>_l1_vars)
+<1>1. <<PassDeliverMessage(cId)>>_vars => <<L1!DeliverMessage(cId)>>_l1_vars
+    BY SMT DEF PassDeliverMessage, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverMessageBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!DeliverMessage(cId)>>_l1_vars
+                  => ENABLED <<PassDeliverMessage(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!DeliverMessage(cId)>>_l1_vars
+          => ENABLED <<PassDeliverMessage(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassDeliverMessage, ManagedStutter, ManagedTypeOK,
+       L1!DeliverMessage, L1!L0!DeliverMessage, L1!L0!ChannelVars,
+       L1!L0!HasStatus, L1!L0!IsActiveCall, L1!L0!RuntimeVars,
+       L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
+       L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested, vars,
+       l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM DeliverMessageLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassDeliverMessage(cId))
+           => WF_l1_vars(L1!DeliverMessage(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassDeliverMessage(cId))
+      PROVE  WF_l1_vars(L1!DeliverMessage(cId))
+    BY <1>1, DeliverMessageProjects, DeliverMessageBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverStatusProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassDeliverStatus(cId)>>_vars => <<L1!DeliverStatus(cId)>>_l1_vars)
+<1>1. <<PassDeliverStatus(cId)>>_vars => <<L1!DeliverStatus(cId)>>_l1_vars
+    BY SMT DEF PassDeliverStatus, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverStatusBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!DeliverStatus(cId)>>_l1_vars
+                  => ENABLED <<PassDeliverStatus(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!DeliverStatus(cId)>>_l1_vars
+          => ENABLED <<PassDeliverStatus(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassDeliverStatus, ManagedStutter, ManagedTypeOK,
+       L1!DeliverStatus, L1!L0!CallCancel, L1!L0!ChannelVars,
+       L1!L0!HasStatus, L1!L0!IsActiveCall, L1!L0!RuntimeVars,
+       L1!L0!DeliverStatus, L1!HandPayloadToHost,
+       L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight,
+       L1!IsCancelRequested, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM DeliverStatusLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassDeliverStatus(cId))
+           => WF_l1_vars(L1!DeliverStatus(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassDeliverStatus(cId))
+      PROVE  WF_l1_vars(L1!DeliverStatus(cId))
+    BY <1>1, DeliverStatusProjects, DeliverStatusBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverCancelledProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassDeliverCancelled(cId)>>_vars => <<L1!DeliverCancelled(cId)>>_l1_vars)
+<1>1. <<PassDeliverCancelled(cId)>>_vars => <<L1!DeliverCancelled(cId)>>_l1_vars
+    BY SMT DEF PassDeliverCancelled, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliverCancelledBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!DeliverCancelled(cId)>>_l1_vars
+                  => ENABLED <<PassDeliverCancelled(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!DeliverCancelled(cId)>>_l1_vars
+          => ENABLED <<PassDeliverCancelled(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassDeliverCancelled, ManagedStutter, ManagedTypeOK,
+       L1!DeliverCancelled, L1!L0!CallCancel, L1!L0!ChannelVars,
+       L1!L0!HasStatus, L1!L0!IsActiveCall, L1!L0!RuntimeVars,
+       L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal,
+       L1!HasNoDeliveredEvents, L1!HasNoSendInFlight,
+       L1!IsCancelRequested, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM DeliverCancelledLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassDeliverCancelled(cId))
+           => WF_l1_vars(L1!DeliverCancelled(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassDeliverCancelled(cId))
+      PROVE  WF_l1_vars(L1!DeliverCancelled(cId))
+    BY <1>1, DeliverCancelledProjects, DeliverCancelledBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmitWriteDoneProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassEmitWriteDone(cId)>>_vars => <<L1!EmitWriteDone(cId)>>_l1_vars)
+<1>1. <<PassEmitWriteDone(cId)>>_vars => <<L1!EmitWriteDone(cId)>>_l1_vars
+    BY SMT DEF PassEmitWriteDone, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmitWriteDoneBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!EmitWriteDone(cId)>>_l1_vars
+                  => ENABLED <<PassEmitWriteDone(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!EmitWriteDone(cId)>>_l1_vars
+          => ENABLED <<PassEmitWriteDone(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassEmitWriteDone, ManagedStutter, ManagedTypeOK,
+       L1!EmitWriteDone, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM EmitWriteDoneLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassEmitWriteDone(cId))
+           => WF_l1_vars(L1!EmitWriteDone(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassEmitWriteDone(cId))
+      PROVE  WF_l1_vars(L1!EmitWriteDone(cId))
+    BY <1>1, EmitWriteDoneProjects, EmitWriteDoneBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA ReleaseCallHandleProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](<<PassReleaseCallHandle(cId)>>_vars => <<L1!ReleaseCallHandle(cId)>>_l1_vars)
+<1>1. <<PassReleaseCallHandle(cId)>>_vars => <<L1!ReleaseCallHandle(cId)>>_l1_vars
+    BY SMT DEF PassReleaseCallHandle, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA ReleaseCallHandleBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!ReleaseCallHandle(cId)>>_l1_vars
+                  => ENABLED <<PassReleaseCallHandle(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!ReleaseCallHandle(cId)>>_l1_vars
+          => ENABLED <<PassReleaseCallHandle(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassReleaseCallHandle, ManagedStutter, ManagedTypeOK,
+       L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+       L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
+       L1!IsDeliveryCallbackRunning, L1!IsHandleReleased,
+       L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM ReleaseCallHandleLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassReleaseCallHandle(cId))
+           => WF_l1_vars(L1!ReleaseCallHandle(cId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassReleaseCallHandle(cId))
+      PROVE  WF_l1_vars(L1!ReleaseCallHandle(cId))
+    BY <1>1, ReleaseCallHandleProjects, ReleaseCallHandleBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA FreeReturnedBufferProjects ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  [](<<PassFreeReturnedBuffer(cId, b)>>_vars => <<L1!FreeReturnedBuffer(cId, b)>>_l1_vars)
+<1>1. <<PassFreeReturnedBuffer(cId, b)>>_vars => <<L1!FreeReturnedBuffer(cId, b)>>_l1_vars
+    BY SMT DEF PassFreeReturnedBuffer, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA FreeReturnedBufferBridge ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!FreeReturnedBuffer(cId, b)>>_l1_vars
+                  => ENABLED <<PassFreeReturnedBuffer(cId, b)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!FreeReturnedBuffer(cId, b)>>_l1_vars
+          => ENABLED <<PassFreeReturnedBuffer(cId, b)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassFreeReturnedBuffer, ManagedStutter, ManagedTypeOK,
+       L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend,
+       L1!IsReturnedBuffer, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM FreeReturnedBufferLifted ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassFreeReturnedBuffer(cId, b))
+           => WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassFreeReturnedBuffer(cId, b))
+      PROVE  WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
+    BY <1>1, FreeReturnedBufferProjects, FreeReturnedBufferBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA RuntimeReleaseProjects ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](<<PassRuntimeRelease(rtId)>>_vars => <<L1!RuntimeRelease(rtId)>>_l1_vars)
+<1>1. <<PassRuntimeRelease(rtId)>>_vars => <<L1!RuntimeRelease(rtId)>>_l1_vars
+    BY SMT DEF PassRuntimeRelease, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA RuntimeReleaseBridge ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!RuntimeRelease(rtId)>>_l1_vars
+                  => ENABLED <<PassRuntimeRelease(rtId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!RuntimeRelease(rtId)>>_l1_vars
+          => ENABLED <<PassRuntimeRelease(rtId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassRuntimeRelease, ManagedStutter, ManagedTypeOK,
+       L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!L0!CallVars,
+       L1!L0!CallsOf, L1!L0!ChannelVars, L1!L0!ChannelsOf,
+       L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning,
+       L1!IsShutdownEventEmitted, L1!ReleaseCallHandle, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM RuntimeReleaseLifted ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassRuntimeRelease(rtId))
+           => WF_l1_vars(L1!RuntimeRelease(rtId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassRuntimeRelease(rtId))
+      PROVE  WF_l1_vars(L1!RuntimeRelease(rtId))
+    BY <1>1, RuntimeReleaseProjects, RuntimeReleaseBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmitShutdownCompleteProjects ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](<<PassEmitShutdownComplete(rtId)>>_vars => <<L1!EmitShutdownComplete(rtId)>>_l1_vars)
+<1>1. <<PassEmitShutdownComplete(rtId)>>_vars => <<L1!EmitShutdownComplete(rtId)>>_l1_vars
+    BY SMT DEF PassEmitShutdownComplete, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmitShutdownCompleteBridge ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!EmitShutdownComplete(rtId)>>_l1_vars
+                  => ENABLED <<PassEmitShutdownComplete(rtId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!EmitShutdownComplete(rtId)>>_l1_vars
+          => ENABLED <<PassEmitShutdownComplete(rtId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassEmitShutdownComplete, ManagedStutter, ManagedTypeOK,
+       L1!EmitShutdownComplete, L1!IsRuntimeDrained,
+       L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM EmitShutdownCompleteLifted ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassEmitShutdownComplete(rtId))
+           => WF_l1_vars(L1!EmitShutdownComplete(rtId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassEmitShutdownComplete(rtId))
+      PROVE  WF_l1_vars(L1!EmitShutdownComplete(rtId))
+    BY <1>1, EmitShutdownCompleteProjects, EmitShutdownCompleteBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmitResourcesReleasedProjects ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](<<PassEmitResourcesReleased(rtId)>>_vars => <<L1!EmitResourcesReleased(rtId)>>_l1_vars)
+<1>1. <<PassEmitResourcesReleased(rtId)>>_vars => <<L1!EmitResourcesReleased(rtId)>>_l1_vars
+    BY SMT DEF PassEmitResourcesReleased, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA EmitResourcesReleasedBridge ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!EmitResourcesReleased(rtId)>>_l1_vars
+                  => ENABLED <<PassEmitResourcesReleased(rtId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!EmitResourcesReleased(rtId)>>_l1_vars
+          => ENABLED <<PassEmitResourcesReleased(rtId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassEmitResourcesReleased, ManagedStutter, ManagedTypeOK,
+       L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted,
+       L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted,
+       L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM EmitResourcesReleasedLifted ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassEmitResourcesReleased(rtId))
+           => WF_l1_vars(L1!EmitResourcesReleased(rtId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassEmitResourcesReleased(rtId))
+      PROVE  WF_l1_vars(L1!EmitResourcesReleased(rtId))
+    BY <1>1, EmitResourcesReleasedProjects, EmitResourcesReleasedBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA ChannelFinishClosingProjects ==
+    ASSUME NEW chId \in ChannelIds
+    PROVE  [](<<PassChannelFinishClosing(chId)>>_vars => <<L1!ChannelFinishClosing(chId)>>_l1_vars)
+<1>1. <<PassChannelFinishClosing(chId)>>_vars => <<L1!ChannelFinishClosing(chId)>>_l1_vars
+    BY SMT DEF PassChannelFinishClosing, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA ChannelFinishClosingBridge ==
+    ASSUME NEW chId \in ChannelIds
+    PROVE  [](ManagedTypeOK /\ ENABLED <<L1!ChannelFinishClosing(chId)>>_l1_vars
+                  => ENABLED <<PassChannelFinishClosing(chId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!ChannelFinishClosing(chId)>>_l1_vars
+          => ENABLED <<PassChannelFinishClosing(chId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassChannelFinishClosing, ManagedStutter, ManagedTypeOK,
+       L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing,
+       L1!L0!HasStatus, L1!L0!IsActiveCall, L1!L0!RuntimeVars,
+       L1!L0!ActiveCallStates, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM ChannelFinishClosingLifted ==
+    ASSUME NEW chId \in ChannelIds
+    PROVE  /\ []ManagedTypeOK
+           /\ [][Next]_vars
+           /\ WF_vars(PassChannelFinishClosing(chId))
+           => WF_l1_vars(L1!ChannelFinishClosing(chId))
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassChannelFinishClosing(chId))
+      PROVE  WF_l1_vars(L1!ChannelFinishClosing(chId))
+    BY <1>1, ChannelFinishClosingProjects, ChannelFinishClosingBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+
+(***************************************************************************)
+(* THE FOUR TRAMPOLINE RETURNS                                             *)
+(*                                                                         *)
+(* Same shape as the passthroughs, with one difference that changes the    *)
+(* proof: these level-2 actions do managed work in the same step, so       *)
+(* <<A2>>_vars no longer forces the level-1 tuple to move by itself.       *)
+(* Showing that it moved means showing the level-1 EXCEPT changed          *)
+(* something, which needs level 1's typing to know the variable is a       *)
+(* function on the index set - hence the lifts run off the inductive core  *)
+(* rather than the managed typing alone.                                   *)
+(***************************************************************************)
+
+LEMMA DeliveryProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ <<DeliveryReturns(cId)>>_vars
+                  => <<L1!DeliveryCallbackReturns(cId)>>_l1_vars)
+<1>1. L1!TypeOK /\ <<DeliveryReturns(cId)>>_vars
+          => <<L1!DeliveryCallbackReturns(cId)>>_l1_vars
+    BY SMT DEF L1!TypeOK, DeliveryReturns, OnEventReturns,
+       TerminalCallbackReturns, L1!DeliveryCallbackReturns,
+       L1!IsDeliveryCallbackRunning, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA DeliveryBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ ManagedTypeOK
+                  /\ ENABLED <<L1!DeliveryCallbackReturns(cId)>>_l1_vars
+                  => ENABLED <<DeliveryReturns(cId)>>_vars)
+\* One witness per branch, and the case is what picks it: the two split on
+\* the status, so a single goal would ask for both witnesses at once and
+\* get neither.
+<1>1. ASSUME L1!TypeOK, ManagedTypeOK,
+             ENABLED <<L1!DeliveryCallbackReturns(cId)>>_l1_vars
+      PROVE  ENABLED <<DeliveryReturns(cId)>>_vars
+  <2>1. CASE L1!L0!HasStatus(cId)
+    BY <1>1, <2>1, ExpandENABLED, SMT
+    DEF L1!TypeOK, DeliveryReturns, OnEventReturns,
+       TerminalCallbackReturns, ManagedStutter, ManagedTypeOK,
+       L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning,
+       L1!L0!HasStatus, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, vars, l1_vars, managed_vars, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars
+  \* The non-terminal branch stutters the managed half, so the frame is the
+  \* whole argument and neither typing is needed - and unfolding them here
+  \* only buries the witness.  It is also the branch that needs the time:
+  \* the work is in the frame, not in the guard.
+  <2>2. CASE ~L1!L0!HasStatus(cId)
+    BY <1>1, <2>2, ExpandENABLED, SMTT(300)
+    DEF DeliveryReturns, OnEventReturns, TerminalCallbackReturns,
+       ManagedStutter, L1!DeliveryCallbackReturns,
+       L1!IsDeliveryCallbackRunning, L1!L0!HasStatus, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+  <2>3. QED BY <2>1, <2>2
+<1>2. QED BY <1>1, PTL
+
+THEOREM DeliveryCallbackReturnsLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(DeliveryReturns(cId))
+           => WF_l1_vars(L1!DeliveryCallbackReturns(cId))
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(DeliveryReturns(cId))
+      PROVE  WF_l1_vars(L1!DeliveryCallbackReturns(cId))
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. QED
+    BY <1>1, <2>1, DeliveryProjects, DeliveryBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA WriteDoneProjects ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ <<WriteDoneCompletes(cId)>>_vars
+                  => <<L1!WriteDoneReturns(cId)>>_l1_vars)
+<1>1. L1!TypeOK /\ <<WriteDoneCompletes(cId)>>_vars
+          => <<L1!WriteDoneReturns(cId)>>_l1_vars
+    BY SMT DEF L1!TypeOK, WriteDoneCompletes, L1!WriteDoneReturns,
+       L1!IsWriteDoneCallbackRunning, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA WriteDoneBridge ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ManagedTypeOK
+                  /\ ENABLED <<L1!WriteDoneReturns(cId)>>_l1_vars
+                  => ENABLED <<WriteDoneCompletes(cId)>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!WriteDoneReturns(cId)>>_l1_vars
+          => ENABLED <<WriteDoneCompletes(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF WriteDoneCompletes, ManagedTypeOK, L1!WriteDoneReturns,
+       L1!IsWriteDoneCallbackRunning, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+THEOREM WriteDoneReturnsLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(WriteDoneCompletes(cId))
+           => WF_l1_vars(L1!WriteDoneReturns(cId))
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(WriteDoneCompletes(cId))
+      PROVE  WF_l1_vars(L1!WriteDoneReturns(cId))
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. QED
+    BY <1>1, <2>1, WriteDoneProjects, WriteDoneBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA ShutdownProjects ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](<<ShutdownReturns(rtId)>>_vars
+                  => <<L1!ShutdownCallbackReturns(rtId)>>_l1_vars)
+<1>1. <<ShutdownReturns(rtId)>>_vars
+          => <<L1!ShutdownCallbackReturns(rtId)>>_l1_vars
+    BY SMT DEF ShutdownReturns, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA ShutdownBridge ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](ManagedTypeOK
+                  /\ ENABLED <<L1!ShutdownCallbackReturns(rtId)>>_l1_vars
+                  => ENABLED <<ShutdownReturns(rtId)>>_vars)
+<1>1. ManagedTypeOK
+          /\ ENABLED <<L1!ShutdownCallbackReturns(rtId)>>_l1_vars
+          => ENABLED <<ShutdownReturns(rtId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF ShutdownReturns, ManagedStutter, ManagedTypeOK,
+       L1!ShutdownCallbackReturns, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+THEOREM ShutdownCallbackReturnsLifted ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(ShutdownReturns(rtId))
+           => WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(ShutdownReturns(rtId))
+      PROVE  WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. QED
+    BY <1>1, <2>1, ShutdownProjects, ShutdownBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA ResourcesReleasedProjects ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](<<ResourcesReleasedReturns(rtId)>>_vars
+                  => <<L1!ResourcesReleasedCallbackReturns(rtId)>>_l1_vars)
+<1>1. <<ResourcesReleasedReturns(rtId)>>_vars
+          => <<L1!ResourcesReleasedCallbackReturns(rtId)>>_l1_vars
+    BY SMT DEF ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA ResourcesReleasedBridge ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  [](ManagedTypeOK
+                  /\ ENABLED
+                         <<L1!ResourcesReleasedCallbackReturns(rtId)>>_l1_vars
+                  => ENABLED <<ResourcesReleasedReturns(rtId)>>_vars)
+<1>1. ManagedTypeOK
+          /\ ENABLED
+                 <<L1!ResourcesReleasedCallbackReturns(rtId)>>_l1_vars
+          => ENABLED <<ResourcesReleasedReturns(rtId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF ResourcesReleasedReturns, ManagedStutter, ManagedTypeOK,
+       L1!ResourcesReleasedCallbackReturns,
+       L1!IsResourcesReleasedCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+THEOREM ResourcesReleasedCallbackReturnsLifted ==
+    ASSUME NEW rtId \in RuntimeIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(ResourcesReleasedReturns(rtId))
+           => WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(ResourcesReleasedReturns(rtId))
+      PROVE  WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. QED
+    BY <1>1, <2>1, ResourcesReleasedProjects, ResourcesReleasedBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+(***************************************************************************)
+(* THE BUFFER RETURN                                                       *)
+(*                                                                         *)
+(* Not a one-for-one transfer, and it does not need to be.  Level 1 asks   *)
+(* that a lent buffer eventually come back or stop being owed; this level  *)
+(* promises that a serializing writer settles, and every way it settles    *)
+(* takes the buffer out of the host's hands - the abort returns it, the    *)
+(* commit hands it to the runtime.  So the level-1 fairness holds because  *)
+(* its enabledness cannot persist, which is the second disjunct of a weak  *)
+(* fairness and just as good as the first.                                 *)
+(***************************************************************************)
+
+\* What the level-1 action asks for, as a state predicate: this is the
+\* whole of its guard, so it is exactly its enabledness.
+BufferOwed(cId, b) == L1!IsLentBuffer(cId, b) /\ L1!HostHoldsSomeBuffer(cId)
+
+LEMMA OwedIsEnabled ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  [](ENABLED <<L1!HostReturnsBuffer(cId, b)>>_l1_vars
+                  => BufferOwed(cId, b))
+<1>1. ENABLED <<L1!HostReturnsBuffer(cId, b)>>_l1_vars
+          => BufferOwed(cId, b)
+    BY ExpandENABLED, SMT
+    DEF BufferOwed, L1!HostReturnsBuffer, L1!IsLentBuffer,
+       L1!HostHoldsSomeBuffer, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+\* An owed buffer means a serializing writer, and a serializing writer can
+\* always abort: the wrapper's return needs nothing but the buffer it
+\* holds.  So the settling is enabled wherever the level-1 action is.
+LEMMA OwedMeansSettlingEnabled ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  [](L1!TypeOK /\ ManagedTypeOK
+                  /\ SerializingWriterHoldsTheBuffer
+                  /\ BufferOwed(cId, b)
+                  => ENABLED <<SerializationSettles(cId)>>_vars)
+\* Three steps, and the order is forced: ExpandENABLED will not build a
+\* witness for a quantifier written inside the action, but it does carry
+\* one across an implication.  So the abort at a named buffer first - its
+\* witness is syntactic - then the buffer quantified, then the branch
+\* picked out of the settling.
+<1>1. ASSUME L1!TypeOK, ManagedTypeOK, SerializingWriterHoldsTheBuffer,
+             BufferOwed(cId, b)
+      PROVE  ENABLED <<SerializationSettles(cId)>>_vars
+  <2>1. ENABLED <<WriteAborted(cId, b)>>_vars
+    BY <1>1, ExpandENABLED, SMT
+    DEF BufferOwed, WriteAborted, SerializingWriterHoldsTheBuffer,
+       L1!TypeOK, ManagedTypeOK, L1!HostReturnsBuffer, L1!IsLentBuffer,
+       L1!HostHoldsSomeBuffer, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+  <2>2. ENABLED <<WriteAbortsSomewhere(cId)>>_vars
+    BY <2>1, ExpandENABLED, SMTT(120)
+    DEF WriteAbortsSomewhere, WriteAborted, L1!HostReturnsBuffer,
+       L1!IsLentBuffer, L1!HostHoldsSomeBuffer, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+  <2>3. QED
+    BY <2>2, ExpandENABLED, SMTT(120)
+    DEF WriteAbortsSomewhere, SerializationSettles, WriteAborted,
+       CommitWrite, L1!HostReturnsBuffer, L1!SendMessage,
+       L1!L0!SendMessage, L1!IsLentBuffer, L1!HostHoldsSomeBuffer, vars,
+       l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+\* However the serialization settles, the host no longer holds a buffer:
+\* the abort gives it back and the commit sends it, and the writer held
+\* exactly one, so the count reaches zero either way.  The debt therefore
+\* cannot outlive one settling step.
+LEMMA SettlingClearsTheDebt ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  [](L1!TypeOK /\ SerializingWriterHoldsTheBuffer
+                  /\ BufferOwed(cId, b)
+                  /\ <<SerializationSettles(cId)>>_vars
+                  => ~(BufferOwed(cId, b))')
+<1>1. L1!TypeOK /\ SerializingWriterHoldsTheBuffer
+          /\ BufferOwed(cId, b)
+          /\ <<SerializationSettles(cId)>>_vars
+          => ~(BufferOwed(cId, b))'
+    BY SMT
+    DEF BufferOwed, SerializationSettles, WriteAbortsSomewhere,
+       WriteAborted, CommitWrite, SerializingWriterHoldsTheBuffer,
+       L1!TypeOK, L1!HostReturnsBuffer, L1!SendMessage, L1!IsLentBuffer,
+       L1!HostHoldsSomeBuffer, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+THEOREM HostReturnsBufferLifted ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(SerializationSettles(cId))
+           => WF_l1_vars(L1!HostReturnsBuffer(cId, b))
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(SerializationSettles(cId))
+      PROVE  WF_l1_vars(L1!HostReturnsBuffer(cId, b))
+  <2>1. []L1!TypeOK /\ []ManagedTypeOK /\ []SerializingWriterHoldsTheBuffer
+    BY <1>1, PTL
+    DEF ManagedIndInv, L1!IndInv, ManagedMachineInv, WriterInv
+  <2>2. QED
+    BY <1>1, <2>1, OwedIsEnabled, OwedMeansSettlingEnabled,
+       SettlingClearsTheDebt, PTL
+<1>2. QED BY <1>1, PTL
 
 (***************************************************************************)
 (* REFINEMENT OF THE NEXT-STATE RELATION                                   *)

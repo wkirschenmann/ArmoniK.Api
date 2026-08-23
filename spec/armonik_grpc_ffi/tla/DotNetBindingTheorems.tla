@@ -34,11 +34,13 @@ THEOREM RefinesSpec == Spec => L1!Spec
 
 (***************************************************************************)
 (* DISCHARGE OF THE SIX HOST HYPOTHESES - the point of the level.  Level 1 *)
-(* imposed these six weak-fairness conjuncts on its host and could not     *)
-(* enforce them; the binding's own fairness implies each.  The two that    *)
-(* involve user code - parsing and serialization - hold under the stated   *)
-(* hypothesis that user code terminates: the wrapper covers success and    *)
-(* exception, nothing covers code that never comes back.                   *)
+(* imposed these six weak-fairness conjuncts on its host and could not    *)
+(* enforce them; this level's own fairness implies each, and none of them  *)
+(* appears among its hypotheses: every conjunct of Fairness is an action   *)
+(* of this level, so a family of level 1 is a conclusion here.  What the   *)
+(* application owes is stated as such and stated once - the stream is used *)
+(* at all, and the code it hands us comes back - which is why the          *)
+(* consumption discharge needs that tier and the other five do not.        *)
 (***************************************************************************)
 
 THEOREM DeliveryCallbackReturnsDischarged ==
