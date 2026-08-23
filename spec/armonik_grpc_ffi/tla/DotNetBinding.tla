@@ -74,12 +74,14 @@ ConsumerPhases == {"prologue", "application", "drain", "done"}
 ReaderStates == {"idle", "waiting", "parsing", "parsing_cancelled",
                  "finished"}
 
-\* A read is in flight - waiting or parsing - and its token is therefore
-\* armed: MoveNext(ct) cancels the CALL while its own read has not
-\* completed, and must do nothing once that read is done, which is the
-\* contract IAsyncStreamReader states.  The registration is the state:
-\* armed exactly while the read is in flight, so a token firing later
-\* finds nothing to cancel.
+\* A read that has not completed: suspended, parsing, or parsing after its
+\* own cancellation.  MoveNext(ct) cancels the CALL while its read is
+\* unfinished and must do nothing once that read is done, which is the
+\* contract IAsyncStreamReader states.  This is the window in which a
+\* request may be RAISED, not the window in which one is outstanding: a
+\* cancelled parse is still in flight while its request has already been
+\* discharged, and the guard on the trigger keeps a second one from
+\* arming.  A token firing outside the window finds no read to arm.
 ReadInFlight(cId) ==
     reader_state[cId] \in {"waiting", "parsing", "parsing_cancelled"}
 WriterStates == {"idle", "serializing", "waiting_budget",
@@ -379,7 +381,8 @@ StartCall(cId, chId) ==
 
 \* MoveNext called: the reader is committed, payload or not.
 BeginMoveNext(cId) ==
-    /\ consumer_phase[cId] = "application"
+    /\ call_token_published[cId]
+    /\ consumer_phase[cId] \in {"prologue", "application"}
     /\ call_dispose_state[cId] = "active"
     /\ reader_state[cId] = "idle"
     /\ reader_state' = [reader_state EXCEPT ![cId] = "waiting"]
@@ -392,10 +395,15 @@ BeginMoveNext(cId) ==
                    headers_completion, status_completion,
                    call_dispose_state>>
 
-\* A payload exists and the call is still active: the suspended MoveNext
-\* wakes and takes the slot.  A dispose that linearized first wins.
-BeginParse(cId) ==
+\* The suspended MoveNext wakes and takes the event at the ring's tail: a
+\* message, or the terminal one carrying the status and the trailers -
+\* hence "event" and not "message".  A dispose that linearized first
+\* wins.  The phase is what keeps the application off slot 0: during the
+\* prologue the ring's only occupant is the metadata, which is
+\* ConsumeHeader's and never something a public read may return.
+BeginParseEvent(cId) ==
     /\ reader_state[cId] = "waiting"
+    /\ consumer_phase[cId] = "application"
     /\ call_dispose_state[cId] = "active"
     /\ RingOccupancy(cId) > 0
     /\ reader_state' = [reader_state EXCEPT ![cId] = "parsing"]
@@ -407,6 +415,18 @@ BeginParse(cId) ==
                    read_cancel_pending,
                    headers_completion, status_completion,
                    call_dispose_state>>
+
+\* Everything this level holds about one call, as a single term.  The
+\* isolation theorem compares this rather than listing components, because
+\* a list narrows what the theorem claims every time a variable is added
+\* to the level, and nothing warns of it.  Level 1's cancellation latch
+\* belongs here too, being per call and settable by a dispose.
+ManagedCallState(cId) ==
+    <<call_token_published[cId], call_root_live[cId],
+      consumer_phase[cId], reader_state[cId], read_cancel_pending[cId],
+      writer_state[cId], retry_len[cId],
+      headers_completion[cId], status_completion[cId],
+      call_dispose_state[cId], cancel_requested[cId]>>
 
 \* The consumed slot is the terminal one exactly when it is the last
 \* published event of a call that has its status.
@@ -474,7 +494,11 @@ RequestReadCancellation(cId) ==
 \* The binding reacts to a request on a suspended read: the read resolves
 \* exceptionally and the CALL is cancelled - the contract cancels the
 \* call, not the read alone - and the call goes to its drain in the same
-\* step, so no further user action is needed to settle it.
+\* step, so no further user action is needed to settle it.  A read
+\* suspended in the prologue is waiting on the metadata through
+\* EnsureHeadersAsync, so its cancellation faults the headers too: that
+\* task can have no other outcome once the call is cancelled, and leaving
+\* it pending would strand the settlement.
 CancelWaitingRead(cId) ==
     /\ read_cancel_pending[cId]
     /\ reader_state[cId] = "waiting"
@@ -484,11 +508,13 @@ CancelWaitingRead(cId) ==
     /\ read_cancel_pending' = [read_cancel_pending EXCEPT ![cId] = FALSE]
     /\ call_dispose_state' =
            [call_dispose_state EXCEPT ![cId] = "draining"]
+    /\ headers_completion' =
+           [headers_completion EXCEPT
+                ![cId] = IF @ = "pending" THEN "failed" ELSE @]
     /\ UNCHANGED <<call_token_published, call_root_live, runtime_root_live,
                    current_runtime, runtime_dispose_state,
                    channel_dispose_state, consumer_phase,
-                   writer_state, retry_len,
-                   headers_completion, status_completion>>
+                   writer_state, retry_len, status_completion>>
 
 \* A request that lands on a parse cannot preempt it: a synchronous
 \* marshaller already writing is not interruptible, so the slot stays
@@ -887,7 +913,7 @@ Next ==
            \/ ResourcesReleasedReturns(rtId)
     \/ \E cId \in CallIds :
            \/ BeginMoveNext(cId)
-           \/ BeginParse(cId)
+           \/ BeginParseEvent(cId)
            \/ FinishConsumePayload(cId)
            \/ CancelWaiter(cId)
            \/ RequestReadCancellation(cId)
@@ -1002,7 +1028,7 @@ BindingOwedFairness ==
     \* can promise them.
     \* wakes a suspended MoveNext once a payload exists; true: the TCS
     \* completion is the binding's, and the pool runs it
-    /\ \A cId \in CallIds : WF_vars(BeginParse(cId))
+    /\ \A cId \in CallIds : WF_vars(BeginParseEvent(cId))
     \* resolves a waiter caught by a dispose; true: the binding cancels it
     /\ \A cId \in CallIds : WF_vars(CancelWaiter(cId))
     \* a request that landed is acted on - the trigger itself carries no
@@ -1107,16 +1133,21 @@ ConsumerPhaseMatchesDispose ==
         /\ call_dispose_state[cId] = "active" =>
                consumer_phase[cId] \in {"prologue", "application"}
 
-\* An outstanding read exists only where the application reads; one value
-\* per call is what makes it unique, matching IAsyncStreamReader's
-\* single-read contract.  A cancelled parse is still outstanding - it
-\* holds a slot - which is why this is stated over ReadInFlight rather
-\* than over a list of states of its own.  Finished is not outstanding:
-\* it is the stable fact that the stream ended, and it survives the
-\* hand-off and the dispose.
+\* An outstanding read exists only while a consumer of the application's
+\* own is on the ring; one value per call is what makes it unique,
+\* matching IAsyncStreamReader's single-read contract.  The prologue
+\* counts: MoveNext may be the first thing an application calls, and the
+\* wait for the metadata is part of that read rather than something
+\* preceding it - which is what makes a token firing then belong to a
+\* read the model can see.  A cancelled parse is still outstanding too,
+\* since it holds a slot, so this is stated over ReadInFlight rather than
+\* over a list of states of its own.  Finished is not outstanding: it is
+\* the stable fact that the stream ended, and it survives the hand-off
+\* and the dispose.
 AtMostOneReaderOutstanding ==
     \A cId \in CallIds :
-        ReadInFlight(cId) => consumer_phase[cId] = "application"
+        ReadInFlight(cId) =>
+            consumer_phase[cId] \in {"prologue", "application"}
 
 \* The drain never runs beside an application read.
 DrainNeverOverlapsApplicationConsumer ==
@@ -1241,7 +1272,7 @@ RuntimeStateMatchesNative ==
     /\ runtime_dispose_state = "destroyed" =>
            runtime_destroyed[current_runtime]
 
-\* A disposed call left no managed waiter: reader idle, writer settled,
+\* A settled call left no managed waiter: reader idle, writer settled,
 \* headers and status resolved.
 DisposeLeavesNoManagedWaiter ==
     \A cId \in CallIds :
@@ -1341,16 +1372,18 @@ InFlightPayloadEventuallyReleased ==
         reader_state[cId] \in {"parsing", "parsing_cancelled"} ~>
             reader_state[cId] \in {"idle", "finished"}
 
-\* Quiescence is clean.  A system whose channels are all spent and whose
-\* runtime is back to absent owes nothing: no live generation root, and no
-\* published call left unsettled - and DisposeLeavesNoManagedWaiter then
-\* carries the rest, since a settled call has its reader, its writer and
-\* its public objects resolved.  It is also what a legitimate terminal
-\* state looks like: a configuration whose finite channel set is spent -
-\* every channel refused or disposed - has nothing left to do, which is
-\* quiescence and not a stall.  A stall with work outstanding breaks this,
-\* and breaks the liveness properties besides.
-SpentSystemOwesNothing ==
+\* No manager, no lease, no debt.  Whenever the runtime is back to absent
+\* and no channel holds a lease, nothing is owed: no live generation root,
+\* and no published call left unsettled - DisposeLeavesNoManagedWaiter
+\* then carries the rest, since a settled call has its reader, its writer
+\* and its public objects resolved.  This holds at the initial state and
+\* between generations, not only at the end of a run: the antecedent is
+\* "absent and unleased", which is deliberately weaker than "the channel
+\* set is spent".  It is what makes the legitimate terminal state of a
+\* configuration whose finite channel set IS spent recognizable as
+\* quiescence rather than a stall, and a stall with work outstanding
+\* breaks it - as it breaks the liveness properties besides.
+AbsentRuntimeOwesNothing ==
     (/\ AllLeasesReleased
      /\ runtime_dispose_state = "absent")
         => /\ ~runtime_root_live

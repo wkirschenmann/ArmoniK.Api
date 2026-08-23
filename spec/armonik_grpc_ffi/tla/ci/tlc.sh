@@ -28,7 +28,7 @@ rm -rf "out/$base"
 # and a proof about that branch would be a proof about a step that never
 # fires.  Its verdict is therefore the other way round.
 case "$base" in
-  *witness)
+  *witness*)
     if grep -q "Error: Invariant .* is violated" "$log"; then
       grep -E "Error: Invariant|The depth" "$log" | tail -2
       echo "TLC witness ok: $cfg reached its target"

@@ -69,12 +69,6 @@ THEOREM ConsumerHandoffPreservesTail ==
                        payloads_consumed_by_host' =
                            payloads_consumed_by_host]_vars
 
-\* The last releaser's public task never completes early.  Which channel
-\* emptied the lease set is latched at its release, so the claim is about
-\* that channel and not about whatever the set holds later: a channel
-\* that was the last resolves its DisposeAsync only once the generation
-\* IT released was destroyed.  An action theorem, the fact being about a
-\* step rather than about a state.
 \* MoveNext's token cancels the CALL, never the read alone: the only
 \* action that resolves a read on its token also requests the call's
 \* cancellation, in the same step.
@@ -143,6 +137,12 @@ THEOREM LastReleaseIsLatched ==
                        => /\ channel_dispose_state'[chId] = "released_last"
                           /\ runtime_dispose_state' = "shutdown_pending"]_vars
 
+\* The last releaser's public task never completes early.  Which channel
+\* emptied the lease set is latched at its release, so the claim is about
+\* that channel and not about whatever the set holds later: a channel
+\* that was the last resolves its DisposeAsync only once the generation
+\* IT released was destroyed.  An action theorem, the fact being about a
+\* step rather than about a state.
 THEOREM LastChannelDisposeAwaitsDestroy ==
     Spec => \A chId \in ChannelIds :
                 [][(/\ ResolveChannelDispose(chId)
@@ -151,27 +151,20 @@ THEOREM LastChannelDisposeAwaitsDestroy ==
 
 \* A channel's dispose settles its own calls and no one else's, stated
 \* per call because that is where the content is: the step belongs to a
-\* channel that is disposing, and it changes nothing of any other call -
-\* not its dispose state, not its reader, its writer, its completions,
-\* nor the level-1 cancellation it might have latched.  An action
-\* theorem, not an invariant: ownership is what the step reads, and no
-\* state records which dispose caused which change.
+\* channel that is disposing, and it leaves every other call exactly as
+\* it found it.  Stated over ManagedCallState rather than over a list of
+\* components, so a variable added to the level cannot quietly shrink
+\* what "isolates" means.  An action theorem, not an invariant:
+\* ownership is what the step reads, and no state records which dispose
+\* caused which change.
 THEOREM ChannelDisposeIsolatesItsCalls ==
     Spec => \A cId \in CallIds :
                 [][DisposeCallForChannel(cId) =>
                        /\ channel_dispose_state[call_channel[cId]]
                               = "disposing"
                        /\ \A other \in CallIds \ {cId} :
-                              /\ call_dispose_state'[other]
-                                     = call_dispose_state[other]
-                              /\ headers_completion'[other]
-                                     = headers_completion[other]
-                              /\ status_completion'[other]
-                                     = status_completion[other]
-                              /\ reader_state'[other] = reader_state[other]
-                              /\ writer_state'[other] = writer_state[other]
-                              /\ cancel_requested'[other]
-                                     = cancel_requested[other]]_vars
+                              ManagedCallState(other)'
+                                  = ManagedCallState(other)]_vars
 
 (***************************************************************************)
 (* MANAGED LIVENESS - one theorem per public promise, aggregated last.     *)
