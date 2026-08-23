@@ -804,6 +804,83 @@ THEOREM HostReturnsBufferLifted ==
 <1>2. QED BY <1>1, PTL
 
 (***************************************************************************)
+(* THE CONSUMPTION                                                         *)
+(***************************************************************************)
+
+(* The consumption is the one family that is not a transfer: it is enabled
+   whenever a payload is owed, while each of its four carriers needs a
+   particular consumer state, so an application that neither reads nor
+   disposes leaves all four disabled.  It is earned instead - a leads-to
+   whose every step is a fair action of this level or the application's
+   one obligation.  These are the pieces the case analysis rests on: what
+   the level-1 action asks for, and the four steps that perform it. *)
+
+\* What the level-1 action asks for, as a state predicate: this is the
+\* whole of its guard, so it is exactly its enabledness.
+PayloadOwed(cId) == L1!HostOwnsSomePayload(cId)
+
+LEMMA OwedIsConsumeEnabled ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](ENABLED <<L1!HostConsumesEvent(cId)>>_l1_vars
+                  => PayloadOwed(cId))
+<1>1. ENABLED <<L1!HostConsumesEvent(cId)>>_l1_vars => PayloadOwed(cId)
+    BY ExpandENABLED, SMT
+    DEF PayloadOwed, L1!HostConsumesEvent, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+\* The four carriers, each conjoining the level-1 action, so each firing is
+\* the step the family asks for.  They write managed state as they go, so
+\* the projection needs level 1's typing to see that the counter moved.
+LEMMA HeaderConsumes ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ <<ConsumeHeader(cId)>>_vars
+                  => <<L1!HostConsumesEvent(cId)>>_l1_vars)
+<1>1. L1!TypeOK /\ <<ConsumeHeader(cId)>>_vars
+          => <<L1!HostConsumesEvent(cId)>>_l1_vars
+    BY SMT DEF L1!TypeOK, ConsumeHeader, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingTail, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA PayloadConsumes ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ <<FinishConsumePayload(cId)>>_vars
+                  => <<L1!HostConsumesEvent(cId)>>_l1_vars)
+<1>1. L1!TypeOK /\ <<FinishConsumePayload(cId)>>_vars
+          => <<L1!HostConsumesEvent(cId)>>_l1_vars
+    BY SMT DEF L1!TypeOK, FinishConsumePayload, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, ReadCancellationSettled,
+       ConsumingTerminal, RingHead, RingTail, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA CancelledParseConsumes ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ <<FinishCancelledParse(cId)>>_vars
+                  => <<L1!HostConsumesEvent(cId)>>_l1_vars)
+<1>1. L1!TypeOK /\ <<FinishCancelledParse(cId)>>_vars
+          => <<L1!HostConsumesEvent(cId)>>_l1_vars
+    BY SMT DEF L1!TypeOK, FinishCancelledParse, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, ConsumingTerminal,
+       RingHead, RingTail, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA DrainConsumes ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](L1!TypeOK /\ <<DrainRelease(cId)>>_vars
+                  => <<L1!HostConsumesEvent(cId)>>_l1_vars)
+<1>1. L1!TypeOK /\ <<DrainRelease(cId)>>_vars
+          => <<L1!HostConsumesEvent(cId)>>_l1_vars
+    BY SMT DEF L1!TypeOK, DrainRelease, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, ConsumingTerminal,
+       RingHead, RingTail, vars, l1_vars, managed_vars, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+(***************************************************************************)
 (* REFINEMENT OF THE NEXT-STATE RELATION                                   *)
 (*                                                                         *)
 (* Every action of this level does one of two things to level 1's tuple:    *)
