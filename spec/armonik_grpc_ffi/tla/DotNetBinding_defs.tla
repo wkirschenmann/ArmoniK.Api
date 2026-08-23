@@ -36,7 +36,7 @@ ManagedSafety ==
     /\ NoRuntimeShutdownWhileLeased
     /\ RejectedChannelHasNoNativeHalf
     /\ ReadCancelPendingOnlyInFlight
-    /\ CancelledParseStillOwnsItsSlot
+    /\ ParsingReadOwnsItsSlot
     /\ ChannelStateMatchesNative
     /\ RuntimeStateMatchesNative
     /\ DisposeLeavesNoManagedWaiter
@@ -47,7 +47,7 @@ ManagedSafety ==
 \* The managed liveness contract.  Every promise crossing the native
 \* runtime carries the ~NotFailed escape; none rests on a deadline.
 ManagedLiveness ==
-    /\ BudgetCancellationStopsRetry
+    /\ BudgetWaitEndsWhenHopeless
     /\ PendingWriteEventuallySettled
     /\ CallDisposeCompletes
     /\ ChannelConstructionCompletes

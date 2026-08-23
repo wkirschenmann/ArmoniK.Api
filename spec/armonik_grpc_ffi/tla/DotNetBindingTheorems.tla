@@ -170,8 +170,8 @@ THEOREM ChannelDisposeIsolatesItsCalls ==
 (* MANAGED LIVENESS - one theorem per public promise, aggregated last.     *)
 (***************************************************************************)
 
-THEOREM BudgetCancellationStopsRetryHolds ==
-    Spec => BudgetCancellationStopsRetry
+THEOREM BudgetWaitEndsWhenHopelessHolds ==
+    Spec => BudgetWaitEndsWhenHopeless
 
 THEOREM PendingWriteEventuallySettledHolds ==
     Spec => PendingWriteEventuallySettled

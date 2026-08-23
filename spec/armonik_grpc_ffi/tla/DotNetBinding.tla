@@ -783,6 +783,7 @@ WriteAborted(cId, b) ==
 CancelWriterWait(cId) ==
     /\ writer_state[cId] = "waiting_budget"
     /\ \/ cancel_requested[cId]
+       \/ ~F!L0!IsActiveCall(cId)
        \/ call_dispose_state[cId] # "active"
        \/ runtime_dispose_state # "active"
     /\ writer_state' = [writer_state EXCEPT ![cId] = "idle"]
@@ -950,11 +951,13 @@ Next ==
 (* FAIRNESS - three tiers.  The runtime's and the FFI dispatch's thirteen  *)
 (* families are taken verbatim from level 1; the binding's tier derives    *)
 (* the six host conjuncts and completes what it began; the application's   *)
-(* tier is one conjunct per call.  Serialization settling and the slot     *)
-(* wait progressing are disjunction fairness: which branch fires is the    *)
+(* tier is one conjunct per call.  Serialization settling and the budget   *)
+(* wait ending are disjunction fairness: which branch fires is the         *)
 (* allocator's or the marshaller's business, that one fires is the         *)
 (* binding's promise - under the stated hypothesis that user code          *)
-(* terminates.                                                             *)
+(* terminates.  No slot wait exists here: a write completes at its         *)
+(* WRITE_DONE, so the next lend always finds the window open, which        *)
+(* ManagedWriterNeverObservesSlotBusy states.                              *)
 (***************************************************************************)
 
 SerializationSettles(cId) ==
@@ -1302,10 +1305,11 @@ RingNeverOverflows ==
 
 \* A waiting write stops waiting once cancellation or dispose arrives -
 \* the budget wait promises nothing else, and no other wait exists.
-BudgetCancellationStopsRetry ==
+BudgetWaitEndsWhenHopeless ==
     \A cId \in CallIds :
         (/\ writer_state[cId] = "waiting_budget"
          /\ \/ cancel_requested[cId]
+            \/ ~F!L0!IsActiveCall(cId)
             \/ call_dispose_state[cId] # "active"
             \/ runtime_dispose_state # "active")
             ~> writer_state[cId] # "waiting_budget"
@@ -1328,7 +1332,7 @@ ChannelConstructionCompletes ==
              \/ channel_dispose_state[chId] = "rejected"
              \/ ~F!L0!NotFailed)
 
-\* A disposed call settles, a disposing channel settles, the teardown
+\* A draining call settles, a disposing channel settles, the teardown
 \* completes - each unless the runtime failed.
 CallDisposeCompletes ==
     \A cId \in CallIds :
@@ -1397,12 +1401,15 @@ ReadCancelPendingOnlyInFlight ==
     \A cId \in CallIds :
         read_cancel_pending[cId] => ReadInFlight(cId)
 
-\* A cancelled parse still owns its slot: the reader stays in
-\* parsing_cancelled until the marshaller returns, and the release
-\* happens there and only there.
-CancelledParseStillOwnsItsSlot ==
+\* A parse owns its slot for as long as it lasts, cancelled or not: the
+\* reader holds the borrow until the marshaller returns, and the release
+\* happens there and only there.  This is the lifetime the implementation
+\* has to respect - native bytes are readable exactly while the reader is
+\* in one of these two states - so it is stated rather than left to the
+\* actions' shape, where nothing would catch a release moved earlier.
+ParsingReadOwnsItsSlot ==
     \A cId \in CallIds :
-        reader_state[cId] = "parsing_cancelled" =>
+        reader_state[cId] \in {"parsing", "parsing_cancelled"} =>
             RingOccupancy(cId) > 0
 
 \* A request that landed is acted on - the reaction is the binding's, and

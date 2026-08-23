@@ -29,6 +29,7 @@ done
 "$PY" ci/check_proofs_present.py || fail=1
 "$PY" ci/check_arity.py || fail=1
 "$PY" ci/check_state_literals.py || fail=1
+"$PY" ci/check_sketch_actions.py || fail=1
 
 for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          AbstractGrpcTheorems.tla AbstractGrpc_MC.tla \
@@ -38,7 +39,8 @@ for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          DotNetBinding_defs.tla DotNetBindingTheorems.tla \
          DotNetBinding_MC.tla DotNetBinding_MCdirected.tla \
          DotNetBinding_MCcall.tla DotNetBinding_MClive.tla \
-         DotNetBinding_MCwitness.tla DotNetBinding_MCwitnessPrologue.tla; do
+         DotNetBinding_MCwitness.tla DotNetBinding_MCwitnessPrologue.tla \
+         DotNetBinding_MCwitnessBudget.tla; do
   out=$(java -cp "$TLA2TOOLS" tla2sany.SANY "$m" 2>&1)
   # Positive evidence, not the absence of an error word: a launcher failure
   # matches no error pattern, and reporting that as clean is worse than no
