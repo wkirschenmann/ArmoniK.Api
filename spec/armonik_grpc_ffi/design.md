@@ -3299,7 +3299,7 @@ discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, eight action theorems -
 `LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
 `ReadCancellationCancelsCall`, `CompletedReadTokenArmsNothing`,
 `LiveRequestOnlyDischargedByReaction` and `CancelledParseReleasesItsSlotOnce` - and one
-theorem per liveness promise plus their aggregate.  None of them is proved today.
+theorem per liveness promise plus their aggregate.  Proved so far: `RefinesInit`, the fairness projection `Fairness => F!Fairness` family by family, and the six host discharges - 71 obligations.  The rest is owed, `RefinesNext` and the inductive invariant being where the count grows.
 
 Refinement mapping, by direct reuse:
 - the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -

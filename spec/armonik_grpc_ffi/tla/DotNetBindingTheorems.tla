@@ -1,9 +1,11 @@
 ------------------------- MODULE DotNetBindingTheorems -------------------------
 (***************************************************************************)
 (* The public level-2 interface: what the .NET binding proves, stated      *)
-(* without proofs.  The proofs will live in DotNetBindingTheorems_proofs,  *)
-(* which does not exist yet - every declaration below is an obligation the *)
-(* freeze of this level requires discharged, and none is discharged today. *)
+(* without proofs.  The proofs live in DotNetBindingTheorems_proofs, which *)
+(* carries the refinement's initial predicate, the fairness projection and *)
+(* the six host discharges; the rest of this module is still owed.  The    *)
+(* pair is registered in ci/check.sh only once every declaration here has  *)
+(* a proof there, since that checker's contract is completeness.           *)
 (***************************************************************************)
 
 EXTENDS DotNetBinding_defs
