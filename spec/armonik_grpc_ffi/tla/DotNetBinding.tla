@@ -1361,13 +1361,17 @@ PrologueHasReleasedNothing ==
     \A cId \in CallIds :
         consumer_phase[cId] = "prologue" => RingTail(cId) = 0
 
-\* A finished reader drained the ring: the terminal is the last event a
-\* call publishes and the reader reaches "finished" only by consuming it,
-\* so nothing is left above the tail.  Without it a debt could stand in a
-\* state no consumer's guard admits.
+\* A finished reader drained the ring, and the status is what it drained:
+\* the reader reaches "finished" only by consuming the terminal, and every
+\* action that appends an event refuses once the status is there, so the
+\* head is frozen and nothing is left above the tail.  The status half is
+\* not decoration - without it the frozen head cannot be claimed, and a
+\* debt could stand in a state no consumer's guard admits.
 FinishedReaderDrainedTheRing ==
     \A cId \in CallIds :
-        reader_state[cId] = "finished" => RingDrained(cId)
+        reader_state[cId] = "finished" =>
+            /\ L1!L0!HasStatus(cId)
+            /\ RingDrained(cId)
 
 \* Past the prologue the headers have an answer: the application phase is
 \* entered only by ConsumeHeader, which resolves them, and every path to
