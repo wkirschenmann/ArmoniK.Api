@@ -1044,21 +1044,33 @@ TokenPublishedBeforeStart ==
 \* Every call callback in flight resolves its call_ctx to a live root.
 RootSurvivesCallbacks ==
     \A cId \in CallIds :
-        \/ delivery_callback_running[cId]
-        \/ write_done_callback_running[cId]
-        => call_root_live[cId]
+        \* Parenthesised on purpose: a bare junction list followed by an
+        \* arrow at the same column is a reading nobody should have to
+        \* work out from the indentation.
+        /\ (\/ delivery_callback_running[cId]
+            \/ write_done_callback_running[cId])
+               => call_root_live[cId]
+        \* And what keeps the root there for the next callback to use: only
+        \* the terminal callback frees it, and it runs last.
+        /\ (call_token_published[cId] /\ ~L1!L0!HasStatus(cId))
+               => call_root_live[cId]
 
 \* Every callback of every kind keeps the shared RuntimeState's root
 \* alive - the call callbacks too.
 RuntimeRootSurvivesCallbacks ==
     /\ \A rtId \in RuntimeIds :
-           \/ shutdown_callback_running[rtId]
-           \/ resources_released_callback_running[rtId]
-           => runtime_root_live
+           (\/ shutdown_callback_running[rtId]
+            \/ resources_released_callback_running[rtId])
+               => runtime_root_live
     /\ \A cId \in CallIds :
-           \/ delivery_callback_running[cId]
-           \/ write_done_callback_running[cId]
-           => runtime_root_live
+           (\/ delivery_callback_running[cId]
+            \/ write_done_callback_running[cId])
+               => runtime_root_live
+    \* And the same reason as for a call's root: the manager is present for
+    \* as long as any call of it can still be called back.
+    /\ \A cId \in CallIds :
+           (call_token_published[cId] /\ ~L1!L0!HasStatus(cId))
+               => runtime_root_live
 
 \* The phase machine and the dispose machine agree.
 ConsumerPhaseMatchesDispose ==
@@ -1200,14 +1212,37 @@ RejectedChannelHasNoNativeHalf ==
 \* guarantee), one being torn down is not yet destroyed, and the
 \* destroyed state means the downcall returned for that generation.
 RuntimeStateMatchesNative ==
-    /\ runtime_dispose_state \in {"active", "shutdown_pending"} =>
+    \* Nothing native is running or stopping while the manager is absent:
+    \* before the first creation nothing was started, and after the last
+    \* free the runtime was destroyed.
+    /\ runtime_dispose_state = "absent" =>
+           \A rtId \in RuntimeIds :
+               runtime_state[rtId] \in
+                   {"NOT_INIT", "RELEASED", "FAILED_UNQUIESCED"}
+    /\ runtime_dispose_state = "active" =>
            /\ ~runtime_destroyed[current_runtime]
            /\ runtime_state[current_runtime] \in
                   {"RUNNING", "FAILED_UNQUIESCED"}
+    \* Past the last lease the native runtime walks its own way down -
+    \* still running when the latch is set, stopping under ak_shutdown,
+    \* released when it has drained - and none of that is the manager's
+    \* step, so all of it has to be admitted here.
+    /\ runtime_dispose_state = "shutdown_pending" =>
+           /\ ~runtime_destroyed[current_runtime]
+           /\ runtime_state[current_runtime] \in
+                  {"RUNNING", "STOPPING", "RELEASED", "FAILED_UNQUIESCED"}
     /\ runtime_dispose_state = "destroying" =>
            ~runtime_destroyed[current_runtime]
     /\ runtime_dispose_state = "destroyed" =>
            runtime_destroyed[current_runtime]
+    \* And the converse for the one state the teardown reads: a stopping
+    \* runtime is the manager's own, and its teardown has begun.  This is
+    \* what says a shutdown event finds every call settled.
+    /\ \A rtId \in RuntimeIds :
+           runtime_state[rtId] = "STOPPING" =>
+               /\ runtime_dispose_state \in
+                      {"shutdown_pending", "destroying", "destroyed"}
+               /\ rtId = current_runtime
 
 \* A settled call left no managed waiter: reader idle, writer settled,
 \* headers and status resolved.
