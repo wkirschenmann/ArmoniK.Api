@@ -20177,4 +20177,43 @@ THEOREM RefinesSpec == Spec => L1!Spec
     <2>2. QED
         BY <1>0, <2>1, FairnessRefines DEF Spec
 <1>5. QED BY <1>1, <1>3, <1>4, PTL DEF L1!Spec, l1_vars
+
+(***************************************************************************)
+(* WHAT LEVEL 1 PROMISED, NOW PROMISED HERE                                *)
+(*                                                                         *)
+(* RefinesSpec turns every theorem level 1 proved about itself into a       *)
+(* theorem about this level, and its liveness needs no translation at all:  *)
+(* level 1's variables ARE these variables - the state module is extended,  *)
+(* not instantiated - so L1!PayloadsEventuallyConsumed already speaks of    *)
+(* payloads_consumed_by_host.  Fourteen properties for one citation.        *)
+(***************************************************************************)
+
+THEOREM InheritedLiveness == Spec => L1!LivenessProperties
+    BY RefinesSpec, L1!LivenessTheorem, L1Assumptions, Zenon
+
+\* The six the managed chains read, named one by one so a later proof cites
+\* the promise it needs rather than the whole conjunction.
+THEOREM InheritedCancellationCompletes == Spec => L1!CancellationCompletes
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedPayloadsConsumed == Spec => L1!PayloadsEventuallyConsumed
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedSendsAcquitted == Spec => L1!SendsEventuallyAcquitted
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedBufferFreed == Spec => L1!BufferEventuallyFreed
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedCallReclaimed == Spec => L1!CallEventuallyReclaimed
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedRuntimeQuiescent == Spec => L1!RuntimeEventuallyQuiescent
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedChannelClosed == Spec => L1!EventualChannelClosed
+    BY InheritedLiveness DEF L1!LivenessProperties
+
+THEOREM InheritedBudgetHasRoom == Spec => L1!BudgetEventuallyHasRoomFor
+    BY InheritedLiveness DEF L1!LivenessProperties
 ===============================================================================
