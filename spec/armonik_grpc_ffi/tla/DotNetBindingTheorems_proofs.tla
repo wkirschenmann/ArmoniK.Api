@@ -8624,7 +8624,7 @@ LEMMA FairnessRefines ==
    that has not had its status, and such a call still has its roots. *)
 
 LEMMA WriteDoneMeansNoStatusYet ==
-    ASSUME NEW cId \in CallIds, L1!IndInv, L1!EmitWriteDone(cId)
+    ASSUME NEW cId \in CallIds, ManagedIndInv, L1!EmitWriteDone(cId)
     PROVE  /\ ~L1!L0!HasStatus(cId)
            /\ ~L1!L0!IsUnusedCall(cId)
     BY SMT DEF L1!EmitWriteDone, L1!IndInv, L1!FfiCallInv,
@@ -8633,8 +8633,9 @@ LEMMA WriteDoneMeansNoStatusYet ==
        L1!L0!IsUnusedCall, L1!L0!IsTerminalCall, L1!TypeOK, L1!L0!TypeOK,
        L1!SendsInFlightWithinLimit, L1!WriteDonesNeverExceedSends,
        L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
-       L1!HasNoSendInFlight, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars
+       L1!HasNoSendInFlight, ManagedIndInv, ManagedGlue, StatusMeansTerminal,
+       L1!ActiveCallHasNoStatus, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 
 LEMMA MetadataMeansNoStatusYet ==
     ASSUME NEW cId \in CallIds, L1!IndInv, L1!DeliverInitialMetadata(cId)
@@ -9859,6 +9860,7 @@ LEMMA PassesChannelFinishClosing ==
              L1!IsClosingChannel, L1!L0!CallsOf,
              L1!L0!ChannelsOf, L1!L0!ChannelStates,
              L1!L0!CallStates, L1!L0!IsUnusedCall,
+             RejectedChannelHasNoNativeHalf, ChannelStateMatchesNative,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
              L1!L0!ActiveCallStates, TokenPublishedBeforeStart,
              ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars,
@@ -10600,6 +10602,9 @@ LEMMA PassesDeliverInitialMetadata ==
              L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
              L1!L0!IsUnusedCall, L1!L0!CallStates, L1!OwedPayloads,
              L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, RingDrained,
+             L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries,
+             L1!NoDeliveryImpliesNoDebt, L1!HasNoDeliveredEvents,
+             SettledCallOwesNothing, L1!L0!HasStatus, L1!L0!StatusKinds,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
              L1!L0!StatusKinds, TokenPublishedBeforeStart, L1!TypeOK,
              L1!L0!TypeOK, RingOccupancy, RingHead, RingTail, l1_vars,
@@ -10618,6 +10623,9 @@ LEMMA PassesDeliverInitialMetadata ==
              L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
              L1!L0!IsUnusedCall, L1!L0!CallStates, L1!OwedPayloads,
              L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, RingDrained,
+             L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries,
+             L1!NoDeliveryImpliesNoDebt, L1!HasNoDeliveredEvents,
+             SettledCallOwesNothing, L1!L0!HasStatus, L1!L0!StatusKinds,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
              L1!L0!StatusKinds, TokenPublishedBeforeStart, L1!TypeOK,
              L1!L0!TypeOK, RingOccupancy, RingHead, RingTail, l1_vars,
@@ -10691,6 +10699,9 @@ LEMMA PassesDeliverInitialMetadata ==
              L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
              L1!L0!IsUnusedCall, L1!L0!CallStates, L1!OwedPayloads,
              L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, RingDrained,
+             L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries,
+             L1!NoDeliveryImpliesNoDebt, L1!HasNoDeliveredEvents,
+             SettledCallOwesNothing, L1!L0!HasStatus, L1!L0!StatusKinds,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
              L1!L0!StatusKinds, TokenPublishedBeforeStart, L1!TypeOK,
              L1!L0!TypeOK, RingOccupancy, RingHead, RingTail, l1_vars,
@@ -19324,8 +19335,16 @@ LEMMA KeepsWriteAborted ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!HostReturnsBuffer
+        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload,
+             L1!HostHoldsNoBuffer, L1!OwedPayloads, RingDrained, RingHead,
+             RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             BindingMayDowncall, L1!HostReturnsBuffer,
+             L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsTerminalCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+             FinishedReaderDrainedTheRing, StatusMeansTerminal,
+             L1!ActiveCallHasNoStatus, ReaderStates,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'

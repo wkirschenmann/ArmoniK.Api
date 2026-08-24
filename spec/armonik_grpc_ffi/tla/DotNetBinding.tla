@@ -1260,6 +1260,11 @@ DisposeLeavesNoManagedWaiter ==
 SettledCallOwesNothing ==
     \A cId \in CallIds :
         call_dispose_state[cId] = "settled" =>
+            \* The status first: a call settles only past its terminal, by
+            \* the drain or by a finished reader, and both carry it.  This
+            \* is what says nothing can still be delivered to a settled
+            \* call - a delivery wants an active one.
+            /\ L1!L0!HasStatus(cId)
             /\ L1!HostOwnsNoPayload(cId)
             /\ L1!HostHoldsNoBuffer(cId)
 
