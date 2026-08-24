@@ -20038,4 +20038,143 @@ LEMMA ManagedIndInvPreserved ==
     BY <1>0, ManagedLayerPreserved
 <1>5. QED BY <1>3, <1>4 DEF ManagedIndInv
 
+
+(***************************************************************************)
+(* AND IT HOLDS OF EVERY BEHAVIOUR                                         *)
+(*                                                                         *)
+(* Init, preservation, induction.  The level-1 half of the initial          *)
+(* predicate comes from level 1's own theorem, through Init conjoining      *)
+(* L1!Init; the managed half is read off ManagedInit, where every variable  *)
+(* has one value.                                                          *)
+(***************************************************************************)
+
+LEMMA InitEstablishesManagedIndInv == Init => ManagedIndInv
+<1>0. SUFFICES ASSUME Init PROVE ManagedIndInv
+    OBVIOUS
+<1>1. L1!IndInv
+    BY <1>0, RefinesInit, L1InitEstablishesL1Inv
+<1>2. ManagedTypeOK
+    BY <1>0, SMT
+    DEF Init, ManagedInit, ManagedTypeOK, ReaderStates, WriterStates,
+       ConsumerPhases, CallDisposeStates, ChannelDisposeStates,
+       RuntimeDisposeStates, HeadersCompletions, StatusCompletions,
+       NoRetryLen
+\* Nothing has happened: no reader, no writer, no token, no lease.  Each
+\* conjunct is an implication whose antecedent is false at Init, save the
+\* ones that speak of the absent runtime, and those are what Init sets.
+<1>3. ManagedMachineInv
+    BY <1>0, SMT
+    DEF Init, ManagedInit, L1!Init, L1!L0!Init, ManagedMachineInv, ReaderInv,
+       WriterInv, LifecycleInv, ConsumerPhaseMatchesDispose,
+       AtMostOneReaderOutstanding, DrainNeverOverlapsApplicationConsumer,
+       ReadCancelPendingOnlyInFlight, ParsingReadOwnsItsSlot,
+       WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
+       WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
+       RetryLenMatchesWait, TokenPublishedBeforeStart,
+       RootSurvivesCallbacks, RuntimeRootSurvivesCallbacks,
+       DisposeAwaitsDestroy, RuntimeManagerCoherent,
+       LiveChannelUsesCurrentRuntime, ManagedShutdownHasNoHostDebt,
+       LiveChannelKeepsRuntimeAlive, NoRuntimeShutdownWhileLeased,
+       RejectedChannelHasNoNativeHalf, ChannelStateMatchesNative,
+       RuntimeStateMatchesNative, DisposeLeavesNoManagedWaiter,
+       SettledCallOwesNothing, AbsentRuntimeOwesNothing, ReadInFlight,
+       RingOccupancy, RingHead, RingTail, RingDrained, ChannelSettled,
+       AllLeasesReleased, NoRetryLen, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, L1!L0!IsUnusedCall, L1!L0!HasStatus,
+       L1!L0!StatusKinds
+<1>4. ManagedGlue
+    BY <1>0, SMT
+    DEF Init, ManagedInit, L1!Init, L1!L0!Init, ManagedGlue,
+       NotInitRuntimeIsUndestroyed, TeardownLeavesCallsSettled,
+       CancelledParseHasNoPendingRequest, PrologueReaderOnlyWaits,
+       PastPrologueHeadersAnswered, StatusMeansTerminal,
+       LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+       ReadInFlight, L1!L0!IsUnusedCall, L1!L0!HasStatus,
+       L1!L0!StatusKinds, L1!L0!IsTerminalCall
+<1>5. QED BY <1>1, <1>2, <1>3, <1>4 DEF ManagedIndInv
+
+\* And the three derived ones, which Init makes vacuous: no call has
+\* released anything, no reader is finished, and no call is published.
+LEMMA InitEstablishesTheDerived ==
+    Init => /\ PrologueHasReleasedNothing
+            /\ FinishedReaderDrainedTheRing
+            /\ LiveCallHasLiveChannel
+    BY SMT
+    DEF Init, ManagedInit, L1!Init, L1!L0!Init, PrologueHasReleasedNothing,
+       FinishedReaderDrainedTheRing, LiveCallHasLiveChannel, RingDrained,
+       RingHead, RingTail, L1!L0!HasStatus, L1!L0!StatusKinds
+
+THEOREM ManagedIndInvHolds == Spec => []ManagedIndInv
+<1>1. Init => ManagedIndInv
+    BY InitEstablishesManagedIndInv
+<1>2. ManagedIndInv /\ [Next]_vars => ManagedIndInv'
+    BY ManagedIndInvPreserved
+<1>3. QED BY <1>1, <1>2, PTL DEF Spec
+
+THEOREM ManagedTypeOKHolds == Spec => []ManagedTypeOK
+    BY ManagedIndInvHolds, PTL DEF ManagedIndInv
+
+THEOREM ManagedSafetyHolds == Spec => []ManagedSafety
+<1>1. ManagedIndInv => ManagedSafety
+    BY ManagedIndInvImpliesSafety
+<1>2. QED BY <1>1, ManagedIndInvHolds, PTL
+
+\* The three derived invariants, boxed the same way: each has its own
+\* preservation step and Init makes each vacuous.
+THEOREM DerivedInvariantsHold ==
+    Spec => /\ []PrologueHasReleasedNothing
+            /\ []FinishedReaderDrainedTheRing
+            /\ []LiveCallHasLiveChannel
+<1>1. Init => /\ PrologueHasReleasedNothing
+              /\ FinishedReaderDrainedTheRing
+              /\ LiveCallHasLiveChannel
+    BY InitEstablishesTheDerived
+<1>2. ManagedIndInv /\ PrologueHasReleasedNothing /\ [Next]_vars
+          => PrologueHasReleasedNothing'
+    BY PrologueTailPreserved
+<1>3. ManagedIndInv /\ FinishedReaderDrainedTheRing /\ [Next]_vars
+          => FinishedReaderDrainedTheRing'
+    BY FinishedDrainedPreserved
+<1>4. ManagedIndInv /\ LiveCallHasLiveChannel /\ [Next]_vars
+          => LiveCallHasLiveChannel'
+    BY LiveChannelPreserved
+<1>5. []ManagedIndInv /\ Init /\ [][Next]_vars
+          => /\ []PrologueHasReleasedNothing
+             /\ []FinishedReaderDrainedTheRing
+             /\ []LiveCallHasLiveChannel
+    BY <1>1, <1>2, <1>3, <1>4, PTL
+<1>6. QED BY <1>5, ManagedIndInvHolds, PTL DEF Spec
+
+(***************************************************************************)
+(* THE REFINEMENT                                                          *)
+(*                                                                         *)
+(* Init, Next and Fairness, and with it every safety and liveness theorem   *)
+(* level 1 proved about itself becomes a theorem about this level.          *)
+(***************************************************************************)
+
+THEOREM RefinesSpec == Spec => L1!Spec
+<1>0. SUFFICES ASSUME Spec PROVE L1!Spec
+    OBVIOUS
+<1>1. L1!Init
+    BY <1>0, RefinesInit DEF Spec
+<1>2. []ManagedSafety
+    BY <1>0, ManagedSafetyHolds
+<1>3. [][L1!Next]_l1_vars
+    \* The antecedent is a conjunction, so it goes to ls4 as one atom:
+    \* the step that feeds it has to spell it the same way.
+    <2>1. [](ManagedSafety /\ [Next]_vars => [L1!Next]_l1_vars)
+        BY RefinesNext, PTL
+    <2>2. [](ManagedSafety /\ [Next]_vars)
+        BY <1>0, <1>2, PTL DEF Spec
+    <2>3. QED BY <2>1, <2>2, PTL
+<1>4. L1!Fairness
+    <2>1. /\ []ManagedIndInv
+          /\ []PrologueHasReleasedNothing
+          /\ []FinishedReaderDrainedTheRing
+          /\ []LiveCallHasLiveChannel
+        BY <1>0, ManagedIndInvHolds, DerivedInvariantsHold
+    <2>2. QED
+        BY <1>0, <2>1, FairnessRefines DEF Spec
+<1>5. QED BY <1>1, <1>3, <1>4, PTL DEF L1!Spec, l1_vars
 ===============================================================================
