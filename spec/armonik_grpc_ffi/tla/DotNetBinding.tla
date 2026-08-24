@@ -672,14 +672,21 @@ WriteAborted(cId, b) ==
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
                ReaderVars, retry_len>>
 
+\* What makes a budget wait hopeless: cancellation latched, the call no
+\* longer active, the call being disposed, or the runtime going down.  The
+\* resolution's guard and the promise's antecedent are the same four
+\* causes, so they are the same expression.
+WaitIsHopeless(cId) ==
+    \/ cancel_requested[cId]
+    \/ ~L1!L0!IsActiveCall(cId)
+    \/ call_dispose_state[cId] # "active"
+    \/ runtime_dispose_state # "active"
+
 \* A waiting write caught by cancellation or dispose resolves
 \* exceptionally, like the waiting reader.
 CancelWriterWait(cId) ==
     /\ writer_state[cId] = "waiting_budget"
-    /\ \/ cancel_requested[cId]
-       \/ ~L1!L0!IsActiveCall(cId)
-       \/ call_dispose_state[cId] # "active"
-       \/ runtime_dispose_state # "active"
+    /\ WaitIsHopeless(cId)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "idle"]
     /\ retry_len' = [retry_len EXCEPT ![cId] = NoRetryLen]
     /\ UNCHANGED l1_vars
@@ -1282,10 +1289,7 @@ RingNeverOverflows ==
 BudgetWaitEndsWhenHopeless ==
     \A cId \in CallIds :
         (/\ writer_state[cId] = "waiting_budget"
-         /\ \/ cancel_requested[cId]
-            \/ ~L1!L0!IsActiveCall(cId)
-            \/ call_dispose_state[cId] # "active"
-            \/ runtime_dispose_state # "active")
+         /\ WaitIsHopeless(cId))
             ~> writer_state[cId] # "waiting_budget"
 
 \* A write in flight settles: its WRITE_DONE completes it, level 1
@@ -1295,6 +1299,15 @@ PendingWriteEventuallySettled ==
         writer_state[cId] \in {"serializing", "awaiting_write_done"} ~>
             (writer_state[cId] \in {"idle", "closed"} \/ ~L1!L0!NotFailed)
 
+\* A constructor's answer: exposed, or refused - a terminal outcome either
+\* way, and a completion rather than a stall - or the runtime failed under
+\* it.  Named because the promise and every step of its proof have to be
+\* the same expression.
+ChannelIsAnswered(chId) ==
+    \/ channel_dispose_state[chId] = "active"
+    \/ channel_dispose_state[chId] = "rejected"
+    \/ ~L1!L0!NotFailed
+
 \* A constructor that began completes, one way or the other: the channel
 \* is exposed, or the configuration was refused and it ends in rejected
 \* with its lease returned - a terminal outcome, and a completion rather
@@ -1302,9 +1315,7 @@ PendingWriteEventuallySettled ==
 ChannelConstructionCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "constructing" ~>
-            (\/ channel_dispose_state[chId] = "active"
-             \/ channel_dispose_state[chId] = "rejected"
-             \/ ~L1!L0!NotFailed)
+            ChannelIsAnswered(chId)
 
 \* A draining call settles, a disposing channel settles, the teardown
 \* completes - each unless the runtime failed.
@@ -1414,6 +1425,16 @@ FinishedReaderDrainedTheRing ==
         reader_state[cId] = "finished" =>
             /\ L1!L0!HasStatus(cId)
             /\ RingDrained(cId)
+
+\* A writer that has begun sits on a started call: every entry into a
+\* non-idle writer state is a downcall on the send side, and each of them
+\* needs an active call.  Derived rather than inductive - a call never
+\* returns to unused, so only the entries have anything to prove - and
+\* what it buys is the converse of TokenPublishedBeforeStart for the one
+\* case that needs it: a wait names a call the channel still owns.
+BusyWriterIsOnAStartedCall ==
+    \A cId \in CallIds :
+        writer_state[cId] # "idle" => ~L1!L0!IsUnusedCall(cId)
 
 \* A published call that has not settled still has a live channel: a
 \* channel releases its lease only once every call it owns is settled, so

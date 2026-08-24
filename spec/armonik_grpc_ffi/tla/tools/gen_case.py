@@ -28,12 +28,11 @@ stale bytecode file serves the old generator and looks exactly like a fix
 that did not work.
 """
 import io
+import os
 import re
 
-D = "C:/Users/wkirschenmann/Source/ArmoniK.Api/spec/armonik_grpc_ffi/tla/"
-S = ("C:/Users/WKIRSC~1/AppData/Local/Temp/claude/"
-     "C--Users-wkirschenmann-Source-ArmoniK-Api/"
-     "dc182aea-658c-4075-b8e9-bc53eca55611/scratchpad/")
+# The modules sit one directory up from this one, wherever the checkout is.
+D = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..") + "/"
 
 FRAME = ["ManagedStutter", "vars", "l1_vars", "managed_vars",
          "ManagedRuntimeVars", "ManagedChannelVars", "ManagedCallVars",
@@ -99,9 +98,8 @@ def l1_behind(actions):
     ones behind them.  A goal about a level-1 variable needs them in EVERY
     case: a coupled action states its level-1 frame inside the level-1
     action, not in its own UNCHANGED."""
+    import gen_pass
     l2 = io.open(D + "DotNetBinding.tla", encoding="utf-8").read()
-    l1 = (io.open(D + "FfiGrpc.tla", encoding="utf-8").read()
-          + io.open(D + "FfiGrpcState.tla", encoding="utf-8").read())
     out = []
     for a in actions:
         b = _body(a, l2)
@@ -109,9 +107,12 @@ def l1_behind(actions):
             if g == "L0":
                 continue
             out.append("L1!" + g)
-            gb = _body(g, l1)
-            for h in sorted(set(re.findall(r'\bL0!([A-Z][A-Za-z0-9_]*)', gb))):
-                out.append("L1!L0!" + h)
+            # actions only, and transitively: a guard names no primed
+            # variable, so it cannot decide a frame goal, and carrying the
+            # guards is what times these steps out.  The level-1 frames
+            # stay - an UNCHANGED l1_vars decides nothing until the tuple
+            # is opened down to the level-0 groups.
+            out += gen_pass.behind("L1!" + g)
         for g in sorted(set(re.findall(r'\bL1!L0!([A-Z][A-Za-z0-9_]*)', b))):
             out.append("L1!L0!" + g)
     return out
@@ -122,15 +123,25 @@ def _body(n, t):
 
 
 def build(name, assume, prove, goal_defs, deep=(), method="SMT",
-          mine_l1=False):
+          mine_l1=False, pass_cite=()):
     """deep: extra definitions the Passthrough case needs, for a goal that
-    reads a level-1 or level-0 variable rather than a managed one."""
+    reads a level-1 or level-0 variable rather than a managed one.
+
+    pass_cite: lemmas that settle the Passthrough case, from gen_pass.  A
+    goal about a level-1 variable wants them rather than deep: eighteen
+    level-1 actions in one step time out, and the lemma has already split
+    them one by one."""
     parts = next_parts()
     out = ["LEMMA %s ==" % name]
     out += ["    ASSUME " + assume[0]] + ["           " + a for a in assume[1:]]
     out.append("    PROVE  " + prove)
+    # the stuttering case reaches every variable through the tuple, so it
+    # wants the level-1 frames exactly as the action cases do
+    l1frame = (["L1!vars", "L1!ffi_vars", "L1!l0_vars", "L1!L0!vars",
+                "L1!L0!RuntimeVars", "L1!L0!ChannelVars", "L1!L0!CallVars"]
+               if mine_l1 else [])
     out.append("<1>0. CASE UNCHANGED vars")
-    out += wrap("    BY <1>0, %s DEF " % method, goal_defs + FRAME)
+    out += wrap("    BY <1>0, %s DEF " % method, goal_defs + FRAME + l1frame)
     labels = ["<1>0"]
     for k, part in enumerate(parts, start=1):
         lab = "<1>%d" % k
@@ -159,6 +170,12 @@ def build(name, assume, prove, goal_defs, deep=(), method="SMT",
                 # mine the inner actions too: the level-1 action a composed
                 # action rides on sits in the inner one's body
                 ds += l1_behind(whole)
+                # and the level-1 frames unconditionally: an action that
+                # takes no level-1 step says so with UNCHANGED l1_vars, and
+                # that decides nothing until the tuple is opened
+                ds += ["L1!vars", "L1!ffi_vars", "L1!l0_vars", "L1!L0!vars",
+                       "L1!L0!RuntimeVars", "L1!L0!ChannelVars",
+                       "L1!L0!CallVars"]
             if "Passthrough" in subset:
                 ds += list(deep)
             ds += goal_defs + FRAME
@@ -169,11 +186,17 @@ def build(name, assume, prove, goal_defs, deep=(), method="SMT",
                     ordered.append(d)
             return ordered
 
+        if pass_cite and acts == ["Passthrough"]:
+            out += wrap("    BY %s, %s, %s DEF "
+                        % (lab, ", ".join(pass_cite), method),
+                        goal_defs + FRAME)
+            continue
+
         # One disjunct of Next carries twenty actions, and a single step over
         # all of them times out where each on its own is immediate.
         single = re.findall(r'\\/ ([A-Z][A-Za-z0-9_]*)\((\w+)\)\s*$',
                             "\n".join(part), re.M)
-        if len(acts) > 4 and len(single) == len(acts) and single:
+        if len(acts) > 2 and len(single) == len(acts) and single:
             # a fresh name: the disjunct binds the same identifier the lemma
             # takes as a parameter, and shadowing it silently retargets the
             # goal at the bound one

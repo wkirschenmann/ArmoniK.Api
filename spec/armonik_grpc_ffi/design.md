@@ -3040,35 +3040,43 @@ the disposable wrapper closing over a throwing marshaller or a refused commit;
 There is no slot wait: with completion at WRITE_DONE and one writer per call, the next
 lend always finds the window open, which `ManagedWriterNeverObservesSlotBusy` states.
 
-**Fairness comes in three tiers, and the tiers are the point of the level.**
-- *Runtime-owed* (`RuntimeOwedFairness`): the thirteen level-1 families the runtime and
-  the FFI dispatch owe, taken verbatim - same actions, same tuple.  The binding
-  restricts none of them, so their extraction from `Spec` toward `L1!Fairness` is
-  citation, not proof.
-- *Binding-owed* (`BindingOwedFairness`), in two halves. The first half is **the six host
-  hypotheses, written in level 1's own tuple**: the four callback returns,
-  `HostConsumesEvent` and `HostReturnsBuffer` as `WF_l1_vars(L1!Action)`. That is the
-  shape `L1!Fairness` asks for, so the discharge is a citation - and it has to be, because
-  no enabling bridge is constructible at this level: TLAPS cannot expand an `ENABLED`
-  whose action reaches through an instance, as the subsection above records. Nothing is
-  weakened by the shape: each of those level-1 actions occurs in this model only inside
-  the coupled action that does the managed half in the same step, so demanding the
-  level-1 action demands the whole step - the trampoline's return, the slot's release,
-  the buffer's return. Two of the six cross user code and carry the one stated
-  hypothesis: user serialization and parsing terminate; the wrapper covers success and
-  exception, nothing covers code that never comes back. The second half is the binding's
-  own machinery, in this level's tuple, because nothing below asks for it: the waiter
-  wakes or resolves, the hand-off happens, both dispose chains and the whole teardown
-  complete, the constructor finishes, and serialization settles - a disjunction, because
-  whether it commits or aborts is the marshaller's business while *that it settles* is
-  the binding's promise.
-- *Application-owed* (`ApplicationOwedFairness`): one weak fairness conjunct per call -
-  while the response stream is still readable, eventually read from it (or dispose the
-  call early). Nothing at all is asked once the terminal has been consumed: `Dispose` is
-  **not** required for a normally finished call, which is what `Grpc.Core` says of its own
-  `AsyncUnaryCall.Dispose` and its streaming siblings - there, disposing a completed call
-  does nothing, and the method carries the meaning of *early cancellation*. A model that
-  demanded it would prove a discipline stricter than the API it implements.
+**Fairness comes in three tiers, and the tiers are the point of the level.** No
+conjunct anywhere is stated over level 1's tuple: all thirty-eight are `WF_vars` on
+actions of this module, which is what makes level 1's nineteen families *earned*
+rather than restated.
+- *Runtime-owed* (`RuntimeOwedFairness`), thirteen conjuncts: one named passthrough
+  per level-1 family the runtime and the FFI dispatch owe - `PassNetworkSend`,
+  `PassDeliverStatus`, `PassEmitWriteDone` and the rest, each of them the level-1
+  action beside a managed stutter.  The transfer is one for one: a projection lemma
+  says the level-2 step is the level-1 step, and PTL turns the pair into the level-1
+  weak fairness.  The binding restricts none of them.
+- *Binding-owed* (`BindingOwedFairness`), twenty-one conjuncts: the binding's own
+  machinery, and nothing else.  The four callback returns discharge level 1's four
+  trampoline families - `DeliveryReturns` is a disjunction because the terminal one
+  frees the call root as it goes, and the two split on `HasStatus` so the disjunction
+  is enabled exactly when level 1's family is.  The rest is the level's own: the
+  waiter wakes or resolves, the hand-off happens, both dispose chains and the whole
+  teardown complete, the constructor answers.  Every conjunct here waits on the
+  binding's code, on the thread pool, or on a downcall that cannot block; none waits
+  on the application.
+- *Application-owed* (`ApplicationOwedFairness`), four conjuncts, and the whole of
+  what a conforming program owes: read the stream (`BeginMoveNext`), and let the code
+  it handed us come back - the parse returns (`FinishConsumePayload`), a cancelled
+  parse returns (`FinishCancelledParse`), serialization settles
+  (`SerializationSettles`, a disjunction because whether it commits or aborts is the
+  marshaller's business while *that it settles* is the hypothesis).  The tier is the
+  contract: a hypothesis about user code is stated where a reader looks for what the
+  binding expects of its caller, not buried among the binding's own promises.
+
+  `WF_vars(BeginMoveNext)` alone is the whole read contract.  A disposing call
+  *disables* the action, and a weak fairness is satisfied by an action that stops
+  being enabled just as well as by one that fires, so nothing has to be disjoined for
+  the early-dispose case.  Nothing at all is asked once the terminal has been
+  consumed: `Dispose` is **not** required for a normally finished call, which is what
+  `Grpc.Core` says of its own `AsyncUnaryCall.Dispose` and its streaming siblings -
+  there, disposing a completed call does nothing, and the method carries the meaning
+  of *early cancellation*.  A model that demanded it would prove a discipline
+  stricter than the API it implements.
 
   **A call therefore settles by itself.** `SettleCall` is binding-owned and weakly fair,
   and its guard is the end of the call read through level 1's own ownership predicates:
@@ -3293,13 +3301,52 @@ actions rather than by induction, and this document must not imply a theorem exi
   than the model rather than the reverse
 
 The public interface, `DotNetBindingTheorems.tla`, declares the obligations the freeze
-requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host
-discharges, `ManagedTypeOKHolds`, `ManagedSafetyHolds`, eight action theorems -
+requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host families,
+`ManagedTypeOKHolds`, `ManagedSafetyHolds`, eight action theorems -
 `ConsumerHandoffPreservesTail`, `ChannelDisposeIsolatesItsCalls`,
 `LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
 `ReadCancellationCancelsCall`, `CompletedReadTokenArmsNothing`,
 `LiveRequestOnlyDischargedByReaction` and `CancelledParseReleasesItsSlotOnce` - and one
-theorem per liveness promise plus their aggregate.  Proved so far: `RefinesInit`, the fairness projection `Fairness => L1!Fairness` family by family, the six host discharges, and `RefinesNext` - one projection lemma per disjunct of `Next`, 163 obligations in all.  `RefinesNext` is stated relative to `ManagedSafety`, unlike level 1's own, and the proof is what found the reason: two coupled actions witness a level-1 existential with managed state - `CreateChannel` passes `current_runtime`, `RetryLendSucceeds` passes `retry_len[cId]` - and that those values lie in the sets level 1 quantifies over is an invariant, not a syntactic fact.  The same proof tightened `retry_len`'s typing from `RequestLengths` to `Sizes`: only a budget refusal parks a length, and one is only ever pronounced on a length the window admits.  `RefinesSpec` recomposes with `ManagedSafetyHolds` and is unconditional again.  The rest is owed, the inductive invariant being where the count grows.
+theorem per liveness promise plus their aggregate.
+
+The six host families - the four callback returns, `HostConsumesEvent` and
+`HostReturnsBuffer`, each as a weak fairness over level 1's own tuple - are corollaries,
+not assumptions.  This level states none of them: `RefinesSpec` gives `L1!Spec`,
+`L1!Spec` gives `L1!Fairness`, and each family is one of its conjuncts.  The distinction
+is the whole content of the tier design.  A binding may declare these six obligations
+and satisfy them by restating them in level 1's vocabulary, which proves nothing at all
+- the level would be assuming what it claims to earn - or it may state its fairness on
+its own actions and let the families fall out.  This one does the second, which is why
+`RuntimeOwedFairness` carries thirteen named passthroughs rather than thirteen citations.
+
+**The refinement is closed.**  `RefinesInit`, `RefinesNext` - one projection lemma per
+disjunct of `Next` - `FairnessRefines`, `ManagedIndInvHolds`, `ManagedSafetyHolds`,
+`DerivedInvariantsHold` and `RefinesSpec`, which makes every theorem level 1 proved
+about itself a theorem about this level.  Level 1's fourteen liveness properties come
+back through it in one citation, `InheritedLiveness`, because level 1's variables *are*
+these variables: the state module is extended, not instantiated, so nothing needs
+translating but the prefix.
+
+Three facts the refinement's proof established rather than assumed.  `RefinesNext` is
+stated relative to `ManagedSafety`, unlike level 1's own, and the reason is that two
+coupled actions witness a level-1 existential with managed state - `CreateChannel`
+passes `current_runtime`, `RetryLendSucceeds` passes `retry_len[cId]` - and that those
+values lie in the sets level 1 quantifies over is an invariant, not a syntactic fact.
+The same proof tightened `retry_len`'s typing from `RequestLengths` to `Sizes`: only a
+budget refusal parks a length, and one is only ever pronounced on a length the window
+admits.  And the fairness transfer is the level's own content: `HostConsumesEvent` is
+the one family no passthrough carries, so it is earned through seven leads-to edges
+ending at the application's single obligation - the binding's machinery plus that one
+hypothesis implies level 1's family.
+
+**The managed liveness is under way.**  Of the seventeen promises,
+`InFlightPayloadEventuallyReleased`, `BudgetWaitEndsWhenHopeless` and
+`ChannelConstructionCompletes` are proved.  Each so far has cost an invariant the safety
+proof had not needed: a parse owns its slot, so a slot in flight owes a payload
+(`ParsingReadOwnsItsSlot`, read off the state rather than assumed); and a busy writer
+sits on a started call (`BusyWriterIsOnAStartedCall`), without which nothing rules out
+the one state where a hopeless wait's last cause could be withdrawn under it.  The rest
+is owed.
 
 Refinement mapping, by direct reuse:
 - the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -
@@ -3546,7 +3593,7 @@ the artefact rather than left to rot:
 | SANY, on the twenty-two SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
-| Level 2 | **Drafted, TLC-vetted, induction under way.** Ten modules exist, SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in six configurations and in runs bounded by construction, with no invariant violation and no deadlock anywhere: `DotNetBinding_MCdirected` is exhaustive - 347640 states, depth 35. `DotNetBinding_MCcall` reached depth 18 over 8.6M states and `DotNetBinding_MC` depth 14 over 6.5M. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches clean at every checkpoint through depth 12; a read may begin in the prologue, which widens the space at a given depth rather than deepening the search. Two configurations are witnesses rather than checks: their targets are stated negatively, so a violation trace is the result. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for. Without them either branch could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS so far: 2001 obligations proved - the refinement's initial predicate and next-state relation, the fairness projection, the six host discharges, the core-implies-safety derivation, and one preservation lemma per action for the managed layer, with six glue conjuncts the induction forced into words. Still owed: the passthrough and glue preservation families, the L1!IndInv half, Init, the boxed safety assembly, RefinesSpec, the action theorems and the liveness |
+| Level 2 | **Refined and proved; the managed liveness under way.** Ten modules exist, SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in six configurations and in runs bounded by construction, with no invariant violation and no deadlock anywhere: `DotNetBinding_MCdirected` is exhaustive - 347640 states, depth 35. `DotNetBinding_MCcall` reached depth 18 over 8.6M states and `DotNetBinding_MC` depth 14 over 6.5M. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches clean at every checkpoint through depth 12; a read may begin in the prologue, which widens the space at a given depth rather than deepening the search. Two configurations are witnesses rather than checks: their targets are stated negatively, so a violation trace is the result. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for. Without them either branch could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the nineteen fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fourteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  Of the seventeen managed liveness promises, `InFlightPayloadEventuallyReleased`, `BudgetWaitEndsWhenHopeless` and `ChannelConstructionCompletes` are proved; the other fourteen are owed, and each so far has cost an invariant of its own. |
 | Deadlock detection at level 2 | `ci/tlc.sh` passes `-deadlock`, which switches TLC's deadlock check off, so the gate has never used it at any level - worth knowing before reading a clean run as evidence of progress. Invoked directly, `DotNetBinding_MC` reaches a deadlock: every channel refused and the runtime torn down, the finite `ChannelIds` set spent, a rejected channel being terminal. That is quiescence rather than a stall, and an artefact of the bound rather than a property of the system, which the configuration now states. `AbsentRuntimeOwesNothing` carries the content instead, and a genuine mid-flight stall still breaks the liveness configuration |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
