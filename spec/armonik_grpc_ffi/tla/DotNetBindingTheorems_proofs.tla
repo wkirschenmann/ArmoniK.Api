@@ -19627,4 +19627,415 @@ LEMMA L1StepPreservesL1Inv ==
 LEMMA L1InitEstablishesL1Inv == L1!Init => L1!IndInv
     BY L1Assumptions, L1!InitEstablishesIndInv, Zenon
 
+
+LEMMA PassesRequestCallCancellation ==
+    ASSUME NEW cId \in CallIds, BindingMayDowncall(cId),
+           L1!RequestCallCancellation(cId), ManagedStutter,
+           ManagedIndInv
+    PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+           DrainNeverOverlapsApplicationConsumer, ReadCancelPendingOnlyInFlight,
+           ParsingReadOwnsItsSlot, WriterInv, WaitingWriterHoldsNoBuffer,
+           SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+           ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+           TokenPublishedBeforeStart, RootSurvivesCallbacks,
+           RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+           RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+           ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
+           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           ChannelStateMatchesNative, RuntimeStateMatchesNative,
+           DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+           AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
+           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
+           L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           ManagedStutter, managed_vars,
+           L1!RequestCallCancellation, BindingMayDowncall,
+           L1!IsHandleReleased, L1!IsRuntimeOfCallDestroyed,
+           L1!IsRuntimeDestroyed, L1!L0!ChannelsOf,
+           L1!IsCancelRequested
+    <1>t. ManagedTypeOK'
+        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates,
+           HeadersCompletions, StatusCompletions, NoRetryLen,
+           L1!Sizes
+    <1>1. ConsumerPhaseMatchesDispose'
+        BY DEF ConsumerPhaseMatchesDispose
+    <1>2. AtMostOneReaderOutstanding'
+        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+    <1>3. DrainNeverOverlapsApplicationConsumer'
+        BY DEF DrainNeverOverlapsApplicationConsumer
+    <1>4. ReadCancelPendingOnlyInFlight'
+        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+    <1>5. ParsingReadOwnsItsSlot'
+        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+    <1>6. WriterInv'
+        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
+             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
+             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
+             L1!IsReturnedBuffer, NoRetryLen
+    <1>7. TokenPublishedBeforeStart'
+        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+    <1>8. RootSurvivesCallbacks'
+        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
+             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
+             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+             L1!L0!ChannelVars, L1!L0!CallVars
+    <1>9. RuntimeRootSurvivesCallbacks'
+        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
+             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+    <1>10. DisposeAwaitsDestroy'
+        BY DEF DisposeAwaitsDestroy
+    <1>11. RuntimeManagerCoherent'
+        BY DEF RuntimeManagerCoherent
+    <1>12. LiveChannelUsesCurrentRuntime'
+        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+    <1>13. ManagedShutdownHasNoHostDebt'
+        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
+             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
+             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             SettledCallOwesNothing, TokenPublishedBeforeStart,
+             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
+             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
+             L1!L0!ChannelsOf,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+    <1>14. LiveChannelKeepsRuntimeAlive'
+        BY DEF LiveChannelKeepsRuntimeAlive
+    <1>15. NoRuntimeShutdownWhileLeased'
+        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+    <1>16. RejectedChannelHasNoNativeHalf'
+        BY DEF RejectedChannelHasNoNativeHalf
+    <1>17. ChannelStateMatchesNative'
+        BY DEF ChannelStateMatchesNative
+    <1>18. RuntimeStateMatchesNative'
+        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
+             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+    <1>19. DisposeLeavesNoManagedWaiter'
+        BY DEF DisposeLeavesNoManagedWaiter
+    <1>20. SettledCallOwesNothing'
+        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload,
+             L1!HostHoldsNoBuffer, L1!OwedPayloads, RingDrained,
+             RingHead, RingTail, L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
+             L1!L0!TypeOK, L1!RequestCallCancellation,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+             L1!L0!vars
+    <1>21. AbsentRuntimeOwesNothing'
+        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+    <1>g1. NotInitRuntimeIsUndestroyed'
+        BY SMT DEF NotInitRuntimeIsUndestroyed,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+             IsLastRelease, ChannelStateMatchesNative,
+             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+             L1!IsReleasedRuntime, L1!IsClosedChannel,
+             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>g2. TeardownLeavesCallsSettled'
+        BY SMT DEF TeardownLeavesCallsSettled,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+             IsLastRelease, ChannelStateMatchesNative,
+             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+             L1!IsReleasedRuntime, L1!IsClosedChannel,
+             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>g3. CancelledParseHasNoPendingRequest'
+        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+             IsLastRelease, ChannelStateMatchesNative,
+             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+             L1!IsReleasedRuntime, L1!IsClosedChannel,
+             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>g4. PrologueReaderOnlyWaits'
+        BY SMT DEF PrologueReaderOnlyWaits,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+             IsLastRelease, ChannelStateMatchesNative,
+             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+             L1!IsReleasedRuntime, L1!IsClosedChannel,
+             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>g5. PastPrologueHeadersAnswered'
+        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
+             ConsumerPhases, ReaderStates, HeadersCompletions,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+             IsLastRelease, ChannelStateMatchesNative,
+             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+             L1!IsReleasedRuntime, L1!IsClosedChannel,
+             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>g6. StatusMeansTerminal'
+        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
+             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+             IsLastRelease, ChannelStateMatchesNative,
+             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+             L1!IsReleasedRuntime, L1!IsClosedChannel,
+             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>g7. LiveCallHasLiveChannel'
+        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
+             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
+             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+             L1!L0!ChannelVars, L1!L0!CallVars, L1!RequestCallCancellation, L1!L0!RuntimeFail
+    <1>q. QED
+        BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
+
+(***************************************************************************)
+(* THE MANAGED LAYER IS PRESERVED BY EVERY STEP                            *)
+(*                                                                         *)
+(* One citation per disjunct of Next and nothing else: the work is in the   *)
+(* fifty-seven lemmas above - thirty-nine for this level's own actions and  *)
+(* eighteen for the steps the runtime takes underneath it.                  *)
+(***************************************************************************)
+
+LEMMA ManagedLayerPreserved ==
+    ManagedIndInv /\ [Next]_vars
+        => (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+<1>0. SUFFICES ASSUME ManagedIndInv, [Next]_vars
+               PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    OBVIOUS
+\* A step that moves nothing keeps the layer verbatim: vars carries every
+\* managed variable and the level-1 tuple both.
+<1>s. CASE UNCHANGED vars
+  \* Nothing moves, so every conjunct is its own primed self.  Three
+  \* goals rather than one: forty definitions in a single step is
+  \* more than SMT will carry.
+  <2>1. UNCHANGED managed_vars /\ UNCHANGED l1_vars
+      BY <1>s, SMT DEF vars
+  <2>2. ManagedTypeOK'
+      BY <1>0, <2>1, SMT DEF ManagedIndInv, ManagedTypeOK, managed_vars
+  <2>3. ManagedMachineInv'
+      BY <1>0, <2>1, SMT DEF ManagedIndInv, ManagedMachineInv, ReaderInv, WriterInv, LifecycleInv,
+             ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+             DrainNeverOverlapsApplicationConsumer,
+             ReadCancelPendingOnlyInFlight, ParsingReadOwnsItsSlot,
+             WaitingWriterHoldsNoBuffer,
+             SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+             ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+             TokenPublishedBeforeStart, RootSurvivesCallbacks,
+             RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+             RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+             ManagedShutdownHasNoHostDebt,
+             LiveChannelKeepsRuntimeAlive,
+             NoRuntimeShutdownWhileLeased,
+             RejectedChannelHasNoNativeHalf,
+             ChannelStateMatchesNative, RuntimeStateMatchesNative,
+             DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+             AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy,
+             RingHead, RingTail, RingDrained, ChannelSettled,
+             AllLeasesReleased, NoRetryLen, L1!HostOwnsNoPayload,
+             L1!HostHoldsNoBuffer, L1!OwedPayloads,
+             L1!IsLentBuffer, L1!IsReturnedBuffer,
+             L1!L0!IsUnusedCall, L1!L0!HasStatus,
+             L1!L0!StatusKinds, managed_vars, l1_vars, L1!vars,
+             L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+  <2>4. ManagedGlue'
+      BY <1>0, <2>1, SMT DEF ManagedIndInv, ManagedGlue, NotInitRuntimeIsUndestroyed,
+             TeardownLeavesCallsSettled,
+             CancelledParseHasNoPendingRequest,
+             PrologueReaderOnlyWaits, PastPrologueHeadersAnswered,
+             StatusMeansTerminal, LiveCallHasLiveChannel,
+             ChannelSettled, AllLeasesReleased, ReadInFlight,
+             L1!L0!IsUnusedCall, L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!L0!IsTerminalCall,
+             managed_vars, l1_vars, L1!vars, L1!l0_vars,
+             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+             L1!L0!ChannelVars, L1!L0!CallVars
+  <2>5. QED BY <2>2, <2>3, <2>4
+<1>1. CASE Passthrough
+  \* One sub-case per shape of RuntimeSteps: eighteen
+  \* level-1 steps in one citation is more than Zenon
+  \* will sort out.
+  <2>0. SUFFICES ASSUME RuntimeSteps \/ BindingDowncalls,
+                        ManagedStutter
+                 PROVE  (ManagedTypeOK
+                             /\ ManagedMachineInv
+                             /\ ManagedGlue)'
+      BY <1>1 DEF Passthrough
+  <2>1. CASE BindingDowncalls
+      BY <1>0, <1>1, <2>0, <2>0, <2>1,
+         PassesRequestCallCancellation, Zenon
+         DEF BindingDowncalls
+  <2>2. CASE \E rtId \in RuntimeIds :
+        \/ L1!EmitShutdownComplete(rtId)
+        \/ L1!EmitResourcesReleased(rtId)
+        \/ L1!RuntimeRelease(rtId)
+        \/ L1!RuntimeFail(rtId)
+        \/ L1!RemainFailed(rtId)
+      BY <1>0, <1>1, <2>0, <2>2,  PassesEmitResourcesReleased,
+         PassesEmitShutdownComplete, PassesRemainFailed,
+         PassesRuntimeFail, PassesRuntimeRelease, Zenon
+         DEF RuntimeSteps
+  <2>3. CASE L1!RemainReleased
+      BY <1>0, <1>1, <2>0, <2>3,  PassesRemainReleased, Zenon
+         DEF RuntimeSteps
+  <2>4. CASE \E chId \in ChannelIds : L1!ChannelFinishClosing(chId)
+      BY <1>0, <1>1, <2>0, <2>4,  PassesChannelFinishClosing, Zenon
+         DEF RuntimeSteps
+  <2>5. CASE \E cId \in CallIds :
+        \/ L1!EmitWriteDone(cId)
+        \/ L1!NetworkSend(cId)
+        \/ L1!ReceiveStatus(cId)
+        \/ L1!DeliverInitialMetadata(cId)
+        \/ L1!DeliverMessage(cId)
+        \/ L1!DeliverStatus(cId)
+        \/ L1!DeliverCancelled(cId)
+        \/ L1!ReleaseCallHandle(cId)
+      BY <1>0, <1>1, <2>0, <2>5,  PassesDeliverCancelled,
+         PassesDeliverInitialMetadata, PassesDeliverMessage,
+         PassesDeliverStatus, PassesEmitWriteDone, PassesNetworkSend,
+         PassesReceiveStatus, PassesReleaseCallHandle, Zenon
+         DEF RuntimeSteps
+  <2>6. CASE \E cId \in CallIds, msg \in Messages : L1!NetworkReceive(cId, msg)
+      BY <1>0, <1>1, <2>0, <2>6,  PassesNetworkReceive, Zenon
+         DEF RuntimeSteps
+  <2>7. CASE \E cId \in CallIds, b \in BufferIds : L1!FreeReturnedBuffer(cId, b)
+      BY <1>0, <1>1, <2>0, <2>7,  PassesFreeReturnedBuffer, Zenon
+         DEF RuntimeSteps
+  <2>8. QED
+      BY <2>0, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7,
+         Zenon DEF RuntimeSteps
+<1>2. CASE FreeRuntimeRoot
+    BY <1>0, <1>2,  KeepsFreeRuntimeRoot, Zenon
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>0, <1>3,  KeepsCreateRuntime, Zenon
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+    BY <1>0, <1>4,  KeepsAcquireLease, KeepsBeginDisposeChannel,
+       KeepsCreateChannel, KeepsFinishDisposeChannel,
+       KeepsRejectChannelCreation, KeepsResolveChannelDispose, Zenon
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+    BY <1>0, <1>5,  KeepsBeginRuntimeShutdown, KeepsFinishDisposeRuntime,
+       KeepsResourcesReleasedReturns, KeepsShutdownReturns, Zenon
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+    BY <1>0, <1>6,  KeepsBeginDisposeCall, KeepsBeginMoveNext,
+       KeepsBeginParseEvent, KeepsCancelParsingRead, KeepsCancelWaiter,
+       KeepsCancelWaitingRead, KeepsCancelWriterWait, KeepsCloseWriter,
+       KeepsConsumeHeader, KeepsDisposeCallForChannel, KeepsDrainRelease,
+       KeepsFinishCancelledParse, KeepsFinishConsumePayload,
+       KeepsFinishDisposeCall, KeepsHandoffToDrain, KeepsOnEventReturns,
+       KeepsRequestReadCancellation, KeepsSettleCall,
+       KeepsTerminalCallbackReturns, KeepsWriteDoneCompletes, Zenon
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>0, <1>7,  KeepsStartCall, Zenon
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>0, <1>8,  KeepsWriteLendSucceeds, Zenon
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>0, <1>9,  KeepsWriteRefusedBudget, Zenon
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>0, <1>10,  KeepsWriteRefusedTooLarge, Zenon
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>0, <1>11,  KeepsRetryLendSucceeds, Zenon
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>0, <1>12,  KeepsCommitWrite, Zenon
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>0, <1>13,  KeepsWriteAborted, Zenon
+<1>q. QED
+    BY <1>0,  <1>s, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9,
+       <1>10, <1>11, <1>12, <1>13, Zenon
+    DEF Next
+
+(***************************************************************************)
+(* AND THE CORE IS INDUCTIVE                                               *)
+(*                                                                         *)
+(* The level-1 half is not re-proved: level 1's own induction theorem is    *)
+(* cited, and what makes it applicable is that every step of this level     *)
+(* projects onto a level-1 step - which is RefinesNext, and RefinesNext     *)
+(* reads the safety this very invariant implies.                            *)
+(***************************************************************************)
+
+LEMMA ManagedIndInvPreserved ==
+    ManagedIndInv /\ [Next]_vars => ManagedIndInv'
+<1>0. SUFFICES ASSUME ManagedIndInv, [Next]_vars
+               PROVE  ManagedIndInv'
+    OBVIOUS
+<1>1. ManagedSafety
+    BY <1>0, ManagedIndInvImpliesSafety
+<1>2. [L1!Next]_l1_vars
+    BY <1>0, <1>1, RefinesNext
+<1>3. L1!IndInv'
+    BY <1>0, <1>2, L1StepPreservesL1Inv DEF ManagedIndInv, l1_vars
+<1>4. (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    BY <1>0, ManagedLayerPreserved
+<1>5. QED BY <1>3, <1>4 DEF ManagedIndInv
+
 ===============================================================================
