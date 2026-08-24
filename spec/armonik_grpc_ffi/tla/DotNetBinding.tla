@@ -1373,6 +1373,19 @@ FinishedReaderDrainedTheRing ==
             /\ L1!L0!HasStatus(cId)
             /\ RingDrained(cId)
 
+\* A published call that has not settled still has a live channel: a
+\* channel releases its lease only once every call it owns is settled, so
+\* an unsettled call keeps its channel out of the released states.  This is
+\* what names the call's runtime - a live channel uses the current one -
+\* and so what says the runtime a downcall would reach is not destroyed.
+LiveCallHasLiveChannel ==
+    \A cId \in CallIds :
+        (/\ call_token_published[cId]
+         /\ call_dispose_state[cId] # "settled") =>
+            /\ call_channel[cId] \in ChannelIds
+            /\ channel_dispose_state[call_channel[cId]]
+                   \in {"active", "disposing"}
+
 \* Past the prologue the headers have an answer: the application phase is
 \* entered only by ConsumeHeader, which resolves them, and every path to
 \* the drain either went through that or faulted them as it cancelled.
