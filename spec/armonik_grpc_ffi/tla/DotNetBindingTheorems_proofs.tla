@@ -9797,17 +9797,38 @@ LEMMA PassesChannelFinishClosing ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY SMT DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail,
-             RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             StatusMeansTerminal, RingOccupancy, RingHead, RingTail,
-             ChannelDisposeStates, L1!IsClosingChannel,
-             L1!IsClosingChannel, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsTerminalCall,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv,
-             L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+      \* The close only ever appends, and it releases nothing, so the ring
+      \* grows and the tail stands still.  The two go in separate steps:
+      \* they come from different halves of the action.
+      <2>1. SUFFICES ASSUME NEW c2 \in CallIds,
+                            reader_state'[c2] \in {"parsing",
+                                                   "parsing_cancelled"}
+                     PROVE  RingOccupancy(c2)' > 0
+          BY DEF ParsingReadOwnsItsSlot
+      <2>2. reader_state' = reader_state
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>3. RingOccupancy(c2) > 0
+          BY <2>1, <2>2 DEF ParsingReadOwnsItsSlot
+      <2>4. RingTail(c2)' = RingTail(c2)
+          BY SMT DEF RingTail, L1!ChannelFinishClosing, L1!ffi_vars
+      <2>5. events_delivered' = [c3 \in CallIds |->
+                IF call_channel[c3] = chId /\ L1!L0!IsActiveCall(c3)
+                THEN IF events_delivered[c3] = <<>>
+                     THEN <<"INITIAL_METADATA", "CANCELLED">>
+                     ELSE Append(events_delivered[c3], "CANCELLED")
+                ELSE events_delivered[c3]]
+          BY DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing
+      <2>6. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>7. RingHead(c2)' >= RingHead(c2)
+          BY <2>5, <2>6, SMT DEF RingHead
+      <2>8. /\ RingHead(c2) \in Nat /\ RingTail(c2) \in Nat
+            /\ RingHead(c2)' \in Nat
+          BY <2>5, <2>6, SMT
+             DEF RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>9. QED
+          BY <2>3, <2>4, <2>7, <2>8, SMT
+             DEF RingOccupancy, RingHead, RingTail
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
@@ -9854,27 +9875,64 @@ LEMMA PassesChannelFinishClosing ==
         BY DEF LiveChannelKeepsRuntimeAlive
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+    \* The close rebuilds three whole functions over CallIds, and carrying
+    \* that into a goal about channels is what stops SMT.  So take the two
+    \* facts the goal needs and leave the action behind.
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY SMT DEF  RejectedChannelHasNoNativeHalf,
-             L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing,
-             L1!IsClosingChannel, L1!L0!CallsOf,
-             L1!L0!ChannelsOf, L1!L0!ChannelStates,
-             L1!L0!CallStates, L1!L0!IsUnusedCall,
-             RejectedChannelHasNoNativeHalf, ChannelStateMatchesNative,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, TokenPublishedBeforeStart,
-             ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. channel_dispose_state' = channel_dispose_state
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>2. channel_state[chId] = "closing"
+          BY DEF L1!ChannelFinishClosing, L1!IsClosingChannel
+      <2>3. channel_state' = [channel_state EXCEPT ![chId] = "closed"]
+          BY DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing
+      <2>4. channel_state \in [ChannelIds -> L1!L0!ChannelStates]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>5. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                            channel_dispose_state'[ch2] = "rejected"
+                     PROVE  channel_state'[ch2] = "none"
+          BY DEF RejectedChannelHasNoNativeHalf
+      <2>6. channel_state[ch2] = "none"
+          BY <2>1, <2>5 DEF RejectedChannelHasNoNativeHalf
+      <2>7. QED
+          BY <2>2, <2>3, <2>4, <2>6, SMT DEF L1!L0!ChannelStates
     <1>17. ChannelStateMatchesNative'
-        BY SMT DEF  ChannelStateMatchesNative, L1!ChannelFinishClosing,
-             L1!L0!ChannelFinishClosing, L1!IsClosingChannel,
-             L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!HasStatus,
-             L1!L0!StatusKinds, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, TokenPublishedBeforeStart,
-             ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      \* Same shape: only the closing channel's own native state moves, and
+      \* every clause that would forbid "closed" already forbids "closing".
+      <2>1. channel_dispose_state' = channel_dispose_state
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>2. channel_state[chId] = "closing"
+          BY DEF L1!ChannelFinishClosing, L1!IsClosingChannel
+      <2>3. channel_state' = [channel_state EXCEPT ![chId] = "closed"]
+          BY DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing
+      <2>4. channel_state \in [ChannelIds -> L1!L0!ChannelStates]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>5. SUFFICES ASSUME NEW ch2 \in ChannelIds
+                     PROVE  /\ channel_dispose_state'[ch2] \in
+                                   {"unopened", "constructing", "rejected"}
+                                => channel_state'[ch2] = "none"
+                            /\ channel_dispose_state'[ch2] = "active"
+                                => channel_state'[ch2] = "open"
+                            /\ channel_dispose_state'[ch2] = "disposing"
+                                => channel_state'[ch2] \in
+                                       {"open", "closing", "closed"}
+                            /\ channel_dispose_state'[ch2] \in
+                                   {"released", "released_last", "disposed"}
+                                => channel_state'[ch2] \in
+                                       {"closing", "closed"}
+          BY DEF ChannelStateMatchesNative
+      <2>6. /\ channel_dispose_state[ch2] \in
+                   {"unopened", "constructing", "rejected"}
+                => channel_state[ch2] = "none"
+            /\ channel_dispose_state[ch2] = "active"
+                => channel_state[ch2] = "open"
+            /\ channel_dispose_state[ch2] = "disposing"
+                => channel_state[ch2] \in {"open", "closing", "closed"}
+            /\ channel_dispose_state[ch2] \in
+                   {"released", "released_last", "disposed"}
+                => channel_state[ch2] \in {"closing", "closed"}
+          BY DEF ChannelStateMatchesNative
+      <2>7. QED
+          BY <2>1, <2>2, <2>3, <2>4, <2>6, SMT DEF L1!L0!ChannelStates
     <1>18. RuntimeStateMatchesNative'
         BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
@@ -9886,8 +9944,35 @@ LEMMA PassesChannelFinishClosing ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+      \* A settled call has its status, so it is not active, so the close
+      \* leaves it alone - which is why this conjunct carries the status.
+      <2>1. SUFFICES ASSUME NEW c2 \in CallIds,
+                            call_dispose_state'[c2] = "settled"
+                     PROVE  /\ L1!L0!HasStatus(c2)'
+                            /\ L1!HostOwnsNoPayload(c2)'
+                            /\ L1!HostHoldsNoBuffer(c2)'
+          BY DEF SettledCallOwesNothing
+      <2>2. call_dispose_state' = call_dispose_state
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>3. /\ L1!L0!HasStatus(c2)
+            /\ L1!HostOwnsNoPayload(c2)
+            /\ L1!HostHoldsNoBuffer(c2)
+          BY <2>1, <2>2 DEF SettledCallOwesNothing
+      <2>4. ~L1!L0!IsActiveCall(c2)
+          BY <2>3, SMT
+          DEF L1!IndInv, L1!FfiCallInv, L1!ActiveCallHasNoStatus,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
+      <2>5. /\ events_delivered'[c2] = events_delivered[c2]
+            /\ payloads_consumed_by_host' = payloads_consumed_by_host
+            /\ buffers_held_by_host' = buffers_held_by_host
+          BY <2>4, SMT
+          DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing,
+             L1!ffi_vars
+      <2>6. QED
+          BY <2>3, <2>5, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!HostOwnsNoPayload,
+             L1!HostHoldsNoBuffer, L1!OwedPayloads
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -10596,20 +10681,34 @@ LEMMA PassesDeliverInitialMetadata ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY SMT, MetadataMeansNoStatusYet DEF
-             ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata,
-             L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
-             L1!L0!IsUnusedCall, L1!L0!CallStates, L1!OwedPayloads,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, RingDrained,
-             L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries,
-             L1!NoDeliveryImpliesNoDebt, L1!HasNoDeliveredEvents,
-             SettledCallOwesNothing, L1!L0!HasStatus, L1!L0!StatusKinds,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-             L1!L0!StatusKinds, TokenPublishedBeforeStart, L1!TypeOK,
-             L1!L0!TypeOK, RingOccupancy, RingHead, RingTail, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      \* The delivery appends one event to this call and releases none, so
+      \* the ring grows and the tail stands still.
+      <2>1. SUFFICES ASSUME NEW c2 \in CallIds,
+                            reader_state'[c2] \in {"parsing",
+                                                   "parsing_cancelled"}
+                     PROVE  RingOccupancy(c2)' > 0
+          BY DEF ParsingReadOwnsItsSlot
+      <2>2. reader_state' = reader_state
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>3. RingOccupancy(c2) > 0
+          BY <2>1, <2>2 DEF ParsingReadOwnsItsSlot
+      <2>4. RingTail(c2)' = RingTail(c2)
+          BY SMT DEF RingTail, L1!DeliverInitialMetadata,
+             L1!HandPayloadToHost
+      <2>5. events_delivered' = [events_delivered EXCEPT
+                ![cId] = Append(events_delivered[cId], "INITIAL_METADATA")]
+          BY DEF L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata
+      <2>6. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>7. RingHead(c2)' >= RingHead(c2)
+          BY <2>5, <2>6, SMT DEF RingHead
+      <2>8. /\ RingHead(c2) \in Nat /\ RingTail(c2) \in Nat
+            /\ RingHead(c2)' \in Nat
+          BY <2>5, <2>6, SMT
+             DEF RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>9. QED
+          BY <2>3, <2>4, <2>7, <2>8, SMT
+             DEF RingOccupancy, RingHead, RingTail
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
@@ -10618,19 +10717,61 @@ LEMMA PassesDeliverInitialMetadata ==
     <1>7. TokenPublishedBeforeStart'
         BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
     <1>8. RootSurvivesCallbacks'
-        BY SMT, MetadataMeansNoStatusYet DEF  RootSurvivesCallbacks,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata,
-             L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
-             L1!L0!IsUnusedCall, L1!L0!CallStates, L1!OwedPayloads,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, RingDrained,
-             L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries,
-             L1!NoDeliveryImpliesNoDebt, L1!HasNoDeliveredEvents,
-             SettledCallOwesNothing, L1!L0!HasStatus, L1!L0!StatusKinds,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-             L1!L0!StatusKinds, TokenPublishedBeforeStart, L1!TypeOK,
-             L1!L0!TypeOK, RingOccupancy, RingHead, RingTail, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      \* The callback this starts belongs to a call that has no status yet,
+      \* and such a call still has its root - the clause this conjunct
+      \* gained for exactly this step.
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY MetadataMeansNoStatusYet
+      <2>2. call_token_published[cId] /\ call_root_live[cId]
+          BY <2>1 DEF TokenPublishedBeforeStart, RootSurvivesCallbacks
+      <2>3. UNCHANGED <<call_token_published, call_root_live>>
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>4. /\ write_done_callback_running' = write_done_callback_running
+            /\ delivery_callback_running' =
+                   [delivery_callback_running EXCEPT ![cId] = TRUE]
+            /\ events_delivered' = [events_delivered EXCEPT
+                   ![cId] = Append(events_delivered[cId],
+                                   "INITIAL_METADATA")]
+          BY DEF L1!DeliverInitialMetadata, L1!HandPayloadToHost,
+             L1!L0!DeliverInitialMetadata
+      <2>5. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      \* The event just appended is the metadata, so the call still has
+      \* no status, and the clause that keeps its root still applies.
+      <2>6. ~L1!L0!HasStatus(cId)'
+          BY <2>1, <2>4, <2>5, SMT
+             DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
+      \* One call at a time, and the only one the delivery touches is its
+      \* own: every other call keeps its events, so it keeps its status and
+      \* its clause.
+      <2>7. SUFFICES ASSUME NEW c2 \in CallIds
+                     PROVE  /\ (\/ delivery_callback_running'[c2]
+                                \/ write_done_callback_running'[c2])
+                                   => call_root_live'[c2]
+                            /\ (call_token_published'[c2]
+                                    /\ ~L1!L0!HasStatus(c2)')
+                                   => call_root_live'[c2]
+          BY DEF RootSurvivesCallbacks
+      <2>8. CASE c2 = cId
+          BY <2>2, <2>3, <2>4, <2>8, SMT
+      <2>9. CASE c2 # cId
+        <3>1. /\ events_delivered'[c2] = events_delivered[c2]
+              /\ delivery_callback_running'[c2]
+                     = delivery_callback_running[c2]
+              /\ write_done_callback_running'[c2]
+                     = write_done_callback_running[c2]
+          BY <2>4, <2>5, <2>9, SMT
+             DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        <3>2. /\ (\/ delivery_callback_running[c2]
+                  \/ write_done_callback_running[c2])
+                     => call_root_live[c2]
+              /\ (call_token_published[c2] /\ ~L1!L0!HasStatus(c2))
+                     => call_root_live[c2]
+          BY DEF RootSurvivesCallbacks
+        <3>3. QED
+          BY <2>3, <3>1, <3>2, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds
+      <2>10. QED BY <2>8, <2>9
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT, MetadataMeansNoStatusYet DEF
              RuntimeRootSurvivesCallbacks, TokenPublishedBeforeStart,
@@ -10693,20 +10834,39 @@ LEMMA PassesDeliverInitialMetadata ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT, MetadataMeansNoStatusYet DEF
-             SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads, RingDrained, RingHead, RingTail, StatusMeansTerminal, L1!L0!IsTerminalCall,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata,
-             L1!HandPayloadToHost, L1!HasFreeDeliverySlot,
-             L1!L0!IsUnusedCall, L1!L0!CallStates, L1!OwedPayloads,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, RingDrained,
-             L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries,
-             L1!NoDeliveryImpliesNoDebt, L1!HasNoDeliveredEvents,
-             SettledCallOwesNothing, L1!L0!HasStatus, L1!L0!StatusKinds,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-             L1!L0!StatusKinds, TokenPublishedBeforeStart, L1!TypeOK,
-             L1!L0!TypeOK, RingOccupancy, RingHead, RingTail, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      \* The call being delivered to has no status, so it is not settled,
+      \* and no other call moves.
+      <2>1. ~L1!L0!HasStatus(cId)
+          BY MetadataMeansNoStatusYet
+      <2>2. call_dispose_state[cId] # "settled"
+          BY <2>1 DEF SettledCallOwesNothing
+      <2>3. SUFFICES ASSUME NEW c2 \in CallIds,
+                            call_dispose_state'[c2] = "settled"
+                     PROVE  /\ L1!L0!HasStatus(c2)'
+                            /\ L1!HostOwnsNoPayload(c2)'
+                            /\ L1!HostHoldsNoBuffer(c2)'
+          BY DEF SettledCallOwesNothing
+      <2>4. call_dispose_state' = call_dispose_state
+          BY SMT DEF ManagedStutter, managed_vars
+      <2>5. c2 # cId
+          BY <2>2, <2>3, <2>4
+      <2>6. /\ L1!L0!HasStatus(c2)
+            /\ L1!HostOwnsNoPayload(c2)
+            /\ L1!HostHoldsNoBuffer(c2)
+          BY <2>3, <2>4 DEF SettledCallOwesNothing
+      <2>7. /\ events_delivered' = [events_delivered EXCEPT
+                   ![cId] = Append(events_delivered[cId],
+                                   "INITIAL_METADATA")]
+            /\ payloads_consumed_by_host' = payloads_consumed_by_host
+            /\ buffers_held_by_host' = buffers_held_by_host
+          BY DEF L1!DeliverInitialMetadata, L1!HandPayloadToHost,
+             L1!L0!DeliverInitialMetadata
+      <2>8. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>9. QED
+          BY <2>5, <2>6, <2>7, <2>8, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!HostOwnsNoPayload,
+             L1!HostHoldsNoBuffer, L1!OwedPayloads
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
