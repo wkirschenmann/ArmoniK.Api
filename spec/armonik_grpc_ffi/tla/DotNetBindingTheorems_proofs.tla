@@ -20216,4 +20216,280 @@ THEOREM InheritedChannelClosed == Spec => L1!EventualChannelClosed
 
 THEOREM InheritedBudgetHasRoom == Spec => L1!BudgetEventuallyHasRoomFor
     BY InheritedLiveness DEF L1!LivenessProperties
+
+(***************************************************************************)
+(* THE MANAGED CHAINS                                                      *)
+(*                                                                         *)
+(* The edges that earned level 1's consumption assumed a standing debt,     *)
+(* because that debt was the enabledness of the family being earned.  The   *)
+(* level's own liveness has no such hypothesis - so the debt has to come    *)
+(* from the state, and for a reader holding a slot it does: the invariant    *)
+(* says a parse owns its slot, and owning a slot IS owing a payload.        *)
+(***************************************************************************)
+
+LEMMA ParsingOwesAPayload ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           reader_state[cId] \in {"parsing", "parsing_cancelled"}
+    PROVE  PayloadOwed(cId)
+    BY SMT DEF ManagedIndInv, ManagedMachineInv, ReaderInv,
+       ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, ManagedTypeOK,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
+\* The same three enabledness facts, with the debt read off the state.
+LEMMA ParseReturnIsEnabledInState ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           reader_state[cId] = "parsing", ReadCancellationSettled(cId)
+    PROVE  ENABLED <<FinishConsumePayload(cId)>>_vars
+<1>1. PayloadOwed(cId)
+    BY ParsingOwesAPayload
+<1>2. QED
+    BY <1>1, ExpandENABLED, SMT
+    DEF FinishConsumePayload, ReadCancellationSettled, PayloadOwed,
+       ConsumingTerminal, RingHead, RingTail, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, L1!L0!HasStatus,
+       ManagedIndInv, ManagedTypeOK, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+
+LEMMA ParseCancellationIsEnabledInState ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, LiveCallHasLiveChannel,
+           reader_state[cId] = "parsing", read_cancel_pending[cId],
+           ~(call_dispose_state[cId] # "active")
+    PROVE  ENABLED <<CancelParsingRead(cId)>>_vars
+<1>1. PayloadOwed(cId)
+    BY ParsingOwesAPayload
+<1>2. QED
+    BY <1>1, ParseCancellationIsEnabled
+
+LEMMA CancelledParseIsEnabledInState ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           reader_state[cId] = "parsing_cancelled"
+    PROVE  ENABLED <<FinishCancelledParse(cId)>>_vars
+<1>1. PayloadOwed(cId)
+    BY ParsingOwesAPayload
+<1>2. QED
+    BY <1>1, ExpandENABLED, SMT
+    DEF FinishCancelledParse, PayloadOwed, ConsumingTerminal, RingHead,
+       RingTail, L1!HostConsumesEvent, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, L1!L0!HasStatus, ManagedIndInv, ManagedTypeOK,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+
+\* A cancelled parse returns, and its reader is done with the slot.
+LEMMA CancelledParseReleasesTheSlot ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<FinishCancelledParse(cId)>>_vars
+    PROVE  (reader_state[cId] \in {"idle", "finished"})'
+    BY SMT DEF FinishCancelledParse, ConsumingTerminal, RingHead, RingTail,
+       ManagedTypeOK, vars, l1_vars, managed_vars
+
+LEMMA ParseReturnReleasesTheSlot ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<FinishConsumePayload(cId)>>_vars
+    PROVE  (reader_state[cId] \in {"idle", "finished"})'
+    BY SMT DEF FinishConsumePayload, ReadCancellationSettled,
+       ConsumingTerminal, RingHead, RingTail, ManagedTypeOK, vars, l1_vars,
+       managed_vars
+
+\* The premise of the edge wants the debt in its antecedent; the state
+\* supplies it, so the two are merged into one implication before PTL sees
+\* either - a conjunction is one atom to it, not a list of facts.
+LEMMA CancelledParseHoldsInState ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           reader_state[cId] = "parsing_cancelled", [Next]_vars
+    PROVE  \/ (reader_state[cId] = "parsing_cancelled")'
+           \/ <<FinishCancelledParse(cId)>>_vars
+<1>1. PayloadOwed(cId)
+    BY ParsingOwesAPayload
+<1>2. QED
+    BY <1>1, CancelledParseHoldsUntilItReturns
+
+\* A cancelled parse ends: nothing but its own return moves that state, and
+\* the return is enabled throughout.
+THEOREM CancelledParseAlwaysEnds ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(FinishCancelledParse(cId))
+           /\ reader_state[cId] = "parsing_cancelled"
+           => <>(reader_state[cId] \in {"idle", "finished"})
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(FinishCancelledParse(cId)),
+             reader_state[cId] = "parsing_cancelled"
+      PROVE  <>(reader_state[cId] \in {"idle", "finished"})
+  <2>1. []ManagedTypeOK
+    BY <1>1, PTL DEF ManagedIndInv
+  <2>2. [](ManagedIndInv /\ reader_state[cId] = "parsing_cancelled"
+               => ENABLED <<FinishCancelledParse(cId)>>_vars)
+    BY CancelledParseIsEnabledInState, PTL
+  <2>3. [](ManagedTypeOK /\ <<FinishCancelledParse(cId)>>_vars
+               => (reader_state[cId] \in {"idle", "finished"})')
+    BY CancelledParseReleasesTheSlot, PTL
+  <2>4. [](ManagedIndInv /\ reader_state[cId] = "parsing_cancelled"
+               /\ [Next]_vars
+               => \/ (reader_state[cId] = "parsing_cancelled")'
+                  \/ <<FinishCancelledParse(cId)>>_vars)
+    BY CancelledParseHoldsInState, PTL
+  <2>5. QED BY <1>1, <2>1, <2>2, <2>3, <2>4, PTL
+<1>2. QED BY <1>1, PTL
+
+
+LEMMA ParsingHoldsInState ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           reader_state[cId] = "parsing", [Next]_vars
+    PROVE  \/ (reader_state[cId] = "parsing")'
+           \/ <<FinishConsumePayload(cId)>>_vars
+           \/ <<CancelParsingRead(cId)>>_vars
+<1>1. PayloadOwed(cId)
+    BY ParsingOwesAPayload
+<1>2. QED
+    BY <1>1, ParsingHoldsUntilItEnds
+
+LEMMA RequestHoldsInState ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, read_cancel_pending[cId],
+           reader_state[cId] = "parsing", [Next]_vars
+    PROVE  \/ (read_cancel_pending[cId])'
+           \/ <<FinishConsumePayload(cId)>>_vars
+           \/ <<CancelParsingRead(cId)>>_vars
+    BY RequestHoldsUntilTheParseEnds
+
+\* A parse ends, whatever the application's token does.  Same three
+\* branches as the edge that earned the consumption - a request is never
+\* withdrawn, a call never becomes active again - but the debt is read off
+\* the slot the parse holds instead of assumed.
+THEOREM ParsingAlwaysEnds ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []LiveCallHasLiveChannel
+           /\ [][Next]_vars
+           /\ WF_vars(FinishConsumePayload(cId))
+           /\ WF_vars(CancelParsingRead(cId))
+           /\ WF_vars(FinishCancelledParse(cId))
+           /\ reader_state[cId] = "parsing"
+           => <>(reader_state[cId] \in {"idle", "finished"})
+<1>1. ASSUME []ManagedIndInv, []LiveCallHasLiveChannel, [][Next]_vars,
+             WF_vars(FinishConsumePayload(cId)),
+             WF_vars(CancelParsingRead(cId)),
+             WF_vars(FinishCancelledParse(cId)),
+             reader_state[cId] = "parsing"
+      PROVE  <>(reader_state[cId] \in {"idle", "finished"})
+  <2>1. []ManagedTypeOK
+    BY <1>1, PTL DEF ManagedIndInv
+  <2>2. [](ManagedIndInv /\ reader_state[cId] = "parsing"
+               /\ ReadCancellationSettled(cId)
+               => ENABLED <<FinishConsumePayload(cId)>>_vars)
+    BY ParseReturnIsEnabledInState, PTL
+  <2>3. [](ManagedIndInv /\ LiveCallHasLiveChannel
+               /\ reader_state[cId] = "parsing"
+               /\ read_cancel_pending[cId]
+               /\ ~(call_dispose_state[cId] # "active")
+               => ENABLED <<CancelParsingRead(cId)>>_vars)
+    BY ParseCancellationIsEnabledInState, PTL
+  <2>4. [](ManagedTypeOK /\ <<FinishConsumePayload(cId)>>_vars
+               => (reader_state[cId] \in {"idle", "finished"})')
+    BY ParseReturnReleasesTheSlot, PTL
+  <2>5. [](ManagedTypeOK /\ <<CancelParsingRead(cId)>>_vars
+               => (reader_state[cId] = "parsing_cancelled")')
+    BY CancelledParseFollowsTheRequest, PTL
+  <2>6. [](\/ ReadCancellationSettled(cId)
+           \/ /\ read_cancel_pending[cId]
+              /\ call_dispose_state[cId] = "active")
+    BY ParseHasAnExit, PTL
+  <2>7. [](ManagedIndInv /\ reader_state[cId] = "parsing" /\ [Next]_vars
+               => \/ (reader_state[cId] = "parsing")'
+                  \/ <<FinishConsumePayload(cId)>>_vars
+                  \/ <<CancelParsingRead(cId)>>_vars)
+    BY ParsingHoldsInState, PTL
+  <2>8. [](ManagedIndInv /\ read_cancel_pending[cId]
+               /\ reader_state[cId] = "parsing" /\ [Next]_vars
+               => \/ (read_cancel_pending[cId])'
+                  \/ <<FinishConsumePayload(cId)>>_vars
+                  \/ <<CancelParsingRead(cId)>>_vars)
+    BY RequestHoldsInState, PTL
+  <2>9. [](ManagedIndInv /\ reader_state[cId] = "parsing_cancelled"
+               => <>(reader_state[cId] \in {"idle", "finished"}))
+    BY <1>1, CancelledParseAlwaysEnds, PTL
+  \* One exit or the other fires, and each lands where the goal is: the
+  \* return releases the slot, the reaction hands it to a cancelled parse
+  \* that releases it in turn.
+  <2>10. SUFFICES ASSUME [](~<<FinishConsumePayload(cId)>>_vars),
+                        [](~<<CancelParsingRead(cId)>>_vars)
+                 PROVE  FALSE
+    BY <1>1, <2>1, <2>4, <2>5, <2>9, PTL
+  <2>11. [](reader_state[cId] = "parsing")
+    BY <1>1, <2>7, <2>10, PTL
+  <2>12. CASE [](~read_cancel_pending[cId])
+    BY <1>1, <2>2, <2>10, <2>11, <2>12, PTL DEF ReadCancellationSettled
+  <2>13. CASE <>read_cancel_pending[cId]
+    <3>1. <>[](read_cancel_pending[cId])
+      BY <1>1, <2>8, <2>10, <2>11, <2>13, PTL
+    <3>2. CASE <>(call_dispose_state[cId] # "active")
+      <4>1. <>[](call_dispose_state[cId] # "active")
+        BY <1>1, <3>2, DisposeNeverReturnsToActive, PTL
+      <4>2. QED
+        BY <1>1, <2>2, <2>10, <2>11, <4>1, PTL
+               DEF ReadCancellationSettled
+    <3>3. CASE []~(call_dispose_state[cId] # "active")
+      <4>1. <>[](ManagedIndInv /\ LiveCallHasLiveChannel
+                 /\ reader_state[cId] = "parsing"
+                 /\ read_cancel_pending[cId]
+                 /\ ~(call_dispose_state[cId] # "active"))
+        BY <1>1, <2>11, <3>1, <3>3, PTL
+      <4>2. <>[](ENABLED <<CancelParsingRead(cId)>>_vars)
+        BY <2>3, <4>1, PTL
+      <4>3. QED BY <1>1, <2>10, <4>2, PTL
+    <3>4. QED BY <3>2, <3>3, PTL
+  <2>14. QED BY <2>12, <2>13, PTL
+<1>2. QED BY <1>1, PTL
+
+\* The goal names a membership and the two edges name equalities: to ls4
+\* those are three unrelated atoms.  A standalone lemma, because under an
+\* unboxed hypothesis PTL will not necessitate a sibling step.
+LEMMA ReaderInFlightSplits ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [](reader_state[cId] \in {"parsing", "parsing_cancelled"}
+                  => \/ reader_state[cId] = "parsing"
+                     \/ reader_state[cId] = "parsing_cancelled")
+<1>1. reader_state[cId] \in {"parsing", "parsing_cancelled"}
+          => \/ reader_state[cId] = "parsing"
+             \/ reader_state[cId] = "parsing_cancelled"
+    BY SMT
+<1>2. QED BY <1>1, PTL
+
+\* And so a slot in flight comes back, which is the level's own promise
+\* about the payload the application is holding.
+THEOREM InFlightPayloadEventuallyReleasedHolds ==
+    Spec => InFlightPayloadEventuallyReleased
+<1>0. SUFFICES ASSUME Spec, NEW cId \in CallIds
+               PROVE  reader_state[cId] \in {"parsing", "parsing_cancelled"}
+                          ~> reader_state[cId] \in {"idle", "finished"}
+    BY DEF InFlightPayloadEventuallyReleased
+<1>1. /\ []ManagedIndInv
+      /\ []LiveCallHasLiveChannel
+      /\ [][Next]_vars
+    BY <1>0, ManagedIndInvHolds, DerivedInvariantsHold, PTL DEF Spec
+<1>2. /\ WF_vars(FinishConsumePayload(cId))
+      /\ WF_vars(FinishCancelledParse(cId))
+    BY <1>0, Isa DEF Spec, Fairness, ApplicationOwedFairness
+<1>3. WF_vars(CancelParsingRead(cId))
+    BY <1>0, Isa DEF Spec, Fairness, BindingOwedFairness
+<1>4. [](reader_state[cId] = "parsing"
+             => <>(reader_state[cId] \in {"idle", "finished"}))
+    BY <1>1, <1>2, <1>3, ParsingAlwaysEnds, PTL
+<1>5. [](reader_state[cId] = "parsing_cancelled"
+             => <>(reader_state[cId] \in {"idle", "finished"}))
+    <2>1. /\ []ManagedIndInv
+          /\ [][Next]_vars
+          /\ WF_vars(FinishCancelledParse(cId))
+        BY <1>1, <1>2, PTL
+    <2>2. QED BY <2>1, CancelledParseAlwaysEnds, PTL
+\* The goal names a membership, the two edges name equalities: to ls4
+\* those are three unrelated atoms, so the bridge is spelled out.
+<1>6. [](reader_state[cId] \in {"parsing", "parsing_cancelled"}
+             => \/ reader_state[cId] = "parsing"
+                \/ reader_state[cId] = "parsing_cancelled")
+    BY ReaderInFlightSplits
+<1>7. QED BY <1>4, <1>5, <1>6, PTL
 ===============================================================================
