@@ -95,6 +95,7 @@ ManagedGlue ==
     /\ PrologueReaderOnlyWaits
     /\ PastPrologueHeadersAnswered
     /\ StatusMeansTerminal
+    /\ LiveCallHasLiveChannel
 
 ManagedIndInv ==
     /\ L1!IndInv

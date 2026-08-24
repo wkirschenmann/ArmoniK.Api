@@ -1343,7 +1343,8 @@ TeardownLeavesCallsSettled ==
 CancelledParseHasNoPendingRequest ==
     \A cId \in CallIds :
         reader_state[cId] = "parsing_cancelled" =>
-            ~read_cancel_pending[cId]
+            /\ ~read_cancel_pending[cId]
+            /\ call_dispose_state[cId] # "active"
 
 \* In the prologue the reader has taken nothing yet: a parse begins only
 \* in the application phase, so the only occupant of the ring - the
@@ -1394,7 +1395,8 @@ LiveCallHasLiveChannel ==
 \* without re-walking the history of how the call got there.
 PastPrologueHeadersAnswered ==
     \A cId \in CallIds :
-        consumer_phase[cId] \in {"application", "drain", "done"} =>
+        (\/ consumer_phase[cId] \in {"application", "drain", "done"}
+         \/ call_dispose_state[cId] # "active") =>
             headers_completion[cId] # "pending"
 
 \* A status and the terminal state are the same fact, failure or not: the
