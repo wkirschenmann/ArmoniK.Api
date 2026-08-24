@@ -2303,8 +2303,7 @@ LEMMA FinishedDrainedPreserved ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 <1>5. QED BY <1>3, <1>4
 
-(***************************************************************************)
-(* THE CONSUMPTION IS REACHED - one edge per fair action                   *)
+(* THE FIRST TWO EDGES - the drain, and the cancelled parse                *)
 (*                                                                         *)
 (* Under a standing debt the consumer's state moves, by this level's own    *)
 (* steps or by the application's one obligation, until a carrier fires.     *)
@@ -5255,6 +5254,3370 @@ THEOREM ParsingEventuallyEnds ==
     <3>3. QED BY <3>1, <3>2, PTL
   <2>9. QED BY <1>1, <2>1, <2>4, <2>5, <2>7, <2>8, PTL
 <1>2. QED BY <1>1, PTL
+
+(***************************************************************************)
+(* THE FIVE TRAVERSAL EDGES, AND THE CHAIN                                 *)
+(*                                                                         *)
+(* The states that do not release on their own: the prologue, a waiting or  *)
+(* idle reader, and a call whose drain has not taken the ring yet.  Each    *)
+(* moves by one fair step, and none of those steps is a downcall, so their  *)
+(* enabledness needs no more than the consumer's own state and the debt.    *)
+(***************************************************************************)
+
+LEMMA PrologueHoldsUntilItIsAnswered ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
+           consumer_phase[cId] = "prologue",
+           ~(call_dispose_state[cId] # "active"), [Next]_vars
+    PROVE  \/ /\ (consumer_phase[cId] = "prologue")'
+              /\ (~(call_dispose_state[cId] # "active"))'
+           \/ (call_dispose_state[cId] # "active")'
+           \/ <<ConsumeHeader(cId)>>_vars
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+       FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
+       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
+       L1!L0!RuntimeFail, L1!ChannelStartClosing,
+       L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+       ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
+       L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
+       L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+       RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+       ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \/ /\ (consumer_phase[cId] = "prologue")'
+                           /\ (~(call_dispose_state[cId] # "active"))'
+                        \/ (call_dispose_state[cId] # "active")'
+                        \/ <<ConsumeHeader(cId)>>_vars
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!L0!HasStatus,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ReadInFlight, ManagedIndInv, ManagedTypeOK,
+           ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ConsumeHeader, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ConsumeHeader, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ConsumeHeader, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingHead, RingTail, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ConsumeHeader, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ConsumeHeader, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA WaitingHoldsUntilItIsRetracted ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
+           reader_state[cId] = "waiting",
+           call_dispose_state[cId] # "active", [Next]_vars
+    PROVE  \/ /\ (reader_state[cId] = "waiting")'
+              /\ (call_dispose_state[cId] # "active")'
+           \/ <<CancelWaiter(cId)>>_vars
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+       FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
+       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
+       L1!L0!RuntimeFail, L1!ChannelStartClosing,
+       L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+       ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
+       L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
+       L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+       RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+       ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \/ /\ (reader_state[cId] = "waiting")'
+                           /\ (call_dispose_state[cId] # "active")'
+                        \/ <<CancelWaiter(cId)>>_vars
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!L0!HasStatus,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ReadInFlight, ManagedIndInv, ManagedTypeOK,
+           ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingHead, RingTail, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA DrainingHoldsUntilTheHandoff ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
+           consumer_phase[cId] \in {"prologue", "application"},
+           reader_state[cId] \in {"idle", "finished"},
+           call_dispose_state[cId] = "draining", [Next]_vars
+    PROVE  \/ /\ (consumer_phase[cId] \in {"prologue", "application"})'
+              /\ (reader_state[cId] \in {"idle", "finished"})'
+              /\ (call_dispose_state[cId] = "draining")'
+           \/ <<HandoffToDrain(cId)>>_vars
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+       FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
+       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
+       L1!L0!RuntimeFail, L1!ChannelStartClosing,
+       L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+       ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
+       L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
+       L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+       RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+       ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \/ /\ (consumer_phase[cId] \in {"prologue", "application"})'
+                           /\ (reader_state[cId] \in {"idle", "finished"})'
+                           /\ (call_dispose_state[cId] = "draining")'
+                        \/ <<HandoffToDrain(cId)>>_vars
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!L0!HasStatus,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ReadInFlight, ManagedIndInv, ManagedTypeOK,
+           ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingHead, RingTail, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
+           ReadInFlight, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA WaitingHoldsUntilTheParseBegins ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
+           consumer_phase[cId] = "application",
+           reader_state[cId] = "waiting",
+           ~(call_dispose_state[cId] # "active"), [Next]_vars
+    PROVE  \/ /\ (consumer_phase[cId] = "application")'
+              /\ (reader_state[cId] = "waiting")'
+              /\ (~(call_dispose_state[cId] # "active"))'
+           \/ (call_dispose_state[cId] # "active")'
+           \/ <<BeginParseEvent(cId)>>_vars
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+       FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
+       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
+       L1!L0!RuntimeFail, L1!ChannelStartClosing,
+       L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+       ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
+       L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
+       L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+       RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \/ /\ (consumer_phase[cId] = "application")'
+                           /\ (reader_state[cId] = "waiting")'
+                           /\ (~(call_dispose_state[cId] # "active"))'
+                        \/ (call_dispose_state[cId] # "active")'
+                        \/ <<BeginParseEvent(cId)>>_vars
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!L0!HasStatus,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ManagedIndInv, ManagedTypeOK,
+           ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingHead, RingTail, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA IdleHoldsUntilTheStreamIsRead ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
+           consumer_phase[cId] = "application",
+           reader_state[cId] = "idle",
+           ~(call_dispose_state[cId] # "active"), [Next]_vars
+    PROVE  \/ /\ (consumer_phase[cId] = "application")'
+              /\ (reader_state[cId] = "idle")'
+              /\ (~(call_dispose_state[cId] # "active"))'
+           \/ (call_dispose_state[cId] # "active")'
+           \/ <<BeginMoveNext(cId)>>_vars
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+       FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
+       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
+       L1!L0!RuntimeFail, L1!ChannelStartClosing,
+       L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+       ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
+       L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
+       L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+       RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \/ /\ (consumer_phase[cId] = "application")'
+                           /\ (reader_state[cId] = "idle")'
+                           /\ (~(call_dispose_state[cId] # "active"))'
+                        \/ (call_dispose_state[cId] # "active")'
+                        \/ <<BeginMoveNext(cId)>>_vars
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginDisposeCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!L0!HasStatus,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ManagedIndInv, ManagedTypeOK,
+           ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingHead, RingTail, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, L1!L0!IsActiveCall,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
+           RingHead, RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!L0!HasStatus, PayloadOwed, L1!HostOwnsSomePayload,
+           L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+           ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+           ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+           LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+           PrologueReaderOnlyWaits, SettledCallOwesNothing,
+           TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+           L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!L0!HasStatus, PayloadOwed,
+           L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+           RingTail, RingOccupancy, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+           ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+           ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+           SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+           L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!L0!IsActiveCall, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
+       ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext, BeginDisposeCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+(* Enabledness of the five steps the traversal needs.  None of them is a
+   downcall, so none inherits a level-1 guard: what each wants is its own
+   consumer state, plus the debt for the two that read the ring. *)
+
+LEMMA HeaderIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           PrologueHasReleasedNothing, PayloadOwed(cId),
+           consumer_phase[cId] = "prologue",
+           ~(call_dispose_state[cId] # "active")
+    PROVE  ENABLED <<ConsumeHeader(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF ConsumeHeader, PrologueHasReleasedNothing, PayloadOwed, RingTail,
+       RingHead, L1!HostConsumesEvent, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, vars,
+       l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+
+LEMMA WaiterCancellationIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           reader_state[cId] = "waiting",
+           call_dispose_state[cId] # "active"
+    PROVE  ENABLED <<CancelWaiter(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF CancelWaiter, ManagedTypeOK, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+
+LEMMA HandoffIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           consumer_phase[cId] \in {"prologue", "application"},
+           reader_state[cId] \in {"idle", "finished"},
+           call_dispose_state[cId] = "draining"
+    PROVE  ENABLED <<HandoffToDrain(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF HandoffToDrain, ManagedTypeOK, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+
+LEMMA ParseStartIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK, PayloadOwed(cId),
+           consumer_phase[cId] = "application",
+           reader_state[cId] = "waiting",
+           ~(call_dispose_state[cId] # "active")
+    PROVE  ENABLED <<BeginParseEvent(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF BeginParseEvent, PayloadOwed, RingOccupancy, RingHead, RingTail,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, ManagedTypeOK, L1!TypeOK,
+       L1!L0!TypeOK, vars, l1_vars, managed_vars, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars
+
+LEMMA ReadStartIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, ManagedIndInv, L1!IndInv,
+           PayloadOwed(cId), consumer_phase[cId] = "application",
+           reader_state[cId] = "idle",
+           ~(call_dispose_state[cId] # "active")
+    PROVE  ENABLED <<BeginMoveNext(cId)>>_vars
+<1>1. ~L1!L0!IsUnusedCall(cId)
+    BY OwedCallIsUsed
+<1>2. call_token_published[cId]
+    BY <1>1 DEF ManagedIndInv, ManagedMachineInv, LifecycleInv,
+       TokenPublishedBeforeStart
+<1>3. QED
+    BY <1>2, ExpandENABLED, SMT
+    DEF BeginMoveNext, ManagedTypeOK, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+
+(* What each step leaves behind, so the traversal can name where it lands. *)
+
+LEMMA CancelledWaiterGoesIdle ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<CancelWaiter(cId)>>_vars
+    PROVE  (reader_state[cId] = "idle")'
+    BY SMT DEF CancelWaiter, ManagedTypeOK, vars, l1_vars, managed_vars
+
+LEMMA HandoffReachesTheDrain ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<HandoffToDrain(cId)>>_vars
+    PROVE  (consumer_phase[cId] = "drain")'
+    BY SMT DEF HandoffToDrain, ManagedTypeOK, vars, l1_vars, managed_vars
+
+LEMMA ParseStartReachesTheParse ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<BeginParseEvent(cId)>>_vars
+    PROVE  (reader_state[cId] = "parsing")'
+    BY SMT DEF BeginParseEvent, ManagedTypeOK, vars, l1_vars, managed_vars
+
+LEMMA ReadStartWaits ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<BeginMoveNext(cId)>>_vars
+    PROVE  (reader_state[cId] = "waiting")'
+    BY SMT DEF BeginMoveNext, ManagedTypeOK, vars, l1_vars, managed_vars
+
+(* The five traversal edges.  Each has the same shape: the state holds
+   until its action fires or the call leaves "active", the action is
+   enabled while it holds, and weak fairness turns the two into a step
+   whose effect names where the traversal lands. *)
+
+THEOREM PrologueEventuallyAnswers ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []PrologueHasReleasedNothing
+           /\ [][Next]_vars
+           /\ WF_vars(ConsumeHeader(cId))
+           /\ []PayloadOwed(cId)
+           /\ consumer_phase[cId] = "prologue"
+           /\ ~(call_dispose_state[cId] # "active")
+           => \/ <><<L1!HostConsumesEvent(cId)>>_l1_vars
+              \/ <>(call_dispose_state[cId] # "active")
+<1>1. ASSUME []ManagedIndInv, []PrologueHasReleasedNothing, [][Next]_vars,
+             WF_vars(ConsumeHeader(cId)), []PayloadOwed(cId),
+             consumer_phase[cId] = "prologue",
+             ~(call_dispose_state[cId] # "active")
+      PROVE  \/ <><<L1!HostConsumesEvent(cId)>>_l1_vars
+             \/ <>(call_dispose_state[cId] # "active")
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. [](ManagedTypeOK /\ L1!TypeOK /\ PrologueHasReleasedNothing
+               /\ PayloadOwed(cId)
+               /\ consumer_phase[cId] = "prologue"
+               /\ ~(call_dispose_state[cId] # "active")
+               => ENABLED <<ConsumeHeader(cId)>>_vars)
+    BY HeaderIsEnabled, PTL
+  <2>3. [](L1!TypeOK /\ <<ConsumeHeader(cId)>>_vars
+               => <<L1!HostConsumesEvent(cId)>>_l1_vars)
+    BY HeaderConsumes, PTL
+  <2>4. QED
+    BY <1>1, <2>1, <2>2, <2>3, PrologueHoldsUntilItIsAnswered, PTL
+<1>2. QED BY <1>1, PTL
+
+THEOREM WaitingReaderEventuallyRetracted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(CancelWaiter(cId))
+           /\ []PayloadOwed(cId)
+           /\ reader_state[cId] = "waiting"
+           /\ call_dispose_state[cId] # "active"
+           => <>(reader_state[cId] = "idle")
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars, WF_vars(CancelWaiter(cId)),
+             []PayloadOwed(cId), reader_state[cId] = "waiting",
+             call_dispose_state[cId] # "active"
+      PROVE  <>(reader_state[cId] = "idle")
+  <2>1. []ManagedTypeOK
+    BY <1>1, PTL DEF ManagedIndInv
+  <2>2. [](ManagedTypeOK /\ reader_state[cId] = "waiting"
+               /\ call_dispose_state[cId] # "active"
+               => ENABLED <<CancelWaiter(cId)>>_vars)
+    BY WaiterCancellationIsEnabled, PTL
+  <2>3. [](ManagedTypeOK /\ <<CancelWaiter(cId)>>_vars
+               => (reader_state[cId] = "idle")')
+    BY CancelledWaiterGoesIdle, PTL
+  <2>4. QED
+    BY <1>1, <2>1, <2>2, <2>3, WaitingHoldsUntilItIsRetracted, PTL
+<1>2. QED BY <1>1, PTL
+
+THEOREM DrainingEventuallyTakesTheRing ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(HandoffToDrain(cId))
+           /\ []PayloadOwed(cId)
+           /\ consumer_phase[cId] \in {"prologue", "application"}
+           /\ reader_state[cId] \in {"idle", "finished"}
+           /\ call_dispose_state[cId] = "draining"
+           => <>(consumer_phase[cId] = "drain")
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars, WF_vars(HandoffToDrain(cId)),
+             []PayloadOwed(cId),
+             consumer_phase[cId] \in {"prologue", "application"},
+             reader_state[cId] \in {"idle", "finished"},
+             call_dispose_state[cId] = "draining"
+      PROVE  <>(consumer_phase[cId] = "drain")
+  <2>1. []ManagedTypeOK
+    BY <1>1, PTL DEF ManagedIndInv
+  <2>2. [](ManagedTypeOK
+               /\ consumer_phase[cId] \in {"prologue", "application"}
+               /\ reader_state[cId] \in {"idle", "finished"}
+               /\ call_dispose_state[cId] = "draining"
+               => ENABLED <<HandoffToDrain(cId)>>_vars)
+    BY HandoffIsEnabled, PTL
+  <2>3. [](ManagedTypeOK /\ <<HandoffToDrain(cId)>>_vars
+               => (consumer_phase[cId] = "drain")')
+    BY HandoffReachesTheDrain, PTL
+  <2>4. QED
+    BY <1>1, <2>1, <2>2, <2>3, DrainingHoldsUntilTheHandoff, PTL
+<1>2. QED BY <1>1, PTL
+
+THEOREM WaitingReaderEventuallyParses ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(BeginParseEvent(cId))
+           /\ []PayloadOwed(cId)
+           /\ consumer_phase[cId] = "application"
+           /\ reader_state[cId] = "waiting"
+           /\ ~(call_dispose_state[cId] # "active")
+           => \/ <>(reader_state[cId] = "parsing")
+              \/ <>(call_dispose_state[cId] # "active")
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars,
+             WF_vars(BeginParseEvent(cId)), []PayloadOwed(cId),
+             consumer_phase[cId] = "application",
+             reader_state[cId] = "waiting",
+             ~(call_dispose_state[cId] # "active")
+      PROVE  \/ <>(reader_state[cId] = "parsing")
+             \/ <>(call_dispose_state[cId] # "active")
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. [](ManagedTypeOK /\ L1!TypeOK /\ PayloadOwed(cId)
+               /\ consumer_phase[cId] = "application"
+               /\ reader_state[cId] = "waiting"
+               /\ ~(call_dispose_state[cId] # "active")
+               => ENABLED <<BeginParseEvent(cId)>>_vars)
+    BY ParseStartIsEnabled, PTL
+  <2>3. [](ManagedTypeOK /\ <<BeginParseEvent(cId)>>_vars
+               => (reader_state[cId] = "parsing")')
+    BY ParseStartReachesTheParse, PTL
+  <2>4. QED
+    BY <1>1, <2>1, <2>2, <2>3, WaitingHoldsUntilTheParseBegins, PTL
+<1>2. QED BY <1>1, PTL
+
+THEOREM IdleReaderEventuallyReads ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ [][Next]_vars
+           /\ WF_vars(BeginMoveNext(cId))
+           /\ []PayloadOwed(cId)
+           /\ consumer_phase[cId] = "application"
+           /\ reader_state[cId] = "idle"
+           /\ ~(call_dispose_state[cId] # "active")
+           => \/ <>(reader_state[cId] = "waiting")
+              \/ <>(call_dispose_state[cId] # "active")
+<1>1. ASSUME []ManagedIndInv, [][Next]_vars, WF_vars(BeginMoveNext(cId)),
+             []PayloadOwed(cId),
+             consumer_phase[cId] = "application",
+             reader_state[cId] = "idle",
+             ~(call_dispose_state[cId] # "active")
+      PROVE  \/ <>(reader_state[cId] = "waiting")
+             \/ <>(call_dispose_state[cId] # "active")
+  <2>1. []ManagedTypeOK /\ []L1!IndInv
+    BY <1>1, PTL DEF ManagedIndInv
+  <2>2. [](ManagedTypeOK /\ ManagedIndInv /\ L1!IndInv /\ PayloadOwed(cId)
+               /\ consumer_phase[cId] = "application"
+               /\ reader_state[cId] = "idle"
+               /\ ~(call_dispose_state[cId] # "active")
+               => ENABLED <<BeginMoveNext(cId)>>_vars)
+    BY ReadStartIsEnabled, PTL
+  <2>3. [](ManagedTypeOK /\ <<BeginMoveNext(cId)>>_vars
+               => (reader_state[cId] = "waiting")')
+    BY ReadStartWaits, PTL
+  <2>4. QED
+    BY <1>1, <2>1, <2>2, <2>3, IdleHoldsUntilTheStreamIsRead, PTL
+<1>2. QED BY <1>1, PTL
+
+(* What a standing debt rules out, so the traversal has only the states it
+   can move: a finished reader has drained the ring, a settled call owes
+   nothing, and a call that has left "active" is draining rather than
+   settled. *)
+
+LEMMA OwedRulesOutFinished ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           FinishedReaderDrainedTheRing, PayloadOwed(cId)
+    PROVE  reader_state[cId] \in {"idle", "waiting", "parsing",
+                                 "parsing_cancelled"}
+    BY SMT DEF PayloadOwed, FinishedReaderDrainedTheRing, RingDrained,
+       RingHead, RingTail, L1!HostOwnsSomePayload, L1!OwedPayloads,
+       ManagedIndInv, ManagedTypeOK, ReaderStates, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK
+
+LEMMA OwedMeansDrainingOrActive ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId)
+    PROVE  /\ consumer_phase[cId] \in {"prologue", "application", "drain"}
+           /\ (call_dispose_state[cId] # "active" =>
+                   call_dispose_state[cId] = "draining")
+    BY SMT DEF PayloadOwed, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, ReaderInv, LifecycleInv,
+       ConsumerPhaseMatchesDispose, SettledCallOwesNothing,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, L1!HostOwnsNoPayload,
+       RingDrained, RingHead, RingTail, ConsumerPhases, CallDisposeStates,
+       L1!TypeOK, L1!L0!TypeOK
+
+LEMMA DrainPhaseIsNotActive ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           consumer_phase[cId] = "drain"
+    PROVE  call_dispose_state[cId] = "draining"
+    BY SMT DEF ManagedIndInv, ManagedMachineInv, ReaderInv,
+       ConsumerPhaseMatchesDispose, ManagedTypeOK
+
+LEMMA ConsumerShapeInAtoms ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           FinishedReaderDrainedTheRing, PayloadOwed(cId)
+    PROVE  /\ \/ consumer_phase[cId] = "prologue"
+              \/ consumer_phase[cId] = "application"
+              \/ consumer_phase[cId] = "drain"
+           /\ \/ reader_state[cId] = "idle"
+              \/ reader_state[cId] = "waiting"
+              \/ reader_state[cId] = "parsing"
+              \/ reader_state[cId] = "parsing_cancelled"
+           /\ (reader_state[cId] = "idle" =>
+                   reader_state[cId] \in {"idle", "finished"})
+           /\ (consumer_phase[cId] = "prologue" =>
+                   consumer_phase[cId] \in {"prologue", "application"})
+           /\ (consumer_phase[cId] = "application" =>
+                   consumer_phase[cId] \in {"prologue", "application"})
+           /\ (call_dispose_state[cId] # "active" =>
+                   call_dispose_state[cId] = "draining")
+           /\ (consumer_phase[cId] = "drain" =>
+                   call_dispose_state[cId] = "draining")
+<1>1. reader_state[cId] \in {"idle", "waiting", "parsing",
+                            "parsing_cancelled"}
+    BY OwedRulesOutFinished
+<1>2. /\ consumer_phase[cId] \in {"prologue", "application", "drain"}
+      /\ (call_dispose_state[cId] # "active" =>
+              call_dispose_state[cId] = "draining")
+    BY OwedMeansDrainingOrActive
+<1>3. QED
+    BY <1>1, <1>2, DrainPhaseIsNotActive, SMT
+
+(***************************************************************************)
+(* THE CONSUMPTION IS REACHED                                              *)
+(*                                                                         *)
+(* The nineteenth family, earned.  Under a standing debt the consumer's     *)
+(* state is one of six, and each of the six reaches a release: the drain    *)
+(* and the two parses release directly, the prologue answers its header,    *)
+(* and the two idle-or-waiting states walk to one of those - by the         *)
+(* binding's own steps when the call is disposing, and by the              *)
+(* application's single obligation when it is not.                          *)
+(***************************************************************************)
+
+THEOREM ConsumptionIsReached ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []PrologueHasReleasedNothing
+           /\ []FinishedReaderDrainedTheRing
+           /\ []LiveCallHasLiveChannel
+           /\ [][Next]_vars
+           /\ WF_vars(DrainRelease(cId))
+           /\ WF_vars(ConsumeHeader(cId))
+           /\ WF_vars(FinishCancelledParse(cId))
+           /\ WF_vars(CancelParsingRead(cId))
+           /\ WF_vars(BeginParseEvent(cId))
+           /\ WF_vars(CancelWaiter(cId))
+           /\ WF_vars(HandoffToDrain(cId))
+           /\ WF_vars(FinishConsumePayload(cId))
+           /\ WF_vars(BeginMoveNext(cId))
+           /\ []PayloadOwed(cId)
+           => <><<L1!HostConsumesEvent(cId)>>_l1_vars
+<1>1. ASSUME []ManagedIndInv, []PrologueHasReleasedNothing,
+             []FinishedReaderDrainedTheRing, []LiveCallHasLiveChannel,
+             [][Next]_vars,
+             WF_vars(DrainRelease(cId)),
+             WF_vars(ConsumeHeader(cId)),
+             WF_vars(FinishCancelledParse(cId)),
+             WF_vars(CancelParsingRead(cId)),
+             WF_vars(BeginParseEvent(cId)),
+             WF_vars(CancelWaiter(cId)),
+             WF_vars(HandoffToDrain(cId)),
+             WF_vars(FinishConsumePayload(cId)),
+             WF_vars(BeginMoveNext(cId)),
+             []PayloadOwed(cId)
+      PROVE  <><<L1!HostConsumesEvent(cId)>>_l1_vars
+  \* Every edge, boxed, so a later state can use it too.
+  <2>d. [](consumer_phase[cId] = "drain"
+               => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+    BY <1>1, DrainEventuallyConsumes, PTL
+  <2>pc. [](reader_state[cId] = "parsing_cancelled"
+                => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+    BY <1>1, CancelledParseEventuallyConsumes, PTL
+  <2>p. [](reader_state[cId] = "parsing"
+               => \/ <><<L1!HostConsumesEvent(cId)>>_l1_vars
+                  \/ <>(reader_state[cId] = "parsing_cancelled"))
+    BY <1>1, ParsingEventuallyEnds, PTL
+  <2>h. [](consumer_phase[cId] = "prologue"
+               /\ ~(call_dispose_state[cId] # "active")
+               => \/ <><<L1!HostConsumesEvent(cId)>>_l1_vars
+                  \/ <>(call_dispose_state[cId] # "active"))
+    BY <1>1, PrologueEventuallyAnswers, PTL
+  <2>w. [](reader_state[cId] = "waiting"
+               /\ call_dispose_state[cId] # "active"
+               => <>(reader_state[cId] = "idle"))
+    BY <1>1, WaitingReaderEventuallyRetracted, PTL
+  <2>g. [](consumer_phase[cId] \in {"prologue", "application"}
+               /\ reader_state[cId] \in {"idle", "finished"}
+               /\ call_dispose_state[cId] = "draining"
+               => <>(consumer_phase[cId] = "drain"))
+    BY <1>1, DrainingEventuallyTakesTheRing, PTL
+  <2>wa. [](consumer_phase[cId] = "application"
+                /\ reader_state[cId] = "waiting"
+                /\ ~(call_dispose_state[cId] # "active")
+                => \/ <>(reader_state[cId] = "parsing")
+                   \/ <>(call_dispose_state[cId] # "active"))
+    BY <1>1, WaitingReaderEventuallyParses, PTL
+  <2>ia. [](consumer_phase[cId] = "application"
+                /\ reader_state[cId] = "idle"
+                /\ ~(call_dispose_state[cId] # "active")
+                => \/ <>(reader_state[cId] = "waiting")
+                   \/ <>(call_dispose_state[cId] # "active"))
+    BY <1>1, IdleReaderEventuallyReads, PTL
+  \* The state space the debt admits, and the one-way door out of "active".
+  \* The shape of the state the debt admits, in single atoms: ls4 relates
+  \* ~A to A and nothing else, so a membership and an equality on the same
+  \* variable are two unrelated facts to it.
+  <2>x. [](/\ \/ consumer_phase[cId] = "prologue"
+              \/ consumer_phase[cId] = "application"
+              \/ consumer_phase[cId] = "drain"
+           /\ \/ reader_state[cId] = "idle"
+              \/ reader_state[cId] = "waiting"
+              \/ reader_state[cId] = "parsing"
+              \/ reader_state[cId] = "parsing_cancelled"
+           /\ (reader_state[cId] = "idle" =>
+                   reader_state[cId] \in {"idle", "finished"})
+           /\ (consumer_phase[cId] = "prologue" =>
+                   consumer_phase[cId] \in {"prologue", "application"})
+           /\ (consumer_phase[cId] = "application" =>
+                   consumer_phase[cId] \in {"prologue", "application"})
+           /\ (call_dispose_state[cId] # "active" =>
+                   call_dispose_state[cId] = "draining")
+           /\ (consumer_phase[cId] = "drain" =>
+                   call_dispose_state[cId] = "draining"))
+    BY <1>1, ConsumerShapeInAtoms, PTL
+  <2>m. [](call_dispose_state[cId] # "active"
+               => [](call_dispose_state[cId] # "active"))
+    BY <1>1, DisposeNeverReturnsToActive, PTL
+  \* The chain, from the sink backwards.  Each step is boxed because a
+  \* later state uses it: the edges land in the future, and an unboxed
+  \* fact says nothing there.
+  <2>q. QED
+    <3>1. [](reader_state[cId] = "parsing"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>p, <2>pc, PTL
+    \* A disposing call reaches its drain, and the drain releases.
+    <3>2. [](call_dispose_state[cId] # "active"
+                 /\ reader_state[cId] = "idle"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>d, <2>g, <2>x, PTL
+    <3>3. [](call_dispose_state[cId] # "active"
+                 /\ reader_state[cId] = "waiting"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>w, <2>m, <3>2, PTL
+    <3>4. [](call_dispose_state[cId] # "active"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>pc, <2>x, <3>1, <3>2, <3>3, PTL
+    \* And a live call: the prologue answers, and past it the application's
+    \* one obligation walks the reader to a parse.
+    <3>5. [](consumer_phase[cId] = "prologue"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>h, <2>x, <3>4, PTL
+    <3>6. [](consumer_phase[cId] = "application"
+                 /\ reader_state[cId] = "waiting"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>wa, <3>1, <3>4, PTL
+    <3>7. [](reader_state[cId] = "waiting"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>d, <2>x, <3>3, <3>5, <3>6, PTL
+    <3>8. [](reader_state[cId] = "idle"
+                 => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+      BY <2>d, <2>ia, <2>x, <3>2, <3>4, <3>5, <3>7, PTL
+    <3>9. QED
+      BY <1>1, <2>pc, <2>x, <3>1, <3>7, <3>8, PTL
+<1>2. QED BY <1>1, PTL
+
+(***************************************************************************)
+(* THE FAIRNESS OF LEVEL 1, EARNED                                         *)
+(*                                                                         *)
+(* Nineteen families, each from this level's own conjuncts.  Eighteen are   *)
+(* one-for-one transfers; the nineteenth is the consumption, and it is a    *)
+(* leads-to through the application's obligation because none of its four   *)
+(* carriers is enabled while the application neither reads nor disposes.    *)
+(***************************************************************************)
+
+THEOREM HostConsumesEventLifted ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []PrologueHasReleasedNothing
+           /\ []FinishedReaderDrainedTheRing
+           /\ []LiveCallHasLiveChannel
+           /\ [][Next]_vars
+           /\ WF_vars(DrainRelease(cId))
+           /\ WF_vars(ConsumeHeader(cId))
+           /\ WF_vars(FinishCancelledParse(cId))
+           /\ WF_vars(CancelParsingRead(cId))
+           /\ WF_vars(BeginParseEvent(cId))
+           /\ WF_vars(CancelWaiter(cId))
+           /\ WF_vars(HandoffToDrain(cId))
+           /\ WF_vars(FinishConsumePayload(cId))
+           /\ WF_vars(BeginMoveNext(cId))
+           => WF_l1_vars(L1!HostConsumesEvent(cId))
+<1>1. ASSUME []ManagedIndInv, []PrologueHasReleasedNothing,
+             []FinishedReaderDrainedTheRing, []LiveCallHasLiveChannel,
+             [][Next]_vars,
+             WF_vars(DrainRelease(cId)),
+             WF_vars(ConsumeHeader(cId)),
+             WF_vars(FinishCancelledParse(cId)),
+             WF_vars(CancelParsingRead(cId)),
+             WF_vars(BeginParseEvent(cId)),
+             WF_vars(CancelWaiter(cId)),
+             WF_vars(HandoffToDrain(cId)),
+             WF_vars(FinishConsumePayload(cId)),
+             WF_vars(BeginMoveNext(cId))
+      PROVE  WF_l1_vars(L1!HostConsumesEvent(cId))
+  \* The enabledness IS the debt, so a family that stays enabled is a debt
+  \* that stands - and a debt that stands is reached.
+  <2>1. [](ENABLED <<L1!HostConsumesEvent(cId)>>_l1_vars
+               => PayloadOwed(cId))
+    BY OwedIsConsumeEnabled, PTL
+  \* Boxed as a step rather than by necessitating the citation: a theorem
+  \* taking a parameter has to be instantiated before it can be
+  \* necessitated, and that is what fails.
+  <2>2a. /\ []ManagedIndInv
+         /\ []PrologueHasReleasedNothing
+         /\ []FinishedReaderDrainedTheRing
+         /\ []LiveCallHasLiveChannel
+         /\ [][Next]_vars
+         /\ WF_vars(DrainRelease(cId))
+         /\ WF_vars(ConsumeHeader(cId))
+         /\ WF_vars(FinishCancelledParse(cId))
+         /\ WF_vars(CancelParsingRead(cId))
+         /\ WF_vars(BeginParseEvent(cId))
+         /\ WF_vars(CancelWaiter(cId))
+         /\ WF_vars(HandoffToDrain(cId))
+         /\ WF_vars(FinishConsumePayload(cId))
+         /\ WF_vars(BeginMoveNext(cId))
+         /\ []PayloadOwed(cId)
+         => <><<L1!HostConsumesEvent(cId)>>_l1_vars
+    BY ConsumptionIsReached
+  <2>2. [](/\ []ManagedIndInv
+           /\ []PrologueHasReleasedNothing
+           /\ []FinishedReaderDrainedTheRing
+           /\ []LiveCallHasLiveChannel
+           /\ [][Next]_vars
+           /\ WF_vars(DrainRelease(cId))
+           /\ WF_vars(ConsumeHeader(cId))
+           /\ WF_vars(FinishCancelledParse(cId))
+           /\ WF_vars(CancelParsingRead(cId))
+           /\ WF_vars(BeginParseEvent(cId))
+           /\ WF_vars(CancelWaiter(cId))
+           /\ WF_vars(HandoffToDrain(cId))
+           /\ WF_vars(FinishConsumePayload(cId))
+           /\ WF_vars(BeginMoveNext(cId))
+           /\ []PayloadOwed(cId)
+           => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+    BY <2>2a, PTL
+  <2>3. QED BY <1>1, <2>1, <2>2, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA FairnessRefines ==
+    /\ []ManagedIndInv
+    /\ []PrologueHasReleasedNothing
+    /\ []FinishedReaderDrainedTheRing
+    /\ []LiveCallHasLiveChannel
+    /\ [][Next]_vars
+    /\ Fairness
+    => L1!Fairness
+<1>0. SUFFICES ASSUME []ManagedIndInv, []PrologueHasReleasedNothing,
+                      []FinishedReaderDrainedTheRing,
+                      []LiveCallHasLiveChannel, [][Next]_vars, Fairness
+               PROVE  L1!Fairness
+    OBVIOUS
+<1>t. []ManagedTypeOK
+    BY <1>0, PTL DEF ManagedIndInv
+\* Each tier once, not once per family: unfolding Fairness nineteen times
+\* is what makes this expensive, and the tier is where the conjunct is.
+<1>r. RuntimeOwedFairness
+    BY <1>0 DEF Fairness
+<1>b. BindingOwedFairness
+    BY <1>0 DEF Fairness
+<1>a. ApplicationOwedFairness
+    BY <1>0 DEF Fairness
+<1>1. \A cId \in CallIds : WF_l1_vars(L1!NetworkSend(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!NetworkSend(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassNetworkSend(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, NetworkSendLifted
+<1>2. \A cId \in CallIds : WF_l1_vars(L1!ReceiveStatus(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!ReceiveStatus(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassReceiveStatus(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, ReceiveStatusLifted
+<1>3. \A cId \in CallIds : WF_l1_vars(L1!DeliverInitialMetadata(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!DeliverInitialMetadata(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassDeliverInitialMetadata(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, DeliverInitialMetadataLifted
+<1>4. \A cId \in CallIds : WF_l1_vars(L1!DeliverMessage(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!DeliverMessage(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassDeliverMessage(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, DeliverMessageLifted
+<1>5. \A cId \in CallIds : WF_l1_vars(L1!DeliverStatus(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!DeliverStatus(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassDeliverStatus(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, DeliverStatusLifted
+<1>6. \A cId \in CallIds : WF_l1_vars(L1!DeliverCancelled(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!DeliverCancelled(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassDeliverCancelled(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, DeliverCancelledLifted
+<1>7. \A cId \in CallIds : WF_l1_vars(L1!EmitWriteDone(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!EmitWriteDone(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassEmitWriteDone(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, EmitWriteDoneLifted
+<1>8. \A cId \in CallIds : WF_l1_vars(L1!ReleaseCallHandle(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!ReleaseCallHandle(cId))
+      OBVIOUS
+  <2>1. WF_vars(PassReleaseCallHandle(cId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, ReleaseCallHandleLifted
+<1>9. \A rtId \in RuntimeIds : WF_l1_vars(L1!RuntimeRelease(rtId))
+  <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
+                 PROVE  WF_l1_vars(L1!RuntimeRelease(rtId))
+      OBVIOUS
+  <2>1. WF_vars(PassRuntimeRelease(rtId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, RuntimeReleaseLifted
+<1>10. \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitShutdownComplete(rtId))
+  <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
+                 PROVE  WF_l1_vars(L1!EmitShutdownComplete(rtId))
+      OBVIOUS
+  <2>1. WF_vars(PassEmitShutdownComplete(rtId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, EmitShutdownCompleteLifted
+<1>11. \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitResourcesReleased(rtId))
+  <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
+                 PROVE  WF_l1_vars(L1!EmitResourcesReleased(rtId))
+      OBVIOUS
+  <2>1. WF_vars(PassEmitResourcesReleased(rtId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, EmitResourcesReleasedLifted
+<1>12. \A chId \in ChannelIds : WF_l1_vars(L1!ChannelFinishClosing(chId))
+  <2>0. SUFFICES ASSUME NEW chId \in ChannelIds
+                 PROVE  WF_l1_vars(L1!ChannelFinishClosing(chId))
+      OBVIOUS
+  <2>1. WF_vars(PassChannelFinishClosing(chId))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, ChannelFinishClosingLifted
+<1>12a. \A cId \in CallIds, b \in BufferIds :
+            WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+                 PROVE  WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
+      OBVIOUS
+  <2>1. WF_vars(PassFreeReturnedBuffer(cId, b))
+    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, FreeReturnedBufferLifted
+
+<1>13. \A cId \in CallIds : WF_l1_vars(L1!DeliveryCallbackReturns(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!DeliveryCallbackReturns(cId))
+      OBVIOUS
+  <2>1. WF_vars(DeliveryReturns(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>2. QED BY <1>0, <1>0, <2>1, DeliveryCallbackReturnsLifted
+<1>14. \A cId \in CallIds : WF_l1_vars(L1!WriteDoneReturns(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!WriteDoneReturns(cId))
+      OBVIOUS
+  <2>1. WF_vars(WriteDoneCompletes(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>2. QED BY <1>0, <1>0, <2>1, WriteDoneReturnsLifted
+<1>15. \A rtId \in RuntimeIds : WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
+  <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
+                 PROVE  WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
+      OBVIOUS
+  <2>1. WF_vars(ShutdownReturns(rtId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>2. QED BY <1>0, <1>0, <2>1, ShutdownCallbackReturnsLifted
+<1>16. \A rtId \in RuntimeIds : WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
+  <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
+                 PROVE  WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
+      OBVIOUS
+  <2>1. WF_vars(ResourcesReleasedReturns(rtId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>2. QED BY <1>0, <1>0, <2>1, ResourcesReleasedCallbackReturnsLifted
+<1>17. \A cId \in CallIds, b \in BufferIds :
+           WF_l1_vars(L1!HostReturnsBuffer(cId, b))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW b \in BufferIds
+                 PROVE  WF_l1_vars(L1!HostReturnsBuffer(cId, b))
+      OBVIOUS
+  <2>1. WF_vars(SerializationSettles(cId))
+    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+  <2>2. QED BY <1>0, <2>1, HostReturnsBufferLifted
+<1>18. \A cId \in CallIds : WF_l1_vars(L1!HostConsumesEvent(cId))
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds
+                 PROVE  WF_l1_vars(L1!HostConsumesEvent(cId))
+      OBVIOUS
+  <2>1. WF_vars(DrainRelease(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>2. WF_vars(ConsumeHeader(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>3. WF_vars(FinishCancelledParse(cId))
+    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+  <2>4. WF_vars(CancelParsingRead(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>5. WF_vars(BeginParseEvent(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>6. WF_vars(CancelWaiter(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>7. WF_vars(HandoffToDrain(cId))
+    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+  <2>8. WF_vars(FinishConsumePayload(cId))
+    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+  <2>9. WF_vars(BeginMoveNext(cId))
+    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+  <2>q. QED
+    BY <1>0, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9, HostConsumesEventLifted
+<1>q. QED
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>12a, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18 DEF L1!Fairness, l1_vars
 
 (***************************************************************************)
 (* REFINEMENT OF THE NEXT-STATE RELATION                                   *)

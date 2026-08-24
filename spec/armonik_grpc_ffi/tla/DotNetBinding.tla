@@ -1006,12 +1006,13 @@ BindingOwedFairness ==
 \* itself, so Dispose is not required, which is what the .NET API says of
 \* a completed call.
 ApplicationOwedFairness ==
-    \* the stream is used at all: read the next response, or dispose the
-    \* call early.  The reader's liveness and the consumption discharge
-    \* both start from a read the application began, so an application
-    \* that abandons a readable stream is the one case left to hypothesis
-    /\ \A cId \in CallIds :
-           WF_vars(BeginMoveNext(cId) \/ BeginDisposeCall(cId))
+    \* the stream is used at all.  Stated on the read alone, and that is
+    \* the whole contract: disposing the call instead DISABLES this action,
+    \* which satisfies a weak fairness just as firing it would.  So what is
+    \* asked is exactly "an application that keeps a readable stream open
+    \* eventually reads from it", and the one case left to hypothesis is
+    \* the program that abandons a readable stream without disposing it
+    /\ \A cId \in CallIds : WF_vars(BeginMoveNext(cId))
     \* the read marshaller returns.  It runs inline on the application's
     \* thread and holds the slot while it does, and the only other exit
     \* from a parse is a cancellation request, which carries no fairness -
