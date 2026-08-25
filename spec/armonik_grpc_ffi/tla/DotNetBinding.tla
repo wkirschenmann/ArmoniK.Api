@@ -994,11 +994,13 @@ BindingOwedFairness ==
     \* the public DisposeAsync task completes; true: the binding's own
     \* step as soon as its guard holds
     /\ \A chId \in ChannelIds : WF_vars(ResolveChannelDispose(chId))
-    \* the teardown starts at the latch; true: the binding's own downcall
-    /\ \A rtId \in RuntimeIds : WF_vars(BeginRuntimeShutdown(rtId))
-    \* destroy returns, which is what dispose promised; true: the
-    \* binding's own downcall once the runtime reached quiescence
-    /\ \A rtId \in RuntimeIds : WF_vars(FinishDisposeRuntime(rtId))
+    \* the teardown starts at the latch, and the destroy returns; true:
+    \* the binding's own downcalls.  On the existential rather than per
+    \* generation, because both pin their argument to current_runtime -
+    \* at most one is ever enabled - and the promise they drive names no
+    \* generation at all, runtime_dispose_state being one variable
+    /\ WF_vars(\E rtId \in RuntimeIds : BeginRuntimeShutdown(rtId))
+    /\ WF_vars(\E rtId \in RuntimeIds : FinishDisposeRuntime(rtId))
     \* the root dies and the factory re-arms; true: the binding's own step
     \* once no callback of any kind is in flight
     /\ WF_vars(FreeRuntimeRoot)
@@ -1214,41 +1216,50 @@ RejectedChannelHasNoNativeHalf ==
         channel_dispose_state[chId] = "rejected" =>
             channel_state[chId] = "none"
 
-\* The manager's state and the native runtime agree: a generation that
-\* has not begun tearing down is running (or failed, the residual
-\* guarantee), one being torn down is not yet destroyed, and the
-\* destroyed state means the downcall returned for that generation.
+\* Which native states the manager's own state admits for the generation it
+\* names.  The manager walks absent, active, shutdown_pending, destroying,
+\* destroyed and back to absent, and at each stop the native runtime is
+\* where the previous downcall left it: still running while the latch is
+\* only set, because ak_shutdown is BeginRuntimeShutdown's own step and it
+\* leaves the latch as it fires; stopping or already released while the
+\* destroy is in flight; released once it has returned, ak_runtime_destroy
+\* demanding quiescence and quiescence demanding RELEASED.
+\*
+\* FAILED_UNQUIESCED is admitted at every stop and so is added once below
+\* rather than listed four times - a failure is nobody's step.  An
+\* absent manager names no generation, so RuntimeManagerCoherent makes
+\* the guard below false and OTHER is what absent reads: nothing is
+\* admitted, and nothing is asked.  A manager state this table does not
+\* know lands there too, where no preservation step can establish it -
+\* which is the point of a total CASE.  Every slot but the generation
+\* the manager names is the first conjunct's business.
+AdmissibleRuntimeStates(managed) ==
+    CASE managed = "active"           -> {"RUNNING"}
+      [] managed = "shutdown_pending" -> {"RUNNING"}
+      [] managed = "destroying"       -> {"STOPPING", "RELEASED"}
+      [] managed = "destroyed"        -> {"RELEASED"}
+      [] OTHER                        -> {}
+
+\* The manager's state and the native runtime agree: the generation the
+\* manager names sits where the table says, its destroy has returned
+\* exactly when the manager says destroyed, and every other slot is idle -
+\* which for an absent manager is every slot.  And the converse the
+\* teardown reads: a runtime is stopping only under the manager's own
+\* destroy, and only the generation the manager names.
 RuntimeStateMatchesNative ==
-    \* Nothing native is running or stopping while the manager is absent:
-    \* before the first creation nothing was started, and after the last
-    \* free the runtime was destroyed.
-    /\ runtime_dispose_state = "absent" =>
-           \A rtId \in RuntimeIds :
-               runtime_state[rtId] \in
-                   {"NOT_INIT", "RELEASED", "FAILED_UNQUIESCED"}
-    /\ runtime_dispose_state = "active" =>
-           /\ ~runtime_destroyed[current_runtime]
-           /\ runtime_state[current_runtime] \in
-                  {"RUNNING", "FAILED_UNQUIESCED"}
-    \* Past the last lease the native runtime walks its own way down -
-    \* still running when the latch is set, stopping under ak_shutdown,
-    \* released when it has drained - and none of that is the manager's
-    \* step, so all of it has to be admitted here.
-    /\ runtime_dispose_state = "shutdown_pending" =>
-           /\ ~runtime_destroyed[current_runtime]
-           /\ runtime_state[current_runtime] \in
-                  {"RUNNING", "STOPPING", "RELEASED", "FAILED_UNQUIESCED"}
-    /\ runtime_dispose_state = "destroying" =>
-           ~runtime_destroyed[current_runtime]
-    /\ runtime_dispose_state = "destroyed" =>
-           runtime_destroyed[current_runtime]
-    \* And the converse for the one state the teardown reads: a stopping
-    \* runtime is the manager's own, and its teardown has begun.  This is
-    \* what says a shutdown event finds every call settled.
+    /\ \A rtId \in RuntimeIds :
+           rtId # current_runtime =>
+               runtime_state[rtId] \in {"NOT_INIT", "RELEASED",
+                                        "FAILED_UNQUIESCED"}
+    /\ current_runtime \in RuntimeIds =>
+           /\ runtime_state[current_runtime]
+                  \in AdmissibleRuntimeStates(runtime_dispose_state)
+                          \union {"FAILED_UNQUIESCED"}
+           /\ runtime_destroyed[current_runtime]
+                  <=> runtime_dispose_state = "destroyed"
     /\ \A rtId \in RuntimeIds :
            runtime_state[rtId] = "STOPPING" =>
-               /\ runtime_dispose_state \in
-                      {"shutdown_pending", "destroying", "destroyed"}
+               /\ runtime_dispose_state = "destroying"
                /\ rtId = current_runtime
 
 \* A settled call left no managed waiter: reader idle, writer settled,

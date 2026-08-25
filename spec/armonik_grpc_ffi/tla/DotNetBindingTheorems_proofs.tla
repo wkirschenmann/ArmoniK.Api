@@ -5106,7 +5106,7 @@ LEMMA OwedCallKeepsItsRuntime ==
     BY SMT DEF PayloadOwed, ManagedIndInv, ManagedMachineInv, LifecycleInv,
        ManagedGlue, ManagedTypeOK, TokenPublishedBeforeStart,
        ChannelStateMatchesNative, LiveChannelKeepsRuntimeAlive,
-       LiveChannelUsesCurrentRuntime, RuntimeStateMatchesNative,
+       LiveChannelUsesCurrentRuntime, RuntimeStateMatchesNative, AdmissibleRuntimeStates,
        L1!IsRuntimeOfCallDestroyed, L1!IsRuntimeDestroyed,
        L1!L0!ChannelsOf, L1!L0!IsUnusedCall, L1!HostOwnsSomePayload,
        L1!OwedPayloads, LiveCallHasLiveChannel
@@ -8653,6 +8653,44 @@ LEMMA MetadataMeansNoStatusYet ==
 (* level-1 state while it moves under them.                                *)
 (***************************************************************************)
 
+\* The reader's borrow is decided by its own state and the ring, and the
+\* ring is the two counters.
+LEMMA ParsingReadOwnsItsSlotIsFramed ==
+    ASSUME ParsingReadOwnsItsSlot,
+           UNCHANGED <<reader_state, events_delivered,
+                       payloads_consumed_by_host>>
+    PROVE  ParsingReadOwnsItsSlot'
+    BY SMT DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+
+\* Both channel-native agreements read the same two variables, so one frame
+\* answers for both.
+LEMMA ChannelAgreementIsFramed ==
+    ASSUME ChannelStateMatchesNative, RejectedChannelHasNoNativeHalf,
+           UNCHANGED <<channel_dispose_state, channel_state>>
+    PROVE  ChannelStateMatchesNative' /\ RejectedChannelHasNoNativeHalf'
+    BY SMT DEF ChannelStateMatchesNative, RejectedChannelHasNoNativeHalf
+
+\* The token precedes the start, and only the token and the call's level-0
+\* state say so.
+LEMMA TokenPublishedBeforeStartIsFramed ==
+    ASSUME TokenPublishedBeforeStart,
+           UNCHANGED <<call_token_published, call_state>>
+    PROVE  TokenPublishedBeforeStart'
+    BY SMT DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+
+\* Four variables decide whether a settled call owes anything: its own
+\* dispose state, the events published to it, the ones the host has
+\* consumed, and the buffers it holds.  A step that moves none of them
+\* preserves the conjunct, and most steps move none - which is why the
+\* argument belongs here rather than in every preservation lemma.
+LEMMA SettledCallOwesNothingIsFramed ==
+    ASSUME SettledCallOwesNothing,
+           UNCHANGED <<call_dispose_state, events_delivered,
+                       payloads_consumed_by_host, buffers_held_by_host>>
+    PROVE  SettledCallOwesNothing'
+    BY SMT DEF SettledCallOwesNothing, L1!L0!HasStatus,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads
+
 LEMMA PassesEmitShutdownComplete ==
     ASSUME NEW rtId \in RuntimeIds, L1!EmitShutdownComplete(rtId), ManagedStutter, ManagedIndInv
     PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
@@ -8693,14 +8731,14 @@ LEMMA PassesEmitShutdownComplete ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -8709,7 +8747,7 @@ LEMMA PassesEmitShutdownComplete ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -8722,7 +8760,7 @@ LEMMA PassesEmitShutdownComplete ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -8735,11 +8773,11 @@ LEMMA PassesEmitShutdownComplete ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -8749,8 +8787,7 @@ LEMMA PassesEmitShutdownComplete ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -8877,14 +8914,14 @@ LEMMA PassesEmitResourcesReleased ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -8893,7 +8930,7 @@ LEMMA PassesEmitResourcesReleased ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -8906,7 +8943,7 @@ LEMMA PassesEmitResourcesReleased ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -8919,11 +8956,11 @@ LEMMA PassesEmitResourcesReleased ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -8933,8 +8970,7 @@ LEMMA PassesEmitResourcesReleased ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -9061,14 +9097,14 @@ LEMMA PassesRuntimeRelease ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -9077,7 +9113,7 @@ LEMMA PassesRuntimeRelease ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -9090,7 +9126,7 @@ LEMMA PassesRuntimeRelease ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -9103,11 +9139,11 @@ LEMMA PassesRuntimeRelease ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -9117,8 +9153,7 @@ LEMMA PassesRuntimeRelease ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -9245,14 +9280,14 @@ LEMMA PassesRuntimeFail ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -9261,7 +9296,7 @@ LEMMA PassesRuntimeFail ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -9274,7 +9309,7 @@ LEMMA PassesRuntimeFail ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -9287,11 +9322,11 @@ LEMMA PassesRuntimeFail ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -9301,8 +9336,7 @@ LEMMA PassesRuntimeFail ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -9429,14 +9463,14 @@ LEMMA PassesRemainFailed ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -9445,7 +9479,7 @@ LEMMA PassesRemainFailed ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -9458,7 +9492,7 @@ LEMMA PassesRemainFailed ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -9471,11 +9505,11 @@ LEMMA PassesRemainFailed ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -9485,8 +9519,7 @@ LEMMA PassesRemainFailed ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -9613,14 +9646,14 @@ LEMMA PassesRemainReleased ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -9629,7 +9662,7 @@ LEMMA PassesRemainReleased ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -9642,7 +9675,7 @@ LEMMA PassesRemainReleased ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -9655,11 +9688,11 @@ LEMMA PassesRemainReleased ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -9669,8 +9702,7 @@ LEMMA PassesRemainReleased ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -9835,7 +9867,7 @@ LEMMA PassesChannelFinishClosing ==
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF  RootSurvivesCallbacks, L1!ChannelFinishClosing,
              L1!L0!ChannelFinishClosing, L1!IsClosingChannel,
@@ -9863,7 +9895,7 @@ LEMMA PassesChannelFinishClosing ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -9934,7 +9966,7 @@ LEMMA PassesChannelFinishClosing ==
       <2>7. QED
           BY <2>1, <2>2, <2>3, <2>4, <2>6, SMT DEF L1!L0!ChannelStates
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -10099,24 +10131,14 @@ LEMMA PassesEmitWriteDone ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY SMT DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail,
-             RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             StatusMeansTerminal, RingOccupancy, RingHead, RingTail,
-             ChannelDisposeStates, L1!IsClosingChannel,
-             L1!IsClosingChannel, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsTerminalCall,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv,
-             L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY ParsingReadOwnsItsSlotIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT, WriteDoneMeansNoStatusYet DEF  RootSurvivesCallbacks,
              TokenPublishedBeforeStart, L1!EmitWriteDone, L1!TypeOK,
@@ -10138,7 +10160,7 @@ LEMMA PassesEmitWriteDone ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -10151,31 +10173,11 @@ LEMMA PassesEmitWriteDone ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY SMT DEF RejectedChannelHasNoNativeHalf,
-             RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             StatusMeansTerminal, RingOccupancy, RingHead, RingTail,
-             ChannelDisposeStates, L1!IsClosingChannel,
-             L1!IsClosingChannel, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsTerminalCall,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv,
-             L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>17. ChannelStateMatchesNative'
-        BY SMT DEF ChannelStateMatchesNative,
-             RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             StatusMeansTerminal, RingOccupancy, RingHead, RingTail,
-             ChannelDisposeStates, L1!IsClosingChannel,
-             L1!IsClosingChannel, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsTerminalCall,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv,
-             L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -10185,8 +10187,7 @@ LEMMA PassesEmitWriteDone ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -10313,14 +10314,14 @@ LEMMA PassesNetworkSend ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -10329,7 +10330,7 @@ LEMMA PassesNetworkSend ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -10342,7 +10343,7 @@ LEMMA PassesNetworkSend ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -10355,11 +10356,11 @@ LEMMA PassesNetworkSend ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -10369,8 +10370,7 @@ LEMMA PassesNetworkSend ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -10497,14 +10497,14 @@ LEMMA PassesReceiveStatus ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -10513,7 +10513,7 @@ LEMMA PassesReceiveStatus ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -10526,7 +10526,7 @@ LEMMA PassesReceiveStatus ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -10539,11 +10539,11 @@ LEMMA PassesReceiveStatus ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -10553,8 +10553,7 @@ LEMMA PassesReceiveStatus ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -10715,7 +10714,7 @@ LEMMA PassesDeliverInitialMetadata ==
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
       \* The callback this starts belongs to a call that has no status yet,
       \* and such a call still has its root - the clause this conjunct
@@ -10787,7 +10786,7 @@ LEMMA PassesDeliverInitialMetadata ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -10800,31 +10799,11 @@ LEMMA PassesDeliverInitialMetadata ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY SMT DEF RejectedChannelHasNoNativeHalf,
-             RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             StatusMeansTerminal, RingOccupancy, RingHead, RingTail,
-             ChannelDisposeStates, L1!IsClosingChannel,
-             L1!IsClosingChannel, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsTerminalCall,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv,
-             L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>17. ChannelStateMatchesNative'
-        BY SMT DEF ChannelStateMatchesNative,
-             RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             StatusMeansTerminal, RingOccupancy, RingHead, RingTail,
-             ChannelDisposeStates, L1!IsClosingChannel,
-             L1!IsClosingChannel, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsTerminalCall,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv,
-             L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -10993,14 +10972,14 @@ LEMMA PassesDeliverMessage ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -11009,7 +10988,7 @@ LEMMA PassesDeliverMessage ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -11022,7 +11001,7 @@ LEMMA PassesDeliverMessage ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -11035,11 +11014,11 @@ LEMMA PassesDeliverMessage ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -11049,8 +11028,7 @@ LEMMA PassesDeliverMessage ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11177,14 +11155,14 @@ LEMMA PassesDeliverStatus ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -11193,7 +11171,7 @@ LEMMA PassesDeliverStatus ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -11206,7 +11184,7 @@ LEMMA PassesDeliverStatus ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -11219,11 +11197,11 @@ LEMMA PassesDeliverStatus ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -11233,8 +11211,7 @@ LEMMA PassesDeliverStatus ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11361,14 +11338,14 @@ LEMMA PassesDeliverCancelled ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -11377,7 +11354,7 @@ LEMMA PassesDeliverCancelled ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -11390,7 +11367,7 @@ LEMMA PassesDeliverCancelled ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -11403,11 +11380,11 @@ LEMMA PassesDeliverCancelled ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -11417,8 +11394,7 @@ LEMMA PassesDeliverCancelled ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11545,14 +11521,14 @@ LEMMA PassesReleaseCallHandle ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -11561,7 +11537,7 @@ LEMMA PassesReleaseCallHandle ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -11574,7 +11550,7 @@ LEMMA PassesReleaseCallHandle ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -11587,11 +11563,11 @@ LEMMA PassesReleaseCallHandle ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -11601,8 +11577,7 @@ LEMMA PassesReleaseCallHandle ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11729,14 +11704,14 @@ LEMMA PassesNetworkReceive ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -11745,7 +11720,7 @@ LEMMA PassesNetworkReceive ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -11758,7 +11733,7 @@ LEMMA PassesNetworkReceive ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -11771,11 +11746,11 @@ LEMMA PassesNetworkReceive ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -11785,8 +11760,7 @@ LEMMA PassesNetworkReceive ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11913,14 +11887,14 @@ LEMMA PassesFreeReturnedBuffer ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -11929,7 +11903,7 @@ LEMMA PassesFreeReturnedBuffer ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -11942,7 +11916,7 @@ LEMMA PassesFreeReturnedBuffer ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -11955,11 +11929,11 @@ LEMMA PassesFreeReturnedBuffer ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -11969,8 +11943,7 @@ LEMMA PassesFreeReturnedBuffer ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -12406,14 +12379,14 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -12422,7 +12395,7 @@ LEMMA KeepsFreeRuntimeRoot ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -12435,7 +12408,7 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -12448,11 +12421,11 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -12462,8 +12435,7 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -12589,14 +12561,14 @@ LEMMA KeepsCreateRuntime ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY SMT DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -12605,7 +12577,7 @@ LEMMA KeepsCreateRuntime ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -12618,7 +12590,7 @@ LEMMA KeepsCreateRuntime ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -12631,16 +12603,15 @@ LEMMA KeepsCreateRuntime ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, NotInitRuntimeIsUndestroyed
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, NotInitRuntimeIsUndestroyed
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -12767,14 +12738,14 @@ LEMMA KeepsAcquireLease ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -12783,7 +12754,7 @@ LEMMA KeepsAcquireLease ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -12796,7 +12767,7 @@ LEMMA KeepsAcquireLease ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -12809,11 +12780,11 @@ LEMMA KeepsAcquireLease ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -12823,8 +12794,7 @@ LEMMA KeepsAcquireLease ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -12950,14 +12920,14 @@ LEMMA KeepsCreateChannel ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY SMT DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -12966,7 +12936,7 @@ LEMMA KeepsCreateChannel ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -12979,7 +12949,7 @@ LEMMA KeepsCreateChannel ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -12992,16 +12962,15 @@ LEMMA KeepsCreateChannel ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -13135,14 +13104,14 @@ LEMMA KeepsRejectChannelCreation ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -13151,7 +13120,7 @@ LEMMA KeepsRejectChannelCreation ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -13164,7 +13133,7 @@ LEMMA KeepsRejectChannelCreation ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -13177,16 +13146,15 @@ LEMMA KeepsRejectChannelCreation ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -13313,14 +13281,14 @@ LEMMA KeepsBeginDisposeChannel ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -13329,7 +13297,7 @@ LEMMA KeepsBeginDisposeChannel ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -13342,7 +13310,7 @@ LEMMA KeepsBeginDisposeChannel ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -13355,11 +13323,11 @@ LEMMA KeepsBeginDisposeChannel ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -13369,8 +13337,7 @@ LEMMA KeepsBeginDisposeChannel ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -13497,14 +13464,14 @@ LEMMA KeepsFinishDisposeChannel ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -13513,7 +13480,7 @@ LEMMA KeepsFinishDisposeChannel ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -13526,7 +13493,7 @@ LEMMA KeepsFinishDisposeChannel ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -13539,11 +13506,11 @@ LEMMA KeepsFinishDisposeChannel ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY SMT DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, IsLastRelease
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -13553,8 +13520,7 @@ LEMMA KeepsFinishDisposeChannel ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -13687,14 +13653,14 @@ LEMMA KeepsResolveChannelDispose ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -13703,7 +13669,7 @@ LEMMA KeepsResolveChannelDispose ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -13716,7 +13682,7 @@ LEMMA KeepsResolveChannelDispose ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -13729,11 +13695,11 @@ LEMMA KeepsResolveChannelDispose ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -13743,8 +13709,7 @@ LEMMA KeepsResolveChannelDispose ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve, IsLastRelease
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -13872,14 +13837,14 @@ LEMMA KeepsBeginRuntimeShutdown ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -13888,7 +13853,7 @@ LEMMA KeepsBeginRuntimeShutdown ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -13901,7 +13866,7 @@ LEMMA KeepsBeginRuntimeShutdown ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -13914,11 +13879,11 @@ LEMMA KeepsBeginRuntimeShutdown ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -13928,8 +13893,7 @@ LEMMA KeepsBeginRuntimeShutdown ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14063,14 +14027,14 @@ LEMMA KeepsFinishDisposeRuntime ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -14079,7 +14043,7 @@ LEMMA KeepsFinishDisposeRuntime ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -14092,7 +14056,7 @@ LEMMA KeepsFinishDisposeRuntime ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -14105,16 +14069,15 @@ LEMMA KeepsFinishDisposeRuntime ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14242,14 +14205,14 @@ LEMMA KeepsShutdownReturns ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -14267,7 +14230,7 @@ LEMMA KeepsShutdownReturns ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -14280,11 +14243,11 @@ LEMMA KeepsShutdownReturns ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -14294,8 +14257,7 @@ LEMMA KeepsShutdownReturns ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14422,14 +14384,14 @@ LEMMA KeepsResourcesReleasedReturns ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -14447,7 +14409,7 @@ LEMMA KeepsResourcesReleasedReturns ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -14460,11 +14422,11 @@ LEMMA KeepsResourcesReleasedReturns ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -14474,8 +14436,7 @@ LEMMA KeepsResourcesReleasedReturns ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14602,14 +14563,14 @@ LEMMA KeepsBeginMoveNext ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -14618,7 +14579,7 @@ LEMMA KeepsBeginMoveNext ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -14631,7 +14592,7 @@ LEMMA KeepsBeginMoveNext ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -14644,11 +14605,11 @@ LEMMA KeepsBeginMoveNext ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -14658,8 +14619,7 @@ LEMMA KeepsBeginMoveNext ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14785,14 +14745,14 @@ LEMMA KeepsBeginParseEvent ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -14801,7 +14761,7 @@ LEMMA KeepsBeginParseEvent ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -14814,7 +14774,7 @@ LEMMA KeepsBeginParseEvent ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -14827,11 +14787,11 @@ LEMMA KeepsBeginParseEvent ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -14841,8 +14801,7 @@ LEMMA KeepsBeginParseEvent ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14968,14 +14927,14 @@ LEMMA KeepsFinishConsumePayload ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -14984,7 +14943,7 @@ LEMMA KeepsFinishConsumePayload ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -14997,7 +14956,7 @@ LEMMA KeepsFinishConsumePayload ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -15010,11 +14969,11 @@ LEMMA KeepsFinishConsumePayload ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -15024,8 +14983,7 @@ LEMMA KeepsFinishConsumePayload ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ReadCancellationSettled
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ReadCancellationSettled
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -15153,14 +15111,14 @@ LEMMA KeepsCancelWaiter ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -15169,7 +15127,7 @@ LEMMA KeepsCancelWaiter ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -15182,7 +15140,7 @@ LEMMA KeepsCancelWaiter ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -15195,11 +15153,11 @@ LEMMA KeepsCancelWaiter ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -15209,8 +15167,7 @@ LEMMA KeepsCancelWaiter ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -15336,14 +15293,14 @@ LEMMA KeepsRequestReadCancellation ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -15352,7 +15309,7 @@ LEMMA KeepsRequestReadCancellation ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -15365,7 +15322,7 @@ LEMMA KeepsRequestReadCancellation ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -15378,11 +15335,11 @@ LEMMA KeepsRequestReadCancellation ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -15392,8 +15349,7 @@ LEMMA KeepsRequestReadCancellation ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -15528,14 +15484,14 @@ LEMMA KeepsCancelWaitingRead ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -15544,7 +15500,7 @@ LEMMA KeepsCancelWaitingRead ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -15557,7 +15513,7 @@ LEMMA KeepsCancelWaitingRead ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -15570,11 +15526,11 @@ LEMMA KeepsCancelWaitingRead ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -15584,8 +15540,7 @@ LEMMA KeepsCancelWaitingRead ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -15720,14 +15675,14 @@ LEMMA KeepsCancelParsingRead ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -15736,7 +15691,7 @@ LEMMA KeepsCancelParsingRead ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -15749,7 +15704,7 @@ LEMMA KeepsCancelParsingRead ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -15762,11 +15717,11 @@ LEMMA KeepsCancelParsingRead ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -15776,8 +15731,7 @@ LEMMA KeepsCancelParsingRead ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -15911,14 +15865,14 @@ LEMMA KeepsFinishCancelledParse ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY SMT DEF ReadCancelPendingOnlyInFlight, ReadInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal, CancelledParseHasNoPendingRequest
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -15927,7 +15881,7 @@ LEMMA KeepsFinishCancelledParse ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -15940,7 +15894,7 @@ LEMMA KeepsFinishCancelledParse ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -15953,11 +15907,11 @@ LEMMA KeepsFinishCancelledParse ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -15967,8 +15921,7 @@ LEMMA KeepsFinishCancelledParse ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -16096,14 +16049,14 @@ LEMMA KeepsHandoffToDrain ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -16112,7 +16065,7 @@ LEMMA KeepsHandoffToDrain ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -16125,7 +16078,7 @@ LEMMA KeepsHandoffToDrain ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -16138,11 +16091,11 @@ LEMMA KeepsHandoffToDrain ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -16152,8 +16105,7 @@ LEMMA KeepsHandoffToDrain ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -16279,14 +16231,14 @@ LEMMA KeepsConsumeHeader ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -16295,7 +16247,7 @@ LEMMA KeepsConsumeHeader ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -16308,7 +16260,7 @@ LEMMA KeepsConsumeHeader ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -16321,11 +16273,11 @@ LEMMA KeepsConsumeHeader ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -16335,8 +16287,7 @@ LEMMA KeepsConsumeHeader ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -16464,14 +16415,14 @@ LEMMA KeepsBeginDisposeCall ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -16480,7 +16431,7 @@ LEMMA KeepsBeginDisposeCall ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -16493,7 +16444,7 @@ LEMMA KeepsBeginDisposeCall ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -16506,11 +16457,11 @@ LEMMA KeepsBeginDisposeCall ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -16520,8 +16471,7 @@ LEMMA KeepsBeginDisposeCall ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -16657,14 +16607,14 @@ LEMMA KeepsDisposeCallForChannel ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -16673,7 +16623,7 @@ LEMMA KeepsDisposeCallForChannel ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -16686,7 +16636,7 @@ LEMMA KeepsDisposeCallForChannel ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -16699,11 +16649,11 @@ LEMMA KeepsDisposeCallForChannel ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -16713,8 +16663,7 @@ LEMMA KeepsDisposeCallForChannel ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -16840,14 +16789,14 @@ LEMMA KeepsDrainRelease ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -16856,7 +16805,7 @@ LEMMA KeepsDrainRelease ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -16869,7 +16818,7 @@ LEMMA KeepsDrainRelease ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -16882,11 +16831,11 @@ LEMMA KeepsDrainRelease ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -16896,8 +16845,7 @@ LEMMA KeepsDrainRelease ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17025,14 +16973,14 @@ LEMMA KeepsFinishDisposeCall ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -17041,7 +16989,7 @@ LEMMA KeepsFinishDisposeCall ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -17054,7 +17002,7 @@ LEMMA KeepsFinishDisposeCall ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -17067,11 +17015,11 @@ LEMMA KeepsFinishDisposeCall ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -17081,8 +17029,7 @@ LEMMA KeepsFinishDisposeCall ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, PastPrologueHeadersAnswered, PrologueReaderOnlyWaits
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, RingDrained
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17217,14 +17164,14 @@ LEMMA KeepsSettleCall ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -17233,7 +17180,7 @@ LEMMA KeepsSettleCall ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -17246,7 +17193,7 @@ LEMMA KeepsSettleCall ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -17259,11 +17206,11 @@ LEMMA KeepsSettleCall ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -17273,8 +17220,7 @@ LEMMA KeepsSettleCall ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, PastPrologueHeadersAnswered, PrologueReaderOnlyWaits
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17407,14 +17353,14 @@ LEMMA KeepsCancelWriterWait ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -17423,7 +17369,7 @@ LEMMA KeepsCancelWriterWait ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -17436,7 +17382,7 @@ LEMMA KeepsCancelWriterWait ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -17449,11 +17395,11 @@ LEMMA KeepsCancelWriterWait ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -17463,8 +17409,7 @@ LEMMA KeepsCancelWriterWait ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17591,14 +17536,14 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -17616,7 +17561,7 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -17629,11 +17574,11 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -17643,8 +17588,7 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17771,14 +17715,14 @@ LEMMA KeepsCloseWriter ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY SMT DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!EndSend
+        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!EndSend
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -17787,7 +17731,7 @@ LEMMA KeepsCloseWriter ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -17800,7 +17744,7 @@ LEMMA KeepsCloseWriter ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -17813,11 +17757,11 @@ LEMMA KeepsCloseWriter ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -17827,8 +17771,7 @@ LEMMA KeepsCloseWriter ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17956,14 +17899,14 @@ LEMMA KeepsOnEventReturns ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -17981,7 +17924,7 @@ LEMMA KeepsOnEventReturns ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -17994,11 +17937,11 @@ LEMMA KeepsOnEventReturns ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -18008,8 +17951,7 @@ LEMMA KeepsOnEventReturns ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -18137,14 +18079,14 @@ LEMMA KeepsTerminalCallbackReturns ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
       <2>w. ~write_done_callback_running[cId]
           \* the one fact the root release rests on, from whichever of
@@ -18172,7 +18114,7 @@ LEMMA KeepsTerminalCallbackReturns ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -18185,11 +18127,11 @@ LEMMA KeepsTerminalCallbackReturns ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -18199,8 +18141,7 @@ LEMMA KeepsTerminalCallbackReturns ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -18334,14 +18275,14 @@ LEMMA KeepsStartCall ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY SMT DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!CallStart, L1!L0!CallStart
+        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!CallStart, L1!L0!CallStart
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -18350,7 +18291,7 @@ LEMMA KeepsStartCall ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -18363,7 +18304,7 @@ LEMMA KeepsStartCall ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -18376,11 +18317,11 @@ LEMMA KeepsStartCall ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -18390,8 +18331,7 @@ LEMMA KeepsStartCall ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -18518,14 +18458,14 @@ LEMMA KeepsWriteLendSucceeds ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, L1!IsLendable, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -18534,7 +18474,7 @@ LEMMA KeepsWriteLendSucceeds ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -18547,7 +18487,7 @@ LEMMA KeepsWriteLendSucceeds ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -18560,11 +18500,11 @@ LEMMA KeepsWriteLendSucceeds ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -18574,8 +18514,7 @@ LEMMA KeepsWriteLendSucceeds ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, BindingMayDowncall
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, BindingMayDowncall
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, BindingMayDowncall
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -18702,14 +18641,14 @@ LEMMA KeepsWriteRefusedBudget ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY CeilingIsPositive, SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RefuseLendForBudget, BindingMayDowncall, L1!LendStatuses, L1!IsLendable, NoRetryLen, L1!Sizes
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -18718,7 +18657,7 @@ LEMMA KeepsWriteRefusedBudget ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -18731,7 +18670,7 @@ LEMMA KeepsWriteRefusedBudget ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -18744,11 +18683,11 @@ LEMMA KeepsWriteRefusedBudget ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -18758,8 +18697,7 @@ LEMMA KeepsWriteRefusedBudget ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RefuseLendForBudget, BindingMayDowncall
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -18887,14 +18825,14 @@ LEMMA KeepsWriteRefusedTooLarge ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!RefuseLendTooLarge, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -18903,7 +18841,7 @@ LEMMA KeepsWriteRefusedTooLarge ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -18916,7 +18854,7 @@ LEMMA KeepsWriteRefusedTooLarge ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -18929,11 +18867,11 @@ LEMMA KeepsWriteRefusedTooLarge ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -18943,8 +18881,7 @@ LEMMA KeepsWriteRefusedTooLarge ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail
+        BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -19071,14 +19008,14 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendSendBuffer, L1!IsLendable, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -19087,7 +19024,7 @@ LEMMA KeepsRetryLendSucceeds ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -19100,7 +19037,7 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -19113,11 +19050,11 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -19127,8 +19064,7 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendSendBuffer
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendSendBuffer
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -19255,14 +19191,14 @@ LEMMA KeepsCommitWrite ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage, L1!IsReturnedBuffer, L1!IsLentBuffer, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
-        BY SMT DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage, L1!L0!SendMessage
+        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage, L1!L0!SendMessage
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -19271,7 +19207,7 @@ LEMMA KeepsCommitWrite ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -19284,7 +19220,7 @@ LEMMA KeepsCommitWrite ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -19297,11 +19233,11 @@ LEMMA KeepsCommitWrite ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -19311,8 +19247,7 @@ LEMMA KeepsCommitWrite ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-             L1!OwedPayloads, RingDrained, RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -19439,14 +19374,14 @@ LEMMA KeepsWriteAborted ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!HostReturnsBuffer, L1!IsLentBuffer, L1!IsReturnedBuffer, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -19455,7 +19390,7 @@ LEMMA KeepsWriteAborted ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -19468,7 +19403,7 @@ LEMMA KeepsWriteAborted ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -19481,11 +19416,11 @@ LEMMA KeepsWriteAborted ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -19495,16 +19430,7 @@ LEMMA KeepsWriteAborted ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, RingDrained, RingHead,
-             RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             BindingMayDowncall, L1!HostReturnsBuffer,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsTerminalCall,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-             FinishedReaderDrainedTheRing, StatusMeansTerminal,
-             L1!ActiveCallHasNoStatus, ReaderStates,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!HostReturnsBuffer, L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsTerminalCall, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, FinishedReaderDrainedTheRing, StatusMeansTerminal, L1!ActiveCallHasNoStatus, ReaderStates, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>21. AbsentRuntimeOwesNothing'
         BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -19673,14 +19599,14 @@ LEMMA PassesRequestCallCancellation ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY DEF ParsingReadOwnsItsSlot, RingOccupancy, RingHead, RingTail
+        BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY DEF TokenPublishedBeforeStart, L1!L0!IsUnusedCall
+        BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
         BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
              L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
@@ -19689,7 +19615,7 @@ LEMMA PassesRequestCallCancellation ==
              L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
         BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, RuntimeDisposeStates,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
              l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
@@ -19702,7 +19628,7 @@ LEMMA PassesRequestCallCancellation ==
     <1>13. ManagedShutdownHasNoHostDebt'
         BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, TeardownLeavesCallsSettled,
+             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
              SettledCallOwesNothing, TokenPublishedBeforeStart,
              RuntimeDisposeStates, RingDrained, RingHead, RingTail,
              L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
@@ -19715,11 +19641,11 @@ LEMMA PassesRequestCallCancellation ==
     <1>15. NoRuntimeShutdownWhileLeased'
         BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY DEF RejectedChannelHasNoNativeHalf
+        BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY DEF ChannelStateMatchesNative
+        BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, RuntimeManagerCoherent,
+        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
              TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
              AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
@@ -19729,13 +19655,7 @@ LEMMA PassesRequestCallCancellation ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SMT DEF SettledCallOwesNothing, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, RingDrained,
-             RingHead, RingTail, L1!L0!HasStatus,
-             L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
-             L1!L0!TypeOK, L1!RequestCallCancellation,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
-             L1!L0!vars
+        BY SettledCallOwesNothingIsFramed DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RequestCallCancellation, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -19861,7 +19781,7 @@ LEMMA ManagedLayerPreserved ==
              LiveChannelKeepsRuntimeAlive,
              NoRuntimeShutdownWhileLeased,
              RejectedChannelHasNoNativeHalf,
-             ChannelStateMatchesNative, RuntimeStateMatchesNative,
+             ChannelStateMatchesNative, RuntimeStateMatchesNative, AdmissibleRuntimeStates,
              DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
              AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy,
              RingHead, RingTail, RingDrained, ChannelSettled,
@@ -20076,7 +19996,7 @@ LEMMA InitEstablishesManagedIndInv == Init => ManagedIndInv
        LiveChannelUsesCurrentRuntime, ManagedShutdownHasNoHostDebt,
        LiveChannelKeepsRuntimeAlive, NoRuntimeShutdownWhileLeased,
        RejectedChannelHasNoNativeHalf, ChannelStateMatchesNative,
-       RuntimeStateMatchesNative, DisposeLeavesNoManagedWaiter,
+       RuntimeStateMatchesNative, AdmissibleRuntimeStates, DisposeLeavesNoManagedWaiter,
        SettledCallOwesNothing, AbsentRuntimeOwesNothing, ReadInFlight,
        RingOccupancy, RingHead, RingTail, RingDrained, ChannelSettled,
        AllLeasesReleased, NoRetryLen, L1!HostOwnsNoPayload,
@@ -22998,6 +22918,9 @@ LEMMA ConstructionHoldsUntilItAnswers ==
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
 
+\* And the four derived ones, which Init makes vacuous: no call has
+\* released anything, no reader is finished, no call is published,
+\* and no writer has begun.
 LEMMA InitEstablishesTheDerived ==
     Init => /\ PrologueHasReleasedNothing
             /\ FinishedReaderDrainedTheRing

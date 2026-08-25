@@ -3138,10 +3138,13 @@ diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural lik
 - **RetryLenMatchesWait**: the remembered length exists exactly while the wait does
 - **DisposeAwaitsDestroy**: the teardown reaching `destroyed` means `ak_runtime_destroy`
   returned for the **current** generation
-- **RuntimeStateMatchesNative**: the manager and the native runtime agree - a generation
-  that has not begun tearing down is running (or failed, the residual guarantee), one
-  being torn down is not destroyed yet, and `destroyed` means the downcall returned for
-  that generation
+- **RuntimeStateMatchesNative**: the manager and the native runtime agree, through a
+  table - `AdmissibleRuntimeStates` says which native states each manager state admits
+  for the generation it names, its `destroy` has returned exactly when the manager says
+  `destroyed`, and every other slot is idle.  The table is total: an unknown manager
+  state admits nothing, so a sixth state added later breaks a preservation step rather
+  than reading as an unspecified value.  Failure is admitted at every stop, once, being
+  nobody's step
 - **RuntimeManagerCoherent**: a materialized generation has an identity and a root, an
   absent one has neither - the manager never claims a runtime it does not hold
 - **LiveChannelUsesCurrentRuntime**: a live channel hangs off the current generation,
