@@ -6,7 +6,7 @@
 (* them again.                                                             *)
 (***************************************************************************)
 
-EXTENDS DotNetBinding_defs, TLAPS
+EXTENDS DotNetBinding_defs, TLAPS, NaturalsInduction
 
 \* The perimeter groups are notation: an action states its frame through
 \* them, so every obligation that reads a frame needs them unfolded.  One
@@ -23020,6 +23020,170 @@ THEOREM RefinesSpec == Spec => L1!Spec
 (* not instantiated - so L1!PayloadsEventuallyConsumed already speaks of    *)
 (* payloads_consumed_by_host.  Fourteen properties for one citation.        *)
 (***************************************************************************)
+
+(***************************************************************************)
+(* THE RING DRAINS                                                         *)
+(*                                                                         *)
+(* Nine of this level's promises wait on the same thing: the terminal       *)
+(* arrives and the ring is emptied.  Emptying it takes as many             *)
+(* consumptions as it holds events, so the argument is a ladder, and a     *)
+(* ladder has to be instantiated at a value.  A state term will not do -   *)
+(* the temporal backend is propositional and will not lift a quantifier    *)
+(* through a box - but RingNeverOverflows bounds the occupancy by          *)
+(* DeliveryCredits + 1, a constant, and that is a value the ladder can be  *)
+(* met at.                                                                *)
+(*                                                                         *)
+(* The rung is ConsumptionIsReached, which is the whole of the level's own *)
+(* consumption machinery: a standing debt is consumed, by whichever        *)
+(* consumer the phase admits.                                             *)
+(***************************************************************************)
+
+\* A consumption lowers the occupancy by exactly one: the tail advances by
+\* one and the head does not move, HostConsumesEvent leaving every level-0
+\* variable alone.
+LEMMA ConsumptionLowersTheOccupancy ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           <<L1!HostConsumesEvent(cId)>>_l1_vars
+    PROVE  RingOccupancy(cId)' = RingOccupancy(cId) - 1
+    BY SMT DEF L1!HostConsumesEvent, RingOccupancy, RingHead, RingTail,
+       ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+
+\* And the debt is the occupancy, in the level-1 vocabulary the rung reads.
+LEMMA OccupancyIsTheDebt ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK
+    PROVE  PayloadOwed(cId) <=> RingOccupancy(cId) > 0
+    BY SMT DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
+       RingOccupancy, RingHead, RingTail, ManagedTypeOK, L1!TypeOK,
+       L1!L0!TypeOK
+
+\* The tail only ever advances: the four consumers are the only steps that
+\* move it, and each of them is a HostConsumesEvent, which adds one.
+LEMMA TailNeverRetreats ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK, [Next]_vars
+    PROVE  RingTail(cId)' >= RingTail(cId)
+<1>1. CASE RingTail(cId)' = RingTail(cId)
+    BY <1>1, SMT DEF RingTail, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK
+<1>2. CASE RingTail(cId)' # RingTail(cId)
+  <2>1. \/ ConsumeHeader(cId)
+        \/ FinishConsumePayload(cId)
+        \/ FinishCancelledParse(cId)
+        \/ DrainRelease(cId)
+    BY <1>2, TailMovesOnlyByCarrier
+  <2>2. QED
+    BY <2>1, SMT DEF ConsumeHeader, FinishConsumePayload,
+       FinishCancelledParse, DrainRelease, L1!HostConsumesEvent, RingTail,
+       ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK
+<1>3. QED BY <1>1, <1>2
+
+\* Nothing appends to a ring whose status is in it, so the occupancy never
+\* climbs back: what the ladder needs to descend.
+LEMMA OccupancyNeverClimbsPastTheStatus ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           L1!L0!HasStatus(cId), [Next]_vars
+    PROVE  RingOccupancy(cId)' <= RingOccupancy(cId)
+<1>1. events_delivered[cId]' = events_delivered[cId]
+    BY EventsFrozenAfterStatus
+<1>2. RingTail(cId)' >= RingTail(cId)
+    BY TailNeverRetreats
+<1>3. QED
+    BY <1>1, <1>2, SMT DEF RingOccupancy, RingHead, RingTail, ManagedTypeOK,
+       L1!TypeOK, L1!L0!TypeOK
+
+
+\* The status is a latch: nothing appends to a ring that has it, so its last
+\* event stays the status.  This is what lets the ladder be entered on the
+\* instant fact a caller holds rather than on a box nobody could supply -
+\* BeginDisposeCall reaches draining straight from active, with no status in
+\* sight.
+LEMMA StatusIsALatch ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           L1!L0!HasStatus(cId), [Next]_vars
+    PROVE  L1!L0!HasStatus(cId)'
+<1>1. events_delivered[cId]' = events_delivered[cId]
+    BY EventsFrozenAfterStatus
+<1>2. QED
+    BY <1>1, SMT DEF L1!L0!HasStatus, L1!L0!StatusKinds, ManagedTypeOK,
+       L1!TypeOK, L1!L0!TypeOK
+
+\* An occupancy of zero is a drained ring: the tail never passes the head,
+\* which is level 1's own accounting.
+LEMMA ZeroOccupancyIsDrained ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           RingOccupancy(cId) <= 0
+    PROVE  RingDrained(cId)
+    BY SMT DEF RingOccupancy, RingDrained, RingHead, RingTail, ManagedTypeOK,
+       L1!TypeOK, L1!L0!TypeOK
+
+\* The ladder.  Rung n says an occupancy of at most n drains; the step
+\* from n to n + 1 spends one consumption, and ConsumptionIsReached is
+\* what supplies it.  The rung is met at DeliveryCredits + 1, which
+\* RingNeverOverflows says is enough.
+THEOREM RingEventuallyDrains ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []PrologueHasReleasedNothing
+           /\ []FinishedReaderDrainedTheRing
+           /\ []LiveCallHasLiveChannel
+           /\ [][Next]_vars
+           /\ WF_vars(DrainRelease(cId))
+           /\ WF_vars(ConsumeHeader(cId))
+           /\ WF_vars(FinishCancelledParse(cId))
+           /\ WF_vars(CancelParsingRead(cId))
+           /\ WF_vars(BeginParseEvent(cId))
+           /\ WF_vars(CancelWaiter(cId))
+           /\ WF_vars(HandoffToDrain(cId))
+           /\ WF_vars(FinishConsumePayload(cId))
+           /\ WF_vars(BeginMoveNext(cId))
+           /\ L1!L0!HasStatus(cId)
+           => <>RingDrained(cId)
+<1>1. ASSUME []ManagedIndInv, []PrologueHasReleasedNothing,
+             []FinishedReaderDrainedTheRing, []LiveCallHasLiveChannel,
+             [][Next]_vars,
+             WF_vars(DrainRelease(cId)), WF_vars(ConsumeHeader(cId)),
+             WF_vars(FinishCancelledParse(cId)),
+             WF_vars(CancelParsingRead(cId)),
+             WF_vars(BeginParseEvent(cId)), WF_vars(CancelWaiter(cId)),
+             WF_vars(HandoffToDrain(cId)),
+             WF_vars(FinishConsumePayload(cId)),
+             WF_vars(BeginMoveNext(cId)),
+             L1!L0!HasStatus(cId)
+      PROVE  <>RingDrained(cId)
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>1b. []L1!L0!HasStatus(cId)
+    BY <1>1, <2>1, StatusIsALatch, PTL
+  \* The four state facts, boxed once and used at every rung.
+  <2>2. [](RingOccupancy(cId) <= 0 => RingDrained(cId))
+    BY <2>1, ZeroOccupancyIsDrained, PTL
+  <2>3. [](PayloadOwed(cId) <=> RingOccupancy(cId) > 0)
+    BY <2>1, OccupancyIsTheDebt, PTL
+  <2>4. [][RingOccupancy(cId)' <= RingOccupancy(cId)]_vars
+    BY <2>1, <2>1b, OccupancyNeverClimbsPastTheStatus, PTL
+  <2>5. [](<<L1!HostConsumesEvent(cId)>>_l1_vars
+               => RingOccupancy(cId)' = RingOccupancy(cId) - 1)
+    BY <2>1, ConsumptionLowersTheOccupancy, PTL
+  \* The rung's engine: a standing debt is consumed.  Boxed, so it can be
+  \* used on a suffix where the debt stands rather than only from the start.
+  <2>6. []([]PayloadOwed(cId)
+               => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
+    BY <1>1, ConsumptionIsReached, PTL
+  <2>7. RingOccupancy(cId) <= DeliveryCredits + 1
+    BY <1>1, PTL DEF ManagedIndInv, ManagedSafety, RingNeverOverflows
+  <2>8. \A n \in Nat :
+            ((RingOccupancy(cId) <= n) ~> RingDrained(cId))
+    <3>1. (RingOccupancy(cId) <= 0) ~> RingDrained(cId)
+        BY <2>2, PTL
+    <3>2. ASSUME NEW n \in Nat,
+                 (RingOccupancy(cId) <= n) ~> RingDrained(cId)
+          PROVE  (RingOccupancy(cId) <= n + 1) ~> RingDrained(cId)
+        BY <1>1, <2>1b, <2>3, <2>4, <2>5, <2>6, <3>2, PTL
+    <3>3. QED
+        BY <3>1, <3>2, NatInduction, IsaT(600)
+  <2>9. QED
+    BY <2>7, <2>8, DeliveryCreditsArePositive, PTL
+<1>2. QED BY <1>1, PTL
 
 THEOREM InheritedLiveness == Spec => L1!LivenessProperties
     BY RefinesSpec, L1!LivenessTheorem, L1Assumptions, Zenon
