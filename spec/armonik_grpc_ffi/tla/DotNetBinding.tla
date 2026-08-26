@@ -1437,6 +1437,51 @@ FinishedReaderDrainedTheRing ==
             /\ L1!L0!HasStatus(cId)
             /\ RingDrained(cId)
 
+\* A published call has started.  TokenPublishedBeforeStart says the other
+\* half - a started call has its token out - and this is the converse, which
+\* three separate arguments need: StartCall sets both in one step, and
+\* neither is ever undone, so it costs one preservation lemma rather than a
+\* detour at each use.
+PublishedCallHasStarted ==
+    \A cId \in CallIds :
+        call_token_published[cId] => ~L1!L0!IsUnusedCall(cId)
+
+\* A serializing writer holds a buffer, named.  SerializingWriterHoldsTheBuffer
+\* carries the count, and the abort that ends serialization needs the
+\* identity: going from one to the other means reasoning about the
+\* cardinality of the lent set, which the identity avoids entirely.
+SerializingWriterHoldsANamedBuffer ==
+    \A cId \in CallIds :
+        writer_state[cId] = "serializing" =>
+            \E b \in BufferIds : L1!IsLentBuffer(cId, b)
+
+\* A draining call is on its way out, stated as what the three steps that
+\* begin a drain give, verbatim.  This is the entry to the teardown's whole
+\* chain: it lets the level lean on level 1's promise that a cancelled call
+\* dies, and through TerminalStatusEquivalence on the terminal being there
+\* to consume.  Turning "no longer active" into "the terminal is there"
+\* happens where that conversion's failure escape is already at hand, not
+\* here.  Both disjuncts are latches, which is what makes the invariant
+\* cheap to preserve; that the call started comes along because the second
+\* needs it - a call that left active stays out only if it had started.
+DrainingCallIsCancelled ==
+    \A cId \in CallIds :
+        call_dispose_state[cId] = "draining" =>
+            /\ ~L1!L0!IsUnusedCall(cId)
+            /\ \/ L1!IsCancelRequested(cId)
+               \/ ~L1!L0!IsActiveCall(cId)
+
+\* A write in flight has its acquittal still owed, or on the host stack.
+\* The two disjuncts are what EmitWriteDone and WriteDoneReturns ask for, so
+\* one of them is always enabled while the writer waits - which is how the
+\* wait ends without any hypothesis on the application.  The writer being
+\* single, no second send can be submitted meanwhile.
+AwaitingWriteDoneHasOneComing ==
+    \A cId \in CallIds :
+        writer_state[cId] = "awaiting_write_done" =>
+            \/ L1!IsAwaitingWriteDone(cId)
+            \/ L1!IsWriteDoneCallbackRunning(cId)
+
 \* A writer that has begun sits on a started call: every entry into a
 \* non-idle writer state is a downcall on the send side, and each of them
 \* needs an active call.  Derived rather than inductive - a call never

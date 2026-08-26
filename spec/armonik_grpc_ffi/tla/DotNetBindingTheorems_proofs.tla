@@ -6,7 +6,7 @@
 (* them again.                                                             *)
 (***************************************************************************)
 
-EXTENDS DotNetBinding_defs, TLAPS, NaturalsInduction
+EXTENDS DotNetBinding_defs, TLAPS, NaturalsInduction, FiniteSetTheorems
 
 \* The perimeter groups are notation: an action states its frame through
 \* them, so every obligation that reads a frame needs them unfolded.  One
@@ -8691,6 +8691,28 @@ LEMMA SettledCallOwesNothingIsFramed ==
     BY SMT DEF SettledCallOwesNothing, L1!L0!HasStatus,
        L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads
 
+\* Both roots survive their callbacks for the same five variables: the two
+\* call trampolines, the token, the events the status lives in, and the root
+\* itself.  The runtime's conjunct adds the two runtime trampolines.
+LEMMA RootSurvivesCallbacksIsFramed ==
+    ASSUME RootSurvivesCallbacks,
+           UNCHANGED <<call_root_live, call_token_published,
+                       delivery_callback_running,
+                       write_done_callback_running, events_delivered>>
+    PROVE  RootSurvivesCallbacks'
+    BY SMT DEF RootSurvivesCallbacks, L1!L0!HasStatus
+
+LEMMA RuntimeRootSurvivesCallbacksIsFramed ==
+    ASSUME RuntimeRootSurvivesCallbacks,
+           UNCHANGED <<runtime_root_live, call_token_published,
+                       delivery_callback_running,
+                       write_done_callback_running,
+                       shutdown_callback_running,
+                       resources_released_callback_running,
+                       events_delivered>>
+    PROVE  RuntimeRootSurvivesCallbacks'
+    BY SMT DEF RuntimeRootSurvivesCallbacks, L1!L0!HasStatus
+
 LEMMA PassesEmitShutdownComplete ==
     ASSUME NEW rtId \in RuntimeIds, L1!EmitShutdownComplete(rtId), ManagedStutter, ManagedIndInv
     PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
@@ -8740,17 +8762,9 @@ LEMMA PassesEmitShutdownComplete ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -8923,17 +8937,9 @@ LEMMA PassesEmitResourcesReleased ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -9106,17 +9112,9 @@ LEMMA PassesRuntimeRelease ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -9289,17 +9287,9 @@ LEMMA PassesRuntimeFail ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -9472,17 +9462,9 @@ LEMMA PassesRemainFailed ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -9655,17 +9637,9 @@ LEMMA PassesRemainReleased ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -9869,23 +9843,9 @@ LEMMA PassesChannelFinishClosing ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF  RootSurvivesCallbacks, L1!ChannelFinishClosing,
-             L1!L0!ChannelFinishClosing, L1!IsClosingChannel,
-             L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!HasStatus,
-             L1!L0!StatusKinds, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, TokenPublishedBeforeStart,
-             ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing, L1!IsClosingChannel, L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, TokenPublishedBeforeStart, ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF  RuntimeRootSurvivesCallbacks, L1!ChannelFinishClosing,
-             L1!L0!ChannelFinishClosing, L1!IsClosingChannel,
-             L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!HasStatus,
-             L1!L0!StatusKinds, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, TokenPublishedBeforeStart,
-             ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing, L1!IsClosingChannel, L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, TokenPublishedBeforeStart, ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10140,17 +10100,9 @@ LEMMA PassesEmitWriteDone ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT, WriteDoneMeansNoStatusYet DEF  RootSurvivesCallbacks,
-             TokenPublishedBeforeStart, L1!EmitWriteDone, L1!TypeOK,
-             L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
-             L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-             L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!EmitWriteDone, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT, WriteDoneMeansNoStatusYet DEF
-             RuntimeRootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!EmitWriteDone, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars,
-             L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!EmitWriteDone, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10323,17 +10275,9 @@ LEMMA PassesNetworkSend ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10506,17 +10450,9 @@ LEMMA PassesReceiveStatus ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10772,11 +10708,7 @@ LEMMA PassesDeliverInitialMetadata ==
           DEF L1!L0!HasStatus, L1!L0!StatusKinds
       <2>10. QED BY <2>8, <2>9
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT, MetadataMeansNoStatusYet DEF
-             RuntimeRootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!DeliverInitialMetadata, L1!TypeOK, L1!L0!TypeOK, l1_vars,
-             L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!DeliverInitialMetadata, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10981,17 +10913,9 @@ LEMMA PassesDeliverMessage ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11164,17 +11088,9 @@ LEMMA PassesDeliverStatus ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11347,17 +11263,9 @@ LEMMA PassesDeliverCancelled ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11530,17 +11438,9 @@ LEMMA PassesReleaseCallHandle ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11713,17 +11613,9 @@ LEMMA PassesNetworkReceive ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11896,17 +11788,9 @@ LEMMA PassesFreeReturnedBuffer ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -12388,17 +12272,9 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -12570,17 +12446,9 @@ LEMMA KeepsCreateRuntime ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -12747,17 +12615,9 @@ LEMMA KeepsAcquireLease ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -12929,17 +12789,9 @@ LEMMA KeepsCreateChannel ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -13113,17 +12965,9 @@ LEMMA KeepsRejectChannelCreation ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -13290,17 +13134,9 @@ LEMMA KeepsBeginDisposeChannel ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -13473,17 +13309,9 @@ LEMMA KeepsFinishDisposeChannel ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -13662,17 +13490,9 @@ LEMMA KeepsResolveChannelDispose ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -13846,17 +13666,9 @@ LEMMA KeepsBeginRuntimeShutdown ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -14036,17 +13848,9 @@ LEMMA KeepsFinishDisposeRuntime ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY NoneNotInRuntimeIds, SMT DEF DisposeAwaitsDestroy, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning, L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed, L1!IsResourcesReleasedEmitted, L1!IsRuntimeDestroyed
     <1>11. RuntimeManagerCoherent'
@@ -14214,13 +14018,9 @@ LEMMA KeepsShutdownReturns ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsShutdownCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsShutdownCallbackRunning
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -14393,13 +14193,9 @@ LEMMA KeepsResourcesReleasedReturns ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsResourcesReleasedCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsResourcesReleasedCallbackRunning
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -14572,17 +14368,9 @@ LEMMA KeepsBeginMoveNext ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -14754,17 +14542,9 @@ LEMMA KeepsBeginParseEvent ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -14936,17 +14716,9 @@ LEMMA KeepsFinishConsumePayload ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -15120,17 +14892,9 @@ LEMMA KeepsCancelWaiter ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -15302,17 +15066,9 @@ LEMMA KeepsRequestReadCancellation ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -15493,17 +15249,9 @@ LEMMA KeepsCancelWaitingRead ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -15684,17 +15432,9 @@ LEMMA KeepsCancelParsingRead ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -15874,17 +15614,9 @@ LEMMA KeepsFinishCancelledParse ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -16058,17 +15790,9 @@ LEMMA KeepsHandoffToDrain ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -16240,17 +15964,9 @@ LEMMA KeepsConsumeHeader ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -16424,17 +16140,9 @@ LEMMA KeepsBeginDisposeCall ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -16616,17 +16324,9 @@ LEMMA KeepsDisposeCallForChannel ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -16798,17 +16498,9 @@ LEMMA KeepsDrainRelease ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -16982,17 +16674,9 @@ LEMMA KeepsFinishDisposeCall ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -17173,17 +16857,9 @@ LEMMA KeepsSettleCall ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -17362,17 +17038,9 @@ LEMMA KeepsCancelWriterWait ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -17545,13 +17213,9 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!WriteDoneReturns, L1!IsWriteDoneCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!WriteDoneReturns, L1!IsWriteDoneCallbackRunning
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -17724,17 +17388,9 @@ LEMMA KeepsCloseWriter ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!EndSend
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -17908,13 +17564,9 @@ LEMMA KeepsOnEventReturns ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -18104,7 +17756,7 @@ LEMMA KeepsTerminalCallbackReturns ==
              L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -18284,17 +17936,9 @@ LEMMA KeepsStartCall ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!CallStart, L1!L0!CallStart
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -18467,17 +18111,9 @@ LEMMA KeepsWriteLendSucceeds ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -18650,17 +18286,9 @@ LEMMA KeepsWriteRefusedBudget ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -18834,17 +18462,9 @@ LEMMA KeepsWriteRefusedTooLarge ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -19017,17 +18637,9 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -19200,17 +18812,9 @@ LEMMA KeepsCommitWrite ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage, L1!L0!SendMessage
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -19383,17 +18987,9 @@ LEMMA KeepsWriteAborted ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -19608,17 +19204,9 @@ LEMMA PassesRequestCallCancellation ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY SMT DEF RootSurvivesCallbacks, TokenPublishedBeforeStart,
-             L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY SMT DEF RuntimeRootSurvivesCallbacks, RuntimeManagerCoherent,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -22918,16 +22506,1860 @@ LEMMA ConstructionHoldsUntilItAnswers ==
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
 
-\* And the four derived ones, which Init makes vacuous: no call has
-\* released anything, no reader is finished, no call is published,
-\* and no writer has begun.
+LEMMA PassthroughKeepsTheNamedBuffer ==
+    ASSUME NEW c \in CallIds,
+           NEW b \in BufferIds,
+           ManagedTypeOK,
+           buffer_state \in [CallIds -> [BufferIds -> L1!BufferStates]],
+           Passthrough,
+           L1!IsLentBuffer(c, b)
+    PROVE  L1!IsLentBuffer(c, b)'
+<1>0. ManagedStutter
+    BY DEF Passthrough
+<1>1. CASE \E r2 \in RuntimeIds :
+             L1!EmitShutdownComplete(r2)
+          \/ L1!EmitResourcesReleased(r2)
+          \/ L1!RuntimeRelease(r2)
+          \/ L1!RuntimeFail(r2)
+          \/ L1!RemainFailed(r2)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           L1!EmitShutdownComplete(r2)
+                        \/ L1!EmitResourcesReleased(r2)
+                        \/ L1!RuntimeRelease(r2)
+                        \/ L1!RuntimeFail(r2)
+                        \/ L1!RemainFailed(r2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>1
+  <2>1. CASE L1!EmitShutdownComplete(r2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EmitShutdownComplete, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. CASE L1!EmitResourcesReleased(r2)
+      BY <1>0, <2>0, <2>2, SMT DEF  L1!EmitResourcesReleased, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. CASE L1!RuntimeRelease(r2)
+      BY <1>0, <2>0, <2>3, SMT DEF  L1!RuntimeRelease,
+         L1!L0!RuntimeRelease, L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+         L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+         L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+         managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE L1!RuntimeFail(r2)
+      BY <1>0, <2>0, <2>4, SMT DEF  L1!RuntimeFail, L1!L0!RuntimeFail,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>5. CASE L1!RemainFailed(r2)
+      BY <1>0, <2>0, <2>5, SMT DEF  L1!RemainFailed, L1!L0!RemainFailed,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>6. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5
+<1>2. CASE L1!RemainReleased
+    BY <1>0, <1>2, SMT DEF  L1!RemainReleased, L1!L0!RemainReleased,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>3. CASE \E ch2 \in ChannelIds : L1!ChannelFinishClosing(ch2)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           L1!ChannelFinishClosing(ch2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>3
+  <2>1. CASE L1!ChannelFinishClosing(ch2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!ChannelFinishClosing,
+         L1!L0!ChannelFinishClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+         L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+         L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+         managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>4. CASE \E c2 \in CallIds :
+             L1!EmitWriteDone(c2)
+          \/ L1!NetworkSend(c2)
+          \/ L1!ReceiveStatus(c2)
+          \/ L1!DeliverInitialMetadata(c2)
+          \/ L1!DeliverMessage(c2)
+          \/ L1!DeliverStatus(c2)
+          \/ L1!DeliverCancelled(c2)
+          \/ L1!ReleaseCallHandle(c2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           L1!EmitWriteDone(c2)
+                        \/ L1!NetworkSend(c2)
+                        \/ L1!ReceiveStatus(c2)
+                        \/ L1!DeliverInitialMetadata(c2)
+                        \/ L1!DeliverMessage(c2)
+                        \/ L1!DeliverStatus(c2)
+                        \/ L1!DeliverCancelled(c2)
+                        \/ L1!ReleaseCallHandle(c2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>4
+  <2>1. CASE L1!EmitWriteDone(c2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EmitWriteDone, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. CASE L1!NetworkSend(c2)
+      BY <1>0, <2>0, <2>2, SMT DEF  L1!NetworkSend, L1!L0!NetworkSend,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. CASE L1!ReceiveStatus(c2)
+      BY <1>0, <2>0, <2>3, SMT DEF  L1!ReceiveStatus, L1!L0!ReceiveStatus,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>4. CASE L1!DeliverInitialMetadata(c2)
+      BY <1>0, <2>0, <2>4, SMT DEF  L1!DeliverInitialMetadata,
+         L1!HandPayloadToHost, L1!L0!DeliverInitialMetadata, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>5. CASE L1!DeliverMessage(c2)
+      BY <1>0, <2>0, <2>5, SMT DEF  L1!DeliverMessage,
+         L1!HandPayloadToHost, L1!L0!DeliverMessage, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+         L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+         L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE L1!DeliverStatus(c2)
+      BY <1>0, <2>0, <2>6, SMT DEF  L1!DeliverStatus,
+         L1!HandPayloadToHost, L1!L0!DeliverStatus, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+         L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+         L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE L1!DeliverCancelled(c2)
+      BY <1>0, <2>0, <2>7, SMT DEF  L1!DeliverCancelled,
+         L1!HandPayloadToHost, L1!L0!CallCancel, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+         L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+         L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE L1!ReleaseCallHandle(c2)
+      BY <1>0, <2>0, <2>8, SMT DEF  L1!ReleaseCallHandle, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>9. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8
+<1>5. CASE \E c2 \in CallIds, m2 \in Messages : L1!NetworkReceive(c2, m2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW m2 \in Messages,
+                           L1!NetworkReceive(c2, m2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>5
+  <2>1. CASE L1!NetworkReceive(c2, m2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!NetworkReceive,
+         L1!L0!NetworkReceive, L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+         L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+         L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+         managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>6. CASE \E c2 \in CallIds, b2 \in BufferIds : L1!FreeReturnedBuffer(c2, b2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW b2 \in BufferIds,
+                           L1!FreeReturnedBuffer(c2, b2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>6
+  <2>1. CASE L1!FreeReturnedBuffer(c2, b2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!FreeReturnedBuffer, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>7. CASE \E c2 \in CallIds : L1!RequestCallCancellation(c2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           L1!RequestCallCancellation(c2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>7
+  <2>1. CASE L1!RequestCallCancellation(c2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!RequestCallCancellation, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>q. QED
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF  Passthrough,
+       RuntimeSteps, BindingDowncalls
+
+LEMMA TheNamedBufferStaysLent ==
+    ASSUME NEW c \in CallIds,
+           NEW b \in BufferIds,
+           ManagedIndInv,
+           buffer_state \in [CallIds -> [BufferIds -> L1!BufferStates]],
+           writer_state \in [CallIds -> WriterStates],
+           writer_state[c] = "serializing",
+           (writer_state[c] = "serializing")',
+           L1!IsLentBuffer(c, b),
+           [Next]_vars
+    PROVE  L1!IsLentBuffer(c, b)'
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  L1!IsLentBuffer, L1!IsReturnedBuffer,
+       L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+       L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+\* The lemma's conclusion is this goal verbatim; opening the predicates
+\* would leave it a syntactic match to redo.
+<1>1. CASE Passthrough
+    BY <1>1, PassthroughKeepsTheNamedBuffer
+       DEF ManagedIndInv, ManagedTypeOK, L1!IndInv, L1!TypeOK
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!RuntimeFail, L1!L0!RuntimeFail, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
+           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
+           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA EnteringSerializationNamesABuffer ==
+    ASSUME NEW c \in CallIds,
+           ManagedIndInv,
+           buffer_state \in [CallIds -> [BufferIds -> L1!BufferStates]],
+           writer_state \in [CallIds -> WriterStates],
+           writer_state[c] # "serializing",
+           (writer_state[c] = "serializing")',
+           [Next]_vars
+    PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  L1!IsLentBuffer, L1!IsReturnedBuffer,
+       L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+       L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+       WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+\* Vacuous: a passthrough stutters on the managed side, so a writer that
+\* was not serializing is not serializing after it either.
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF Passthrough, ManagedStutter, managed_vars, vars,
+       l1_vars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!RuntimeFail, L1!L0!RuntimeFail, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
+           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
+           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+           ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+           L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+           L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsLentBuffer, L1!IsReturnedBuffer,
+           L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
+           L1!HostHoldsSomeBuffer, L1!BufferStates, ManagedTypeOK,
+           WriterStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsLentBuffer, L1!IsReturnedBuffer, L1!IsFreedBuffer,
+       L1!IsFreshBuffer, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+       ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+\* And so the invariant: the witness the hypothesis names stays lent while
+\* the writer serializes, and the lend that enters serialization names one.
+LEMMA NamedBufferStaysNamed ==
+    ASSUME ManagedIndInv, SerializingWriterHoldsANamedBuffer, [Next]_vars
+    PROVE  SerializingWriterHoldsANamedBuffer'
+<1>0. SUFFICES ASSUME NEW c \in CallIds,
+                      (writer_state[c] = "serializing")'
+               PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
+    BY DEF SerializingWriterHoldsANamedBuffer
+\* The two typings the cited lemmas ask for, projected once: they take the
+\* narrow form so their own steps do not carry a level's whole TypeOK.
+<1>t. /\ buffer_state \in [CallIds -> [BufferIds -> L1!BufferStates]]
+      /\ writer_state \in [CallIds -> WriterStates]
+    BY DEF ManagedIndInv, ManagedTypeOK, L1!IndInv, L1!TypeOK
+<1>1. CASE writer_state[c] = "serializing"
+  <2>1. PICK b \in BufferIds : L1!IsLentBuffer(c, b)
+      BY <1>1 DEF SerializingWriterHoldsANamedBuffer
+  <2>2. L1!IsLentBuffer(c, b)'
+      BY <1>0, <1>1, <1>t, <2>1, TheNamedBufferStaysLent
+  <2>3. QED BY <2>1, <2>2
+<1>2. CASE writer_state[c] # "serializing"
+    BY <1>0, <1>2, <1>t, EnteringSerializationNamesABuffer
+<1>3. QED BY <1>1, <1>2
+
+
+LEMMA PassthroughKeepsTheAcquittalComing ==
+    ASSUME ManagedTypeOK,
+           L1!TypeOK,
+           Passthrough,
+           AwaitingWriteDoneHasOneComing
+    PROVE  AwaitingWriteDoneHasOneComing'
+<1>0. ManagedStutter
+    BY DEF Passthrough
+<1>1. CASE \E r2 \in RuntimeIds :
+             L1!EmitShutdownComplete(r2)
+          \/ L1!EmitResourcesReleased(r2)
+          \/ L1!RuntimeRelease(r2)
+          \/ L1!RuntimeFail(r2)
+          \/ L1!RemainFailed(r2)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           L1!EmitShutdownComplete(r2)
+                        \/ L1!EmitResourcesReleased(r2)
+                        \/ L1!RuntimeRelease(r2)
+                        \/ L1!RuntimeFail(r2)
+                        \/ L1!RemainFailed(r2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>1
+  <2>1. CASE L1!EmitShutdownComplete(r2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EmitShutdownComplete, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. CASE L1!EmitResourcesReleased(r2)
+      BY <1>0, <2>0, <2>2, SMT DEF  L1!EmitResourcesReleased, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. CASE L1!RuntimeRelease(r2)
+      BY <1>0, <2>0, <2>3, SMT DEF  L1!RuntimeRelease,
+         L1!L0!RuntimeRelease, L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter,
+         vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE L1!RuntimeFail(r2)
+      BY <1>0, <2>0, <2>4, SMT DEF  L1!RuntimeFail, L1!L0!RuntimeFail,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>5. CASE L1!RemainFailed(r2)
+      BY <1>0, <2>0, <2>5, SMT DEF  L1!RemainFailed, L1!L0!RemainFailed,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>6. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5
+<1>2. CASE L1!RemainReleased
+    BY <1>0, <1>2, SMT DEF  L1!RemainReleased, L1!L0!RemainReleased,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+       L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>3. CASE \E ch2 \in ChannelIds : L1!ChannelFinishClosing(ch2)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           L1!ChannelFinishClosing(ch2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>3
+  <2>1. CASE L1!ChannelFinishClosing(ch2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!ChannelFinishClosing,
+         L1!L0!ChannelFinishClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter,
+         vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>4. CASE \E c2 \in CallIds :
+             L1!EmitWriteDone(c2)
+          \/ L1!NetworkSend(c2)
+          \/ L1!ReceiveStatus(c2)
+          \/ L1!DeliverInitialMetadata(c2)
+          \/ L1!DeliverMessage(c2)
+          \/ L1!DeliverStatus(c2)
+          \/ L1!DeliverCancelled(c2)
+          \/ L1!ReleaseCallHandle(c2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           L1!EmitWriteDone(c2)
+                        \/ L1!NetworkSend(c2)
+                        \/ L1!ReceiveStatus(c2)
+                        \/ L1!DeliverInitialMetadata(c2)
+                        \/ L1!DeliverMessage(c2)
+                        \/ L1!DeliverStatus(c2)
+                        \/ L1!DeliverCancelled(c2)
+                        \/ L1!ReleaseCallHandle(c2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>4
+  <2>1. CASE L1!EmitWriteDone(c2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EmitWriteDone, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. CASE L1!NetworkSend(c2)
+      BY <1>0, <2>0, <2>2, SMT DEF  L1!NetworkSend, L1!L0!NetworkSend,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. CASE L1!ReceiveStatus(c2)
+      BY <1>0, <2>0, <2>3, SMT DEF  L1!ReceiveStatus, L1!L0!ReceiveStatus,
+         L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>4. CASE L1!DeliverInitialMetadata(c2)
+      BY <1>0, <2>0, <2>4, SMT DEF  L1!DeliverInitialMetadata,
+         L1!HandPayloadToHost, L1!L0!DeliverInitialMetadata, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>5. CASE L1!DeliverMessage(c2)
+      BY <1>0, <2>0, <2>5, SMT DEF  L1!DeliverMessage,
+         L1!HandPayloadToHost, L1!L0!DeliverMessage, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>6. CASE L1!DeliverStatus(c2)
+      BY <1>0, <2>0, <2>6, SMT DEF  L1!DeliverStatus,
+         L1!HandPayloadToHost, L1!L0!DeliverStatus, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>7. CASE L1!DeliverCancelled(c2)
+      BY <1>0, <2>0, <2>7, SMT DEF  L1!DeliverCancelled,
+         L1!HandPayloadToHost, L1!L0!CallCancel, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>8. CASE L1!ReleaseCallHandle(c2)
+      BY <1>0, <2>0, <2>8, SMT DEF  L1!ReleaseCallHandle, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>9. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8
+<1>5. CASE \E c2 \in CallIds, m2 \in Messages : L1!NetworkReceive(c2, m2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW m2 \in Messages,
+                           L1!NetworkReceive(c2, m2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>5
+  <2>1. CASE L1!NetworkReceive(c2, m2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!NetworkReceive,
+         L1!L0!NetworkReceive, L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter,
+         vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>6. CASE \E c2 \in CallIds, b2 \in BufferIds : L1!FreeReturnedBuffer(c2, b2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW b2 \in BufferIds,
+                           L1!FreeReturnedBuffer(c2, b2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>6
+  <2>1. CASE L1!FreeReturnedBuffer(c2, b2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!FreeReturnedBuffer, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>7. CASE \E c2 \in CallIds : L1!RequestCallCancellation(c2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           L1!RequestCallCancellation(c2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>7
+  <2>1. CASE L1!RequestCallCancellation(c2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!RequestCallCancellation, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>q. QED
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF  Passthrough,
+       RuntimeSteps, BindingDowncalls
+
+LEMMA AcquittalStaysComing ==
+    ASSUME ManagedIndInv,
+           AwaitingWriteDoneHasOneComing,
+           [Next]_vars
+    PROVE  AwaitingWriteDoneHasOneComing'
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  AwaitingWriteDoneHasOneComing,
+       L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>1. CASE Passthrough
+    BY <1>1, PassthroughKeepsTheAcquittalComing, SMT DEF
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!RuntimeFail, L1!L0!RuntimeFail, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
+           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
+           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, AwaitingWriteDoneHasOneComing,
+           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+       L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+
+\* And the derived ones, which Init makes vacuous: no call has
+\* released anything, no reader is finished, no call is published, no
+\* writer has begun, none is waiting on an acquittal, and none is serializing.
 LEMMA InitEstablishesTheDerived ==
     Init => /\ PrologueHasReleasedNothing
             /\ FinishedReaderDrainedTheRing
             /\ LiveCallHasLiveChannel
             /\ BusyWriterIsOnAStartedCall
+            /\ AwaitingWriteDoneHasOneComing
+            /\ SerializingWriterHoldsANamedBuffer
     BY SMT
-    DEF Init, ManagedInit, L1!Init, L1!L0!Init, BusyWriterIsOnAStartedCall,
+    DEF Init, ManagedInit, L1!Init, L1!L0!Init, BusyWriterIsOnAStartedCall, AwaitingWriteDoneHasOneComing, SerializingWriterHoldsANamedBuffer,
        PrologueHasReleasedNothing,
        FinishedReaderDrainedTheRing, LiveCallHasLiveChannel, RingDrained,
        RingHead, RingTail, L1!L0!HasStatus, L1!L0!StatusKinds
@@ -22954,10 +24386,14 @@ THEOREM DerivedInvariantsHold ==
             /\ []FinishedReaderDrainedTheRing
             /\ []LiveCallHasLiveChannel
             /\ []BusyWriterIsOnAStartedCall
+            /\ []AwaitingWriteDoneHasOneComing
+            /\ []SerializingWriterHoldsANamedBuffer
 <1>1. Init => /\ PrologueHasReleasedNothing
               /\ FinishedReaderDrainedTheRing
               /\ LiveCallHasLiveChannel
               /\ BusyWriterIsOnAStartedCall
+              /\ AwaitingWriteDoneHasOneComing
+              /\ SerializingWriterHoldsANamedBuffer
     BY InitEstablishesTheDerived
 <1>2. ManagedIndInv /\ PrologueHasReleasedNothing /\ [Next]_vars
           => PrologueHasReleasedNothing'
@@ -22971,12 +24407,20 @@ THEOREM DerivedInvariantsHold ==
 <1>4b. ManagedIndInv /\ BusyWriterIsOnAStartedCall /\ [Next]_vars
           => BusyWriterIsOnAStartedCall'
     BY BusyWriterStaysOnAStartedCall
+<1>4c. ManagedIndInv /\ AwaitingWriteDoneHasOneComing /\ [Next]_vars
+          => AwaitingWriteDoneHasOneComing'
+    BY AcquittalStaysComing
+<1>4d. ManagedIndInv /\ SerializingWriterHoldsANamedBuffer /\ [Next]_vars
+          => SerializingWriterHoldsANamedBuffer'
+    BY NamedBufferStaysNamed
 <1>5. []ManagedIndInv /\ Init /\ [][Next]_vars
           => /\ []PrologueHasReleasedNothing
              /\ []FinishedReaderDrainedTheRing
              /\ []LiveCallHasLiveChannel
              /\ []BusyWriterIsOnAStartedCall
-    BY <1>1, <1>2, <1>3, <1>4, <1>4b, PTL
+             /\ []AwaitingWriteDoneHasOneComing
+             /\ []SerializingWriterHoldsANamedBuffer
+    BY <1>1, <1>2, <1>3, <1>4, <1>4b, <1>4c, <1>4d, PTL
 <1>6. QED BY <1>5, ManagedIndInvHolds, PTL DEF Spec
 
 (***************************************************************************)
@@ -23092,6 +24536,337 @@ LEMMA OccupancyNeverClimbsPastTheStatus ==
        L1!TypeOK, L1!L0!TypeOK
 
 
+(***************************************************************************)
+(* A WRITE IN FLIGHT SETTLES                                               *)
+(*                                                                         *)
+(* The send side owes nothing to the application once the marshaller has    *)
+(* returned, so the wait for an acquittal ends on the runtime's own steps    *)
+(* and the binding's trampoline.  Two links: the acquittal is emitted, and  *)
+(* the trampoline returns.  AwaitingWriteDoneHasOneComing is what says one  *)
+(* of the two is always the one enabled.                                    *)
+(***************************************************************************)
+
+\* The abort needs the buffer's identity, and the derived invariant carries
+\* it.  Level 1 states the same fact as a count, but its Cardinality reached
+\* through the instance is a different operator from the one this module
+\* extends, so a count cannot become an identity here.
+LEMMA SerializingWriterHasALentBuffer ==
+    ASSUME NEW c \in CallIds, SerializingWriterHoldsANamedBuffer,
+           writer_state[c] = "serializing"
+    PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)
+    BY DEF SerializingWriterHoldsANamedBuffer
+
+
+\* The abort is enabled while the marshaller holds the slot: its guard is
+\* the serializing state and the buffer coming back, and the buffer is
+\* there.  Through the abort alone and as an implication - ExpandENABLED
+\* searches the whole frame for a witness but carries one across an
+\* implication, and the commit's witness is the marshaller's business.
+LEMMA SerializationHasAnExit ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           SerializingWriterHoldsANamedBuffer,
+           writer_state[cId] = "serializing"
+    PROVE  ENABLED <<SerializationSettles(cId)>>_vars
+<1>1. PICK b \in BufferIds : L1!IsLentBuffer(cId, b)
+    BY SerializingWriterHasALentBuffer
+<1>2. ENABLED <<WriteAborted(cId, b)>>_vars
+    BY <1>1, ExpandENABLED, SMT
+    DEF WriteAborted, L1!HostReturnsBuffer, L1!IsLentBuffer,
+       L1!HostHoldsSomeBuffer, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, WriterInv, SerializingWriterHoldsTheBuffer,
+       L1!IndInv, L1!TypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+\* Citing the PICK, which is where b's membership lives: without it the
+\* abort is not visibly one of the disjuncts the settling quantifies over.
+<1>3. ENABLED <<WriteAborted(cId, b)>>_vars
+          => ENABLED <<SerializationSettles(cId)>>_vars
+    BY <1>1, ExpandENABLED, Isa
+    DEF SerializationSettles, WriteAbortsSomewhere, WriteAborted,
+       CommitWrite, L1!HostReturnsBuffer, L1!SendMessage, L1!L0!SendMessage,
+       ManagedStutter, vars, l1_vars, managed_vars, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>4. QED BY <1>2, <1>3
+
+\* And settling leaves the serializing state: the abort goes idle, the
+\* commit goes to the wait.  Spelled as a disjunction of equalities rather
+\* than a membership, because the temporal prover reads a membership and its
+\* equalities as unrelated atoms.
+LEMMA SettlingLeavesSerializing ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           <<SerializationSettles(cId)>>_vars
+    PROVE  \/ (writer_state[cId] = "idle")'
+           \/ (writer_state[cId] = "awaiting_write_done")'
+    BY SMT DEF SerializationSettles, WriteAbortsSomewhere, WriteAborted,
+       CommitWrite, ManagedTypeOK, vars, l1_vars, managed_vars
+
+\* A writer at idle is a settled writer, in the spelling the promise uses.
+LEMMA IdleIsSettled ==
+    ASSUME NEW cId \in CallIds, writer_state[cId] = "idle"
+    PROVE  writer_state[cId] \in {"idle", "closed"}
+    OBVIOUS
+
+\* And it is not waiting.  Obvious of two distinct strings, and not obvious
+\* at all to the temporal prover, which reads each equality as an atom of
+\* its own with nothing between them.
+LEMMA IdleIsNotAwaiting ==
+    ASSUME NEW cId \in CallIds, writer_state[cId] = "idle"
+    PROVE  writer_state[cId] # "awaiting_write_done"
+    OBVIOUS
+
+\* The emission is enabled while the acquittal is owed and no trampoline is
+\* on the stack - which is EmitWriteDone's guard, verbatim.
+LEMMA EmissionIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           L1!IsAwaitingWriteDone(cId),
+           ~L1!IsWriteDoneCallbackRunning(cId)
+    PROVE  ENABLED <<PassEmitWriteDone(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassEmitWriteDone, ManagedStutter, L1!EmitWriteDone,
+       L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning, ManagedTypeOK,
+       L1!TypeOK, vars, l1_vars, managed_vars, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+
+\* And what a waiting writer has, the invariant turning the wait into that
+\* same guard: this is the form the temporal step cites, because PTL will
+\* not combine the lemma with the invariant inside a box.
+LEMMA WaitingOnAcquittalEnablesTheEmission ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           AwaitingWriteDoneHasOneComing,
+           writer_state[cId] = "awaiting_write_done",
+           ~L1!IsWriteDoneCallbackRunning(cId)
+    PROVE  ENABLED <<PassEmitWriteDone(cId)>>_vars
+<1>1. L1!IsAwaitingWriteDone(cId)
+    BY DEF AwaitingWriteDoneHasOneComing
+<1>2. QED BY <1>1, EmissionIsEnabled
+
+\* And it puts the trampoline on the stack.
+LEMMA EmissionRunsTheTrampoline ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           <<PassEmitWriteDone(cId)>>_vars
+    PROVE  (L1!IsWriteDoneCallbackRunning(cId))'
+    BY SMT DEF PassEmitWriteDone, L1!EmitWriteDone,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, L1!TypeOK, vars,
+       l1_vars, managed_vars
+
+\* The trampoline's return is enabled while it is on the stack.
+LEMMA TrampolineReturnIsEnabled ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           L1!IsWriteDoneCallbackRunning(cId)
+    PROVE  ENABLED <<WriteDoneCompletes(cId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF WriteDoneCompletes, L1!WriteDoneReturns,
+       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, L1!TypeOK, WriterStates,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+
+\* And its return takes the writer to idle, which is where the promise
+\* wants it: the trampoline reads the wait and clears it.
+LEMMA TrampolineReturnGoesIdle ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           writer_state[cId] = "awaiting_write_done",
+           <<WriteDoneCompletes(cId)>>_vars
+    PROVE  (writer_state[cId] = "idle")'
+    BY SMT DEF WriteDoneCompletes, ManagedTypeOK, vars, l1_vars,
+       managed_vars
+
+\* The wait holds until the trampoline returns.  Same shape as the
+\* serializing case: of the five writer states the target leaves out three,
+\* and every step reaching one of those wants an idle or a waiting writer.
+LEMMA AwaitingHoldsUntilItReturns ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           writer_state[cId] = "awaiting_write_done", [Next]_vars
+    PROVE  \/ (writer_state[cId] = "awaiting_write_done")'
+           \/ (writer_state[cId] = "idle")'
+    BY SMT
+    DEF Next, Passthrough, RuntimeSteps, BindingDowncalls, ManagedStutter,
+       FreeRuntimeRoot, CreateRuntime, AcquireLease, CreateChannel,
+       RejectChannelCreation, BeginDisposeChannel, FinishDisposeChannel,
+       ResolveChannelDispose, BeginRuntimeShutdown, FinishDisposeRuntime,
+       ShutdownReturns, ResourcesReleasedReturns, BeginMoveNext,
+       BeginParseEvent, FinishConsumePayload, CancelWaiter,
+       RequestReadCancellation, CancelWaitingRead, CancelParsingRead,
+       FinishCancelledParse, HandoffToDrain, ConsumeHeader,
+       BeginDisposeCall, DisposeCallForChannel, DrainRelease,
+       FinishDisposeCall, SettleCall, CancelWriterWait, WriteDoneCompletes,
+       CloseWriter, OnEventReturns, TerminalCallbackReturns, StartCall,
+       WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
+       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       WriterStates, vars, l1_vars, managed_vars
+
+
+\* Serialization holds until it settles.  Stated as what it excludes: of the
+\* five writer states, the target leaves out only waiting_budget and closed,
+\* and the two steps that reach those - a budget refusal and end_send - both
+\* want an idle writer.
+LEMMA SerializingHoldsUntilItSettles ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           writer_state[cId] = "serializing", [Next]_vars
+    PROVE  \/ (writer_state[cId] = "serializing")'
+           \/ (writer_state[cId] = "idle")'
+           \/ (writer_state[cId] = "awaiting_write_done")'
+\* Directly, in one step over Next: the two steps that could take the
+\* writer out of the target want an idle one, and every other step either
+\* leaves this writer alone or lands in the target.  Reducing it first to
+\* "waiting_budget or closed is impossible" would want the PRIMED typing of
+\* writer_state, which no hypothesis here carries.
+<1>1. QED
+    BY SMT
+    DEF Next, Passthrough, RuntimeSteps, BindingDowncalls, ManagedStutter,
+       FreeRuntimeRoot, CreateRuntime, AcquireLease, CreateChannel,
+       RejectChannelCreation, BeginDisposeChannel, FinishDisposeChannel,
+       ResolveChannelDispose, BeginRuntimeShutdown, FinishDisposeRuntime,
+       ShutdownReturns, ResourcesReleasedReturns, BeginMoveNext,
+       BeginParseEvent, FinishConsumePayload, CancelWaiter,
+       RequestReadCancellation, CancelWaitingRead, CancelParsingRead,
+       FinishCancelledParse, HandoffToDrain, ConsumeHeader,
+       BeginDisposeCall, DisposeCallForChannel, DrainRelease,
+       FinishDisposeCall, SettleCall, CancelWriterWait, WriteDoneCompletes,
+       CloseWriter, OnEventReturns, TerminalCallbackReturns, StartCall,
+       WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
+       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       WriterStates, vars, l1_vars, managed_vars
+
+\* Serialization settles, on the application's own promise: whether the
+\* marshaller commits or throws is its business, that it returns is the
+\* hypothesis, and either outcome leaves the serializing state.
+THEOREM SerializationAlwaysSettles ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []SerializingWriterHoldsANamedBuffer
+           /\ [][Next]_vars
+           /\ WF_vars(SerializationSettles(cId))
+           /\ writer_state[cId] = "serializing"
+           => <>(\/ writer_state[cId] = "idle"
+                 \/ writer_state[cId] = "awaiting_write_done")
+<1>1. ASSUME []ManagedIndInv, []SerializingWriterHoldsANamedBuffer,
+             [][Next]_vars, WF_vars(SerializationSettles(cId)),
+             writer_state[cId] = "serializing"
+      PROVE  <>(\/ writer_state[cId] = "idle"
+                \/ writer_state[cId] = "awaiting_write_done")
+  <2>1. []ManagedTypeOK
+    BY <1>1, PTL DEF ManagedIndInv
+  <2>2. [](ManagedIndInv /\ SerializingWriterHoldsANamedBuffer
+               /\ writer_state[cId] = "serializing"
+               => ENABLED <<SerializationSettles(cId)>>_vars)
+    BY SerializationHasAnExit, PTL
+  <2>3. [](ManagedTypeOK /\ <<SerializationSettles(cId)>>_vars
+               => \/ (writer_state[cId] = "idle")'
+                  \/ (writer_state[cId] = "awaiting_write_done")')
+    BY SettlingLeavesSerializing, PTL
+  <2>4. [](ManagedTypeOK /\ writer_state[cId] = "serializing"
+               /\ [Next]_vars
+               => \/ (writer_state[cId] = "serializing")'
+                  \/ (writer_state[cId] = "idle")'
+                  \/ (writer_state[cId] = "awaiting_write_done")')
+    BY SerializingHoldsUntilItSettles, PTL
+  <2>5. QED BY <1>1, <2>1, <2>2, <2>3, <2>4, PTL
+<1>2. QED BY <1>1, PTL
+
+\* The wait for an acquittal ends.  Two links and no hypothesis on the
+\* application: the runtime emits, the trampoline returns, and
+\* AwaitingWriteDoneHasOneComing says which of the two is the one enabled.
+THEOREM AwaitingWriteDoneAlwaysEnds ==
+    ASSUME NEW cId \in CallIds
+    PROVE  /\ []ManagedIndInv
+           /\ []AwaitingWriteDoneHasOneComing
+           /\ [][Next]_vars
+           /\ WF_vars(PassEmitWriteDone(cId))
+           /\ WF_vars(WriteDoneCompletes(cId))
+           /\ writer_state[cId] = "awaiting_write_done"
+           => <>(writer_state[cId] = "idle")
+<1>1. ASSUME []ManagedIndInv, []AwaitingWriteDoneHasOneComing,
+             [][Next]_vars, WF_vars(PassEmitWriteDone(cId)),
+             WF_vars(WriteDoneCompletes(cId)),
+             writer_state[cId] = "awaiting_write_done"
+      PROVE  <>(writer_state[cId] = "idle")
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. [](L1!IsWriteDoneCallbackRunning(cId)
+               => ENABLED <<WriteDoneCompletes(cId)>>_vars)
+    BY <2>1, TrampolineReturnIsEnabled, PTL
+  <2>3. [](ManagedTypeOK /\ writer_state[cId] = "awaiting_write_done"
+               /\ <<WriteDoneCompletes(cId)>>_vars
+               => (writer_state[cId] = "idle")')
+    BY TrampolineReturnGoesIdle, PTL
+  <2>3a. [](ManagedTypeOK
+                /\ writer_state[cId] = "awaiting_write_done"
+                /\ [Next]_vars
+                => \/ (writer_state[cId] = "awaiting_write_done")'
+                   \/ (writer_state[cId] = "idle")')
+    BY AwaitingHoldsUntilItReturns, PTL
+  <2>4. [](ManagedTypeOK /\ L1!TypeOK /\ AwaitingWriteDoneHasOneComing
+               /\ writer_state[cId] = "awaiting_write_done"
+               /\ ~L1!IsWriteDoneCallbackRunning(cId)
+               => ENABLED <<PassEmitWriteDone(cId)>>_vars)
+    BY WaitingOnAcquittalEnablesTheEmission, PTL
+  <2>5. [](<<PassEmitWriteDone(cId)>>_vars
+               => (L1!IsWriteDoneCallbackRunning(cId))')
+    BY <2>1, EmissionRunsTheTrampoline, PTL
+  \* Two phases, split explicitly: the trampoline is on the stack or it is
+  \* not, and each case is one weak fairness.  Left as one step the temporal
+  \* prover has to find the phase change itself.
+  <2>6. SUFFICES ASSUME [](writer_state[cId] = "awaiting_write_done")
+                 PROVE  FALSE
+    BY <1>1, <2>1, <2>3a, PTL
+  <2>6a. [](writer_state[cId] = "idle"
+                => writer_state[cId] # "awaiting_write_done")
+    BY IdleIsNotAwaiting, PTL
+  <2>7. CASE []~L1!IsWriteDoneCallbackRunning(cId)
+    <3>1. []ENABLED <<PassEmitWriteDone(cId)>>_vars
+        BY <1>1, <2>1, <2>4, <2>6, <2>7, PTL
+    <3>2. <><<PassEmitWriteDone(cId)>>_vars
+        BY <1>1, <3>1, PTL
+    <3>3. QED BY <2>5, <2>7, <3>2, PTL
+  <2>8. CASE <>L1!IsWriteDoneCallbackRunning(cId)
+    <3>1. <>[]L1!IsWriteDoneCallbackRunning(cId)
+        BY <1>1, <2>1, <2>2, <2>3, <2>6, <2>8, PTL
+    <3>2. <>[]ENABLED <<WriteDoneCompletes(cId)>>_vars
+        BY <2>2, <3>1, PTL
+    <3>3. QED BY <1>1, <2>1, <2>3, <2>6, <2>6a, <3>2, PTL
+  <2>9. QED BY <2>7, <2>8, PTL
+<1>2. QED BY <1>1, PTL
+
+(***************************************************************************)
+(* AND SO A PENDING WRITE SETTLES                                          *)
+(***************************************************************************)
+
+THEOREM PendingWriteEventuallySettledHolds ==
+    Spec => PendingWriteEventuallySettled
+<1>0. SUFFICES ASSUME Spec, NEW cId \in CallIds
+               PROVE  writer_state[cId]
+                          \in {"serializing", "awaiting_write_done"} ~>
+                          (writer_state[cId] \in {"idle", "closed"}
+                               \/ ~L1!L0!NotFailed)
+    BY DEF PendingWriteEventuallySettled
+<1>1. /\ []ManagedIndInv
+      /\ []AwaitingWriteDoneHasOneComing
+      /\ []SerializingWriterHoldsANamedBuffer
+      /\ [][Next]_vars
+    BY <1>0, ManagedIndInvHolds, DerivedInvariantsHold, PTL DEF Spec
+<1>2. /\ WF_vars(PassEmitWriteDone(cId))
+      /\ WF_vars(WriteDoneCompletes(cId))
+    BY <1>0, Isa DEF Spec, Fairness, RuntimeOwedFairness,
+       BindingOwedFairness
+<1>3. WF_vars(SerializationSettles(cId))
+    BY <1>0, Isa DEF Spec, Fairness, ApplicationOwedFairness
+<1>4. [](writer_state[cId] = "serializing"
+             => <>(\/ writer_state[cId] = "idle"
+                 \/ writer_state[cId] = "awaiting_write_done"))
+    BY <1>1, <1>3, SerializationAlwaysSettles, PTL
+<1>5. [](writer_state[cId] = "awaiting_write_done"
+             => <>(writer_state[cId] = "idle"))
+    BY <1>1, <1>2, AwaitingWriteDoneAlwaysEnds, PTL
+\* The last step of spelling: the promise names a set, the chain names the
+\* value, and the temporal prover does not read one as the other.
+<1>6. [](writer_state[cId] = "idle"
+             => writer_state[cId] \in {"idle", "closed"})
+    BY IdleIsSettled, PTL
+<1>7. QED BY <1>4, <1>5, <1>6, PTL
+
+
 \* The status is a latch: nothing appends to a ring that has it, so its last
 \* event stays the status.  This is what lets the ladder be entered on the
 \* instant fact a caller holds rather than on a box nobody could supply -
@@ -23109,12 +24884,1447 @@ LEMMA StatusIsALatch ==
 
 \* An occupancy of zero is a drained ring: the tail never passes the head,
 \* which is level 1's own accounting.
-LEMMA ZeroOccupancyIsDrained ==
+\* An undrained ring owes.  The occupancy is not zero, and it is never
+\* negative, so it is positive - and a positive occupancy IS the debt.
+LEMMA UndrainedRingOwes ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           L1!FfiCallInv, ~RingDrained(cId)
+    PROVE  PayloadOwed(cId)
+<1>1. RingOccupancy(cId) > 0
+    BY SMT DEF RingOccupancy, RingDrained, RingHead, RingTail,
+       L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries, L1!TypeOK,
+       L1!L0!TypeOK
+<1>2. QED
+    BY <1>1, OccupancyIsTheDebt
+
+\* A rung survives a step that does not raise the occupancy.  n is rigid, so
+\* priming the rung primes the occupancy and nothing else; the primed typing
+\* is what makes the comparison arithmetic rather than uninterpreted.
+LEMMA RungIsMonotone ==
+    ASSUME NEW cId \in CallIds, NEW n \in Nat,
+           ManagedTypeOK, L1!TypeOK, ManagedTypeOK', L1!TypeOK',
+           RingOccupancy(cId)' <= RingOccupancy(cId),
+           RingOccupancy(cId) <= n + 1
+    PROVE  (RingOccupancy(cId) <= n + 1)'
+    BY SMT DEF RingOccupancy, RingHead, RingTail, ManagedTypeOK, L1!TypeOK,
+       L1!L0!TypeOK
+
+\* And a consumption takes it down one rung.
+LEMMA ConsumptionStepsDownTheRung ==
+    ASSUME NEW cId \in CallIds, NEW n \in Nat,
+           ManagedTypeOK, L1!TypeOK, ManagedTypeOK', L1!TypeOK',
+           RingOccupancy(cId)' = RingOccupancy(cId) - 1,
+           RingOccupancy(cId) <= n + 1
+    PROVE  (RingOccupancy(cId) <= n)'
+    BY SMT DEF RingOccupancy, RingHead, RingTail, ManagedTypeOK, L1!TypeOK,
+       L1!L0!TypeOK
+
+LEMMA ZeroOccupancyIsDrained ==
+    ASSUME NEW cId \in CallIds, L1!TypeOK, L1!FfiCallInv,
            RingOccupancy(cId) <= 0
     PROVE  RingDrained(cId)
-    BY SMT DEF RingOccupancy, RingDrained, RingHead, RingTail, ManagedTypeOK,
-       L1!TypeOK, L1!L0!TypeOK
+    BY SMT DEF RingOccupancy, RingDrained, RingHead, RingTail,
+       L1!FfiCallInv, L1!ReleasesNeverExceedDeliveries, L1!TypeOK,
+       L1!L0!TypeOK
+
+LEMMA PublishedStartsTheCall ==
+    ASSUME NEW cId \in CallIds, call_token_published \in [CallIds -> BOOLEAN],
+           call_state \in [CallIds -> L1!L0!CallStates],
+           ~call_token_published[cId],
+           (call_token_published[cId])',
+           [Next]_vars
+    PROVE  (~L1!L0!IsUnusedCall(cId))'
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  (~L1!L0!IsUnusedCall(cId))'
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!RuntimeFail, L1!L0!RuntimeFail, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  (~L1!L0!IsUnusedCall(cId))'
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
+           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
+           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  (~L1!L0!IsUnusedCall(cId))'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!CallStart,
+           L1!L0!CallStart, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!CallStart,
+           L1!L0!CallStart, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+           L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+\* The one step that publishes, and the disjunct binds the very name the
+\* lemma takes: renamed, then split on whether the started call is that one.
+\* A start elsewhere leaves this token where it was, which the hypothesis
+\* has already fixed.
+<1>7. CASE \E c2 \in CallIds, ch2 \in ChannelIds : StartCall(c2, ch2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW ch2 \in ChannelIds,
+                        StartCall(c2, ch2)
+                 PROVE  (~L1!L0!IsUnusedCall(cId))'
+      BY <1>7
+  <2>1. call_token_published' =
+            [call_token_published EXCEPT ![c2] = TRUE]
+      BY <2>0 DEF StartCall
+  <2>2. c2 = cId
+      BY <2>0, <2>1, SMT
+  <2>3. call_state' = [call_state EXCEPT ![c2] = "started"]
+      BY <2>0 DEF StartCall, L1!CallStart, L1!L0!CallStart
+  <2>4. QED
+      BY <2>2, <2>3, SMT DEF L1!L0!IsUnusedCall
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+       L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+\* The token is a latch: only StartCall sets it, and nothing clears it.
+LEMMA TokenIsALatch ==
+    ASSUME NEW cId \in CallIds,
+           call_token_published \in [CallIds -> BOOLEAN],
+           call_token_published[cId],
+           [Next]_vars
+    PROVE  (call_token_published[cId])'
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  (call_token_published[cId])'
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  (call_token_published[cId])'
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
+           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
+           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  (call_token_published[cId])'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+\* The token and the start move together, and neither is ever undone: only
+\* StartCall publishes, and it starts the call in the same step, so the only
+\* thing to show is that a started call stays started.
+LEMMA PublishedStaysStarted ==
+    ASSUME ManagedIndInv, PublishedCallHasStarted, [Next]_vars
+    PROVE  PublishedCallHasStarted'
+<1>0. SUFFICES ASSUME NEW cId \in CallIds, (call_token_published[cId])'
+               PROVE  (~L1!L0!IsUnusedCall(cId))'
+    BY DEF PublishedCallHasStarted
+<1>1. /\ call_state \in [CallIds -> L1!L0!CallStates]
+      /\ call_token_published \in [CallIds -> BOOLEAN]
+    BY ManagedIndInvTypesTheCall DEF ManagedIndInv, ManagedTypeOK
+<1>2. CASE call_token_published[cId]
+  <2>1. ~L1!L0!IsUnusedCall(cId)
+    BY <1>2 DEF PublishedCallHasStarted
+  <2>2. QED BY <1>1, <2>1, CallNeverBecomesUnused
+<1>3. CASE ~call_token_published[cId]
+    \* Only StartCall publishes, and it starts the call as it does.
+    BY <1>0, <1>1, <1>3, PublishedStartsTheCall
+<1>4. QED BY <1>2, <1>3
+
+(***************************************************************************)
+(* THE TEARDOWN'S ENTRY                                                    *)
+(*                                                                         *)
+(* Nine of the level's promises need the terminal to be there, and this is  *)
+(* where that comes from: a draining call is cancelled, a cancelled call    *)
+(* dies (level 1's own promise, inherited), and a dead call that started    *)
+(* has its status - TerminalStatusEquivalence, at level 0.                  *)
+(***************************************************************************)
+
+\* A drain begins cancelled: the three steps that reach "draining" each
+\* latch the cancellation, or find a call whose terminal is already there.
+LEMMA DrainBeginsCancelled ==
+    ASSUME NEW cId \in CallIds,
+           ManagedIndInv, PublishedCallHasStarted,
+           call_dispose_state[cId] # "draining",
+           (call_dispose_state[cId] = "draining")',
+           [Next]_vars
+    PROVE  /\ (~L1!L0!IsUnusedCall(cId))'
+           /\ \/ (L1!IsCancelRequested(cId))'
+              \/ (~L1!L0!IsActiveCall(cId))'
+<1>t. /\ call_dispose_state \in [CallIds -> CallDisposeStates]
+      /\ call_state \in [CallIds -> L1!L0!CallStates]
+    BY ManagedIndInvTypesTheCall DEF ManagedIndInv, ManagedTypeOK
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  L1!IsCancelRequested, L1!L0!HasStatus,
+       L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+       L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+       CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
+       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  /\ (~L1!L0!IsUnusedCall(cId))'
+                        /\ \/ (L1!IsCancelRequested(cId))'
+                           \/ (~L1!L0!IsActiveCall(cId))'
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+           L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!RuntimeFail, L1!L0!RuntimeFail, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+           L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  /\ (~L1!L0!IsUnusedCall(cId))'
+                        /\ \/ (L1!IsCancelRequested(cId))'
+                           \/ (~L1!L0!IsActiveCall(cId))'
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
+           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
+           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+           L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  /\ (~L1!L0!IsUnusedCall(cId))'
+                        /\ \/ (L1!IsCancelRequested(cId))'
+                           \/ (~L1!L0!IsActiveCall(cId))'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+           L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsCancelRequested, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+           L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsCancelRequested, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
+           L1!L0!IsTerminalCall, L1!L0!UsedCalls, L1!L0!IsUnusedCall,
+           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, ManagedIndInv,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+    \* The dispose's own disjunct IS the goal, once the call it names is
+    \* this one: it either latches the cancellation or finds a call already
+    \* past cancelling, and it moves neither cancel_requested nor call_state
+    \* in the second case.
+    <3>1. c2 = cId
+        BY <2>0, <2>11, <1>t, SMT DEF BeginDisposeCall
+    <3>2. \/ L1!RequestCallCancellation(cId)
+          \/ /\ \/ ~L1!L0!IsActiveCall(cId)
+                \/ cancel_requested[cId]
+             /\ UNCHANGED l1_vars
+        BY <2>0, <2>11, <3>1 DEF BeginDisposeCall
+    <3>3. ~L1!L0!IsUnusedCall(cId)
+        BY <2>0, <2>11, <3>1, PublishedCallHasStarted
+        DEF BeginDisposeCall, PublishedCallHasStarted
+    <3>3b. (~L1!L0!IsUnusedCall(cId))'
+        BY <3>3, <1>t, CallNeverBecomesUnused
+    <3>4. CASE L1!RequestCallCancellation(cId)
+        \* The arming, read off its own assignment: the dispose's body
+        \* plays no part once the case names the level-1 action.
+        BY <3>3b, <3>4, ManagedIndInvTypesTheCall, SMT
+        DEF L1!RequestCallCancellation, L1!IsCancelRequested
+    <3>5. CASE /\ \/ ~L1!L0!IsActiveCall(cId)
+                  \/ cancel_requested[cId]
+               /\ UNCHANGED l1_vars
+        BY <3>3b, <3>5, <2>0, <2>11, <1>t, SMT
+        DEF BeginDisposeCall, L1!IsCancelRequested, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, l1_vars, L1!vars, L1!l0_vars,
+           L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, managed_vars
+    <3>6. QED BY <3>2, <3>4, <3>5
+  <2>12. CASE DisposeCallForChannel(c2)
+      BY <2>0, <2>12, <2>11 DEF DisposeCallForChannel
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsCancelRequested, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsCancelRequested, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!UsedCalls,
+           L1!L0!IsUnusedCall, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+           ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!ActiveCallStates,
+           ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ManagedTypeOK,
+           CallDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+           L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsCancelRequested, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsCancelRequested, L1!L0!StatusKinds,
+           L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+           L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
+       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
+       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsCancelRequested, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+       L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+\* And it stays cancelled: both disjuncts are latches, and the pair of
+\* lemmas that say so is already in hand.
+LEMMA DrainingStaysCancelled ==
+    ASSUME ManagedIndInv, PublishedCallHasStarted, DrainingCallIsCancelled,
+           [Next]_vars
+    PROVE  DrainingCallIsCancelled'
+<1>0. SUFFICES ASSUME NEW cId \in CallIds,
+                      (call_dispose_state[cId] = "draining")'
+               PROVE  /\ (~L1!L0!IsUnusedCall(cId))'
+                      /\ \/ (L1!IsCancelRequested(cId))'
+                         \/ (~L1!L0!IsActiveCall(cId))'
+    BY DEF DrainingCallIsCancelled
+<1>1. /\ cancel_requested \in [CallIds -> BOOLEAN]
+      /\ call_state \in [CallIds -> L1!L0!CallStates]
+    BY ManagedIndInvTypesTheCall
+<1>2. CASE call_dispose_state[cId] = "draining"
+  <2>1. /\ ~L1!L0!IsUnusedCall(cId)
+        /\ \/ L1!IsCancelRequested(cId)
+           \/ ~L1!L0!IsActiveCall(cId)
+    BY <1>2 DEF DrainingCallIsCancelled
+  <2>2. (~L1!L0!IsUnusedCall(cId))'
+    BY <1>1, <2>1, CallNeverBecomesUnused
+  <2>3. CASE L1!IsCancelRequested(cId)
+    BY <1>1, <2>2, <2>3, CancellationIsLatched DEF L1!IsCancelRequested
+  <2>4. CASE ~L1!L0!IsActiveCall(cId)
+    \* A call that left active never returns, and the invariant already
+    \* says it started - which is what StartedCallNeverRestarts needs.
+    BY <1>1, <2>1, <2>2, <2>4, StartedCallNeverRestarts
+  <2>5. QED BY <2>1, <2>3, <2>4
+<1>3. CASE call_dispose_state[cId] # "draining"
+    BY <1>0, <1>3, DrainBeginsCancelled
+<1>4. QED BY <1>2, <1>3
+
+\* The drain pair, boxed the same way as the family above and for the same
+\* reason.  It stands apart only because its preservation leans on the
+\* monotonicity lemmas of this section, and a lemma has to precede the
+\* theorem that cites it.  The two travel together: the drain invariant
+\* needs the token one to know a draining call had started.
+THEOREM DrainInvariantsHold ==
+    Spec => /\ []PublishedCallHasStarted
+            /\ []DrainingCallIsCancelled
+<1>1. Init => PublishedCallHasStarted /\ DrainingCallIsCancelled
+    BY SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       PublishedCallHasStarted, DrainingCallIsCancelled,
+       L1!L0!IsUnusedCall, L1!L0!UsedCalls
+<1>2. ManagedIndInv /\ PublishedCallHasStarted /\ [Next]_vars
+          => PublishedCallHasStarted'
+    BY PublishedStaysStarted
+<1>3. /\ ManagedIndInv
+      /\ PublishedCallHasStarted
+      /\ DrainingCallIsCancelled
+      /\ [Next]_vars
+   => DrainingCallIsCancelled'
+    BY DrainingStaysCancelled
+<1>4. QED
+    BY <1>1, <1>2, <1>3, ManagedIndInvHolds, PTL DEF Spec
 
 \* The ladder.  Rung n says an occupancy of at most n drains; the step
 \* from n to n + 1 spends one consumption, and ConsumptionIsReached is
@@ -23150,17 +26360,20 @@ THEOREM RingEventuallyDrains ==
              WF_vars(BeginMoveNext(cId)),
              L1!L0!HasStatus(cId)
       PROVE  <>RingDrained(cId)
-  <2>1. []ManagedTypeOK /\ []L1!TypeOK
+  <2>1. []ManagedTypeOK /\ []L1!TypeOK /\ []L1!FfiCallInv
     BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+  \* The typing of both endpoints of a step, which every rung lemma wants.
+  <2>1c. [](ManagedTypeOK /\ L1!TypeOK /\ ManagedTypeOK' /\ L1!TypeOK')
+    BY <2>1, PTL
   <2>1b. []L1!L0!HasStatus(cId)
     BY <1>1, <2>1, StatusIsALatch, PTL
-  \* The four state facts, boxed once and used at every rung.
+  \* The state facts, boxed once and used at every rung.
   <2>2. [](RingOccupancy(cId) <= 0 => RingDrained(cId))
     BY <2>1, ZeroOccupancyIsDrained, PTL
-  <2>3. [](PayloadOwed(cId) <=> RingOccupancy(cId) > 0)
-    BY <2>1, OccupancyIsTheDebt, PTL
-  <2>4. [][RingOccupancy(cId)' <= RingOccupancy(cId)]_vars
-    BY <2>1, <2>1b, OccupancyNeverClimbsPastTheStatus, PTL
+  <2>3. [](~RingDrained(cId) => PayloadOwed(cId))
+    BY <2>1, UndrainedRingOwes, PTL
+  <2>4. [](RingOccupancy(cId)' <= RingOccupancy(cId))
+    BY <1>1, <2>1, <2>1b, OccupancyNeverClimbsPastTheStatus, PTL
   <2>5. [](<<L1!HostConsumesEvent(cId)>>_l1_vars
                => RingOccupancy(cId)' = RingOccupancy(cId) - 1)
     BY <2>1, ConsumptionLowersTheOccupancy, PTL
@@ -23169,20 +26382,45 @@ THEOREM RingEventuallyDrains ==
   <2>6. []([]PayloadOwed(cId)
                => <><<L1!HostConsumesEvent(cId)>>_l1_vars)
     BY <1>1, ConsumptionIsReached, PTL
+  \* ls4 instantiates nothing, so the bound is taken out of the box first
+  \* and read at cId after.
+  <2>7a. ManagedIndInv
+    BY <1>1, PTL
+  <2>7b. RingNeverOverflows
+    BY <2>7a, ManagedIndInvImpliesSafety DEF ManagedSafety
   <2>7. RingOccupancy(cId) <= DeliveryCredits + 1
-    BY <1>1, PTL DEF ManagedIndInv, ManagedSafety, RingNeverOverflows
-  <2>8. \A n \in Nat :
-            ((RingOccupancy(cId) <= n) ~> RingDrained(cId))
-    <3>1. (RingOccupancy(cId) <= 0) ~> RingDrained(cId)
-        BY <2>2, PTL
-    <3>2. ASSUME NEW n \in Nat,
-                 (RingOccupancy(cId) <= n) ~> RingDrained(cId)
-          PROVE  (RingOccupancy(cId) <= n + 1) ~> RingDrained(cId)
-        BY <1>1, <2>1b, <2>3, <2>4, <2>5, <2>6, <3>2, PTL
+    BY <2>7b DEF RingNeverOverflows
+  <2>8. DeliveryCredits + 1 \in Nat
+    BY DeliveryCreditsArePositive, SMT
+  \* NatInduction instantiates a predicate variable, and Isabelle can only
+  \* do that on an opaque one - so the rung is named, and stays named until
+  \* the ladder has been climbed and entered.
+  <2> DEFINE Rung(n) == (RingOccupancy(cId) <= n) ~> RingDrained(cId)
+  <2>8a. Rung(0)
+    BY <2>2, PTL
+  <2>8b. ASSUME NEW n \in Nat, Rung(n)
+         PROVE  Rung(n + 1)
+    \* The rung, in atoms.  The two arithmetic links are made here, each a
+    \* boxed implication between named predicates; what is left for the
+    \* temporal backend is: the rung holds throughout, an undrained ring owes
+    \* forever, a standing debt is consumed, and a consumption on this rung
+    \* lands on the one below - where the hypothesis waits.
+    <3>1. [](RingOccupancy(cId) <= n + 1
+                 => (RingOccupancy(cId) <= n + 1)')
+        BY <2>1c, <2>4, RungIsMonotone, PTL
+    <3>2. [](<<L1!HostConsumesEvent(cId)>>_l1_vars
+                 /\ RingOccupancy(cId) <= n + 1
+                 => (RingOccupancy(cId) <= n)')
+        BY <2>1c, <2>5, ConsumptionStepsDownTheRung, PTL
     <3>3. QED
-        BY <3>1, <3>2, NatInduction, IsaT(600)
+        BY <2>3, <2>6, <2>8b, <3>1, <3>2, PTL
+  <2> HIDE DEF Rung
+  <2>8c. \A n \in Nat : Rung(n)
+    BY <2>8a, <2>8b, NatInduction, IsaT(600)
+  <2>8d. Rung(DeliveryCredits + 1)
+    BY <2>8, <2>8c
   <2>9. QED
-    BY <2>7, <2>8, DeliveryCreditsArePositive, PTL
+    BY <2>7, <2>8d, PTL DEF Rung
 <1>2. QED BY <1>1, PTL
 
 THEOREM InheritedLiveness == Spec => L1!LivenessProperties
@@ -23630,5 +26868,997 @@ THEOREM HostReturnsBufferDischarged ==
     Spec => \A cId \in CallIds, b \in BufferIds :
                 WF_l1_vars(L1!HostReturnsBuffer(cId, b))
 BY InheritedFairness, Isa DEF L1!Fairness, l1_vars
+
+(***************************************************************************)
+(* WHAT AN ACTION DOES, AND WHAT IT LEAVES ALONE                           *)
+(*                                                                         *)
+(* Each of these is read off one action's own body: the antecedent names    *)
+(* the action, so no case analysis over Next is needed.  Each lemma states  *)
+(* the bracketed form the theorem boxes, spelled the same way on both       *)
+(* sides, and stands under no temporal hypothesis - which is what lets the  *)
+(* box be taken at all.                                                    *)
+(***************************************************************************)
+
+\* The dispose states, typed: an EXCEPT is only readable at a point the
+\* domain contains, and every reading below is one.
+LEMMA ManagedIndInvTypesTheDispose ==
+    ASSUME ManagedIndInv
+    PROVE  /\ call_dispose_state \in [CallIds -> CallDisposeStates]
+           /\ channel_dispose_state
+                  \in [ChannelIds -> ChannelDisposeStates]
+    BY SMT DEF ManagedIndInv, ManagedTypeOK
+
+\* The handoff moves the consumer, not the ring: its UNCHANGED l1_vars is
+\* where the tail lives.
+LEMMA HandoffTakesNoEvent ==
+    ASSUME NEW cId \in CallIds
+    PROVE  [HandoffToDrain(cId) =>
+                payloads_consumed_by_host' =
+                    payloads_consumed_by_host]_vars
+    BY SMT DEF HandoffToDrain, l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars
+
+THEOREM ConsumerHandoffPreservesTail ==
+    Spec => \A cId \in CallIds :
+                [][HandoffToDrain(cId) =>
+                       payloads_consumed_by_host' =
+                           payloads_consumed_by_host]_vars
+<1>0. SUFFICES ASSUME NEW cId \in CallIds
+               PROVE  [][HandoffToDrain(cId) =>
+                            payloads_consumed_by_host' =
+                                payloads_consumed_by_host]_vars
+    OBVIOUS
+<1>1. QED BY HandoffTakesNoEvent, PTL
+
+\* Both reactions cancel and drain in the same step: the cancellation is
+\* level 1's, the drain is this level's, and each is an EXCEPT at cId - so
+\* both readings need the domain, which the typing supplies.
+LEMMA ReadCancellationDrainsTheCall ==
+    ASSUME NEW cId \in CallIds
+    PROVE  ManagedIndInv
+               => [(CancelWaitingRead(cId) \/ CancelParsingRead(cId))
+                       => /\ cancel_requested'[cId]
+                          /\ call_dispose_state'[cId] = "draining"]_vars
+    BY ManagedIndInvTypesTheCall, ManagedIndInvTypesTheDispose, SMT
+    DEF CancelWaitingRead, CancelParsingRead, L1!RequestCallCancellation
+
+THEOREM ReadCancellationCancelsCall ==
+    Spec => \A cId \in CallIds :
+                [][(CancelWaitingRead(cId) \/ CancelParsingRead(cId))
+                       => /\ cancel_requested'[cId]
+                          /\ call_dispose_state'[cId] = "draining"]_vars
+<1>0. SUFFICES ASSUME NEW cId \in CallIds
+               PROVE  Spec
+                          => [][(CancelWaitingRead(cId)
+                                     \/ CancelParsingRead(cId))
+                                    => /\ cancel_requested'[cId]
+                                       /\ call_dispose_state'[cId]
+                                              = "draining"]_vars
+    OBVIOUS
+<1>1. [](ManagedIndInv
+             => [(CancelWaitingRead(cId) \/ CancelParsingRead(cId))
+                     => /\ cancel_requested'[cId]
+                        /\ call_dispose_state'[cId] = "draining"]_vars)
+    BY ReadCancellationDrainsTheCall, PTL
+<1>2. QED BY <1>1, ManagedIndInvHolds, PTL
+
+\* The last release is the one that finds every other channel settled, and
+\* it is the same step that hands the runtime its shutdown: both readings
+\* come off the two assignments, under the same test.
+LEMMA LastReleaseAssignsBoth ==
+    ASSUME NEW chId \in ChannelIds
+    PROVE  ManagedIndInv
+               => [(/\ FinishDisposeChannel(chId)
+                    /\ IsLastRelease(chId))
+                       => /\ channel_dispose_state'[chId] = "released_last"
+                          /\ runtime_dispose_state'
+                                 = "shutdown_pending"]_vars
+    BY ManagedIndInvTypesTheDispose, SMT DEF FinishDisposeChannel
+
+THEOREM LastReleaseIsLatched ==
+    Spec => \A chId \in ChannelIds :
+                [][(/\ FinishDisposeChannel(chId)
+                    /\ IsLastRelease(chId))
+                       => /\ channel_dispose_state'[chId] = "released_last"
+                          /\ runtime_dispose_state'
+                                 = "shutdown_pending"]_vars
+<1>0. SUFFICES ASSUME NEW chId \in ChannelIds
+               PROVE  Spec
+                          => [][(/\ FinishDisposeChannel(chId)
+                                 /\ IsLastRelease(chId))
+                                    => /\ channel_dispose_state'[chId]
+                                              = "released_last"
+                                       /\ runtime_dispose_state'
+                                              = "shutdown_pending"]_vars
+    OBVIOUS
+<1>1. [](ManagedIndInv
+             => [(/\ FinishDisposeChannel(chId)
+                  /\ IsLastRelease(chId))
+                     => /\ channel_dispose_state'[chId] = "released_last"
+                        /\ runtime_dispose_state'
+                               = "shutdown_pending"]_vars)
+    BY LastReleaseAssignsBoth, PTL
+<1>2. QED BY <1>1, ManagedIndInvHolds, PTL
+
+\* A resolution reads its own guard: released_last is not released, so the
+\* only disjunct left is the one that waits on the destroy.
+LEMMA ResolvedLastSawTheDestroy ==
+    ASSUME NEW chId \in ChannelIds
+    PROVE  [(/\ ResolveChannelDispose(chId)
+             /\ channel_dispose_state[chId] = "released_last")
+                => runtime_destroyed[channel_runtime[chId]]]_vars
+    BY SMT DEF ResolveChannelDispose, ChannelDisposeMayResolve
+
+THEOREM LastChannelDisposeAwaitsDestroy ==
+    Spec => \A chId \in ChannelIds :
+                [][(/\ ResolveChannelDispose(chId)
+                    /\ channel_dispose_state[chId] = "released_last")
+                       => runtime_destroyed[channel_runtime[chId]]]_vars
+<1>0. SUFFICES ASSUME NEW chId \in ChannelIds
+               PROVE  [][(/\ ResolveChannelDispose(chId)
+                          /\ channel_dispose_state[chId] = "released_last")
+                             => runtime_destroyed[
+                                    channel_runtime[chId]]]_vars
+    OBVIOUS
+<1>1. QED BY ResolvedLastSawTheDestroy, PTL
+
+\* The channel's sweep disposes one call at a time: BeginDisposeCall names
+\* cId in every assignment it makes, so no other call's managed state can
+\* move in that step.
+LEMMA ChannelSweepTouchesOneCall ==
+    ASSUME NEW cId \in CallIds
+    PROVE  ManagedTypeOK /\ L1!TypeOK
+               => [DisposeCallForChannel(cId) =>
+                       /\ channel_dispose_state[call_channel[cId]]
+                              = "disposing"
+                       /\ \A other \in CallIds \ {cId} :
+                              ManagedCallState(other)'
+                                  = ManagedCallState(other)]_vars
+<1>1. DisposeCallForChannel(cId) =>
+          channel_dispose_state[call_channel[cId]] = "disposing"
+    BY DEF DisposeCallForChannel
+<1>2. ASSUME ManagedTypeOK, L1!TypeOK, DisposeCallForChannel(cId),
+             NEW other \in CallIds, other # cId
+      PROVE  ManagedCallState(other)' = ManagedCallState(other)
+  \* Each assignment is projected out before it is read: opening the action
+  \* and reading an EXCEPT off it in one step is what times out.
+  <2>1. /\ call_dispose_state'[other] = call_dispose_state[other]
+        /\ headers_completion'[other] = headers_completion[other]
+    <3>1. /\ call_dispose_state'
+                 = [call_dispose_state EXCEPT ![cId] = "draining"]
+          /\ headers_completion'
+                 = [headers_completion EXCEPT
+                        ![cId] = IF headers_completion[cId] = "pending"
+                                 THEN "failed" ELSE headers_completion[cId]]
+      BY <1>2 DEF DisposeCallForChannel, BeginDisposeCall
+    <3>2. QED BY <1>2, <3>1, SMT DEF ManagedTypeOK
+  \* What it declares untouched, projected to the groups the tuple names.
+  <2>2. UNCHANGED <<ReaderVars, WriterVars, call_token_published,
+                    call_root_live, status_completion>>
+    BY <1>2 DEF DisposeCallForChannel, BeginDisposeCall
+  \* The cancellation is level 1's: one branch assigns it at cId, the other
+  \* takes no level-1 step at all, and the two frames have nothing in
+  \* common - so they are read apart.
+  <2>3. L1!RequestCallCancellation(cId) \/ UNCHANGED l1_vars
+    BY <1>2 DEF DisposeCallForChannel, BeginDisposeCall
+  <2>4. cancel_requested'[other] = cancel_requested[other]
+    <3>1. CASE L1!RequestCallCancellation(cId)
+      <4>1. cancel_requested' = [cancel_requested EXCEPT ![cId] = TRUE]
+        BY <3>1 DEF L1!RequestCallCancellation
+      <4>2. QED BY <1>2, <4>1, SMT DEF L1!TypeOK
+    <3>2. CASE UNCHANGED l1_vars
+      BY <3>2, SMT DEF l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars
+    <3>3. QED BY <2>3, <3>1, <3>2
+  <2>5. QED
+    BY <2>1, <2>2, <2>4, SMT DEF ManagedCallState, ReaderVars, WriterVars
+<1>3. QED BY <1>1, <1>2
+
+THEOREM ChannelDisposeIsolatesItsCalls ==
+    Spec => \A cId \in CallIds :
+                [][DisposeCallForChannel(cId) =>
+                       /\ channel_dispose_state[call_channel[cId]]
+                              = "disposing"
+                       /\ \A other \in CallIds \ {cId} :
+                              ManagedCallState(other)'
+                                  = ManagedCallState(other)]_vars
+<1>0. SUFFICES ASSUME NEW cId \in CallIds
+               PROVE  Spec
+                          => [][DisposeCallForChannel(cId) =>
+                                    /\ channel_dispose_state[
+                                           call_channel[cId]] = "disposing"
+                                    /\ \A other \in CallIds \ {cId} :
+                                           ManagedCallState(other)'
+                                               = ManagedCallState(other)]_vars
+    OBVIOUS
+<1>1. [](ManagedTypeOK /\ L1!TypeOK
+             => [DisposeCallForChannel(cId) =>
+                     /\ channel_dispose_state[call_channel[cId]]
+                            = "disposing"
+                     /\ \A other \in CallIds \ {cId} :
+                            ManagedCallState(other)'
+                                = ManagedCallState(other)]_vars)
+    BY ChannelSweepTouchesOneCall, PTL
+<1>2. ASSUME Spec
+      PROVE  [][DisposeCallForChannel(cId) =>
+                    /\ channel_dispose_state[call_channel[cId]]
+                           = "disposing"
+                    /\ \A other \in CallIds \ {cId} :
+                           ManagedCallState(other)'
+                               = ManagedCallState(other)]_vars
+  <2>1. [](ManagedTypeOK /\ L1!TypeOK)
+    BY <1>2, ManagedIndInvHolds, PTL DEF ManagedIndInv, L1!IndInv
+  <2>2. QED BY <1>1, <2>1, PTL
+<1>3. QED BY <1>2
+
+LEMMA CompletedTokenArmsNothing ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           ~ReadInFlight(cId),
+           ~read_cancel_pending[cId],
+           [Next]_vars
+    PROVE  ~read_cancel_pending'[cId]
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  ReadInFlight, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  ~read_cancel_pending'[cId]
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  ~read_cancel_pending'[cId]
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  ~read_cancel_pending'[cId]
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ReadInFlight,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ReadInFlight,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall, ReadInFlight,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ReadInFlight,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA LiveRequestNeedsAReaction ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK,
+           CancelledParseHasNoPendingRequest,
+           read_cancel_pending[cId],
+           call_dispose_state[cId] = "active",
+           ~read_cancel_pending'[cId],
+           [Next]_vars
+    PROVE  CancelWaitingRead(cId) \/ CancelParsingRead(cId)
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  CancelWaitingRead, CancelParsingRead,
+       ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, CancelWaitingRead, CancelParsingRead,
+       ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, SMT DEF  FreeRuntimeRoot, CancelWaitingRead,
+       CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
+             CreateRuntime(rtId, chId)
+    BY <1>3, SMT DEF  CreateRuntime, CancelWaitingRead, CancelParsingRead,
+       ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ AcquireLease(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           AcquireLease(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  CancelWaitingRead(cId) \/ CancelParsingRead(cId)
+      BY <1>4
+  <2>1. CASE AcquireLease(ch2)
+          BY <2>0, <2>1, SMT DEF  AcquireLease, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, SMT DEF  CreateChannel, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
+           ChannelDisposeMayResolve, CancelWaitingRead, CancelParsingRead,
+           ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  CancelWaitingRead(cId) \/ CancelParsingRead(cId)
+      BY <1>5
+  <2>1. CASE BeginRuntimeShutdown(r2)
+          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, SMT DEF  ShutdownReturns, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  CancelWaitingRead(cId) \/ CancelParsingRead(cId)
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
+           ReadCancellationSettled, CancelWaitingRead, CancelParsingRead,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ManagedTypeOK, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, SMT DEF  CancelWaitingRead, CancelParsingRead,
+           ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, SMT DEF  CancelParsingRead, CancelWaitingRead,
+           ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+           ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, SMT DEF  HandoffToDrain, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, SMT DEF  BeginDisposeCall, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
+           CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, SMT DEF  OnEventReturns, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, CancelWaitingRead,
+           CancelParsingRead, ReadCancellationSettled,
+           CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, CancelWaitingRead,
+       CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, CancelWaitingRead,
+       CancelParsingRead, ReadCancellationSettled,
+       CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, CancelWaitingRead, CancelParsingRead,
+       ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA CancelledParseIsTheOnlyRelease ==
+    ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           PrologueReaderOnlyWaits, DrainNeverOverlapsApplicationConsumer,
+           reader_state[cId] = "parsing_cancelled",
+           RingTail(cId)' # RingTail(cId), [Next]_vars
+    PROVE  FinishCancelledParse(cId) /\ RingTail(cId)' = RingTail(cId) + 1
+<1>1. \/ ConsumeHeader(cId)
+      \/ FinishConsumePayload(cId)
+      \/ FinishCancelledParse(cId)
+      \/ DrainRelease(cId)
+    BY TailMovesOnlyByCarrier
+\* The prologue's reader waits, the drain's is idle or finished, and the
+\* payload consumer parses: a cancelled parse is none of the three.
+<1>2. FinishCancelledParse(cId)
+    BY <1>1, SMT DEF ConsumeHeader, FinishConsumePayload, DrainRelease,
+       PrologueReaderOnlyWaits, DrainNeverOverlapsApplicationConsumer
+<1>3. QED
+    BY <1>2, SMT DEF FinishCancelledParse, L1!HostConsumesEvent, RingTail,
+       ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK
+
+\* The token, the request and the slot, each boxed off its case analysis.
+\* The projection is spelled in the step lemma rather than in the case
+\* analysis, so that the case analysis carries the conjuncts it uses and
+\* not the invariant they come from.
+
+LEMMA CompletedTokenArmsNothingStep ==
+    ASSUME NEW cId \in CallIds
+    PROVE  ManagedIndInv /\ [Next]_vars
+               => [(/\ ~ReadInFlight(cId)
+                    /\ ~read_cancel_pending[cId])
+                       => ~read_cancel_pending'[cId]]_vars
+    BY CompletedTokenArmsNothing DEF ManagedIndInv
+
+THEOREM CompletedReadTokenArmsNothing ==
+    Spec => \A cId \in CallIds :
+                [][(/\ ~ReadInFlight(cId)
+                    /\ ~read_cancel_pending[cId])
+                       => ~read_cancel_pending'[cId]]_vars
+<1>0. SUFFICES ASSUME NEW cId \in CallIds
+               PROVE  Spec
+                          => [][(/\ ~ReadInFlight(cId)
+                                 /\ ~read_cancel_pending[cId])
+                                    => ~read_cancel_pending'[cId]]_vars
+    OBVIOUS
+<1>1. [](ManagedIndInv /\ [Next]_vars
+             => [(/\ ~ReadInFlight(cId)
+                  /\ ~read_cancel_pending[cId])
+                     => ~read_cancel_pending'[cId]]_vars)
+    BY CompletedTokenArmsNothingStep, PTL
+<1>2. ASSUME Spec
+      PROVE  [][(/\ ~ReadInFlight(cId)
+                 /\ ~read_cancel_pending[cId])
+                    => ~read_cancel_pending'[cId]]_vars
+  <2>1. [](ManagedIndInv /\ [Next]_vars)
+      BY <1>2, ManagedIndInvHolds, PTL DEF Spec
+  <2>2. QED BY <1>1, <2>1, PTL
+<1>3. QED BY <1>2
+
+LEMMA LiveRequestNeedsAReactionStep ==
+    ASSUME NEW cId \in CallIds
+    PROVE  ManagedIndInv /\ [Next]_vars
+               => [(/\ read_cancel_pending[cId]
+                    /\ call_dispose_state[cId] = "active"
+                    /\ ~read_cancel_pending'[cId])
+                       => \/ CancelWaitingRead(cId)
+                          \/ CancelParsingRead(cId)]_vars
+    BY LiveRequestNeedsAReaction DEF ManagedIndInv, ManagedGlue
+
+THEOREM LiveRequestOnlyDischargedByReaction ==
+    Spec => \A cId \in CallIds :
+                [][(/\ read_cancel_pending[cId]
+                    /\ call_dispose_state[cId] = "active"
+                    /\ ~read_cancel_pending'[cId])
+                       => \/ CancelWaitingRead(cId)
+                          \/ CancelParsingRead(cId)]_vars
+<1>0. SUFFICES ASSUME NEW cId \in CallIds
+               PROVE  Spec
+                          => [][(/\ read_cancel_pending[cId]
+                                 /\ call_dispose_state[cId] = "active"
+                                 /\ ~read_cancel_pending'[cId])
+                                    => \/ CancelWaitingRead(cId)
+                                       \/ CancelParsingRead(cId)]_vars
+    OBVIOUS
+<1>1. [](ManagedIndInv /\ [Next]_vars
+             => [(/\ read_cancel_pending[cId]
+                  /\ call_dispose_state[cId] = "active"
+                  /\ ~read_cancel_pending'[cId])
+                     => \/ CancelWaitingRead(cId)
+                        \/ CancelParsingRead(cId)]_vars)
+    BY LiveRequestNeedsAReactionStep, PTL
+<1>2. ASSUME Spec
+      PROVE  [][(/\ read_cancel_pending[cId]
+                 /\ call_dispose_state[cId] = "active"
+                 /\ ~read_cancel_pending'[cId])
+                    => \/ CancelWaitingRead(cId)
+                       \/ CancelParsingRead(cId)]_vars
+  <2>1. [](ManagedIndInv /\ [Next]_vars)
+      BY <1>2, ManagedIndInvHolds, PTL DEF Spec
+  <2>2. QED BY <1>1, <2>1, PTL
+<1>3. QED BY <1>2
+
+LEMMA CancelledParseIsTheOnlyReleaseStep ==
+    ASSUME NEW cId \in CallIds
+    PROVE  ManagedIndInv /\ [Next]_vars
+               => [(/\ reader_state[cId] = "parsing_cancelled"
+                    /\ RingTail(cId)' # RingTail(cId))
+                       => /\ FinishCancelledParse(cId)
+                          /\ RingTail(cId)' = RingTail(cId) + 1]_vars
+    BY CancelledParseIsTheOnlyRelease
+    DEF ManagedIndInv, ManagedMachineInv, ReaderInv, ManagedGlue,
+        L1!IndInv
+
+THEOREM CancelledParseReleasesItsSlotOnce ==
+    Spec => \A cId \in CallIds :
+                [][(/\ reader_state[cId] = "parsing_cancelled"
+                    /\ RingTail(cId)' # RingTail(cId))
+                       => /\ FinishCancelledParse(cId)
+                          /\ RingTail(cId)' = RingTail(cId) + 1]_vars
+<1>0. SUFFICES ASSUME NEW cId \in CallIds
+               PROVE  Spec
+                          => [][(/\ reader_state[cId] = "parsing_cancelled"
+                                 /\ RingTail(cId)' # RingTail(cId))
+                                    => /\ FinishCancelledParse(cId)
+                                       /\ RingTail(cId)'
+                                              = RingTail(cId) + 1]_vars
+    OBVIOUS
+<1>1. [](ManagedIndInv /\ [Next]_vars
+             => [(/\ reader_state[cId] = "parsing_cancelled"
+                  /\ RingTail(cId)' # RingTail(cId))
+                     => /\ FinishCancelledParse(cId)
+                        /\ RingTail(cId)' = RingTail(cId) + 1]_vars)
+    BY CancelledParseIsTheOnlyReleaseStep, PTL
+<1>2. ASSUME Spec
+      PROVE  [][(/\ reader_state[cId] = "parsing_cancelled"
+                 /\ RingTail(cId)' # RingTail(cId))
+                    => /\ FinishCancelledParse(cId)
+                       /\ RingTail(cId)' = RingTail(cId) + 1]_vars
+  <2>1. [](ManagedIndInv /\ [Next]_vars)
+      BY <1>2, ManagedIndInvHolds, PTL DEF Spec
+  <2>2. QED BY <1>1, <2>1, PTL
+<1>3. QED BY <1>2
 
 ===============================================================================
