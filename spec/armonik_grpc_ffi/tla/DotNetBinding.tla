@@ -1455,6 +1455,20 @@ SerializingWriterHoldsANamedBuffer ==
         writer_state[cId] = "serializing" =>
             \E b \in BufferIds : L1!IsLentBuffer(cId, b)
 
+\* A drained ring that carries its status has had that status consumed, and
+\* every consumer that can take a terminal resolves it.  ConsumeHeader is
+\* the one that does not, and it only ever takes slot zero of a one-event
+\* ring: RingHead > 1 is what rules it out, and it is what makes this
+\* inductive without level 0's MetadataFirst - hence without level 0's
+\* failure escape.  The caller discharges the bound, where the escape is
+\* already at hand.
+StatusResolvedOnceTheRingIsDrained ==
+    \A cId \in CallIds :
+        (/\ L1!L0!HasStatus(cId)
+         /\ RingDrained(cId)
+         /\ RingHead(cId) > 1) =>
+            status_completion[cId] = "resolved"
+
 \* A draining call is on its way out, stated as what the three steps that
 \* begin a drain give, verbatim.  This is the entry to the teardown's whole
 \* chain: it lets the level lean on level 1's promise that a cancelled call
