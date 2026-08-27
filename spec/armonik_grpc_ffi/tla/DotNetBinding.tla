@@ -1485,6 +1485,28 @@ DrainingCallIsCancelled ==
             /\ \/ L1!IsCancelRequested(cId)
                \/ ~L1!L0!IsActiveCall(cId)
 
+\* An in-flight reader is on a published call: the only entry into waiting
+\* is MoveNext, whose guard reads the token, and the deeper states are
+\* reached from waiting.  What lets a cancellation reaction supply the
+\* level-1 guard of the call it cancels.
+InFlightReaderHoldsTheToken ==
+    \A cId \in CallIds :
+        ReadInFlight(cId) => call_token_published[cId]
+
+\* On a live dispose, a consumed terminal leaves the reader finished: every
+\* consumer that can eat the status sets finished in the same step, and the
+\* prologue consumer never reaches one - the head bound in the antecedent
+\* is what says slot zero is not it.  This is what makes "waiting on a
+\* drained ring that has its status" unreachable while the dispose is
+\* active - the state in which no reaction could ever fire again.
+ConsumedTerminalFinishesTheReader ==
+    \A cId \in CallIds :
+        (/\ call_dispose_state[cId] = "active"
+         /\ L1!L0!HasStatus(cId)
+         /\ RingHead(cId) > 1
+         /\ RingDrained(cId)) =>
+            reader_state[cId] = "finished"
+
 \* A write in flight has its acquittal still owed, or on the host stack.
 \* The two disjuncts are what EmitWriteDone and WriteDoneReturns ask for, so
 \* one of them is always enabled while the writer waits - which is how the
