@@ -2862,11 +2862,9 @@ THEOREM DeliveryFairnessRequirement ==
 (* failure using SpecLiftingFacts.                                         *)
 (***************************************************************************)
 
-THEOREM EventualMetadataHolds == Spec => EventualMetadata
-<1>1. SUFFICES ASSUME NEW cId \in CallIds
-      PROVE Spec => ((MetadataWaiting(cId) /\ NotFailed) ~>
-                         (MetadataDelivered(cId) \/ ~NotFailed))
-    BY DEF EventualMetadata
+THEOREM EventualMetadataAt ==
+    ASSUME NEW cId \in CallIds
+    PROVE  Spec => (MetadataPending(cId) ~> MetadataAnswered(cId))
 <1>. DEFINE F(c) == WF_vars(DeliverInitialMetadata(c))
 <1>2. Fairness => \A c \in CallIds : F(c)
 \* Only Isabelle can read a WF conjunct: SMT calls the expression unsupported
@@ -2883,13 +2881,19 @@ THEOREM EventualMetadataHolds == Spec => EventualMetadata
       /\ WF_vars(DeliverInitialMetadata(cId))
       => (MetadataWaiting(cId) ~> MetadataDelivered(cId))
     BY MetadataProgressSafeFor, PTL
-<1>5. QED BY SpecLiftingFacts, <1>3, <1>4, PTL DEF F
+<1>5. QED
+    BY SpecLiftingFacts, <1>3, <1>4, PTL
+    DEF F, MetadataPending, MetadataAnswered
 
-THEOREM EventualTerminalHolds == Spec => EventualTerminal
+THEOREM EventualMetadataHolds == Spec => EventualMetadata
 <1>1. SUFFICES ASSUME NEW cId \in CallIds
-      PROVE Spec => ((TerminalWaiting(cId) /\ NotFailed) ~>
-                         (TerminalReached(cId) \/ ~NotFailed))
-    BY DEF EventualTerminal
+      PROVE Spec => (MetadataPending(cId) ~> MetadataAnswered(cId))
+    BY DEF EventualMetadata
+<1>2. QED BY EventualMetadataAt
+
+THEOREM EventualTerminalAt ==
+    ASSUME NEW cId \in CallIds
+    PROVE  Spec => (TerminalPending(cId) ~> TerminalAnswered(cId))
 <1>. DEFINE F(c) == /\ WF_vars(ReceiveStatus(c))
                     /\ WF_vars(DeliverInitialMetadata(c))
                     /\ WF_vars(DeliverMessage(c))
@@ -2912,7 +2916,15 @@ THEOREM EventualTerminalHolds == Spec => EventualTerminal
       /\ WF_vars(DeliverStatus(cId))
       => (TerminalWaiting(cId) ~> TerminalReached(cId))
     BY TerminalProgressSafeFor, PTL
-<1>5. QED BY SpecLiftingFacts, <1>3, <1>4, PTL DEF F
+<1>5. QED
+    BY SpecLiftingFacts, <1>3, <1>4, PTL
+    DEF F, TerminalPending, TerminalAnswered
+
+THEOREM EventualTerminalHolds == Spec => EventualTerminal
+<1>1. SUFFICES ASSUME NEW cId \in CallIds
+      PROVE Spec => (TerminalPending(cId) ~> TerminalAnswered(cId))
+    BY DEF EventualTerminal
+<1>2. QED BY EventualTerminalAt
 
 THEOREM SubmitProgressHolds == Spec => SubmitProgress
 <1>1. SUFFICES ASSUME NEW cId \in CallIds, NEW i \in PositiveNaturals

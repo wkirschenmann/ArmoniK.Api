@@ -493,6 +493,17 @@ TerminalWaiting(cId) == IsActiveCall(cId)
 
 TerminalReached(cId) == HasStatus(cId)
 
+\* The pending/answered forms carry the failure escape inside the
+\* name: a quantified leads-to is strippable only when both operands
+\* are bare named applications.
+TerminalPending(cId) == TerminalWaiting(cId) /\ NotFailed
+
+TerminalAnswered(cId) == TerminalReached(cId) \/ ~NotFailed
+
+MetadataPending(cId) == MetadataWaiting(cId) /\ NotFailed
+
+MetadataAnswered(cId) == MetadataDelivered(cId) \/ ~NotFailed
+
 \* A runtime the caller has asked to stop.
 ShutdownWaiting(rtId) == runtime_state[rtId] = "STOPPING"
 
@@ -526,8 +537,7 @@ DeliveryDoneAt(cId, i) ==
 \* Every active call eventually terminates, unless a runtime fails.
 EventualTerminal ==
     \A cId \in CallIds :
-        (TerminalWaiting(cId) /\ NotFailed) ~>
-            (TerminalReached(cId) \/ ~NotFailed)
+        TerminalPending(cId) ~> TerminalAnswered(cId)
 
 \* A runtime asked to stop always settles, and in this very slot.  This is
 \* stronger than what the generic failure lifting produces, which only
@@ -559,8 +569,7 @@ DeliveryProgress ==
 \* A started call eventually gets its initial metadata.
 EventualMetadata ==
     \A cId \in CallIds :
-        (MetadataWaiting(cId) /\ NotFailed) ~>
-            (MetadataDelivered(cId) \/ ~NotFailed)
+        MetadataPending(cId) ~> MetadataAnswered(cId)
 
 \* The five guarantees under one name, so the top-level proof can cite them
 \* as a single obligation.
