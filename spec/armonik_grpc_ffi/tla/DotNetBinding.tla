@@ -1518,6 +1518,16 @@ AwaitingWriteDoneHasOneComing ==
             \/ L1!IsAwaitingWriteDone(cId)
             \/ L1!IsWriteDoneCallbackRunning(cId)
 
+\* A live root is served: its call was published, and once the status is
+\* on the ring the terminal callback that frees the root is still in
+\* flight - the only return the trampoline admits past the status is the
+\* terminal one, and it frees the root in the same step.
+LiveRootIsServed ==
+    \A cId \in CallIds :
+        call_root_live[cId] =>
+            /\ call_token_published[cId]
+            /\ (L1!L0!HasStatus(cId) => L1!IsDeliveryCallbackRunning(cId))
+
 \* A writer that has begun sits on a started call: every entry into a
 \* non-idle writer state is a downcall on the send side, and each of them
 \* needs an active call.  Derived rather than inductive - a call never
