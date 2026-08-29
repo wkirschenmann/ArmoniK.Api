@@ -6,7 +6,8 @@
 (* them again.                                                             *)
 (***************************************************************************)
 
-EXTENDS DotNetBinding_defs, TLAPS, NaturalsInduction, FiniteSetTheorems
+EXTENDS DotNetBinding_defs, TLAPS, NaturalsInduction, FiniteSetTheorems,
+        SequenceTheorems
 
 \* The perimeter groups are notation: an action states its frame through
 \* them, so every obligation that reads a frame needs them unfolded.  One
@@ -8768,6 +8769,56 @@ LEMMA MetadataMeansNoStatusYet ==
 
 \* The reader's borrow is decided by its own state and the ring, and the
 \* ring is the two counters.
+LEMMA ParsingSlotGrowsWithTheRing ==
+    ASSUME NEW cId \in CallIds, NEW evt \in L1!L0!EventKinds,
+           ParsingReadOwnsItsSlot,
+           reader_state' = reader_state,
+           payloads_consumed_by_host' = payloads_consumed_by_host,
+           payloads_consumed_by_host \in [CallIds -> Nat],
+           events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)],
+           events_delivered' = [events_delivered EXCEPT
+               ![cId] = Append(events_delivered[cId], evt)]
+    PROVE  ParsingReadOwnsItsSlot'
+<1>0. Len(Append(events_delivered[cId], evt))
+          = Len(events_delivered[cId]) + 1
+    BY AppendProperties, Zenon
+<1>1. RingOccupancy(cId)' = RingOccupancy(cId) + 1
+    BY <1>0, SMT DEF RingOccupancy, RingHead, RingTail
+<1>2. \A c2 \in CallIds :
+          c2 # cId => RingOccupancy(c2)' = RingOccupancy(c2)
+    BY SMT DEF RingOccupancy, RingHead, RingTail
+<1>3. \A c2 \in CallIds : reader_state'[c2] = reader_state[c2]
+    BY Zenon
+<1>4. \A c2 \in CallIds :
+          RingOccupancy(c2) > 0 => RingOccupancy(c2)' > 0
+    BY <1>0, SMT DEF RingOccupancy, RingHead, RingTail
+<1>q. QED
+    BY <1>3, <1>4, SMT DEF ParsingReadOwnsItsSlot
+
+LEMMA CancelKeepsTheParsedSlot ==
+    ASSUME NEW cId \in CallIds,
+           ParsingReadOwnsItsSlot,
+           reader_state' = reader_state,
+           payloads_consumed_by_host' = payloads_consumed_by_host,
+           payloads_consumed_by_host \in [CallIds -> Nat],
+           events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)],
+           \/ /\ events_delivered[cId] = <<>>
+              /\ events_delivered' = [events_delivered EXCEPT
+                     ![cId] = <<"INITIAL_METADATA", "CANCELLED">>]
+           \/ events_delivered' = [events_delivered EXCEPT
+                  ![cId] = Append(events_delivered[cId], "CANCELLED")]
+    PROVE  ParsingReadOwnsItsSlot'
+<1>0. Len(Append(events_delivered[cId], "CANCELLED"))
+          = Len(events_delivered[cId]) + 1
+    BY AppendProperties, SMT DEF L1!L0!EventKinds
+<1>3. \A c2 \in CallIds : reader_state'[c2] = reader_state[c2]
+    BY Zenon
+<1>4. \A c2 \in CallIds :
+          RingOccupancy(c2) > 0 => RingOccupancy(c2)' > 0
+    BY <1>0, SMT DEF RingOccupancy, RingHead, RingTail
+<1>q. QED
+    BY <1>3, <1>4, SMT DEF ParsingReadOwnsItsSlot
+
 LEMMA ParsingReadOwnsItsSlotIsFramed ==
     ASSUME ParsingReadOwnsItsSlot,
            UNCHANGED <<reader_state, events_delivered,
@@ -9956,9 +10007,38 @@ LEMMA PassesChannelFinishClosing ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing, L1!IsClosingChannel, L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, TokenPublishedBeforeStart, ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. UNCHANGED <<call_root_live, call_token_published>>
+          BY SMT
+      <2>2. /\ delivery_callback_running' = delivery_callback_running
+            /\ write_done_callback_running' = write_done_callback_running
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>m. \A c2 \in CallIds :
+                ~(L1!L0!HasStatus(c2)') => ~L1!L0!HasStatus(c2)
+          BY <2>t, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>q. QED
+          BY <2>1, <2>2, <2>m, SMT
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing, L1!IsClosingChannel, L1!L0!CallsOf, L1!L0!ChannelsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, TokenPublishedBeforeStart, ChannelDisposeStates, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. UNCHANGED <<runtime_root_live, call_token_published>>
+          BY SMT
+      <2>2. /\ delivery_callback_running' = delivery_callback_running
+            /\ write_done_callback_running' = write_done_callback_running
+            /\ shutdown_callback_running' = shutdown_callback_running
+            /\ resources_released_callback_running'
+                   = resources_released_callback_running
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>m. \A c2 \in CallIds :
+                ~(L1!L0!HasStatus(c2)') => ~L1!L0!HasStatus(c2)
+          BY <2>t, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>q. QED
+          BY <2>1, <2>2, <2>m, SMT
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10213,9 +10293,46 @@ LEMMA PassesEmitWriteDone ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!EmitWriteDone, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY WriteDoneMeansNoStatusYet
+      <2>2. call_token_published[cId] /\ call_root_live[cId]
+          BY <2>1
+      <2>3. UNCHANGED <<call_token_published, call_root_live>>
+          BY SMT
+      <2>4. /\ delivery_callback_running' = delivery_callback_running
+            /\ write_done_callback_running' =
+                   [write_done_callback_running EXCEPT ![cId] = TRUE]
+            /\ events_delivered' = events_delivered
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>p. \A c2 \in CallIds :
+                c2 # cId =>
+                    write_done_callback_running'[c2]
+                        = write_done_callback_running[c2]
+          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>s. SUFFICES ASSUME NEW c2 \in CallIds
+                     PROVE  /\ (\/ delivery_callback_running'[c2]
+                                \/ write_done_callback_running'[c2])
+                                   => call_root_live'[c2]
+                            /\ (call_token_published'[c2]
+                                    /\ ~(L1!L0!HasStatus(c2)'))
+                                   => call_root_live'[c2]
+          BY DEF RootSurvivesCallbacks
+      <2>7. CASE c2 = cId
+          BY <2>2, <2>3, <2>7, SMT
+      <2>8. CASE c2 # cId
+          BY <2>3, <2>4, <2>p, <2>t, <2>8, SMT
+          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!EmitWriteDone, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY WriteDoneMeansNoStatusYet
+      <2>2. runtime_root_live
+          BY <2>1
+      <2>3. runtime_root_live'
+          BY <2>2, SMT
+      <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -10821,7 +10938,14 @@ LEMMA PassesDeliverInitialMetadata ==
           DEF L1!L0!HasStatus, L1!L0!StatusKinds
       <2>10. QED BY <2>8, <2>9
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!DeliverInitialMetadata, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. runtime_root_live
+          BY <2>1
+      <2>3. runtime_root_live'
+          BY <2>2, SMT
+      <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11017,7 +11141,20 @@ LEMMA PassesDeliverMessage ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+      <2>1. reader_state' = reader_state
+          BY SMT
+      <2>2. payloads_consumed_by_host' = payloads_consumed_by_host
+          BY SMT
+      <2>3. events_delivered' = [events_delivered EXCEPT
+                ![cId] = Append(events_delivered[cId], "MESSAGE")]
+          BY SMT
+      <2>n. payloads_consumed_by_host \in [CallIds -> Nat]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing
+          DEF L1!L0!EventKinds
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
@@ -11026,9 +11163,50 @@ LEMMA PassesDeliverMessage ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. call_token_published[cId] /\ call_root_live[cId]
+          BY <2>1
+      <2>3. UNCHANGED <<call_token_published, call_root_live>>
+          BY SMT
+      <2>4. /\ write_done_callback_running' = write_done_callback_running
+            /\ delivery_callback_running' =
+                   [delivery_callback_running EXCEPT ![cId] = TRUE]
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>e. \A c2 \in CallIds :
+                c2 # cId => events_delivered'[c2] = events_delivered[c2]
+          BY <2>t, SMT
+      <2>p. \A c2 \in CallIds :
+                c2 # cId =>
+                    delivery_callback_running'[c2]
+                        = delivery_callback_running[c2]
+          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>s. SUFFICES ASSUME NEW c2 \in CallIds
+                     PROVE  /\ (\/ delivery_callback_running'[c2]
+                                \/ write_done_callback_running'[c2])
+                                   => call_root_live'[c2]
+                            /\ (call_token_published'[c2]
+                                    /\ ~(L1!L0!HasStatus(c2)'))
+                                   => call_root_live'[c2]
+          BY DEF RootSurvivesCallbacks
+      <2>7. CASE c2 = cId
+          BY <2>2, <2>3, <2>7, SMT
+      <2>8. CASE c2 # cId
+          BY <2>3, <2>4, <2>p, <2>e, <2>8, SMT
+          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. runtime_root_live
+          BY <2>1
+      <2>3. runtime_root_live'
+          BY <2>2, SMT
+      <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11065,7 +11243,23 @@ LEMMA PassesDeliverMessage ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed
+      <2>1. ~L1!L0!HasStatus(cId)
+          BY SMT DEF L1!L0!HasStatus
+      <2>2. call_dispose_state[cId] # "settled"
+          BY <2>1
+      <2>3. UNCHANGED <<call_dispose_state, buffers_held_by_host>>
+          BY SMT
+      <2>4. events_delivered' = [events_delivered EXCEPT
+                ![cId] = Append(events_delivered[cId], "MESSAGE")]
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>e. \A c2 \in CallIds :
+                c2 # cId => events_delivered'[c2] = events_delivered[c2]
+          BY <2>4, <2>t, SMT
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, <2>4, <2>e, <2>t, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11192,18 +11386,83 @@ LEMMA PassesDeliverStatus ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+      <2>1. reader_state' = reader_state
+          BY SMT
+      <2>2. payloads_consumed_by_host' = payloads_consumed_by_host
+          BY SMT
+      <2>3. events_delivered' = [events_delivered EXCEPT
+                ![cId] = Append(events_delivered[cId], "COMPLETED")]
+          BY SMT
+      <2>n. payloads_consumed_by_host \in [CallIds -> Nat]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing
+          DEF L1!L0!EventKinds
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY TokenPublishedBeforeStartIsFramed
+      <2>1. call_token_published[cId]
+          BY SMT DEF L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+             L1!L0!ActiveCallStates
+      <2>2. /\ call_token_published' = call_token_published
+            /\ call_state' = [call_state EXCEPT ![cId] = "terminal"]
+          BY SMT
+      <2>3. \A c2 \in CallIds :
+                c2 # cId => call_state'[c2] = call_state[c2]
+          BY <2>2, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, SMT
+          DEF L1!L0!IsUnusedCall, L1!TypeOK, L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. call_token_published[cId] /\ call_root_live[cId]
+          BY <2>1
+      <2>3. UNCHANGED <<call_token_published, call_root_live>>
+          BY SMT
+      <2>4. /\ write_done_callback_running' = write_done_callback_running
+            /\ delivery_callback_running' =
+                   [delivery_callback_running EXCEPT ![cId] = TRUE]
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>e. \A c2 \in CallIds :
+                c2 # cId => events_delivered'[c2] = events_delivered[c2]
+          BY <2>t, SMT
+      <2>p. \A c2 \in CallIds :
+                c2 # cId =>
+                    delivery_callback_running'[c2]
+                        = delivery_callback_running[c2]
+          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>s. SUFFICES ASSUME NEW c2 \in CallIds
+                     PROVE  /\ (\/ delivery_callback_running'[c2]
+                                \/ write_done_callback_running'[c2])
+                                   => call_root_live'[c2]
+                            /\ (call_token_published'[c2]
+                                    /\ ~(L1!L0!HasStatus(c2)'))
+                                   => call_root_live'[c2]
+          BY DEF RootSurvivesCallbacks
+      <2>7. CASE c2 = cId
+          BY <2>2, <2>3, <2>7, SMT
+      <2>8. CASE c2 # cId
+          BY <2>3, <2>4, <2>p, <2>e, <2>8, SMT
+          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. runtime_root_live
+          BY <2>1
+      <2>3. runtime_root_live'
+          BY <2>2, SMT
+      <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11240,7 +11499,23 @@ LEMMA PassesDeliverStatus ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed
+      <2>1. ~L1!L0!HasStatus(cId)
+          BY SMT DEF L1!L0!HasStatus
+      <2>2. call_dispose_state[cId] # "settled"
+          BY <2>1
+      <2>3. UNCHANGED <<call_dispose_state, buffers_held_by_host>>
+          BY SMT
+      <2>4. events_delivered' = [events_delivered EXCEPT
+                ![cId] = Append(events_delivered[cId], "COMPLETED")]
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>e. \A c2 \in CallIds :
+                c2 # cId => events_delivered'[c2] = events_delivered[c2]
+          BY <2>4, <2>t, SMT
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, <2>4, <2>e, <2>t, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -11367,18 +11642,85 @@ LEMMA PassesDeliverCancelled ==
     <1>4. ReadCancelPendingOnlyInFlight'
         BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+      <2>1. reader_state' = reader_state
+          BY SMT
+      <2>2. payloads_consumed_by_host' = payloads_consumed_by_host
+          BY SMT
+      <2>3. \/ /\ events_delivered[cId] = <<>>
+               /\ events_delivered' = [events_delivered EXCEPT
+                      ![cId] = <<"INITIAL_METADATA", "CANCELLED">>]
+            \/ events_delivered' = [events_delivered EXCEPT
+                   ![cId] = Append(events_delivered[cId], "CANCELLED")]
+          BY SMT DEF L1!L0!CallCancel
+      <2>n. payloads_consumed_by_host \in [CallIds -> Nat]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, <2>n, <2>t, CancelKeepsTheParsedSlot
     <1>6. WriterInv'
         BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
              WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
              RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
              L1!IsReturnedBuffer, NoRetryLen
     <1>7. TokenPublishedBeforeStart'
-        BY TokenPublishedBeforeStartIsFramed
+      <2>1. call_token_published[cId]
+          BY SMT DEF L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+             L1!L0!ActiveCallStates
+      <2>2. /\ call_token_published' = call_token_published
+            /\ call_state' = [call_state EXCEPT ![cId] = "terminal"]
+          BY SMT
+      <2>3. \A c2 \in CallIds :
+                c2 # cId => call_state'[c2] = call_state[c2]
+          BY <2>2, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, SMT
+          DEF L1!L0!IsUnusedCall, L1!TypeOK, L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. call_token_published[cId] /\ call_root_live[cId]
+          BY <2>1
+      <2>3. UNCHANGED <<call_token_published, call_root_live>>
+          BY SMT
+      <2>4. /\ write_done_callback_running' = write_done_callback_running
+            /\ delivery_callback_running' =
+                   [delivery_callback_running EXCEPT ![cId] = TRUE]
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>e. \A c2 \in CallIds :
+                c2 # cId => events_delivered'[c2] = events_delivered[c2]
+          BY <2>t, SMT
+      <2>p. \A c2 \in CallIds :
+                c2 # cId =>
+                    delivery_callback_running'[c2]
+                        = delivery_callback_running[c2]
+          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>s. SUFFICES ASSUME NEW c2 \in CallIds
+                     PROVE  /\ (\/ delivery_callback_running'[c2]
+                                \/ write_done_callback_running'[c2])
+                                   => call_root_live'[c2]
+                            /\ (call_token_published'[c2]
+                                    /\ ~(L1!L0!HasStatus(c2)'))
+                                   => call_root_live'[c2]
+          BY DEF RootSurvivesCallbacks
+      <2>7. CASE c2 = cId
+          BY <2>2, <2>3, <2>7, SMT
+      <2>8. CASE c2 # cId
+          BY <2>3, <2>4, <2>p, <2>e, <2>8, SMT
+          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
+          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+      <2>2. runtime_root_live
+          BY <2>1
+      <2>3. runtime_root_live'
+          BY <2>2, SMT
+      <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -11415,7 +11757,23 @@ LEMMA PassesDeliverCancelled ==
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed
+      <2>1. ~L1!L0!HasStatus(cId)
+          BY SMT DEF L1!L0!HasStatus
+      <2>2. call_dispose_state[cId] # "settled"
+          BY <2>1
+      <2>3. UNCHANGED <<call_dispose_state, buffers_held_by_host>>
+          BY SMT
+      <2>4. events_delivered' = [events_delivered EXCEPT
+                ![cId] = Append(events_delivered[cId], "CANCELLED")]
+          BY SMT
+      <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+      <2>e. \A c2 \in CallIds :
+                c2 # cId => events_delivered'[c2] = events_delivered[c2]
+          BY <2>4, <2>t, SMT
+      <2>q. QED
+          BY <2>1, <2>2, <2>3, <2>4, <2>e, <2>t, SMT
+          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
