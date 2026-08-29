@@ -122,26 +122,99 @@ def _body(n, t):
     return body_of(n, t)
 
 
+def _effects():
+    """The effect library, read back from the module: which actions have
+    an effect lemma at all, and which of those conclude UNCHANGED
+    l1_vars.  The library is the source of truth rather than a reading of
+    the action - an action that takes a level-1 step on one branch of a
+    disjunction gets no frozen conclusion, and the prover has checked
+    every one of these."""
+    src = io.open(D + "DotNetBindingTheorems_proofs.tla",
+                  encoding="utf-8").read()
+    have, frozen = set(), set()
+    for m in re.finditer(r'^LEMMA (\w+)Effect ==(.*?)(?=^LEMMA |\Z)',
+                         src, re.S | re.M):
+        have.add(m.group(1))
+        if "UNCHANGED l1_vars" in m.group(2).split("BY ")[0]:
+            frozen.add(m.group(1))
+    return have, frozen
+
+
+BUNDLES = ["RuntimeAtomsFrozen", "AccountingAtomsFrozen",
+           "CallAtomsFrozen", "GlobalAtomsFrozen"]
+
+# What each bundle freezes.  Citing all four everywhere gives the solver
+# twenty-five quantified equivalences to instantiate and it times out, so
+# a case cites the ones its goal actually reads.
+BUNDLE_ATOMS = {
+    "RuntimeAtomsFrozen": [
+        "IsReleasedRuntime", "IsShutdownCallbackRunning",
+        "IsResourcesReleasedCallbackRunning", "SecondEventOwed",
+        "IsResourcesReleasedEmitted", "IsRuntimeDestroyed",
+        "IsStoppingRuntime"],
+    "AccountingAtomsFrozen": [
+        "NoHostDebt", "RuntimeHoldsNoReturnedBytes", "IsRuntimeQuiescent",
+        "IsRuntimeDrained"],
+    "CallAtomsFrozen": [
+        "IsDeliveryCallbackRunning", "IsWriteDoneCallbackRunning",
+        "IsAwaitingWriteDone", "HasStatus", "IsUnusedCall"],
+    "GlobalAtomsFrozen": ["NotFailed", "channel_runtime"],
+}
+
+
+def _bundles_for(prove):
+    """The bundles whose atoms the goal names, GlobalAtomsFrozen always:
+    every one of these goals carries the failure escape."""
+    out = []
+    for b in BUNDLES:
+        if b == "GlobalAtomsFrozen" or any(
+                a in prove for a in BUNDLE_ATOMS[b]):
+            out.append(b)
+    return out
+
+
 def build(name, assume, prove, goal_defs, deep=(), method="SMT",
-          mine_l1=False, pass_cite=()):
+          mine_l1=False, pass_cite=(), effects=False,
+          hoist_skip=()):
     """deep: extra definitions the Passthrough case needs, for a goal that
     reads a level-1 or level-0 variable rather than a managed one.
 
     pass_cite: lemmas that settle the Passthrough case, from gen_pass.  A
     goal about a level-1 variable wants them rather than deep: eighteen
     level-1 actions in one step time out, and the lemma has already split
-    them one by one."""
+    them one by one.
+
+    effects: cite the effect library instead of reopening the tuple
+    stack.  A case whose action rides no level-1 step cites the action's
+    effect lemma and the frozen atom bundles, with only the goal's own
+    definitions opened; a coupled case keeps the long list."""
     parts = next_parts()
+    l2src = io.open(D + "DotNetBinding.tla", encoding="utf-8").read()
+    have, frozen = _effects() if effects else (set(), set())
+    bund = _bundles_for(prove)
     out = ["LEMMA %s ==" % name]
     out += ["    ASSUME " + assume[0]] + ["           " + a for a in assume[1:]]
     out.append("    PROVE  " + prove)
+    hoisted = [d for d in goal_defs if d not in hoist_skip]
+    kept = [d for d in goal_defs if d in hoist_skip]
+    if effects:
+        # the goal's vocabulary is the same in all forty cases: one USE
+        # here rather than the same six lines forty times over.  Same
+        # facts reach the solver, and the lemma is a page shorter.  A
+        # definition a repointed case wants folded stays out of it: a USE
+        # reaches every step, that one included
+        out += wrap("<1> USE DEF ", hoisted, cont="       ")
     # the stuttering case reaches every variable through the tuple, so it
     # wants the level-1 frames exactly as the action cases do
     l1frame = (["L1!vars", "L1!ffi_vars", "L1!l0_vars", "L1!L0!vars",
                 "L1!L0!RuntimeVars", "L1!L0!ChannelVars", "L1!L0!CallVars"]
                if mine_l1 else [])
     out.append("<1>0. CASE UNCHANGED vars")
-    out += wrap("    BY <1>0, %s DEF " % method, goal_defs + FRAME + l1frame)
+    # the stuttering case keeps the long list: it reaches every variable
+    # through the tuple, and chaining the effect into the bundles there
+    # costs the solver more than opening the tuple does
+    out += wrap("    BY <1>0, %s DEF " % method,
+                goal_defs + FRAME + l1frame)
     labels = ["<1>0"]
     for k, part in enumerate(parts, start=1):
         lab = "<1>%d" % k
@@ -178,7 +251,9 @@ def build(name, assume, prove, goal_defs, deep=(), method="SMT",
                        "L1!L0!CallVars"]
             if "Passthrough" in subset:
                 ds += list(deep)
-            ds += goal_defs + FRAME
+            # in effects mode the action's own effect lemma carries the
+            # managed frame, so only the goal's vocabulary is opened
+            ds += (kept if effects else list(goal_defs)) + FRAME
             seen, ordered = set(), []
             for d in ds:
                 if d not in seen:
@@ -189,7 +264,7 @@ def build(name, assume, prove, goal_defs, deep=(), method="SMT",
         if pass_cite and acts == ["Passthrough"]:
             out += wrap("    BY %s, %s, %s DEF "
                         % (lab, ", ".join(pass_cite), method),
-                        goal_defs + FRAME)
+                        ([] if effects else list(goal_defs)) + FRAME)
             continue
 
         # One disjunct of Next carries twenty actions, and a single step over
@@ -220,13 +295,29 @@ def build(name, assume, prove, goal_defs, deep=(), method="SMT",
             for i, (n, _) in enumerate(single, start=1):
                 subs.append("<2>%d" % i)
                 out.append("  <2>%d. CASE %s(%s)" % (i, n, binder))
+                if n in frozen:
+                    # the effect gives the frame and the bundles give the
+                    # atoms as equivalences, so nothing needs opening
+                    out += ["    " + l for l in
+                            wrap("      BY <2>0, <2>%d, %sEffect, "
+                                 % (i, n)
+                                 + ", ".join(bund) + ", %s DEF " % method,
+                                 [n] + kept)]
+                    continue
+                cite = ("%sEffect, " % n) if n in have else ""
                 out += ["    " + l for l in
-                        wrap("      BY <2>0, <2>%d, %s DEF " % (i, method),
-                             deflist([n]))]
+                        wrap("      BY <2>0, <2>%d, %s%s DEF "
+                             % (i, cite, method), deflist([n]))]
             # the SUFFICES' disjunction is a fact, and a SUFFICES' facts are
             # not ambient: the elimination has to cite the step
             out += wrap("  <2>%d. QED BY <2>0, " % (len(single) + 1), subs,
                         cont="         ")
+            continue
+        if (len(acts) == 1 and acts[0] in frozen
+                and acts[0] != "Passthrough"):
+            out += wrap("    BY %s, %sEffect, " % (lab, acts[0])
+                        + ", ".join(bund) + ", %s DEF " % method,
+                        [acts[0]] + kept)
             continue
         out += wrap("    BY %s, %s DEF " % (lab, method), deflist(acts))
     out.append("<1>q. QED")

@@ -43328,6 +43328,9 @@ LEMMA GlobalAtomsFrozen ==
 \* One passthrough step keeps the whole quiescence, atom by atom:
 \* proved once over the native sub-actions, three substeps each, so
 \* no solver call carries the quantified conjunction whole.
+\* One passthrough step keeps the whole quiescence, atom by atom:
+\* proved once over the native sub-actions, three substeps each, so
+\* no solver call carries the quantified conjunction whole.
 LEMMA PassthroughKeepsQuiescence ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
            runtime_dispose_state = "destroying",
@@ -44048,6 +44051,13 @@ LEMMA ReleasedHoldsWhileDestroying ==
     PROVE  \/ (L1!IsReleasedRuntime(rtId))'
            \/ (runtime_dispose_state = "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -44068,40 +44078,24 @@ LEMMA ReleasedHoldsWhileDestroying ==
     BY <1>1, PassthroughKeepsQuiescence, Zenon
     DEF L1!IsRuntimeQuiescent
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
        L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -44121,111 +44115,57 @@ LEMMA ReleasedHoldsWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -44242,76 +44182,50 @@ LEMMA ReleasedHoldsWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -44360,473 +44274,285 @@ LEMMA ReleasedHoldsWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostHoldsSomeBuffer,
-           L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
-           L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
        L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
@@ -44845,6 +44571,14 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
     PROVE  \/ (~L1!IsShutdownCallbackRunning(rtId))'
            \/ (runtime_dispose_state = "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!IsStoppingRuntime,
+       L1!IsShutdownEventEmitted, L1!IsRuntimeDrained
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -44866,42 +44600,24 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
     BY <1>1, PassthroughKeepsQuiescence, Zenon
     DEF L1!IsRuntimeQuiescent
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
        L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -44921,117 +44637,57 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -45048,43 +44704,28 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
           BY <2>0, <2>3, SMT
           DEF ShutdownReturns, L1!ShutdownCallbackReturns,
@@ -45092,24 +44733,16 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
              L1!TypeOK, L1!L0!TypeOK
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -45158,509 +44791,285 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostHoldsSomeBuffer,
-           L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
-           L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!IsRuntimeDrained, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-           L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
        L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsStoppingRuntime, L1!IsShutdownEventEmitted,
-       L1!IsRuntimeDrained, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
@@ -45681,6 +45090,13 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
                              => L1!IsResourcesReleasedEmitted(rtId)))'
            \/ (runtime_dispose_state = "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!IsShutdownEventEmitted
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -45702,39 +45118,23 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
     BY <1>1, PassthroughKeepsQuiescence, Zenon
     DEF L1!IsRuntimeQuiescent
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
        L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
@@ -45757,111 +45157,57 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -45880,57 +45226,38 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
           BY <2>0, <2>4, SMT
@@ -45990,352 +45317,198 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostHoldsSomeBuffer,
-           L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
-           L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!IsShutdownEventEmitted,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!IsShutdownEventEmitted, ManagedStutter, vars, l1_vars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
@@ -46344,127 +45517,84 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
        L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, L1!IsShutdownEventEmitted, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
@@ -46484,6 +45614,13 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
     PROVE  \/ (L1!NoHostDebt(rtId))'
            \/ (runtime_dispose_state = "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -46504,40 +45641,24 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
     BY <1>1, PassthroughKeepsQuiescence, Zenon
     DEF L1!IsRuntimeQuiescent
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+    BY <1>2, FreeRuntimeRootEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
        L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -46557,111 +45678,57 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, AcquireLeaseEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -46678,76 +45745,50 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -46796,39 +45837,19 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, BeginMoveNextEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>2, BeginParseEventEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>3. CASE FinishConsumePayload(c2)
           BY <2>0, <2>3, SMT
           DEF FinishConsumePayload, ConsumingTerminal,
@@ -46839,75 +45860,41 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
              L1!TypeOK, L1!L0!TypeOK
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>4, CancelWaiterEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>5, RequestReadCancellationEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
           BY <2>0, <2>8, SMT
           DEF FinishCancelledParse, ConsumingTerminal,
@@ -46918,22 +45905,12 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
              L1!TypeOK, L1!L0!TypeOK
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>9, HandoffToDrainEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>10. CASE ConsumeHeader(c2)
           BY <2>0, <2>10, SMT
           DEF ConsumeHeader, RingTail, L1!HostConsumesEvent,
@@ -46943,39 +45920,27 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
              L1!TypeOK, L1!L0!TypeOK
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
           BY <2>0, <2>13, SMT
           DEF DrainRelease, ConsumingTerminal, L1!HostConsumesEvent,
@@ -46985,233 +45950,150 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
              L1!TypeOK, L1!L0!TypeOK
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>14, FinishDisposeCallEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostHoldsSomeBuffer,
-           L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
-           L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>16, CancelWriterWaitEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT
     DEF WriteAborted, L1!HostReturnsBuffer,
@@ -47237,6 +46119,13 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
     PROVE  \/ (L1!RuntimeHoldsNoReturnedBytes(rtId))'
            \/ (runtime_dispose_state = "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -47257,40 +46146,24 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
     BY <1>1, PassthroughKeepsQuiescence, Zenon
     DEF L1!IsRuntimeQuiescent
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+    BY <1>2, FreeRuntimeRootEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
        L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -47310,111 +46183,57 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, AcquireLeaseEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -47431,76 +46250,50 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -47549,456 +46342,275 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>1, BeginMoveNextEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>2, BeginParseEventEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!L0!IsActiveCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
-           L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
-           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+          BY <2>0, <2>14, FinishDisposeCallEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostHoldsSomeBuffer,
-           L1!OwedPayloads, L1!IsReturnedBuffer, L1!IsLentBuffer,
-           L1!L0!ChannelsOf, L1!L0!CallsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>16, CancelWriterWaitEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
-           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
-           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, DisposeLeavesNoManagedWaiter,
+           L1!L0!HasStatus, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
            L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-           L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-           L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-           L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-           L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       DisposeLeavesNoManagedWaiter, L1!IsRuntimeQuiescent,
-       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
-       L1!RuntimeHoldsNoReturnedBytes, L1!HostOwnsNoPayload,
-       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!OwedPayloads,
-       L1!IsReturnedBuffer, L1!IsLentBuffer, L1!L0!ChannelsOf,
-       L1!L0!CallsOf, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
-       L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT
     DEF WriteAborted, L1!HostReturnsBuffer,
@@ -48401,17 +47013,6 @@ THEOREM RuntimeReachesDestroyed ==
 <1>10. QED
     BY <1>1, <1>8, <1>9, PTL
 
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
-\* No passthrough re-arms a delivery on a destroyed binding.
 \* No passthrough re-arms a delivery on a destroyed binding.
 LEMMA PassthroughRestsTheDelivery ==
     ASSUME NEW cId, cId \in CallIds,
@@ -49587,6 +48188,16 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
     PROVE  \/ (~L1!IsDeliveryCallbackRunning(cId))'
            \/ (runtime_dispose_state # "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, RuntimeStateMatchesNative,
+       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
+       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
+       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
+       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
+       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
+       L1!L0!NotFailed, L1!IsDeliveryCallbackRunning
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -49605,34 +48216,13 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughRestsTheDelivery, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, RuntimeStateMatchesNative,
-       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-       L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
@@ -49654,99 +48244,32 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -49763,68 +48286,33 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -49873,331 +48361,122 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsDeliveryCallbackRunning, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsDeliveryCallbackRunning, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsDeliveryCallbackRunning, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsDeliveryCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsDeliveryCallbackRunning, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
@@ -50205,16 +48484,7 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
@@ -50222,15 +48492,6 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
@@ -50238,64 +48499,28 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsDeliveryCallbackRunning,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
@@ -50317,6 +48542,16 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
     PROVE  \/ (~L1!IsWriteDoneCallbackRunning(cId))'
            \/ (runtime_dispose_state # "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, RuntimeStateMatchesNative,
+       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
+       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
+       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
+       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
+       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
+       L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -50335,34 +48570,13 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughRestsTheWriteDone, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, RuntimeStateMatchesNative,
-       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-       L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
@@ -50384,99 +48598,32 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -50493,68 +48640,33 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -50603,331 +48715,122 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsWriteDoneCallbackRunning, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsWriteDoneCallbackRunning, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsWriteDoneCallbackRunning, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsWriteDoneCallbackRunning, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
@@ -50935,16 +48838,7 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
@@ -50952,15 +48846,6 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
@@ -50968,64 +48853,28 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsWriteDoneCallbackRunning,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
@@ -51047,6 +48896,16 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
     PROVE  \/ (~L1!IsShutdownCallbackRunning(rtId))'
            \/ (runtime_dispose_state # "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, RuntimeStateMatchesNative,
+       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
+       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
+       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
+       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
+       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
+       L1!L0!NotFailed, L1!IsShutdownCallbackRunning
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -51065,34 +48924,13 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughRestsTheShutdown, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, RuntimeStateMatchesNative,
-       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-       L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
@@ -51114,99 +48952,32 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -51223,68 +48994,33 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -51333,331 +49069,122 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsShutdownCallbackRunning, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsShutdownCallbackRunning, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsShutdownCallbackRunning, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsShutdownCallbackRunning, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsShutdownCallbackRunning, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
@@ -51665,16 +49192,7 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
@@ -51682,15 +49200,6 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
@@ -51698,64 +49207,28 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed, L1!IsShutdownCallbackRunning,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
@@ -51779,6 +49252,17 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
               /\ (L1!IsResourcesReleasedEmitted(rtId))'
            \/ (runtime_dispose_state # "destroyed")'
            \/ (~L1!L0!NotFailed)'
+<1> USE DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
+       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
+       SettledCallOwesNothing, RuntimeStateMatchesNative,
+       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
+       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
+       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
+       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
+       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
+       L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
+       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
        TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
@@ -51798,38 +49282,14 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughSettlesTheResources, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-       TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-       SettledCallOwesNothing, RuntimeStateMatchesNative,
-       LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-       L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-       L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-       L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-       L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-       L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-       L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
@@ -51851,107 +49311,32 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -51969,74 +49354,33 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -52086,339 +49430,113 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
                         \/ (~L1!L0!NotFailed)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-           BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-           L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK,
-           L1!L0!TypeOK, BindingMayDowncall, TokenPublishedBeforeStart,
-           TeardownLeavesCallsSettled, SettledCallOwesNothing,
-           RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-           L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-           L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-           L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-           L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-           L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
-           L1!L0!NotFailed, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall,
-           TokenPublishedBeforeStart, TeardownLeavesCallsSettled,
-           SettledCallOwesNothing, RuntimeStateMatchesNative,
-           LiveCallHasLiveChannel, L1!DestroyedRuntimeIsClean,
-           L1!ShutdownSignalCore, L1!IsRuntimeQuiescent,
-           L1!IsRuntimeDestroyed, L1!IsRuntimeDrained, L1!HasNoSendInFlight,
-           L1!IsAwaitingWriteDone, L1!IsReleasedRuntime, L1!IsStoppingRuntime,
-           L1!IsShutdownEventEmitted, L1!L0!ChannelsOf, L1!L0!IsActiveCall,
-           L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!L0!NotFailed,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
@@ -52427,128 +49545,51 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       L1!TypeOK, L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
-       L1!L0!TypeOK, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
-       BindingMayDowncall, TokenPublishedBeforeStart,
-       TeardownLeavesCallsSettled, SettledCallOwesNothing,
-       RuntimeStateMatchesNative, LiveCallHasLiveChannel,
-       L1!DestroyedRuntimeIsClean, L1!ShutdownSignalCore,
-       L1!IsRuntimeQuiescent, L1!IsRuntimeDestroyed, L1!IsRuntimeDrained,
-       L1!HasNoSendInFlight, L1!IsAwaitingWriteDone, L1!IsReleasedRuntime,
-       L1!IsStoppingRuntime, L1!IsShutdownEventEmitted, L1!L0!ChannelsOf,
-       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-       L1!L0!IsUnusedCall, L1!L0!NotFailed,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
@@ -52559,6 +49600,9 @@ LEMMA ResourcesArmingEmits ==
            (L1!IsResourcesReleasedCallbackRunning(rtId))',
            [Next]_vars
     PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
+<1> USE DEF  ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
+       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
+       L1!TypeOK, L1!L0!TypeOK
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK,
        L1!IsResourcesReleasedCallbackRunning,
@@ -52571,23 +49615,15 @@ LEMMA ResourcesArmingEmits ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughArmingEmits, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -52605,61 +49641,32 @@ LEMMA ResourcesArmingEmits ==
                  PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -52674,41 +49681,31 @@ LEMMA ResourcesArmingEmits ==
                  PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
@@ -52757,193 +49754,115 @@ LEMMA ResourcesArmingEmits ==
                  PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedCallbackRunning,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
@@ -52951,69 +49870,48 @@ LEMMA ResourcesArmingEmits ==
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-       L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
@@ -53027,6 +49925,8 @@ LEMMA ResourcesEmittedIsALatch ==
            [Next]_vars
     PROVE  \/ (L1!IsResourcesReleasedEmitted(rtId))'
            \/ (runtime_dispose_state # "destroyed")'
+<1> USE DEF  ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
+       ChannelSettled, L1!TypeOK, L1!L0!TypeOK
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK, L1!IsResourcesReleasedEmitted,
        IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
@@ -53037,21 +49937,15 @@ LEMMA ResourcesEmittedIsALatch ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughKeepsTheEmit, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -53070,53 +49964,32 @@ LEMMA ResourcesEmittedIsALatch ==
                         \/ (runtime_dispose_state # "destroyed")'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -53132,38 +50005,33 @@ LEMMA ResourcesEmittedIsALatch ==
                         \/ (runtime_dispose_state # "destroyed")'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, L1!RuntimeDestroy, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -53211,163 +50079,114 @@ LEMMA ResourcesEmittedIsALatch ==
                         \/ (runtime_dispose_state # "destroyed")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
            L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedTypeOK,
-           L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-           IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
@@ -53376,62 +50195,48 @@ LEMMA ResourcesEmittedIsALatch ==
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
@@ -53950,6 +50755,9 @@ LEMMA LastHolderPreserved ==
                            /\ channel_runtime[chId] = current_runtime
                            /\ runtime_dispose_state \in {"shutdown_pending",
                                                          "destroying"}))'
+<1> USE DEF  LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
+       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
+       L1!L0!TypeOK
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  LastHolderAwaitsItsRuntime, ManagedIndInv,
        ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
@@ -53961,23 +50769,15 @@ LEMMA LastHolderPreserved ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughHoldsTheLastHolder, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -54000,13 +50800,8 @@ LEMMA LastHolderPreserved ==
                                                                       "destroying"}))'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
     <3>a. CASE chId = ch2
       <4>1. (channel_dispose_state[chId])' = "active"
@@ -54034,21 +50829,11 @@ LEMMA LastHolderPreserved ==
     <3>q. QED
         BY <3>a, <3>b, Zenon
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, LastHolderAwaitsItsRuntime,
-           ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
     <3>a. CASE chId = ch2
       <4>1. /\ channel_runtime[chId] = current_runtime
@@ -54095,14 +50880,8 @@ LEMMA LastHolderPreserved ==
     <3>q. QED
         BY <3>a, <3>b, Zenon
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -54122,15 +50901,13 @@ LEMMA LastHolderPreserved ==
                                                                       "destroying"}))'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
     <3>a. CASE ~(channel_dispose_state[chId] = "released_last")
         BY <2>2, <3>a, SMT
@@ -54158,21 +50935,17 @@ LEMMA LastHolderPreserved ==
     <3>q. QED
         BY <3>a, <3>b, Zenon
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, LastHolderAwaitsItsRuntime,
-           ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
@@ -54225,181 +50998,115 @@ LEMMA LastHolderPreserved ==
                                                                       "destroying"}))'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, LastHolderAwaitsItsRuntime,
-           ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, LastHolderAwaitsItsRuntime,
-           ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, LastHolderAwaitsItsRuntime,
-           ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus,
-           LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-           L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, LastHolderAwaitsItsRuntime, ManagedIndInv,
-           ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-           ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
+           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
@@ -54407,69 +51114,49 @@ LEMMA LastHolderPreserved ==
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, LastHolderAwaitsItsRuntime,
-       ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
@@ -54480,26 +51167,24 @@ LEMMA ReleasedHoldsUntilTheResolve ==
            [Next]_vars
     PROVE  \/ (channel_dispose_state[chId] = "released")'
            \/ (channel_dispose_state[chId] = "disposed")'
+<1> USE DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+       ChannelDisposeMayResolve
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
        ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>1, SMT DEF  Passthrough, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
@@ -54519,36 +51204,26 @@ LEMMA ReleasedHoldsUntilTheResolve ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           ManagedTypeOK, IsLastRelease, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           ManagedTypeOK, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -54564,25 +51239,24 @@ LEMMA ReleasedHoldsUntilTheResolve ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -54630,161 +51304,121 @@ LEMMA ReleasedHoldsUntilTheResolve ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, CancelWaiterEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, RequestReadCancellationEffect, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
-    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
-             CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
@@ -54795,26 +51429,24 @@ LEMMA ReleasedLastHoldsUntilTheResolve ==
            [Next]_vars
     PROVE  \/ (channel_dispose_state[chId] = "released_last")'
            \/ (channel_dispose_state[chId] = "disposed")'
+<1> USE DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+       ChannelDisposeMayResolve
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
        ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>1, SMT DEF  Passthrough, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
@@ -54834,36 +51466,26 @@ LEMMA ReleasedLastHoldsUntilTheResolve ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           ManagedTypeOK, IsLastRelease, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           ManagedTypeOK, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -54879,25 +51501,24 @@ LEMMA ReleasedLastHoldsUntilTheResolve ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -54945,161 +51566,121 @@ LEMMA ReleasedLastHoldsUntilTheResolve ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, CancelWaiterEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, RequestReadCancellationEffect, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
-    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
-             CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
@@ -55111,26 +51692,24 @@ LEMMA DisposingLandsOnTheReleasePair ==
     PROVE  \/ (channel_dispose_state[chId] = "disposing")'
            \/ (channel_dispose_state[chId] = "released")'
            \/ (channel_dispose_state[chId] = "released_last")'
+<1> USE DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+       ChannelDisposeMayResolve
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
        ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>1, SMT DEF  Passthrough, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
@@ -55151,36 +51730,26 @@ LEMMA DisposingLandsOnTheReleasePair ==
                         \/ (channel_dispose_state[chId] = "released_last")'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           ManagedTypeOK, IsLastRelease, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
   <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           ManagedTypeOK, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -55197,25 +51766,24 @@ LEMMA DisposingLandsOnTheReleasePair ==
                         \/ (channel_dispose_state[chId] = "released_last")'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -55264,161 +51832,121 @@ LEMMA DisposingLandsOnTheReleasePair ==
                         \/ (channel_dispose_state[chId] = "released_last")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, CancelWaiterEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>5, RequestReadCancellationEffect, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>14, FinishDisposeCallEffect, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
   <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>16, CancelWriterWaitEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
          <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
-    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
-             CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+    BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
@@ -55433,6 +51961,9 @@ LEMMA ReleasedLastCarriesTheDestroy ==
     PROVE  \/ /\ (channel_dispose_state[chId] = "released_last")'
               /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
            \/ (channel_dispose_state[chId] = "disposed")'
+<1> USE DEF  ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
+       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
+       L1!TypeOK, L1!L0!TypeOK
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK, LastHolderAwaitsItsRuntime,
        IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
@@ -55444,23 +51975,15 @@ LEMMA ReleasedLastCarriesTheDestroy ==
 <1>1. CASE Passthrough
     BY <1>1, PassthroughCarriesTheDestroy, Zenon
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
 <1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
              CreateRuntime(rtId, chId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
              \/ AcquireLease(chId)
              \/ CreateChannel(chId)
@@ -55480,58 +52003,32 @@ LEMMA ReleasedLastCarriesTheDestroy ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>4
   <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           AcquireLease
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
-           L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!RuntimeFail, L1!L0!RuntimeFail, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
+           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
+  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
-           L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
-           L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
              \/ BeginRuntimeShutdown(rtId)
@@ -55548,13 +52045,11 @@ LEMMA ReleasedLastCarriesTheDestroy ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>5
   <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
-           L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
-           L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
+           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -55572,23 +52067,18 @@ LEMMA ReleasedLastCarriesTheDestroy ==
     <3>3. QED
         BY <3>1, <3>2, Zenon
   <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, SMT DEF  ShutdownReturns, L1!ShutdownCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns,
-           L1!ResourcesReleasedCallbackReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -55637,182 +52127,113 @@ LEMMA ReleasedLastCarriesTheDestroy ==
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
   <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
   <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, L1!HostConsumesEvent, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, SMT DEF  CancelParsingRead,
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
+           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, SMT DEF  HandoffToDrain, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
   <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, SMT DEF  BeginDisposeCall,
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
            L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           L1!ReleaseCallHandle, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained,
-           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
+           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-           ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-           L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedTypeOK,
-           LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-           ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-           L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
+           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedTypeOK, LastHolderAwaitsItsRuntime,
-           IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-           L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
+           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
@@ -55822,71 +52243,50 @@ LEMMA ReleasedLastCarriesTheDestroy ==
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
        L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
        L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
        L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
        L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, ManagedTypeOK,
-       LastHolderAwaitsItsRuntime, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, L1!IsRuntimeDestroyed, L1!TypeOK,
-       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
