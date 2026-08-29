@@ -8904,151 +8904,97 @@ LEMMA PassesEmitShutdownComplete ==
            ManagedStutter, managed_vars,
            L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsClosedChannel, L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!EmitShutdownComplete, L1!IsRuntimeDrained, L1!IsShutdownEventEmitted, L1!IsStoppingRuntime, L1!NoHostDebt
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -9079,151 +9025,98 @@ LEMMA PassesEmitResourcesReleased ==
            ManagedStutter, managed_vars,
            L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates,
+           L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!EmitResourcesReleased, L1!IsResourcesReleasedEmitted, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes, L1!SecondEventOwed
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -9254,151 +9147,105 @@ LEMMA PassesRuntimeRelease ==
            ManagedStutter, managed_vars,
            L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RuntimeRelease, L1!L0!RuntimeRelease, L1!FreeReturnedBuffer, L1!IsShutdownCallbackRunning, L1!IsShutdownEventEmitted, L1!ReleaseCallHandle
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -9429,151 +9276,106 @@ LEMMA PassesRuntimeFail ==
            ManagedStutter, managed_vars,
            L1!RuntimeFail, L1!L0!RuntimeFail
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeFail, L1!L0!RuntimeFail
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeFail, L1!L0!RuntimeFail
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeFail, L1!L0!RuntimeFail
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeFail, L1!L0!RuntimeFail
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeFail, L1!L0!RuntimeFail
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeFail, L1!L0!RuntimeFail
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -9604,151 +9406,106 @@ LEMMA PassesRemainFailed ==
            ManagedStutter, managed_vars,
            L1!RemainFailed, L1!L0!RemainFailed
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainFailed, L1!L0!RemainFailed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainFailed, L1!L0!RemainFailed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainFailed, L1!L0!RemainFailed
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainFailed, L1!L0!RemainFailed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainFailed, L1!L0!RemainFailed
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainFailed, L1!L0!RemainFailed
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RemainFailed, L1!L0!RemainFailed
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -9779,151 +9536,106 @@ LEMMA PassesRemainReleased ==
            ManagedStutter, managed_vars,
            L1!RemainReleased, L1!L0!RemainReleased
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainReleased, L1!L0!RemainReleased
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainReleased, L1!L0!RemainReleased
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainReleased, L1!L0!RemainReleased
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainReleased, L1!L0!RemainReleased
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainReleased, L1!L0!RemainReleased
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RemainReleased, L1!L0!RemainReleased
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RemainReleased, L1!L0!RemainReleased
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -9954,18 +9666,18 @@ LEMMA PassesChannelFinishClosing ==
            ManagedStutter, managed_vars,
            L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
       \* The close only ever appends, and it releases nothing, so the ring
       \* grows and the tail stands still.  The two go in separate steps:
@@ -9974,36 +9686,34 @@ LEMMA PassesChannelFinishClosing ==
                             reader_state'[c2] \in {"parsing",
                                                    "parsing_cancelled"}
                      PROVE  RingOccupancy(c2)' > 0
-          BY DEF ParsingReadOwnsItsSlot
+          OBVIOUS
       <2>2. reader_state' = reader_state
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>3. RingOccupancy(c2) > 0
-          BY <2>1, <2>2 DEF ParsingReadOwnsItsSlot
+          BY <2>1, <2>2
       <2>4. RingTail(c2)' = RingTail(c2)
-          BY SMT DEF RingTail, L1!ChannelFinishClosing, L1!ffi_vars
+          BY SMT
       <2>5. events_delivered' = [c3 \in CallIds |->
                 IF call_channel[c3] = chId /\ L1!L0!IsActiveCall(c3)
                 THEN IF events_delivered[c3] = <<>>
                      THEN <<"INITIAL_METADATA", "CANCELLED">>
                      ELSE Append(events_delivered[c3], "CANCELLED")
                 ELSE events_delivered[c3]]
-          BY DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing
+          OBVIOUS
       <2>6. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>7. RingHead(c2)' >= RingHead(c2)
-          BY <2>5, <2>6, SMT DEF RingHead
+          BY <2>5, <2>6, SMT
       <2>8. /\ RingHead(c2) \in Nat /\ RingTail(c2) \in Nat
             /\ RingHead(c2)' \in Nat
           BY <2>5, <2>6, SMT
-             DEF RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+             DEF L1!IndInv,
+                L1!TypeOK, L1!L0!TypeOK
       <2>9. QED
           BY <2>3, <2>4, <2>7, <2>8, SMT
-             DEF RingOccupancy, RingHead, RingTail
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
@@ -10013,12 +9723,13 @@ LEMMA PassesChannelFinishClosing ==
             /\ write_done_callback_running' = write_done_callback_running
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>m. \A c2 \in CallIds :
                 ~(L1!L0!HasStatus(c2)') => ~L1!L0!HasStatus(c2)
           BY <2>t, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!L0!EventKinds, L1!L0!ActiveCallStates
       <2>q. QED
           BY <2>1, <2>2, <2>m, SMT
     <1>9. RuntimeRootSurvivesCallbacks'
@@ -10031,66 +9742,65 @@ LEMMA PassesChannelFinishClosing ==
                    = resources_released_callback_running
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>m. \A c2 \in CallIds :
                 ~(L1!L0!HasStatus(c2)') => ~L1!L0!HasStatus(c2)
           BY <2>t, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!L0!EventKinds, L1!L0!ActiveCallStates
       <2>q. QED
           BY <2>1, <2>2, <2>m, SMT
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     \* The close rebuilds three whole functions over CallIds, and carrying
     \* that into a goal about channels is what stops SMT.  So take the two
     \* facts the goal needs and leave the action behind.
     <1>16. RejectedChannelHasNoNativeHalf'
       <2>1. channel_dispose_state' = channel_dispose_state
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>2. channel_state[chId] = "closing"
-          BY DEF L1!ChannelFinishClosing, L1!IsClosingChannel
+          BY DEF L1!IsClosingChannel
       <2>3. channel_state' = [channel_state EXCEPT ![chId] = "closed"]
-          BY DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing
+          OBVIOUS
       <2>4. channel_state \in [ChannelIds -> L1!L0!ChannelStates]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>5. SUFFICES ASSUME NEW ch2 \in ChannelIds,
                             channel_dispose_state'[ch2] = "rejected"
                      PROVE  channel_state'[ch2] = "none"
-          BY DEF RejectedChannelHasNoNativeHalf
+          OBVIOUS
       <2>6. channel_state[ch2] = "none"
-          BY <2>1, <2>5 DEF RejectedChannelHasNoNativeHalf
+          BY <2>1, <2>5
       <2>7. QED
           BY <2>2, <2>3, <2>4, <2>6, SMT DEF L1!L0!ChannelStates
     <1>17. ChannelStateMatchesNative'
       \* Same shape: only the closing channel's own native state moves, and
       \* every clause that would forbid "closed" already forbids "closing".
       <2>1. channel_dispose_state' = channel_dispose_state
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>2. channel_state[chId] = "closing"
-          BY DEF L1!ChannelFinishClosing, L1!IsClosingChannel
+          BY DEF L1!IsClosingChannel
       <2>3. channel_state' = [channel_state EXCEPT ![chId] = "closed"]
-          BY DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing
+          OBVIOUS
       <2>4. channel_state \in [ChannelIds -> L1!L0!ChannelStates]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>5. SUFFICES ASSUME NEW ch2 \in ChannelIds
                      PROVE  /\ channel_dispose_state'[ch2] \in
                                    {"unopened", "constructing", "rejected"}
@@ -10104,7 +9814,7 @@ LEMMA PassesChannelFinishClosing ==
                                    {"released", "released_last", "disposed"}
                                 => channel_state'[ch2] \in
                                        {"closing", "closed"}
-          BY DEF ChannelStateMatchesNative
+          OBVIOUS
       <2>6. /\ channel_dispose_state[ch2] \in
                    {"unopened", "constructing", "rejected"}
                 => channel_state[ch2] = "none"
@@ -10115,19 +9825,16 @@ LEMMA PassesChannelFinishClosing ==
             /\ channel_dispose_state[ch2] \in
                    {"released", "released_last", "disposed"}
                 => channel_state[ch2] \in {"closing", "closed"}
-          BY DEF ChannelStateMatchesNative
+          OBVIOUS
       <2>7. QED
           BY <2>1, <2>2, <2>3, <2>4, <2>6, SMT DEF L1!L0!ChannelStates
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
       \* A settled call has its status, so it is not active, so the close
       \* leaves it alone - which is why this conjunct carries the status.
@@ -10136,111 +9843,72 @@ LEMMA PassesChannelFinishClosing ==
                      PROVE  /\ L1!L0!HasStatus(c2)'
                             /\ L1!HostOwnsNoPayload(c2)'
                             /\ L1!HostHoldsNoBuffer(c2)'
-          BY DEF SettledCallOwesNothing
+          OBVIOUS
       <2>2. call_dispose_state' = call_dispose_state
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>3. /\ L1!L0!HasStatus(c2)
             /\ L1!HostOwnsNoPayload(c2)
             /\ L1!HostHoldsNoBuffer(c2)
-          BY <2>1, <2>2 DEF SettledCallOwesNothing
+          BY <2>1, <2>2
       <2>4. ~L1!L0!IsActiveCall(c2)
           BY <2>3, SMT
-          DEF L1!IndInv, L1!FfiCallInv, L1!ActiveCallHasNoStatus,
-             L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!HasStatus,
-             L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!IndInv,
+             L1!FfiCallInv, L1!ActiveCallHasNoStatus,
+             L1!L0!ActiveCallStates, L1!L0!HasStatus, L1!L0!StatusKinds,
+             L1!TypeOK, L1!L0!TypeOK
       <2>5. /\ events_delivered'[c2] = events_delivered[c2]
             /\ payloads_consumed_by_host' = payloads_consumed_by_host
             /\ buffers_held_by_host' = buffers_held_by_host
           BY <2>4, SMT
-          DEF L1!ChannelFinishClosing, L1!L0!ChannelFinishClosing,
-             L1!ffi_vars
       <2>6. QED
           BY <2>3, <2>5, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!ChannelFinishClosing, L1!L0!CallsOf, L1!L0!ChannelFinishClosing, L1!L0!IsActiveCall
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -10271,25 +9939,27 @@ LEMMA PassesEmitWriteDone ==
            ManagedStutter, managed_vars,
            L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY ParsingReadOwnsItsSlotIsFramed DEF StatusMeansTerminal,
+           ChannelDisposeStates, L1!IsClosingChannel, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!FfiCallInv,
+           L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
@@ -10305,12 +9975,14 @@ LEMMA PassesEmitWriteDone ==
             /\ events_delivered' = events_delivered
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>p. \A c2 \in CallIds :
                 c2 # cId =>
                     write_done_callback_running'[c2]
                         = write_done_callback_running[c2]
-          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY <2>4, SMT DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>s. SUFFICES ASSUME NEW c2 \in CallIds
                      PROVE  /\ (\/ delivery_callback_running'[c2]
                                 \/ write_done_callback_running'[c2])
@@ -10318,12 +9990,13 @@ LEMMA PassesEmitWriteDone ==
                             /\ (call_token_published'[c2]
                                     /\ ~(L1!L0!HasStatus(c2)'))
                                    => call_root_live'[c2]
-          BY DEF RootSurvivesCallbacks
+          OBVIOUS
       <2>7. CASE c2 = cId
           BY <2>2, <2>3, <2>7, SMT
       <2>8. CASE c2 # cId
           BY <2>3, <2>4, <2>p, <2>t, <2>8, SMT
-          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!L0!HasStatus,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK
       <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
@@ -10334,125 +10007,90 @@ LEMMA PassesEmitWriteDone ==
           BY <2>2, SMT
       <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF StatusMeansTerminal,
+           ChannelDisposeStates, L1!IsClosingChannel, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!FfiCallInv,
+           L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>17. ChannelStateMatchesNative'
-        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF StatusMeansTerminal,
+           ChannelDisposeStates, L1!IsClosingChannel, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!FfiCallInv,
+           L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!EmitWriteDone, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -10483,151 +10121,106 @@ LEMMA PassesNetworkSend ==
            ManagedStutter, managed_vars,
            L1!NetworkSend, L1!L0!NetworkSend
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkSend, L1!L0!NetworkSend
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkSend, L1!L0!NetworkSend
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkSend, L1!L0!NetworkSend
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkSend, L1!L0!NetworkSend
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkSend, L1!L0!NetworkSend
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkSend, L1!L0!NetworkSend
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!NetworkSend, L1!L0!NetworkSend
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -10658,151 +10251,106 @@ LEMMA PassesReceiveStatus ==
            ManagedStutter, managed_vars,
            L1!ReceiveStatus, L1!L0!ReceiveStatus
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReceiveStatus, L1!L0!ReceiveStatus
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReceiveStatus, L1!L0!ReceiveStatus
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReceiveStatus, L1!L0!ReceiveStatus
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReceiveStatus, L1!L0!ReceiveStatus
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReceiveStatus, L1!L0!ReceiveStatus
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReceiveStatus, L1!L0!ReceiveStatus
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!ReceiveStatus, L1!L0!ReceiveStatus
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -10833,18 +10381,18 @@ LEMMA PassesDeliverInitialMetadata ==
            ManagedStutter, managed_vars,
            L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
       \* The delivery appends one event to this call and releases none, so
       \* the ring grows and the tail stands still.
@@ -10852,33 +10400,30 @@ LEMMA PassesDeliverInitialMetadata ==
                             reader_state'[c2] \in {"parsing",
                                                    "parsing_cancelled"}
                      PROVE  RingOccupancy(c2)' > 0
-          BY DEF ParsingReadOwnsItsSlot
+          OBVIOUS
       <2>2. reader_state' = reader_state
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>3. RingOccupancy(c2) > 0
-          BY <2>1, <2>2 DEF ParsingReadOwnsItsSlot
+          BY <2>1, <2>2
       <2>4. RingTail(c2)' = RingTail(c2)
-          BY SMT DEF RingTail, L1!DeliverInitialMetadata,
-             L1!HandPayloadToHost
+          BY SMT
       <2>5. events_delivered' = [events_delivered EXCEPT
                 ![cId] = Append(events_delivered[cId], "INITIAL_METADATA")]
-          BY DEF L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata
+          OBVIOUS
       <2>6. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>7. RingHead(c2)' >= RingHead(c2)
-          BY <2>5, <2>6, SMT DEF RingHead
+          BY <2>5, <2>6, SMT
       <2>8. /\ RingHead(c2) \in Nat /\ RingTail(c2) \in Nat
             /\ RingHead(c2)' \in Nat
           BY <2>5, <2>6, SMT
-             DEF RingHead, RingTail, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+             DEF L1!IndInv,
+                L1!TypeOK, L1!L0!TypeOK
       <2>9. QED
           BY <2>3, <2>4, <2>7, <2>8, SMT
-             DEF RingOccupancy, RingHead, RingTail
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
@@ -10888,24 +10433,25 @@ LEMMA PassesDeliverInitialMetadata ==
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
           BY MetadataMeansNoStatusYet
       <2>2. call_token_published[cId] /\ call_root_live[cId]
-          BY <2>1 DEF TokenPublishedBeforeStart, RootSurvivesCallbacks
+          BY <2>1
       <2>3. UNCHANGED <<call_token_published, call_root_live>>
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>4. /\ write_done_callback_running' = write_done_callback_running
             /\ delivery_callback_running' =
                    [delivery_callback_running EXCEPT ![cId] = TRUE]
             /\ events_delivered' = [events_delivered EXCEPT
                    ![cId] = Append(events_delivered[cId],
                                    "INITIAL_METADATA")]
-          BY DEF L1!DeliverInitialMetadata, L1!HandPayloadToHost,
-             L1!L0!DeliverInitialMetadata
+          OBVIOUS
       <2>5. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       \* The event just appended is the metadata, so the call still has
       \* no status, and the clause that keeps its root still applies.
       <2>6. ~L1!L0!HasStatus(cId)'
           BY <2>1, <2>4, <2>5, SMT
-             DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
+             DEF L1!L0!HasStatus,
+                L1!L0!StatusKinds, L1!L0!EventKinds
       \* One call at a time, and the only one the delivery touches is its
       \* own: every other call keeps its events, so it keeps its status and
       \* its clause.
@@ -10916,7 +10462,7 @@ LEMMA PassesDeliverInitialMetadata ==
                             /\ (call_token_published'[c2]
                                     /\ ~L1!L0!HasStatus(c2)')
                                    => call_root_live'[c2]
-          BY DEF RootSurvivesCallbacks
+          OBVIOUS
       <2>8. CASE c2 = cId
           BY <2>2, <2>3, <2>4, <2>8, SMT
       <2>9. CASE c2 # cId
@@ -10926,20 +10472,22 @@ LEMMA PassesDeliverInitialMetadata ==
               /\ write_done_callback_running'[c2]
                      = write_done_callback_running[c2]
           BY <2>4, <2>5, <2>9, SMT
-             DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+             DEF L1!IndInv,
+                L1!TypeOK, L1!L0!TypeOK
         <3>2. /\ (\/ delivery_callback_running[c2]
                   \/ write_done_callback_running[c2])
                      => call_root_live[c2]
               /\ (call_token_published[c2] /\ ~L1!L0!HasStatus(c2))
                      => call_root_live[c2]
-          BY DEF RootSurvivesCallbacks
+          OBVIOUS
         <3>3. QED
           BY <2>3, <3>1, <3>2, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds
       <2>10. QED BY <2>8, <2>9
     <1>9. RuntimeRootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. runtime_root_live
           BY <2>1
@@ -10947,157 +10495,122 @@ LEMMA PassesDeliverInitialMetadata ==
           BY <2>2, SMT
       <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF StatusMeansTerminal,
+           ChannelDisposeStates, L1!IsClosingChannel, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!FfiCallInv,
+           L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>17. ChannelStateMatchesNative'
-        BY ChannelAgreementIsFramed DEF RootSurvivesCallbacks, StatusMeansTerminal, ChannelDisposeStates, L1!IsClosingChannel, L1!IsClosingChannel, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus, L1!L0!StatusKinds, L1!FfiCallInv, L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY ChannelAgreementIsFramed DEF StatusMeansTerminal,
+           ChannelDisposeStates, L1!IsClosingChannel, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, L1!L0!IsTerminalCall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!FfiCallInv,
+           L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
       \* The call being delivered to has no status, so it is not settled,
       \* and no other call moves.
       <2>1. ~L1!L0!HasStatus(cId)
           BY MetadataMeansNoStatusYet
       <2>2. call_dispose_state[cId] # "settled"
-          BY <2>1 DEF SettledCallOwesNothing
+          BY <2>1
       <2>3. SUFFICES ASSUME NEW c2 \in CallIds,
                             call_dispose_state'[c2] = "settled"
                      PROVE  /\ L1!L0!HasStatus(c2)'
                             /\ L1!HostOwnsNoPayload(c2)'
                             /\ L1!HostHoldsNoBuffer(c2)'
-          BY DEF SettledCallOwesNothing
+          OBVIOUS
       <2>4. call_dispose_state' = call_dispose_state
-          BY SMT DEF ManagedStutter, managed_vars
+          BY SMT
       <2>5. c2 # cId
           BY <2>2, <2>3, <2>4
       <2>6. /\ L1!L0!HasStatus(c2)
             /\ L1!HostOwnsNoPayload(c2)
             /\ L1!HostHoldsNoBuffer(c2)
-          BY <2>3, <2>4 DEF SettledCallOwesNothing
+          BY <2>3, <2>4
       <2>7. /\ events_delivered' = [events_delivered EXCEPT
                    ![cId] = Append(events_delivered[cId],
                                    "INITIAL_METADATA")]
             /\ payloads_consumed_by_host' = payloads_consumed_by_host
             /\ buffers_held_by_host' = buffers_held_by_host
-          BY DEF L1!DeliverInitialMetadata, L1!HandPayloadToHost,
-             L1!L0!DeliverInitialMetadata
+          OBVIOUS
       <2>8. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>9. QED
           BY <2>5, <2>6, <2>7, <2>8, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!DeliverInitialMetadata, L1!L0!DeliverInitialMetadata, L1!HandPayloadToHost, L1!HasFreeDeliverySlot
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -11128,18 +10641,18 @@ LEMMA PassesDeliverMessage ==
            ManagedStutter, managed_vars,
            L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
       <2>1. reader_state' = reader_state
           BY SMT
@@ -11149,22 +10662,21 @@ LEMMA PassesDeliverMessage ==
                 ![cId] = Append(events_delivered[cId], "MESSAGE")]
           BY SMT
       <2>n. payloads_consumed_by_host \in [CallIds -> Nat]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>q. QED
           BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing
           DEF L1!L0!EventKinds
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. call_token_published[cId] /\ call_root_live[cId]
           BY <2>1
@@ -11175,7 +10687,8 @@ LEMMA PassesDeliverMessage ==
                    [delivery_callback_running EXCEPT ![cId] = TRUE]
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>e. \A c2 \in CallIds :
                 c2 # cId => events_delivered'[c2] = events_delivered[c2]
           BY <2>t, SMT
@@ -11183,7 +10696,8 @@ LEMMA PassesDeliverMessage ==
                 c2 # cId =>
                     delivery_callback_running'[c2]
                         = delivery_callback_running[c2]
-          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY <2>4, SMT DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>s. SUFFICES ASSUME NEW c2 \in CallIds
                      PROVE  /\ (\/ delivery_callback_running'[c2]
                                 \/ write_done_callback_running'[c2])
@@ -11191,16 +10705,17 @@ LEMMA PassesDeliverMessage ==
                             /\ (call_token_published'[c2]
                                     /\ ~(L1!L0!HasStatus(c2)'))
                                    => call_root_live'[c2]
-          BY DEF RootSurvivesCallbacks
+          OBVIOUS
       <2>7. CASE c2 = cId
           BY <2>2, <2>3, <2>7, SMT
       <2>8. CASE c2 # cId
           BY <2>3, <2>4, <2>p, <2>e, <2>8, SMT
-          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!L0!HasStatus,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK
       <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. runtime_root_live
           BY <2>1
@@ -11208,40 +10723,33 @@ LEMMA PassesDeliverMessage ==
           BY <2>2, SMT
       <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
       <2>1. ~L1!L0!HasStatus(cId)
           BY SMT DEF L1!L0!HasStatus
@@ -11253,96 +10761,60 @@ LEMMA PassesDeliverMessage ==
                 ![cId] = Append(events_delivered[cId], "MESSAGE")]
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>e. \A c2 \in CallIds :
                 c2 # cId => events_delivered'[c2] = events_delivered[c2]
           BY <2>4, <2>t, SMT
       <2>q. QED
           BY <2>1, <2>2, <2>3, <2>4, <2>e, <2>t, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!L0!EventKinds
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!DeliverMessage, L1!L0!DeliverMessage, L1!HandPayloadToHost, L1!HasFreeDeliverySlot, L1!HasFreeDeliverySlotForTerminal, L1!IsCancelRequested
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -11373,18 +10845,18 @@ LEMMA PassesDeliverStatus ==
            ManagedStutter, managed_vars,
            L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
       <2>1. reader_state' = reader_state
           BY SMT
@@ -11394,33 +10866,34 @@ LEMMA PassesDeliverStatus ==
                 ![cId] = Append(events_delivered[cId], "COMPLETED")]
           BY SMT
       <2>n. payloads_consumed_by_host \in [CallIds -> Nat]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>q. QED
           BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing
           DEF L1!L0!EventKinds
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
       <2>1. call_token_published[cId]
-          BY SMT DEF L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+          BY SMT DEF L1!L0!IsActiveCall,
              L1!L0!ActiveCallStates
       <2>2. /\ call_token_published' = call_token_published
             /\ call_state' = [call_state EXCEPT ![cId] = "terminal"]
           BY SMT
       <2>3. \A c2 \in CallIds :
                 c2 # cId => call_state'[c2] = call_state[c2]
-          BY <2>2, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY <2>2, SMT DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>q. QED
           BY <2>1, <2>2, <2>3, SMT
-          DEF L1!L0!IsUnusedCall, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!TypeOK,
+             L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. call_token_published[cId] /\ call_root_live[cId]
           BY <2>1
@@ -11431,7 +10904,8 @@ LEMMA PassesDeliverStatus ==
                    [delivery_callback_running EXCEPT ![cId] = TRUE]
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>e. \A c2 \in CallIds :
                 c2 # cId => events_delivered'[c2] = events_delivered[c2]
           BY <2>t, SMT
@@ -11439,7 +10913,8 @@ LEMMA PassesDeliverStatus ==
                 c2 # cId =>
                     delivery_callback_running'[c2]
                         = delivery_callback_running[c2]
-          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY <2>4, SMT DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>s. SUFFICES ASSUME NEW c2 \in CallIds
                      PROVE  /\ (\/ delivery_callback_running'[c2]
                                 \/ write_done_callback_running'[c2])
@@ -11447,16 +10922,17 @@ LEMMA PassesDeliverStatus ==
                             /\ (call_token_published'[c2]
                                     /\ ~(L1!L0!HasStatus(c2)'))
                                    => call_root_live'[c2]
-          BY DEF RootSurvivesCallbacks
+          OBVIOUS
       <2>7. CASE c2 = cId
           BY <2>2, <2>3, <2>7, SMT
       <2>8. CASE c2 # cId
           BY <2>3, <2>4, <2>p, <2>e, <2>8, SMT
-          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!L0!HasStatus,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK
       <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. runtime_root_live
           BY <2>1
@@ -11464,40 +10940,33 @@ LEMMA PassesDeliverStatus ==
           BY <2>2, SMT
       <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
       <2>1. ~L1!L0!HasStatus(cId)
           BY SMT DEF L1!L0!HasStatus
@@ -11509,96 +10978,60 @@ LEMMA PassesDeliverStatus ==
                 ![cId] = Append(events_delivered[cId], "COMPLETED")]
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>e. \A c2 \in CallIds :
                 c2 # cId => events_delivered'[c2] = events_delivered[c2]
           BY <2>4, <2>t, SMT
       <2>q. QED
           BY <2>1, <2>2, <2>3, <2>4, <2>e, <2>t, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!L0!EventKinds
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!DeliverStatus, L1!L0!CallCancel, L1!L0!DeliverStatus, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -11629,18 +11062,18 @@ LEMMA PassesDeliverCancelled ==
            ManagedStutter, managed_vars,
            L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
       <2>1. reader_state' = reader_state
           BY SMT
@@ -11651,34 +11084,35 @@ LEMMA PassesDeliverCancelled ==
                       ![cId] = <<"INITIAL_METADATA", "CANCELLED">>]
             \/ events_delivered' = [events_delivered EXCEPT
                    ![cId] = Append(events_delivered[cId], "CANCELLED")]
-          BY SMT DEF L1!L0!CallCancel
+          BY SMT
       <2>n. payloads_consumed_by_host \in [CallIds -> Nat]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>q. QED
           BY <2>1, <2>2, <2>3, <2>n, <2>t, CancelKeepsTheParsedSlot
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
       <2>1. call_token_published[cId]
-          BY SMT DEF L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+          BY SMT DEF L1!L0!IsActiveCall,
              L1!L0!ActiveCallStates
       <2>2. /\ call_token_published' = call_token_published
             /\ call_state' = [call_state EXCEPT ![cId] = "terminal"]
           BY SMT
       <2>3. \A c2 \in CallIds :
                 c2 # cId => call_state'[c2] = call_state[c2]
-          BY <2>2, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY <2>2, SMT DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>q. QED
           BY <2>1, <2>2, <2>3, SMT
-          DEF L1!L0!IsUnusedCall, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!TypeOK,
+             L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. call_token_published[cId] /\ call_root_live[cId]
           BY <2>1
@@ -11689,7 +11123,8 @@ LEMMA PassesDeliverCancelled ==
                    [delivery_callback_running EXCEPT ![cId] = TRUE]
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>e. \A c2 \in CallIds :
                 c2 # cId => events_delivered'[c2] = events_delivered[c2]
           BY <2>t, SMT
@@ -11697,7 +11132,8 @@ LEMMA PassesDeliverCancelled ==
                 c2 # cId =>
                     delivery_callback_running'[c2]
                         = delivery_callback_running[c2]
-          BY <2>4, SMT DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY <2>4, SMT DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>s. SUFFICES ASSUME NEW c2 \in CallIds
                      PROVE  /\ (\/ delivery_callback_running'[c2]
                                 \/ write_done_callback_running'[c2])
@@ -11705,16 +11141,17 @@ LEMMA PassesDeliverCancelled ==
                             /\ (call_token_published'[c2]
                                     /\ ~(L1!L0!HasStatus(c2)'))
                                    => call_root_live'[c2]
-          BY DEF RootSurvivesCallbacks
+          OBVIOUS
       <2>7. CASE c2 = cId
           BY <2>2, <2>3, <2>7, SMT
       <2>8. CASE c2 # cId
           BY <2>3, <2>4, <2>p, <2>e, <2>8, SMT
-          DEF L1!L0!HasStatus, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          DEF L1!L0!HasStatus,
+             L1!IndInv, L1!TypeOK, L1!L0!TypeOK
       <2>q. QED BY <2>7, <2>8
     <1>9. RuntimeRootSurvivesCallbacks'
       <2>1. ~L1!L0!HasStatus(cId) /\ ~L1!L0!IsUnusedCall(cId)
-          BY SMT DEF L1!L0!HasStatus, L1!L0!IsUnusedCall,
+          BY SMT DEF L1!L0!HasStatus,
              L1!L0!IsActiveCall, L1!L0!ActiveCallStates
       <2>2. runtime_root_live
           BY <2>1
@@ -11722,40 +11159,33 @@ LEMMA PassesDeliverCancelled ==
           BY <2>2, SMT
       <2>q. QED BY <2>3, Zenon
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
       <2>1. ~L1!L0!HasStatus(cId)
           BY SMT DEF L1!L0!HasStatus
@@ -11767,96 +11197,60 @@ LEMMA PassesDeliverCancelled ==
                 ![cId] = Append(events_delivered[cId], "CANCELLED")]
           BY SMT
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
-          BY DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+          BY DEF L1!IndInv,
+             L1!TypeOK, L1!L0!TypeOK
       <2>e. \A c2 \in CallIds :
                 c2 # cId => events_delivered'[c2] = events_delivered[c2]
           BY <2>4, <2>t, SMT
       <2>q. QED
           BY <2>1, <2>2, <2>3, <2>4, <2>e, <2>t, SMT
-          DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!EventKinds
+          DEF L1!L0!HasStatus,
+             L1!L0!StatusKinds, L1!L0!EventKinds
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!DeliverCancelled, L1!L0!CallCancel, L1!HandPayloadToHost, L1!HasFreeDeliverySlotForTerminal, L1!HasNoDeliveredEvents, L1!HasNoSendInFlight, L1!IsCancelRequested
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -11887,151 +11281,106 @@ LEMMA PassesReleaseCallHandle ==
            ManagedStutter, managed_vars,
            L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload, L1!IsDeliveryCallbackRunning, L1!IsHandleReleased, L1!IsReturnedBuffer, L1!IsRuntimeOfCallDestroyed
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -12062,151 +11411,106 @@ LEMMA PassesNetworkReceive ==
            ManagedStutter, managed_vars,
            L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!NetworkReceive, L1!L0!NetworkReceive, L1!NeverReceived, L1!NeverSubmitted
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -12237,151 +11541,106 @@ LEMMA PassesFreeReturnedBuffer ==
            ManagedStutter, managed_vars,
            L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!FreeReturnedBuffer, L1!CarriesNoUnacquittedSend, L1!IsReturnedBuffer
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -12721,177 +11980,124 @@ LEMMA KeepsFreeRuntimeRoot ==
            ManagedStutter, managed_vars,
            FreeRuntimeRoot
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
       <2>1. UNCHANGED <<delivery_callback_running,
                         write_done_callback_running,
                         shutdown_callback_running,
                         resources_released_callback_running,
                         call_token_published, events_delivered>>
-          BY SMT DEF FreeRuntimeRoot, ManagedCallVars,
-             l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars,
-             L1!L0!CallVars
+          BY SMT DEF ManagedCallVars
       <2>2. \A c \in CallIds :
                 call_token_published[c] => L1!L0!HasStatus(c)
-          BY SMT DEF FreeRuntimeRoot, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing
+          BY SMT DEF TeardownLeavesCallsSettled
       <2>e. \A c \in CallIds :
                 (L1!L0!HasStatus(c))' <=> L1!L0!HasStatus(c)
           BY <2>1, SMT DEF L1!L0!HasStatus
       <2>3. QED
           BY <2>1, <2>2, <2>e, SMT
-          DEF FreeRuntimeRoot, RuntimeRootSurvivesCallbacks
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
       <2>1. UNCHANGED <<runtime_state>>
-          BY SMT DEF FreeRuntimeRoot, l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars,
-             L1!L0!CallVars
+          BY SMT
       <2>2. \A r \in RuntimeIds :
                 runtime_state[r] \in {"NOT_INIT", "RELEASED",
                                       "FAILED_UNQUIESCED"}
-          BY SMT DEF FreeRuntimeRoot, RuntimeStateMatchesNative,
-             AdmissibleRuntimeStates, RuntimeManagerCoherent,
+          BY SMT DEF AdmissibleRuntimeStates,
              L1!TypeOK, L1!L0!TypeOK
       <2>3. QED
           BY <2>1, <2>2, NoneNotInRuntimeIds, SMT
-          DEF FreeRuntimeRoot, RuntimeStateMatchesNative,
-             AdmissibleRuntimeStates, RuntimeDisposeStates,
-             RuntimeManagerCoherent
+          DEF AdmissibleRuntimeStates,
+             RuntimeDisposeStates
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             FreeRuntimeRoot
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             FreeRuntimeRoot
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             FreeRuntimeRoot
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             FreeRuntimeRoot
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             FreeRuntimeRoot
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             FreeRuntimeRoot
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, FreeRuntimeRoot
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCreateRuntime ==
@@ -12921,146 +12127,103 @@ LEMMA KeepsCreateRuntime ==
            ManagedStutter, managed_vars,
            CreateRuntime, L1!RuntimeCreate, L1!L0!RuntimeCreate
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, NotInitRuntimeIsUndestroyed
+        BY SMT DEF AdmissibleRuntimeStates,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, NotInitRuntimeIsUndestroyed
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeCreate, L1!L0!RuntimeCreate, CreateRuntime
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeCreate, L1!L0!RuntimeCreate, CreateRuntime
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeCreate, L1!L0!RuntimeCreate, CreateRuntime
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeCreate, L1!L0!RuntimeCreate, CreateRuntime
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeCreate, L1!L0!RuntimeCreate, CreateRuntime
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeCreate, L1!L0!RuntimeCreate, CreateRuntime
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RuntimeCreate,
-             L1!L0!RuntimeCreate, CreateRuntime
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsAcquireLease ==
@@ -13090,151 +12253,104 @@ LEMMA KeepsAcquireLease ==
            ManagedStutter, managed_vars,
            AcquireLease
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             AcquireLease
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             AcquireLease
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             AcquireLease
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             AcquireLease
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             AcquireLease
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             AcquireLease
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, AcquireLease
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCreateChannel ==
@@ -13264,153 +12380,109 @@ LEMMA KeepsCreateChannel ==
            ManagedStutter, managed_vars,
            CreateChannel, L1!ChannelCreate, L1!L0!ChannelCreate
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF AdmissibleRuntimeStates,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
-             L1!L0!RuntimeFail, CreateChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
+           L1!L0!RuntimeFail
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
-             L1!L0!RuntimeFail, CreateChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
+           L1!L0!RuntimeFail
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
-             L1!L0!RuntimeFail, CreateChannel
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
+           L1!L0!RuntimeFail
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
-             L1!L0!RuntimeFail, CreateChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
+           L1!L0!RuntimeFail
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
-             L1!L0!RuntimeFail, CreateChannel
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed, L1!RuntimeFail, L1!L0!RuntimeFail
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
-             L1!L0!RuntimeFail, CreateChannel
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
+           L1!L0!RuntimeFail
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!ChannelCreate,
-             L1!L0!ChannelCreate, L1!RuntimeFail, L1!L0!RuntimeFail,
-             CreateChannel
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RuntimeFail,
+           L1!L0!RuntimeFail
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsRejectChannelCreation ==
@@ -13440,145 +12512,102 @@ LEMMA KeepsRejectChannelCreation ==
            ManagedStutter, managed_vars,
            RejectChannelCreation
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY SMT DEF RuntimeManagerCoherent
+        BY SMT
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY SMT DEF LiveChannelKeepsRuntimeAlive
+        BY SMT
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF AdmissibleRuntimeStates,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RejectChannelCreation
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RejectChannelCreation
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RejectChannelCreation
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RejectChannelCreation
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RejectChannelCreation
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RejectChannelCreation
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, RejectChannelCreation
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -13609,151 +12638,104 @@ LEMMA KeepsBeginDisposeChannel ==
            ManagedStutter, managed_vars,
            BeginDisposeChannel
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginDisposeChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginDisposeChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginDisposeChannel
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginDisposeChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginDisposeChannel
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginDisposeChannel
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, BeginDisposeChannel
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsFinishDisposeChannel ==
@@ -13784,158 +12766,106 @@ LEMMA KeepsFinishDisposeChannel ==
            FinishDisposeChannel, L1!ChannelStartClosing,
            L1!L0!ChannelStartClosing
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY SMT DEF LiveChannelKeepsRuntimeAlive, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, IsLastRelease
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, IsLastRelease
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY SMT DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, IsLastRelease
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, IsLastRelease
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             FinishDisposeChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             FinishDisposeChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             FinishDisposeChannel
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             FinishDisposeChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             FinishDisposeChannel
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             FinishDisposeChannel
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!ChannelStartClosing,
-             L1!L0!ChannelStartClosing, FinishDisposeChannel
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsResolveChannelDispose ==
@@ -13965,152 +12895,107 @@ LEMMA KeepsResolveChannelDispose ==
            ManagedStutter, managed_vars,
            ResolveChannelDispose
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve, IsLastRelease
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve,
+           IsLastRelease
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             ResolveChannelDispose
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             ResolveChannelDispose
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             ResolveChannelDispose
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             ResolveChannelDispose
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             ResolveChannelDispose
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             ResolveChannelDispose
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, ResolveChannelDispose,
-             ChannelDisposeMayResolve, ChannelDisposeStates
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve,
+           ChannelDisposeStates
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsBeginRuntimeShutdown ==
@@ -14141,159 +13026,104 @@ LEMMA KeepsBeginRuntimeShutdown ==
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
            L1!L0!RuntimeBeginShutdown
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
-             L1!L0!RuntimeBeginShutdown, BeginRuntimeShutdown
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
-             L1!L0!RuntimeBeginShutdown, BeginRuntimeShutdown
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
-             L1!L0!RuntimeBeginShutdown, BeginRuntimeShutdown
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
-             L1!L0!RuntimeBeginShutdown, BeginRuntimeShutdown
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
-             L1!L0!RuntimeBeginShutdown, BeginRuntimeShutdown
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeBeginShutdown, L1!L0!ChannelsOf,
-             L1!L0!RuntimeBeginShutdown, BeginRuntimeShutdown
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RuntimeBeginShutdown,
-             L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown,
-             BeginRuntimeShutdown
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsFinishDisposeRuntime ==
@@ -14323,146 +13153,106 @@ LEMMA KeepsFinishDisposeRuntime ==
            ManagedStutter, managed_vars,
            FinishDisposeRuntime, L1!RuntimeDestroy
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY NoneNotInRuntimeIds, SMT DEF DisposeAwaitsDestroy, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning, L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed, L1!IsResourcesReleasedEmitted, L1!IsRuntimeDestroyed
+        BY NoneNotInRuntimeIds, SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsRuntimeQuiescent,
+           L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+           L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+           L1!IsResourcesReleasedEmitted, L1!IsRuntimeDestroyed
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF AdmissibleRuntimeStates,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeDestroy, FinishDisposeRuntime
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeDestroy, FinishDisposeRuntime
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeDestroy, FinishDisposeRuntime
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeDestroy, FinishDisposeRuntime
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeDestroy, FinishDisposeRuntime
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RuntimeDestroy, FinishDisposeRuntime
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RuntimeDestroy,
-             FinishDisposeRuntime
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -14493,152 +13283,103 @@ LEMMA KeepsShutdownReturns ==
            ManagedStutter, managed_vars,
            ShutdownReturns, L1!ShutdownCallbackReturns
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsShutdownCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsShutdownCallbackRunning
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ShutdownCallbackReturns, ShutdownReturns
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsResourcesReleasedReturns ==
@@ -14668,152 +13409,103 @@ LEMMA KeepsResourcesReleasedReturns ==
            ManagedStutter, managed_vars,
            ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsResourcesReleasedCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsResourcesReleasedCallbackRunning
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ResourcesReleasedCallbackReturns, ResourcesReleasedReturns
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsBeginMoveNext ==
@@ -14843,151 +13535,104 @@ LEMMA KeepsBeginMoveNext ==
            ManagedStutter, managed_vars,
            BeginMoveNext
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginMoveNext
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginMoveNext
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginMoveNext
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginMoveNext
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginMoveNext
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginMoveNext
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, BeginMoveNext
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsBeginParseEvent ==
@@ -15017,151 +13662,104 @@ LEMMA KeepsBeginParseEvent ==
            ManagedStutter, managed_vars,
            BeginParseEvent
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginParseEvent
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginParseEvent
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginParseEvent
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginParseEvent
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginParseEvent
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             BeginParseEvent
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, BeginParseEvent
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsFinishConsumePayload ==
@@ -15191,152 +13789,105 @@ LEMMA KeepsFinishConsumePayload ==
            ManagedStutter, managed_vars,
            FinishConsumePayload, L1!HostConsumesEvent
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ReadCancellationSettled
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, ReadCancellationSettled
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishConsumePayload
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishConsumePayload
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishConsumePayload
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishConsumePayload
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishConsumePayload
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishConsumePayload
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!HostConsumesEvent,
-             FinishConsumePayload
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -15367,151 +13918,104 @@ LEMMA KeepsCancelWaiter ==
            ManagedStutter, managed_vars,
            CancelWaiter
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             CancelWaiter
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             CancelWaiter
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             CancelWaiter
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             CancelWaiter
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             CancelWaiter
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             CancelWaiter
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, CancelWaiter
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsRequestReadCancellation ==
@@ -15541,151 +14045,104 @@ LEMMA KeepsRequestReadCancellation ==
            ManagedStutter, managed_vars,
            RequestReadCancellation
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RequestReadCancellation
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RequestReadCancellation
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RequestReadCancellation
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RequestReadCancellation
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RequestReadCancellation
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             RequestReadCancellation
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, RequestReadCancellation
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCancelWaitingRead ==
@@ -15725,158 +14182,104 @@ LEMMA KeepsCancelWaitingRead ==
       <2>h. headers_completion' \in [CallIds -> HeadersCompletions]
           BY <2>v, SMT
       <2>q. QED
-          BY <2>h DEF ReaderStates, WriterStates, ConsumerPhases,
-             CallDisposeStates, ChannelDisposeStates, RuntimeDisposeStates,
-             HeadersCompletions, StatusCompletions, NoRetryLen, L1!Sizes
+          BY <2>h DEF ReaderStates,
+             WriterStates, ConsumerPhases, CallDisposeStates,
+             ChannelDisposeStates, RuntimeDisposeStates,
+             HeadersCompletions, StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelWaitingRead
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCancelParsingRead ==
@@ -15907,159 +14310,104 @@ LEMMA KeepsCancelParsingRead ==
            CancelParsingRead, L1!RequestCallCancellation,
            L1!L0!IsUnusedCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             CancelParsingRead
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsFinishCancelledParse ==
@@ -16089,152 +14437,106 @@ LEMMA KeepsFinishCancelledParse ==
            ManagedStutter, managed_vars,
            FinishCancelledParse, L1!HostConsumesEvent
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY SMT DEF ReadCancelPendingOnlyInFlight, ReadInFlight, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal, CancelledParseHasNoPendingRequest
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, CancelledParseHasNoPendingRequest
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishCancelledParse
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishCancelledParse
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishCancelledParse
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishCancelledParse
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishCancelledParse
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, FinishCancelledParse
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!HostConsumesEvent,
-             FinishCancelledParse
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -16265,151 +14567,104 @@ LEMMA KeepsHandoffToDrain ==
            ManagedStutter, managed_vars,
            HandoffToDrain
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             HandoffToDrain
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             HandoffToDrain
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             HandoffToDrain
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             HandoffToDrain
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             HandoffToDrain
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             HandoffToDrain
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, HandoffToDrain
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsConsumeHeader ==
@@ -16439,152 +14694,105 @@ LEMMA KeepsConsumeHeader ==
            ManagedStutter, managed_vars,
            ConsumeHeader, L1!HostConsumesEvent
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, ConsumeHeader
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, ConsumeHeader
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, ConsumeHeader
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, ConsumeHeader
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, ConsumeHeader
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, ConsumeHeader
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!HostConsumesEvent,
-             ConsumeHeader
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsBeginDisposeCall ==
@@ -16615,159 +14823,104 @@ LEMMA KeepsBeginDisposeCall ==
            BeginDisposeCall, L1!RequestCallCancellation,
            L1!L0!IsUnusedCall, L1!L0!IsActiveCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!IsUnusedCall,
-             L1!L0!IsActiveCall, BeginDisposeCall
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsDisposeCallForChannel ==
@@ -16799,151 +14952,104 @@ LEMMA KeepsDisposeCallForChannel ==
            L1!RequestCallCancellation, L1!L0!IsUnusedCall,
            L1!L0!IsActiveCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             DisposeCallForChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             DisposeCallForChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             DisposeCallForChannel
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             DisposeCallForChannel
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             DisposeCallForChannel
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             DisposeCallForChannel
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, DisposeCallForChannel
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsDrainRelease ==
@@ -16973,152 +15079,105 @@ LEMMA KeepsDrainRelease ==
            ManagedStutter, managed_vars,
            DrainRelease, L1!HostConsumesEvent
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!HostConsumesEvent, ConsumingTerminal
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, DrainRelease
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, DrainRelease
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, DrainRelease
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, DrainRelease
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, DrainRelease
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostConsumesEvent, DrainRelease
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!HostConsumesEvent,
-             DrainRelease
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -17149,159 +15208,113 @@ LEMMA KeepsFinishDisposeCall ==
            ManagedStutter, managed_vars,
            FinishDisposeCall, L1!L0!HasStatus
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, PastPrologueHeadersAnswered, PrologueReaderOnlyWaits
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
-             L1!L0!HasStatus, FinishDisposeCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
-             L1!L0!HasStatus, FinishDisposeCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
-             L1!L0!HasStatus, FinishDisposeCall
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
-             L1!L0!HasStatus, FinishDisposeCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
-             L1!L0!HasStatus, FinishDisposeCall
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed, L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!ReleaseCallHandle, L1!L0!IsActiveCall, L1!L0!IsUnusedCall,
-             L1!L0!HasStatus, FinishDisposeCall
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+           L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!ReleaseCallHandle,
-             L1!L0!IsActiveCall, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             FinishDisposeCall
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!ReleaseCallHandle,
+           L1!L0!IsActiveCall
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsSettleCall ==
@@ -17332,158 +15345,106 @@ LEMMA KeepsSettleCall ==
            SettleCall, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
            L1!L0!IsTerminalCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, PastPrologueHeadersAnswered, PrologueReaderOnlyWaits
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
-             L1!L0!IsTerminalCall, SettleCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
-             L1!L0!IsTerminalCall, SettleCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
-             L1!L0!IsTerminalCall, SettleCall
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
-             L1!L0!IsTerminalCall, SettleCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
-             L1!L0!IsTerminalCall, SettleCall
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
-             L1!L0!IsTerminalCall, SettleCall
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+           L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!HostHoldsNoBuffer,
-             L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, SettleCall
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCancelWriterWait ==
@@ -17513,152 +15474,104 @@ LEMMA KeepsCancelWriterWait ==
            ManagedStutter, managed_vars,
            CancelWriterWait, WaitIsHopeless, L1!L0!IsActiveCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!L0!IsActiveCall, CancelWriterWait, WaitIsHopeless
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!L0!IsActiveCall, CancelWriterWait, WaitIsHopeless
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!L0!IsActiveCall, CancelWriterWait, WaitIsHopeless
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!L0!IsActiveCall, CancelWriterWait, WaitIsHopeless
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!L0!IsActiveCall, CancelWriterWait, WaitIsHopeless
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!L0!IsActiveCall, CancelWriterWait, WaitIsHopeless
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsActiveCall,
-             CancelWriterWait, WaitIsHopeless
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsWriteDoneCompletes ==
@@ -17688,152 +15601,103 @@ LEMMA KeepsWriteDoneCompletes ==
            ManagedStutter, managed_vars,
            WriteDoneCompletes, L1!WriteDoneReturns
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!WriteDoneReturns, L1!IsWriteDoneCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsWriteDoneCallbackRunning
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!WriteDoneReturns, WriteDoneCompletes
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!WriteDoneReturns, WriteDoneCompletes
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!WriteDoneReturns, WriteDoneCompletes
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!WriteDoneReturns, WriteDoneCompletes
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!WriteDoneReturns, WriteDoneCompletes
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!WriteDoneReturns, WriteDoneCompletes
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!WriteDoneReturns,
-             WriteDoneCompletes
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCloseWriter ==
@@ -17863,152 +15727,105 @@ LEMMA KeepsCloseWriter ==
            ManagedStutter, managed_vars,
            CloseWriter, L1!EndSend, L1!L0!EndSend
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
-        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!EndSend
+        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EndSend, L1!L0!EndSend, CloseWriter
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EndSend, L1!L0!EndSend, CloseWriter
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EndSend, L1!L0!EndSend, CloseWriter
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EndSend, L1!L0!EndSend, CloseWriter
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EndSend, L1!L0!EndSend, CloseWriter
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!EndSend, L1!L0!EndSend, CloseWriter
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!EndSend, L1!L0!EndSend,
-             CloseWriter
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -18039,152 +15856,103 @@ LEMMA KeepsOnEventReturns ==
            ManagedStutter, managed_vars,
            OnEventReturns, L1!DeliveryCallbackReturns, L1!L0!HasStatus
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsDeliveryCallbackRunning
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+           L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus, OnEventReturns
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsTerminalCallbackReturns ==
@@ -18215,25 +15983,22 @@ LEMMA KeepsTerminalCallbackReturns ==
            TerminalCallbackReturns, L1!DeliveryCallbackReturns,
            L1!L0!HasStatus
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
@@ -18245,143 +16010,87 @@ LEMMA KeepsTerminalCallbackReturns ==
              L1!TerminalCallHasNoSendInFlight, L1!HasNoSendInFlight,
              L1!ReleasedCallIsClean, L1!UnusedCallsAreFfiClean,
              L1!IsWriteDoneCallbackRunning, L1!IsHandleReleased,
-             L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!IsActiveCall,
-             L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, L1!TypeOK,
-             L1!L0!TypeOK
+             L1!L0!IsTerminalCall, L1!L0!IsActiveCall,
+             L1!L0!ActiveCallStates, L1!TypeOK, L1!L0!TypeOK
       <2>q. QED
-          BY <2>w, SMT DEF RootSurvivesCallbacks,
-             L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning,
+          BY <2>w, SMT DEF L1!IsDeliveryCallbackRunning,
              L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!DeliveryCallbackReturns, L1!IsDeliveryCallbackRunning
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsDeliveryCallbackRunning
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
+           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
+           L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!DeliveryCallbackReturns, L1!L0!HasStatus,
-             TerminalCallbackReturns
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsStartCall ==
@@ -18411,152 +16120,105 @@ LEMMA KeepsStartCall ==
            ManagedStutter, managed_vars,
            StartCall, L1!CallStart, L1!L0!CallStart
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
-        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!CallStart, L1!L0!CallStart
+        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!CallStart, L1!L0!CallStart, StartCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!CallStart, L1!L0!CallStart, StartCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!CallStart, L1!L0!CallStart, StartCall
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!CallStart, L1!L0!CallStart, StartCall
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!CallStart, L1!L0!CallStart, StartCall
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!CallStart, L1!L0!CallStart, StartCall
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!CallStart,
-             L1!L0!CallStart, StartCall
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsWriteLendSucceeds ==
@@ -18586,152 +16248,107 @@ LEMMA KeepsWriteLendSucceeds ==
            ManagedStutter, managed_vars,
            WriteLendSucceeds, L1!LendSendBuffer, L1!L0!IsActiveCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, L1!IsLendable, L1!LendStatuses
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!IsLendable, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, BindingMayDowncall
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!LendSendBuffer, BindingMayDowncall
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, WriteLendSucceeds
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, WriteLendSucceeds
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, WriteLendSucceeds
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, WriteLendSucceeds
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, WriteLendSucceeds
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, WriteLendSucceeds
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!LendSendBuffer,
-             L1!L0!IsActiveCall, WriteLendSucceeds
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsWriteRefusedBudget ==
@@ -18761,152 +16378,107 @@ LEMMA KeepsWriteRefusedBudget ==
            ManagedStutter, managed_vars,
            WriteRefusedBudget, L1!RefuseLendForBudget
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY CeilingIsPositive, SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RefuseLendForBudget, BindingMayDowncall, L1!LendStatuses, L1!IsLendable, NoRetryLen, L1!Sizes
+        BY CeilingIsPositive, SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendStatuses,
+           L1!IsLendable, L1!Sizes
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY SMT DEF DisposeLeavesNoManagedWaiter, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RefuseLendForBudget, BindingMayDowncall
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendForBudget, WriteRefusedBudget
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendForBudget, WriteRefusedBudget
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendForBudget, WriteRefusedBudget
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendForBudget, WriteRefusedBudget
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendForBudget, WriteRefusedBudget
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendForBudget, WriteRefusedBudget
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RefuseLendForBudget,
-             WriteRefusedBudget
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -18937,152 +16509,105 @@ LEMMA KeepsWriteRefusedTooLarge ==
            ManagedStutter, managed_vars,
            WriteRefusedTooLarge, L1!RefuseLendTooLarge
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!RefuseLendTooLarge, L1!LendStatuses
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendTooLarge, WriteRefusedTooLarge
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendTooLarge, WriteRefusedTooLarge
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendTooLarge, WriteRefusedTooLarge
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendTooLarge, WriteRefusedTooLarge
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendTooLarge, WriteRefusedTooLarge
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RefuseLendTooLarge, WriteRefusedTooLarge
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RefuseLendTooLarge,
-             WriteRefusedTooLarge
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsRetryLendSucceeds ==
@@ -19112,152 +16637,107 @@ LEMMA KeepsRetryLendSucceeds ==
            ManagedStutter, managed_vars,
            RetryLendSucceeds, L1!LendSendBuffer, L1!L0!IsActiveCall
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendSendBuffer, L1!IsLendable, L1!LendStatuses
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!IsLendable,
+           L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendSendBuffer
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, RetryLendSucceeds
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, RetryLendSucceeds
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, RetryLendSucceeds
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, RetryLendSucceeds
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, RetryLendSucceeds
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!LendSendBuffer, L1!L0!IsActiveCall, RetryLendSucceeds
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!LendSendBuffer,
-             L1!L0!IsActiveCall, RetryLendSucceeds
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCommitWrite ==
@@ -19287,152 +16767,107 @@ LEMMA KeepsCommitWrite ==
            ManagedStutter, managed_vars,
            CommitWrite, L1!SendMessage, L1!L0!SendMessage
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage, L1!IsReturnedBuffer, L1!IsLentBuffer, L1!LendStatuses
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
-        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage, L1!L0!SendMessage
+        BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!SendMessage
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!SendMessage, L1!L0!SendMessage, CommitWrite
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!SendMessage, L1!L0!SendMessage, CommitWrite
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!SendMessage, L1!L0!SendMessage, CommitWrite
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!SendMessage, L1!L0!SendMessage, CommitWrite
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!SendMessage, L1!L0!SendMessage, CommitWrite
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!SendMessage, L1!L0!SendMessage, CommitWrite
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!SendMessage,
-             L1!L0!SendMessage, CommitWrite
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsWriteAborted ==
@@ -19462,152 +16897,109 @@ LEMMA KeepsWriteAborted ==
            ManagedStutter, managed_vars,
            WriteAborted, L1!HostReturnsBuffer
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY SMT DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!HostReturnsBuffer, L1!IsLentBuffer, L1!IsReturnedBuffer, L1!LendStatuses
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendStatuses
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY DEF LiveChannelUsesCurrentRuntime
+        OBVIOUS
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv, L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!HostReturnsBuffer, L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsTerminalCall, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, FinishedReaderDrainedTheRing, StatusMeansTerminal, L1!ActiveCallHasNoStatus, ReaderStates, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!IsTerminalCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, FinishedReaderDrainedTheRing,
+           StatusMeansTerminal, L1!ActiveCallHasNoStatus, ReaderStates
     <1>21. AbsentRuntimeOwesNothing'
-        BY DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostReturnsBuffer, WriteAborted
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostReturnsBuffer, WriteAborted
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostReturnsBuffer, WriteAborted
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostReturnsBuffer, WriteAborted
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostReturnsBuffer, WriteAborted
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!HostReturnsBuffer, WriteAborted
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!HostReturnsBuffer,
-             WriteAborted
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
@@ -19688,151 +17080,112 @@ LEMMA PassesRequestCallCancellation ==
            L1!IsRuntimeDestroyed, L1!L0!ChannelsOf,
            L1!IsCancelRequested
     <1>t. ManagedTypeOK'
-        BY DEF ReaderStates, WriterStates, ConsumerPhases, CallDisposeStates,
-           ChannelDisposeStates, RuntimeDisposeStates,
-           HeadersCompletions, StatusCompletions, NoRetryLen,
-           L1!Sizes
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
     <1>1. ConsumerPhaseMatchesDispose'
-        BY DEF ConsumerPhaseMatchesDispose
+        OBVIOUS
     <1>2. AtMostOneReaderOutstanding'
-        BY DEF AtMostOneReaderOutstanding, ReadInFlight
+        OBVIOUS
     <1>3. DrainNeverOverlapsApplicationConsumer'
-        BY DEF DrainNeverOverlapsApplicationConsumer
+        OBVIOUS
     <1>4. ReadCancelPendingOnlyInFlight'
-        BY DEF ReadCancelPendingOnlyInFlight, ReadInFlight
+        OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
         BY ParsingReadOwnsItsSlotIsFramed
     <1>6. WriterInv'
-        BY DEF WriterInv, WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
-             WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-             RetryLenMatchesWait, L1!HostHoldsNoBuffer, L1!IsLentBuffer,
-             L1!IsReturnedBuffer, NoRetryLen
+        OBVIOUS
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
     <1>10. DisposeAwaitsDestroy'
-        BY DEF DisposeAwaitsDestroy
+        OBVIOUS
     <1>11. RuntimeManagerCoherent'
-        BY DEF RuntimeManagerCoherent
+        OBVIOUS
     <1>12. LiveChannelUsesCurrentRuntime'
-        BY SMT DEF LiveChannelUsesCurrentRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
     <1>13. ManagedShutdownHasNoHostDebt'
-        BY SMT DEF ManagedShutdownHasNoHostDebt, L1!HostOwnsNoPayload,
-             L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!NoHostDebt,
-             RuntimeStateMatchesNative, AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
-             SettledCallOwesNothing, TokenPublishedBeforeStart,
-             RuntimeDisposeStates, RingDrained, RingHead, RingTail,
-             L1!IsStoppingRuntime, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!IsUnusedCall,
-             L1!L0!ChannelsOf,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean
     <1>14. LiveChannelKeepsRuntimeAlive'
-        BY DEF LiveChannelKeepsRuntimeAlive
+        OBVIOUS
     <1>15. NoRuntimeShutdownWhileLeased'
-        BY DEF NoRuntimeShutdownWhileLeased, AllLeasesReleased, ChannelSettled
+        OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
     <1>19. DisposeLeavesNoManagedWaiter'
-        BY DEF DisposeLeavesNoManagedWaiter
+        OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!RequestCallCancellation, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+        BY SettledCallOwesNothingIsFramed DEF L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>21. AbsentRuntimeOwesNothing'
-        BY SMT DEF AbsentRuntimeOwesNothing, AllLeasesReleased, ChannelSettled, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!RuntimeFail
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!L0!RuntimeFail
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!RuntimeFail
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!L0!RuntimeFail
     <1>g3. CancelledParseHasNoPendingRequest'
-        BY SMT DEF CancelledParseHasNoPendingRequest, ReadInFlight,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!RuntimeFail
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!L0!RuntimeFail
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!RuntimeFail
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!L0!RuntimeFail
     <1>g5. PastPrologueHeadersAnswered'
-        BY SMT DEF PastPrologueHeadersAnswered, PrologueReaderOnlyWaits,
-             ConsumerPhases, ReaderStates, HeadersCompletions,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!RuntimeFail
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed, L1!L0!RuntimeFail
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-             L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-             LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
-             IsLastRelease, ChannelStateMatchesNative,
-             L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
-             L1!IsReleasedRuntime, L1!IsClosedChannel,
-             L1!IsShutdownEventEmitted, L1!SecondEventOwed,
-             L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-             L1!RequestCallCancellation, L1!L0!RuntimeFail
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed,
+           L1!L0!RuntimeFail
     <1>g7. LiveCallHasLiveChannel'
-        BY SMT DEF  LiveCallHasLiveChannel, ChannelSettled,
-             AllLeasesReleased, ChannelStateMatchesNative, L1!IndInv,
-             L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars,
-             L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!RequestCallCancellation, L1!L0!RuntimeFail
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!RuntimeFail
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
