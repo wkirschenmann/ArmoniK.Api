@@ -12745,7 +12745,25 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>8. RootSurvivesCallbacks'
         BY RootSurvivesCallbacksIsFramed DEF TokenPublishedBeforeStart, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
     <1>9. RuntimeRootSurvivesCallbacks'
-        BY RuntimeRootSurvivesCallbacksIsFramed DEF RuntimeManagerCoherent, RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!IsStoppingRuntime, l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. UNCHANGED <<delivery_callback_running,
+                        write_done_callback_running,
+                        shutdown_callback_running,
+                        resources_released_callback_running,
+                        call_token_published, events_delivered>>
+          BY SMT DEF FreeRuntimeRoot, ManagedCallVars,
+             l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars,
+             L1!L0!CallVars
+      <2>2. \A c \in CallIds :
+                call_token_published[c] => L1!L0!HasStatus(c)
+          BY SMT DEF FreeRuntimeRoot, TeardownLeavesCallsSettled,
+             SettledCallOwesNothing
+      <2>e. \A c \in CallIds :
+                (L1!L0!HasStatus(c))' <=> L1!L0!HasStatus(c)
+          BY <2>1, SMT DEF L1!L0!HasStatus
+      <2>3. QED
+          BY <2>1, <2>2, <2>e, SMT
+          DEF FreeRuntimeRoot, RuntimeRootSurvivesCallbacks
     <1>10. DisposeAwaitsDestroy'
         BY DEF DisposeAwaitsDestroy
     <1>11. RuntimeManagerCoherent'
@@ -12772,13 +12790,21 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF RuntimeStateMatchesNative, AdmissibleRuntimeStates, RuntimeManagerCoherent,
-             TeardownLeavesCallsSettled, NoRuntimeShutdownWhileLeased,
-             AllLeasesReleased, ChannelSettled, RuntimeDisposeStates,
-             L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
-             L1!IsStoppingRuntime, L1!IsReleasedRuntime,
-             l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
-             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+      <2>1. UNCHANGED <<runtime_state>>
+          BY SMT DEF FreeRuntimeRoot, l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars,
+             L1!L0!CallVars
+      <2>2. \A r \in RuntimeIds :
+                runtime_state[r] \in {"NOT_INIT", "RELEASED",
+                                      "FAILED_UNQUIESCED"}
+          BY SMT DEF FreeRuntimeRoot, RuntimeStateMatchesNative,
+             AdmissibleRuntimeStates, RuntimeManagerCoherent,
+             L1!TypeOK, L1!L0!TypeOK
+      <2>3. QED
+          BY <2>1, <2>2, NoneNotInRuntimeIds, SMT
+          DEF FreeRuntimeRoot, RuntimeStateMatchesNative,
+             AdmissibleRuntimeStates, RuntimeDisposeStates,
+             RuntimeManagerCoherent
     <1>19. DisposeLeavesNoManagedWaiter'
         BY DEF DisposeLeavesNoManagedWaiter
     <1>20. SettledCallOwesNothing'
