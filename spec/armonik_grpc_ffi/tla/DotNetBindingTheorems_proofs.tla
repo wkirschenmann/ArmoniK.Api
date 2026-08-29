@@ -42604,6 +42604,713 @@ LEMMA CurrentHoldsWhilePending ==
        ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+\* The effect library: what each action leaves alone, stated flat so
+\* an until's frame case cites one action effect and one atom bundle
+\* instead of reopening the tuple stack.
+LEMMA StutterEffect ==
+    ASSUME UNCHANGED vars
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF vars, l1_vars, managed_vars
+
+LEMMA PassthroughEffect ==
+    ASSUME Passthrough
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF Passthrough, ManagedStutter, managed_vars
+
+LEMMA FreeRuntimeRootEffect ==
+    ASSUME FreeRuntimeRoot
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  FreeRuntimeRoot, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA CreateRuntimeEffect ==
+    ASSUME NEW rtId \in RuntimeIds, NEW chId \in ChannelIds, CreateRuntime(rtId, chId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  CreateRuntime, ManagedCallVars, ReaderVars, WriterVars
+
+LEMMA AcquireLeaseEffect ==
+    ASSUME NEW chId \in ChannelIds, AcquireLease(chId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  AcquireLease, ManagedRuntimeVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA BeginDisposeChannelEffect ==
+    ASSUME NEW chId \in ChannelIds, BeginDisposeChannel(chId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  BeginDisposeChannel, ManagedRuntimeVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA CreateChannelEffect ==
+    ASSUME NEW chId \in ChannelIds, CreateChannel(chId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  CreateChannel, ManagedRuntimeVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA FinishDisposeChannelEffect ==
+    ASSUME NEW chId \in ChannelIds, FinishDisposeChannel(chId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  FinishDisposeChannel, ManagedCallVars, ReaderVars,
+       WriterVars, IsLastRelease
+
+LEMMA RejectChannelCreationEffect ==
+    ASSUME NEW chId \in ChannelIds, RejectChannelCreation(chId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  RejectChannelCreation, ManagedCallVars, ReaderVars,
+       WriterVars, ChannelSettled
+
+LEMMA ResolveChannelDisposeEffect ==
+    ASSUME NEW chId \in ChannelIds, ResolveChannelDispose(chId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  ResolveChannelDispose, ManagedRuntimeVars,
+       ManagedCallVars, ReaderVars, WriterVars, ChannelDisposeMayResolve
+
+LEMMA BeginRuntimeShutdownEffect ==
+    ASSUME NEW rtId \in RuntimeIds, BeginRuntimeShutdown(rtId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  BeginRuntimeShutdown, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA FinishDisposeRuntimeEffect ==
+    ASSUME NEW rtId \in RuntimeIds, FinishDisposeRuntime(rtId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  FinishDisposeRuntime, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA ResourcesReleasedReturnsEffect ==
+    ASSUME NEW rtId \in RuntimeIds, ResourcesReleasedReturns(rtId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  ResourcesReleasedReturns, ManagedStutter, managed_vars
+
+LEMMA ShutdownReturnsEffect ==
+    ASSUME NEW rtId \in RuntimeIds, ShutdownReturns(rtId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  ShutdownReturns, ManagedStutter, managed_vars
+
+LEMMA BeginDisposeCallEffect ==
+    ASSUME NEW cId \in CallIds, BeginDisposeCall(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  BeginDisposeCall, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars
+
+LEMMA BeginMoveNextEffect ==
+    ASSUME NEW cId \in CallIds, BeginMoveNext(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  BeginMoveNext, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, WriterVars
+
+LEMMA BeginParseEventEffect ==
+    ASSUME NEW cId \in CallIds, BeginParseEvent(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  BeginParseEvent, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, WriterVars, RingOccupancy
+
+LEMMA CancelParsingReadEffect ==
+    ASSUME NEW cId \in CallIds, CancelParsingRead(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  CancelParsingRead, ManagedRuntimeVars, ManagedChannelVars,
+       WriterVars
+
+LEMMA CancelWaiterEffect ==
+    ASSUME NEW cId \in CallIds, CancelWaiter(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  CancelWaiter, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, WriterVars
+
+LEMMA CancelWaitingReadEffect ==
+    ASSUME NEW cId \in CallIds, CancelWaitingRead(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  CancelWaitingRead, ManagedRuntimeVars, ManagedChannelVars,
+       WriterVars
+
+LEMMA CancelWriterWaitEffect ==
+    ASSUME NEW cId \in CallIds, CancelWriterWait(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  CancelWriterWait, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WaitIsHopeless
+
+LEMMA CloseWriterEffect ==
+    ASSUME NEW cId \in CallIds, CloseWriter(cId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  CloseWriter, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, BindingMayDowncall
+
+LEMMA ConsumeHeaderEffect ==
+    ASSUME NEW cId \in CallIds, ConsumeHeader(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  ConsumeHeader, ManagedRuntimeVars, ManagedChannelVars,
+       WriterVars, RingTail
+
+LEMMA DrainReleaseEffect ==
+    ASSUME NEW cId \in CallIds, DrainRelease(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  DrainRelease, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, ConsumingTerminal
+
+LEMMA FinishCancelledParseEffect ==
+    ASSUME NEW cId \in CallIds, FinishCancelledParse(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  FinishCancelledParse, ManagedRuntimeVars,
+       ManagedChannelVars, WriterVars, ConsumingTerminal
+
+LEMMA FinishConsumePayloadEffect ==
+    ASSUME NEW cId \in CallIds, FinishConsumePayload(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  FinishConsumePayload, ManagedRuntimeVars,
+       ManagedChannelVars, WriterVars, ConsumingTerminal,
+       ReadCancellationSettled
+
+LEMMA FinishDisposeCallEffect ==
+    ASSUME NEW cId \in CallIds, FinishDisposeCall(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  FinishDisposeCall, ManagedRuntimeVars, ManagedChannelVars,
+       WriterVars, RingDrained
+
+LEMMA HandoffToDrainEffect ==
+    ASSUME NEW cId \in CallIds, HandoffToDrain(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  HandoffToDrain, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, WriterVars
+
+LEMMA OnEventReturnsEffect ==
+    ASSUME NEW cId \in CallIds, OnEventReturns(cId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  OnEventReturns, ManagedStutter, managed_vars
+
+LEMMA RequestReadCancellationEffect ==
+    ASSUME NEW cId \in CallIds, RequestReadCancellation(cId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  RequestReadCancellation, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, WriterVars, ReadInFlight
+
+LEMMA SettleCallEffect ==
+    ASSUME NEW cId \in CallIds, SettleCall(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  SettleCall, ManagedRuntimeVars, ManagedChannelVars,
+       WriterVars, RingDrained
+
+LEMMA TerminalCallbackReturnsEffect ==
+    ASSUME NEW cId \in CallIds, TerminalCallbackReturns(cId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  TerminalCallbackReturns, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars
+
+LEMMA WriteDoneCompletesEffect ==
+    ASSUME NEW cId \in CallIds, WriteDoneCompletes(cId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  WriteDoneCompletes, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars
+
+LEMMA StartCallEffect ==
+    ASSUME NEW cId \in CallIds, NEW chId \in ChannelIds, StartCall(cId, chId)
+    PROVE  /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+    BY SMT DEF  StartCall, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, BindingMayDowncall
+
+LEMMA WriteLendSucceedsEffect ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW len \in L1!Sizes, NEW charge \in L1!Sizes, WriteLendSucceeds(cId, b, len, charge)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  WriteLendSucceeds, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, BindingMayDowncall
+
+LEMMA WriteRefusedBudgetEffect ==
+    ASSUME NEW cId \in CallIds, NEW len \in L1!Sizes, NEW charge \in L1!Sizes, WriteRefusedBudget(cId, len, charge)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  WriteRefusedBudget, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, BindingMayDowncall
+
+LEMMA WriteRefusedTooLargeEffect ==
+    ASSUME NEW cId \in CallIds, NEW len \in L1!Sizes, WriteRefusedTooLarge(cId, len)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  WriteRefusedTooLarge, ManagedStutter, managed_vars,
+       BindingMayDowncall
+
+LEMMA RetryLendSucceedsEffect ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW charge \in L1!Sizes, RetryLendSucceeds(cId, b, charge)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  RetryLendSucceeds, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, BindingMayDowncall
+
+LEMMA CommitWriteEffect ==
+    ASSUME NEW cId \in CallIds, NEW msg \in Messages, NEW b \in BufferIds, CommitWrite(cId, msg, b)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  CommitWrite, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, BindingMayDowncall
+
+LEMMA WriteAbortedEffect ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, WriteAborted(cId, b)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  WriteAborted, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars
+
+\* The level-1 atoms the untils read, frozen behind the tuple once.
+LEMMA RuntimeAtomsFrozen ==
+    ASSUME UNCHANGED l1_vars
+    PROVE  \A rt \in RuntimeIds :
+               /\ (L1!IsReleasedRuntime(rt))' <=> L1!IsReleasedRuntime(rt)
+               /\ (L1!IsShutdownCallbackRunning(rt))'
+                      <=> L1!IsShutdownCallbackRunning(rt)
+               /\ (L1!IsResourcesReleasedCallbackRunning(rt))'
+                      <=> L1!IsResourcesReleasedCallbackRunning(rt)
+               /\ (L1!SecondEventOwed(rt))' <=> L1!SecondEventOwed(rt)
+               /\ (L1!IsResourcesReleasedEmitted(rt))'
+                      <=> L1!IsResourcesReleasedEmitted(rt)
+               /\ (L1!IsRuntimeDestroyed(rt))'
+                      <=> L1!IsRuntimeDestroyed(rt)
+               /\ (L1!IsStoppingRuntime(rt))' <=> L1!IsStoppingRuntime(rt)
+    BY SMT DEF l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!IsRuntimeDestroyed,
+       L1!IsStoppingRuntime
+
+LEMMA AccountingAtomsFrozen ==
+    ASSUME UNCHANGED l1_vars
+    PROVE  \A rt \in RuntimeIds :
+               /\ (L1!NoHostDebt(rt))' <=> L1!NoHostDebt(rt)
+               /\ (L1!RuntimeHoldsNoReturnedBytes(rt))'
+                      <=> L1!RuntimeHoldsNoReturnedBytes(rt)
+               /\ (L1!IsRuntimeQuiescent(rt))'
+                      <=> L1!IsRuntimeQuiescent(rt)
+               /\ (L1!IsRuntimeDrained(rt))' <=> L1!IsRuntimeDrained(rt)
+    BY SMT DEF l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!NoHostDebt, L1!RuntimeHoldsNoReturnedBytes,
+       L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!OwedPayloads,
+       L1!IsReturnedBuffer, L1!L0!ChannelsOf, L1!IsReleasedRuntime,
+       L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!IsClosedChannel,
+       L1!IsDeliveryCallbackRunning, L1!HasNoSendInFlight
+
+LEMMA CallAtomsFrozen ==
+    ASSUME UNCHANGED l1_vars
+    PROVE  \A c \in CallIds :
+               /\ (L1!IsDeliveryCallbackRunning(c))'
+                      <=> L1!IsDeliveryCallbackRunning(c)
+               /\ (L1!IsWriteDoneCallbackRunning(c))'
+                      <=> L1!IsWriteDoneCallbackRunning(c)
+               /\ (L1!IsAwaitingWriteDone(c))'
+                      <=> L1!IsAwaitingWriteDone(c)
+               /\ (L1!L0!HasStatus(c))' <=> L1!L0!HasStatus(c)
+               /\ (L1!L0!IsUnusedCall(c))' <=> L1!L0!IsUnusedCall(c)
+    BY SMT DEF l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!IsDeliveryCallbackRunning, L1!IsWriteDoneCallbackRunning,
+       L1!IsAwaitingWriteDone, L1!L0!HasStatus, L1!L0!IsUnusedCall
+
+LEMMA GlobalAtomsFrozen ==
+    ASSUME UNCHANGED l1_vars
+    PROVE  /\ (L1!L0!NotFailed)' <=> L1!L0!NotFailed
+           /\ \A ch \in ChannelIds :
+                  (channel_runtime[ch])' = channel_runtime[ch]
+    BY SMT DEF l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!NotFailed
 
 \* One passthrough step keeps the whole quiescence: proved once over the
 \* native sub-actions, and each conjunct's until reads its atom off it.
