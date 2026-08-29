@@ -1518,6 +1518,20 @@ AwaitingWriteDoneHasOneComing ==
             \/ L1!IsAwaitingWriteDone(cId)
             \/ L1!IsWriteDoneCallbackRunning(cId)
 
+\* The last holder waits on its own runtime: while the destroy it
+\* triggered has not landed, the channel's runtime is the current one and
+\* the teardown is in flight.  The destroy latches runtime_destroyed
+\* forever, so past it the wait is answered no matter what the factory
+\* does next.
+LastHolderAwaitsItsRuntime ==
+    \A chId \in ChannelIds :
+        channel_dispose_state[chId] = "released_last" =>
+            /\ channel_runtime[chId] \in RuntimeIds
+            /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
+                    /\ channel_runtime[chId] = current_runtime
+                    /\ runtime_dispose_state \in {"shutdown_pending",
+                                                  "destroying"})
+
 \* A live root is served: its call was published, and once the status is
 \* on the ring the terminal callback that frees the root is still in
 \* flight - the only return the trampoline admits past the status is the
