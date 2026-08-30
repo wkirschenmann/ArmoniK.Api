@@ -33103,6 +33103,11 @@ LEMMA WaitingAppOwedHolds ==
               /\ (PayloadOwed(cId))'
            \/ (~(reader_state[cId] = "waiting"))'
            \/ (call_dispose_state[cId] # "active")'
+\* The invariant is inductive and the step is in hand, so the state
+\* it lands in is typed too - which is what the ring's arithmetic
+\* needs on the primed side.
+<1>t. ManagedIndInv'
+    BY ManagedIndInvPreserved, Zenon
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedIndInv, ManagedTypeOK, PayloadOwed,
        L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
@@ -33123,19 +33128,24 @@ LEMMA WaitingAppOwedHolds ==
   <2>4. /\ events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
         /\ payloads_consumed_by_host \in [CallIds -> Nat]
     BY SMT DEF ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+  <2>4b. /\ events_delivered' \in [CallIds -> Seq(L1!L0!EventKinds)]
+         /\ payloads_consumed_by_host' \in [CallIds -> Nat]
+    BY <1>t, Zenon DEF ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK
   <2>5a. RingTail(cId)' = RingTail(cId)
     BY <2>2, SMT DEF RingTail
   <2>5b. RingHead(cId)' >= RingHead(cId)
     BY <2>1, <2>4, SMT DEF RingHead
-  <2>5c. RingHead(cId) \in Nat /\ RingTail(cId) \in Nat
-    BY <2>4, SMT DEF RingHead, RingTail
+  <2>5c. /\ RingHead(cId) \in Nat /\ RingTail(cId) \in Nat
+         /\ RingHead(cId)' \in Nat /\ RingTail(cId)' \in Nat
+    BY <2>4, <2>4b, SMT DEF RingHead, RingTail
   <2>5d. RingHead(cId) > RingTail(cId)
-    BY SMT DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
-       RingHead, RingTail
+    BY <2>4, SMT DEF PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingHead, RingTail
   <2>5e. RingHead(cId)' > RingTail(cId)'
     BY <2>5a, <2>5b, <2>5c, <2>5d, SMT
   <2>5. (PayloadOwed(cId))'
-    BY <2>5e, SMT
+    BY <2>4b, <2>5e, SMT
     DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
        RingHead, RingTail
   <2>6. QED
@@ -33632,6 +33642,11 @@ LEMMA WaitingPrologueOwedHolds ==
               /\ (consumer_phase[cId] = "application")'
            \/ (~(reader_state[cId] = "waiting"))'
            \/ (call_dispose_state[cId] # "active")'
+\* The invariant is inductive and the step is in hand, so the state
+\* it lands in is typed too - which is what the ring's arithmetic
+\* needs on the primed side.
+<1>t. ManagedIndInv'
+    BY ManagedIndInvPreserved, Zenon
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedIndInv, ManagedTypeOK, PayloadOwed,
        L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
@@ -33652,19 +33667,24 @@ LEMMA WaitingPrologueOwedHolds ==
   <2>4. /\ events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
         /\ payloads_consumed_by_host \in [CallIds -> Nat]
     BY SMT DEF ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+  <2>4b. /\ events_delivered' \in [CallIds -> Seq(L1!L0!EventKinds)]
+         /\ payloads_consumed_by_host' \in [CallIds -> Nat]
+    BY <1>t, Zenon DEF ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK
   <2>5a. RingTail(cId)' = RingTail(cId)
     BY <2>2, SMT DEF RingTail
   <2>5b. RingHead(cId)' >= RingHead(cId)
     BY <2>1, <2>4, SMT DEF RingHead
-  <2>5c. RingHead(cId) \in Nat /\ RingTail(cId) \in Nat
-    BY <2>4, SMT DEF RingHead, RingTail
+  <2>5c. /\ RingHead(cId) \in Nat /\ RingTail(cId) \in Nat
+         /\ RingHead(cId)' \in Nat /\ RingTail(cId)' \in Nat
+    BY <2>4, <2>4b, SMT DEF RingHead, RingTail
   <2>5d. RingHead(cId) > RingTail(cId)
-    BY SMT DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
-       RingHead, RingTail
+    BY <2>4, SMT DEF PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingHead, RingTail
   <2>5e. RingHead(cId)' > RingTail(cId)'
     BY <2>5a, <2>5b, <2>5c, <2>5d, SMT
   <2>5. (PayloadOwed(cId))'
-    BY <2>5e, SMT
+    BY <2>4b, <2>5e, SMT
     DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
        RingHead, RingTail
   <2>6. QED
@@ -34856,6 +34876,11 @@ LEMMA HeadersPendingOwedHolds ==
               /\ (PayloadOwed(cId))'
            \/ (headers_completion[cId] # "pending")'
            \/ <<ConsumeHeader(cId)>>_vars
+\* The invariant is inductive and the step is in hand, so the state
+\* it lands in is typed too - which is what the ring's arithmetic
+\* needs on the primed side.
+<1>t. ManagedIndInv'
+    BY ManagedIndInvPreserved, Zenon
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedIndInv, ManagedTypeOK, PayloadOwed,
        L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
@@ -34877,19 +34902,24 @@ LEMMA HeadersPendingOwedHolds ==
   <2>4. /\ events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
         /\ payloads_consumed_by_host \in [CallIds -> Nat]
     BY SMT DEF ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+  <2>4b. /\ events_delivered' \in [CallIds -> Seq(L1!L0!EventKinds)]
+         /\ payloads_consumed_by_host' \in [CallIds -> Nat]
+    BY <1>t, Zenon DEF ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK
   <2>5a. RingTail(cId)' = RingTail(cId)
     BY <2>2, SMT DEF RingTail
   <2>5b. RingHead(cId)' >= RingHead(cId)
     BY <2>1, <2>4, SMT DEF RingHead
-  <2>5c. RingHead(cId) \in Nat /\ RingTail(cId) \in Nat
-    BY <2>4, SMT DEF RingHead, RingTail
+  <2>5c. /\ RingHead(cId) \in Nat /\ RingTail(cId) \in Nat
+         /\ RingHead(cId)' \in Nat /\ RingTail(cId)' \in Nat
+    BY <2>4, <2>4b, SMT DEF RingHead, RingTail
   <2>5d. RingHead(cId) > RingTail(cId)
-    BY SMT DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
-       RingHead, RingTail
+    BY <2>4, SMT DEF PayloadOwed, L1!HostOwnsSomePayload,
+       L1!OwedPayloads, RingHead, RingTail
   <2>5e. RingHead(cId)' > RingTail(cId)'
     BY <2>5a, <2>5b, <2>5c, <2>5d, SMT
   <2>5. (PayloadOwed(cId))'
-    BY <2>5e, SMT
+    BY <2>4b, <2>5e, SMT
     DEF PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads,
        RingHead, RingTail
   <2>6. QED
