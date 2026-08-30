@@ -9278,6 +9278,86 @@ LEMMA ConsumeHeaderKeepsTheParsedSlot ==
        RingOccupancy, RingHead, RingTail, ManagedIndInv,
        ManagedTypeOK, ManagedMachineInv, ReaderInv
 
+
+\* A create and a dispose move a channel's managed and native
+\* halves together, so no frame carries their agreement: it is
+\* re-established for the channel touched and framed for the
+\* rest.
+
+LEMMA CreateChannelKeepsTheChannelsAgreed ==
+    ASSUME NEW chId \in ChannelIds, ManagedIndInv,
+           CreateChannel(chId)
+    PROVE  /\ ChannelStateMatchesNative'
+           /\ RejectedChannelHasNoNativeHalf'
+<1>1. \A ch \in ChannelIds : ch # chId =>
+          /\ channel_dispose_state'[ch]
+                 = channel_dispose_state[ch]
+          /\ channel_state'[ch] = channel_state[ch]
+    BY SMT DEF  CreateChannel, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!ChannelCreate,
+       L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!RuntimeFail, L1!L0!RuntimeFail, l1_vars, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv, ManagedGlue,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+<1>2. \/ /\ channel_dispose_state'[chId]
+            = "active"
+         /\ channel_state'[chId] = "open"
+      \/ /\ channel_dispose_state'[chId]
+            \in {"released", "released_last"}
+         /\ channel_state'[chId]
+            \in {"closing", "closed"}
+    BY SMT DEF  CreateChannel, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!ChannelCreate,
+       L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!RuntimeFail, L1!L0!RuntimeFail, l1_vars, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv, ManagedGlue,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ChannelStateMatchesNative,
+       RejectedChannelHasNoNativeHalf, ChannelDisposeStates,
+       IsLastRelease, ChannelSettled
+<1>q. QED
+    BY <1>1, <1>2, SMT DEF ChannelStateMatchesNative,
+       RejectedChannelHasNoNativeHalf, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv
+
+LEMMA FinishDisposeChannelKeepsTheChannelsAgreed ==
+    ASSUME NEW chId \in ChannelIds, ManagedIndInv,
+           FinishDisposeChannel(chId)
+    PROVE  /\ ChannelStateMatchesNative'
+           /\ RejectedChannelHasNoNativeHalf'
+<1>1. \A ch \in ChannelIds : ch # chId =>
+          /\ channel_dispose_state'[ch]
+                 = channel_dispose_state[ch]
+          /\ channel_state'[ch] = channel_state[ch]
+    BY SMT DEF  FinishDisposeChannel, IsLastRelease, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+       L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       l1_vars, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+<1>2. \/ /\ channel_dispose_state'[chId]
+            = "active"
+         /\ channel_state'[chId] = "open"
+      \/ /\ channel_dispose_state'[chId]
+            \in {"released", "released_last"}
+         /\ channel_state'[chId]
+            \in {"closing", "closed"}
+    BY SMT DEF  FinishDisposeChannel, IsLastRelease, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
+       L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       l1_vars, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       ChannelStateMatchesNative, RejectedChannelHasNoNativeHalf,
+       ChannelDisposeStates, IsLastRelease, ChannelSettled
+<1>q. QED
+    BY <1>1, <1>2, SMT DEF ChannelStateMatchesNative,
+       RejectedChannelHasNoNativeHalf, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -12854,9 +12934,9 @@ LEMMA KeepsCreateChannel ==
     <1>15. NoRuntimeShutdownWhileLeased'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY ChannelAgreementIsFramed
+        BY CreateChannelKeepsTheChannelsAgreed
     <1>17. ChannelStateMatchesNative'
-        BY ChannelAgreementIsFramed
+        BY CreateChannelKeepsTheChannelsAgreed
     <1>18. RuntimeStateMatchesNative'
         BY SMT DEF AdmissibleRuntimeStates,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK
@@ -13241,9 +13321,9 @@ LEMMA KeepsFinishDisposeChannel ==
         BY SMT DEF L1!IndInv,
            L1!TypeOK, L1!L0!TypeOK, IsLastRelease
     <1>16. RejectedChannelHasNoNativeHalf'
-        BY ChannelAgreementIsFramed
+        BY FinishDisposeChannelKeepsTheChannelsAgreed
     <1>17. ChannelStateMatchesNative'
-        BY ChannelAgreementIsFramed
+        BY FinishDisposeChannelKeepsTheChannelsAgreed
     <1>18. RuntimeStateMatchesNative'
         BY SMT DEF AdmissibleRuntimeStates,
            TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
