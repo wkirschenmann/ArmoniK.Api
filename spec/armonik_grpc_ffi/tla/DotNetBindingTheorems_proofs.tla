@@ -8847,6 +8847,142 @@ LEMMA TokenPublishedBeforeStartIsFramed ==
 \* consumed, and the buffers it holds.  A step that moves none of them
 \* preserves the conjunct, and most steps move none - which is why the
 \* argument belongs here rather than in every preservation lemma.
+\* A settled call's debt is read off four variables.  Each lemma
+\* below says the same thing of one action: nothing it does makes
+\* a call settled, and it moves none of the four for a call that
+\* already is.  Stated here rather than inside the Keeps lemma so
+\* the solver works in the module's context and not under its USE.
+
+LEMMA CommitWriteSparesTheSettledCalls ==
+    ASSUME NEW cId \in CallIds, NEW msg \in Messages, NEW b \in BufferIds,
+           ManagedTypeOK, L1!TypeOK,
+           CommitWrite(cId, msg, b)
+    PROVE  \A c \in CallIds :
+               call_dispose_state'[c] = "settled" =>
+                   /\ call_dispose_state[c] = "settled"
+                   /\ events_delivered'[c] = events_delivered[c]
+                   /\ payloads_consumed_by_host'[c]
+                          = payloads_consumed_by_host[c]
+                   /\ buffers_held_by_host'[c]
+                          = buffers_held_by_host[c]
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              call_dispose_state[c] = "settled"
+    BY SMT DEF  CommitWrite, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars
+<1>2. \A c \in CallIds :
+          call_dispose_state[c] = "settled" =>
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY SMT DEF  CommitWrite, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!SendMessage, L1!L0!SendMessage, L1!vars, L1!ffi_vars,
+       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       BindingMayDowncall
+<1>q. QED
+    BY <1>1, <1>2, Zenon
+
+LEMMA CancelWaitingReadSparesTheSettledCalls ==
+    ASSUME NEW cId \in CallIds,
+           ManagedTypeOK, L1!TypeOK,
+           CancelWaitingRead(cId)
+    PROVE  \A c \in CallIds :
+               call_dispose_state'[c] = "settled" =>
+                   /\ call_dispose_state[c] = "settled"
+                   /\ events_delivered'[c] = events_delivered[c]
+                   /\ payloads_consumed_by_host'[c]
+                          = payloads_consumed_by_host[c]
+                   /\ buffers_held_by_host'[c]
+                          = buffers_held_by_host[c]
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              call_dispose_state[c] = "settled"
+    BY SMT DEF  CancelWaitingRead, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars
+<1>2. \A c \in CallIds :
+          call_dispose_state[c] = "settled" =>
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY SMT DEF  CancelWaitingRead, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!TypeOK, L1!L0!TypeOK, l1_vars, BindingMayDowncall
+<1>q. QED
+    BY <1>1, <1>2, Zenon
+
+LEMMA CancelParsingReadSparesTheSettledCalls ==
+    ASSUME NEW cId \in CallIds,
+           ManagedTypeOK, L1!TypeOK,
+           CancelParsingRead(cId)
+    PROVE  \A c \in CallIds :
+               call_dispose_state'[c] = "settled" =>
+                   /\ call_dispose_state[c] = "settled"
+                   /\ events_delivered'[c] = events_delivered[c]
+                   /\ payloads_consumed_by_host'[c]
+                          = payloads_consumed_by_host[c]
+                   /\ buffers_held_by_host'[c]
+                          = buffers_held_by_host[c]
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              call_dispose_state[c] = "settled"
+    BY SMT DEF  CancelParsingRead, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars
+<1>2. \A c \in CallIds :
+          call_dispose_state[c] = "settled" =>
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY SMT DEF  CancelParsingRead, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!TypeOK, L1!L0!TypeOK, l1_vars, BindingMayDowncall
+<1>q. QED
+    BY <1>1, <1>2, Zenon
+
+LEMMA BeginDisposeCallSparesTheSettledCalls ==
+    ASSUME NEW cId \in CallIds,
+           ManagedTypeOK, L1!TypeOK,
+           BeginDisposeCall(cId)
+    PROVE  \A c \in CallIds :
+               call_dispose_state'[c] = "settled" =>
+                   /\ call_dispose_state[c] = "settled"
+                   /\ events_delivered'[c] = events_delivered[c]
+                   /\ payloads_consumed_by_host'[c]
+                          = payloads_consumed_by_host[c]
+                   /\ buffers_held_by_host'[c]
+                          = buffers_held_by_host[c]
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              call_dispose_state[c] = "settled"
+    BY SMT DEF  BeginDisposeCall, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars
+<1>2. \A c \in CallIds :
+          call_dispose_state[c] = "settled" =>
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY SMT DEF  BeginDisposeCall, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!IsActiveCall, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       BindingMayDowncall
+<1>q. QED
+    BY <1>1, <1>2, Zenon
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -14235,7 +14371,10 @@ LEMMA KeepsCancelWaitingRead ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed
+        BY CancelWaitingReadSparesTheSettledCalls, SMT
+        DEF SettledCallOwesNothing, L1!L0!HasStatus,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+           L1!OwedPayloads
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14363,7 +14502,10 @@ LEMMA KeepsCancelParsingRead ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed
+        BY CancelParsingReadSparesTheSettledCalls, SMT
+        DEF SettledCallOwesNothing, L1!L0!HasStatus,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+           L1!OwedPayloads
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14876,7 +15018,10 @@ LEMMA KeepsBeginDisposeCall ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed
+        BY BeginDisposeCallSparesTheSettledCalls, SMT
+        DEF SettledCallOwesNothing, L1!L0!HasStatus,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+           L1!OwedPayloads
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -16822,8 +16967,10 @@ LEMMA KeepsCommitWrite ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
+        BY CommitWriteSparesTheSettledCalls, SMT
+        DEF SettledCallOwesNothing, L1!L0!HasStatus,
+           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+           L1!OwedPayloads
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
