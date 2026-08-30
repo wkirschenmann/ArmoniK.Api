@@ -9441,6 +9441,76 @@ LEMMA SettleCallKeepsTheSettledClean ==
        ManagedGlue, ReaderInv, WriterInv, L1!IndInv, L1!TypeOK,
        L1!L0!TypeOK
 
+
+\* The last five, each unframed for its own reason.
+
+LEMMA WriteDoneCompletesKeepsTheRoots ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           WriteDoneCompletes(cId)
+    PROVE  RootSurvivesCallbacks'
+<1>1. /\ UNCHANGED <<call_root_live, call_token_published,
+                     delivery_callback_running, events_delivered>>
+      /\ \A c \in CallIds :
+             write_done_callback_running'[c] =>
+                 write_done_callback_running[c]
+    BY SMT DEF  WriteDoneCompletes, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!WriteDoneReturns,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, l1_vars, L1!WriteDoneReturns,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       ManagedGlue, ReaderInv, WriterInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK
+<1>q. QED
+    BY <1>1, SMT DEF  RootSurvivesCallbacks, L1!L0!HasStatus,
+       L1!L0!StatusKinds, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       LifecycleInv, ManagedGlue, ReaderInv, WriterInv, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK
+
+LEMMA StartCallKeepsTheRoots ==
+    ASSUME NEW cId \in CallIds, NEW chId \in ChannelIds,
+           ManagedIndInv, StartCall(cId, chId)
+    PROVE  RootSurvivesCallbacks'
+<1>1. /\ call_root_live' = [call_root_live EXCEPT ![cId] = TRUE]
+      /\ UNCHANGED <<delivery_callback_running,
+                     write_done_callback_running>>
+      /\ \A c \in CallIds : c # cId =>
+             /\ call_token_published'[c]
+                    = call_token_published[c]
+             /\ events_delivered'[c] = events_delivered[c]
+    BY SMT DEF  StartCall, BindingMayDowncall, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!CallStart, L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       l1_vars, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       LifecycleInv, ManagedGlue, ReaderInv, WriterInv, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK
+<1>q. QED
+    BY <1>1, SMT DEF  RootSurvivesCallbacks, L1!L0!HasStatus,
+       L1!L0!StatusKinds, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       LifecycleInv, ManagedGlue, ReaderInv, WriterInv, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK
+
+LEMMA ResolveChannelDisposeKeepsTheChannelsAgreed ==
+    ASSUME NEW chId \in ChannelIds, ManagedIndInv,
+           ResolveChannelDispose(chId)
+    PROVE  ChannelStateMatchesNative'
+<1>1. /\ UNCHANGED <<channel_state>>
+      /\ channel_dispose_state' =
+             [channel_dispose_state EXCEPT ![chId] = "disposed"]
+      /\ channel_dispose_state[chId]
+             \in {"released", "released_last"}
+    BY SMT DEF  ResolveChannelDispose, ChannelDisposeMayResolve,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ChannelDisposeMayResolve, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+<1>q. QED
+    BY <1>1, SMT DEF  ChannelStateMatchesNative, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv, ManagedGlue,
+       ReaderInv, WriterInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -13533,7 +13603,7 @@ LEMMA KeepsResolveChannelDispose ==
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
     <1>17. ChannelStateMatchesNative'
-        BY ChannelAgreementIsFramed
+        BY ResolveChannelDisposeKeepsTheChannelsAgreed
     <1>18. RuntimeStateMatchesNative'
         BY SMT DEF AdmissibleRuntimeStates,
            TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
@@ -16219,8 +16289,7 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>7. TokenPublishedBeforeStart'
         BY TokenPublishedBeforeStartIsFramed
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK
+        BY WriteDoneCompletesKeepsTheRoots
     <1>9. RuntimeRootSurvivesCallbacks'
         BY RuntimeRootSurvivesCallbacksIsFramed DEF L1!IndInv,
            L1!TypeOK, L1!L0!TypeOK, L1!IsWriteDoneCallbackRunning
@@ -16739,8 +16808,7 @@ LEMMA KeepsStartCall ==
         BY TokenPublishedBeforeStartIsFramed DEF L1!IndInv,
            L1!TypeOK, L1!L0!TypeOK
     <1>8. RootSurvivesCallbacks'
-        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK
+        BY StartCallKeepsTheRoots
     <1>9. RuntimeRootSurvivesCallbacks'
         BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
            RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
