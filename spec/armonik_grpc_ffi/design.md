@@ -3342,14 +3342,19 @@ the one family no passthrough carries, so it is earned through seven leads-to ed
 ending at the application's single obligation - the binding's machinery plus that one
 hypothesis implies level 1's family.
 
-**The managed liveness is under way.**  Of the seventeen promises,
-`InFlightPayloadEventuallyReleased`, `BudgetWaitEndsWhenHopeless` and
-`ChannelConstructionCompletes` are proved.  Each so far has cost an invariant the safety
-proof had not needed: a parse owns its slot, so a slot in flight owes a payload
-(`ParsingReadOwnsItsSlot`, read off the state rather than assumed); and a busy writer
-sits on a started call (`BusyWriterIsOnAStartedCall`), without which nothing rules out
-the one state where a hopeless wait's last cause could be withdrawn under it.  The rest
-is owed.
+**The managed liveness is proved.**  All seventeen promises hold, and `ManagedLivenessTheorem`
+collects them.  Each cost an invariant the safety proof had not needed: a parse owns
+its slot, so a slot in flight owes a payload (`ParsingReadOwnsItsSlot`, read off the
+state rather than assumed); a busy writer sits on a started call
+(`BusyWriterIsOnAStartedCall`), without which nothing rules out the one state where a
+hopeless wait's last cause could be withdrawn under it; and the trampoline stays on the
+stack until it returns (`TrampolineStaysUntilItReturns`), without which one callback is
+not the standing enabling weak fairness asks for.
+
+The four proofs modules verify with the fingerprint cache disabled: 1809, 11421, 23 and
+28818 obligations, no failure.  That distinction matters here, because a green run over a
+warm cache says only that the obligations were once discharged by a text that may since
+have changed.
 
 Refinement mapping, by direct reuse:
 - the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -
