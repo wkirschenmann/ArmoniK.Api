@@ -22329,7 +22329,7 @@ LEMMA PassthroughKeepsTheAcquittalComing ==
          L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
          ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-         ReaderVars, WriterVars
+         ReaderVars, WriterVars, L1!TypeOK
   <2>2. CASE L1!NetworkSend(c2)
       BY <1>0, <2>0, <2>2, SMT DEF  L1!NetworkSend, L1!L0!NetworkSend,
          L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -22437,6 +22437,158 @@ LEMMA PassthroughKeepsTheAcquittalComing ==
     BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
+
+\* A writer waiting on its acquittal has one coming: a send in
+\* flight, or the callback already on the stack.  Each writer
+\* action keeps that so for a reason its own guard carries, and
+\* each says so here rather than inside the case, where the
+\* generator's definition list could not reach it.
+
+LEMMA CancelWriterWaitKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           CancelWriterWait(cId)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  CancelWriterWait, WaitIsHopeless, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!L0!IsActiveCall, l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
+LEMMA WriteDoneCompletesKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           WriteDoneCompletes(cId)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  WriteDoneCompletes, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!WriteDoneReturns,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
+LEMMA CloseWriterKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           CloseWriter(cId)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  CloseWriter, BindingMayDowncall, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       l1_vars, AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
+LEMMA WriteLendSucceedsKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW len \in L1!Sizes, NEW charge \in L1!Sizes,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           WriteLendSucceeds(cId, b, len, charge)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  WriteLendSucceeds, BindingMayDowncall, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!Sizes
+
+LEMMA WriteRefusedBudgetKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds, NEW len \in L1!Sizes, NEW charge \in L1!CandidateCharges,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           WriteRefusedBudget(cId, len, charge)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  WriteRefusedBudget, BindingMayDowncall, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       l1_vars, AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!CandidateCharges, L1!Sizes
+
+LEMMA RetryLendSucceedsKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW charge \in L1!Sizes,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           RetryLendSucceeds(cId, b, charge)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  RetryLendSucceeds, BindingMayDowncall, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!Sizes
+
+LEMMA CommitWriteKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds, NEW msg \in Messages, NEW b \in BufferIds,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           CommitWrite(cId, msg, b)
+    PROVE  AwaitingWriteDoneHasOneComing'
+<1>0. submitted[cId] \in Seq(Messages)
+    BY Zenon DEF ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+<1>1. Len(submitted[cId]) + 1 = Len(Append(submitted[cId], msg))
+    BY <1>0, AppendProperties, Zenon
+<1>2. write_dones_emitted[cId] <= Len(submitted[cId])
+    BY Zenon DEF ManagedIndInv, L1!IndInv, L1!FfiCallInv,
+       L1!WriteDonesNeverExceedSends
+<1>3. QED
+    BY <1>1, <1>2, SMT DEF  CommitWrite, BindingMayDowncall,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, L1!SendMessage, L1!L0!SendMessage, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
+LEMMA WriteAbortedKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           WriteAborted(cId, b)
+    PROVE  AwaitingWriteDoneHasOneComing'
+    BY SMT DEF  WriteAborted, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!HostReturnsBuffer,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
+       L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+       WaitMatchesRefusal, SerializingWriterHoldsTheBuffer,
+       WaitingWriterHoldsNoBuffer, RetryLenMatchesWait,
+       ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
+       L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
 LEMMA AcquittalStaysComing ==
     ASSUME ManagedIndInv,
            AwaitingWriteDoneHasOneComing,
@@ -22450,11 +22602,8 @@ LEMMA AcquittalStaysComing ==
        ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 <1>1. CASE Passthrough
-    BY <1>1, PassthroughKeepsTheAcquittalComing, SMT DEF
-       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+    BY <1>1, PassthroughKeepsTheAcquittalComing
+       DEF ManagedIndInv, L1!IndInv
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, SMT DEF  FreeRuntimeRoot, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -22757,29 +22906,11 @@ LEMMA AcquittalStaysComing ==
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           L1!L0!IsActiveCall, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+      BY <2>0, <2>16, CancelWriterWaitKeepsTheAcquittalComing
   <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, L1!WriteDoneReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
-           L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
-           ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
+      BY <2>0, <2>17, WriteDoneCompletesKeepsTheAcquittalComing
   <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           L1!EndSend, L1!L0!EndSend, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-           L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
+      BY <2>0, <2>18, CloseWriterKeepsTheAcquittalComing
   <2>19. CASE OnEventReturns(c2)
           BY <2>0, <2>19, SMT DEF  OnEventReturns, L1!DeliveryCallbackReturns,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -22811,22 +22942,20 @@ LEMMA AcquittalStaysComing ==
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
-    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW len \in L1!Sizes, NEW charge \in L1!Sizes,
+                        WriteLendSucceeds(cId, b, len, charge)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>8
+  <2>1. QED
+      BY <2>0, WriteLendSucceedsKeepsTheAcquittalComing
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
-    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW len \in L1!Sizes, NEW charge \in L1!CandidateCharges,
+                        WriteRefusedBudget(cId, len, charge)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>9
+  <2>1. QED
+      BY <2>0, WriteRefusedBudgetKeepsTheAcquittalComing
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
@@ -22838,30 +22967,27 @@ LEMMA AcquittalStaysComing ==
        ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
-    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW charge \in L1!Sizes,
+                        RetryLendSucceeds(cId, b, charge)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>11
+  <2>1. QED
+      BY <2>0, RetryLendSucceedsKeepsTheAcquittalComing
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
-       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       AwaitingWriteDoneHasOneComing, L1!IsAwaitingWriteDone,
-       L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW msg \in Messages, NEW b \in BufferIds,
+                        CommitWrite(cId, msg, b)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>12
+  <2>1. QED
+      BY <2>0, CommitWriteKeepsTheAcquittalComing
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
-       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
-       L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
-       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
+                        WriteAborted(cId, b)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>13
+  <2>1. QED
+      BY <2>0, WriteAbortedKeepsTheAcquittalComing
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
