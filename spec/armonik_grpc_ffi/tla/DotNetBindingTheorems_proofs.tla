@@ -8983,6 +8983,173 @@ LEMMA BeginDisposeCallSparesTheSettledCalls ==
 <1>q. QED
     BY <1>1, <1>2, Zenon
 
+
+\* The consume family: each rides on L1!HostConsumesEvent,
+\* whose guard is that the host owns a payload on that call.  A
+\* settled call owns none, so the call being consumed for is not
+\* one, and no settled call has any of its four readings moved.
+
+LEMMA FinishConsumePayloadKeepsTheSettledClean ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           FinishConsumePayload(cId)
+    PROVE  SettledCallOwesNothing'
+<1>1. call_dispose_state' = call_dispose_state
+    BY SMT DEF  FinishConsumePayload, ReadCancellationSettled,
+       ConsumingTerminal, ConsumingTerminal, ManagedTypeOK,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, SettledCallOwesNothing, L1!IndInv,
+       L1!TypeOK
+<1>2. call_dispose_state[cId] # "settled"
+    BY SMT DEF  FinishConsumePayload, ReadCancellationSettled,
+       ConsumingTerminal, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, l1_vars, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!IndInv, L1!TypeOK, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!HostOwnsNoPayload, L1!OwedPayloads
+<1>3. \A c \in CallIds : c # cId =>
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+          /\ buffers_held_by_host'[c]
+                 = buffers_held_by_host[c]
+    BY SMT DEF  FinishConsumePayload, ReadCancellationSettled,
+       ConsumingTerminal, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       L1!HostConsumesEvent, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, SettledCallOwesNothing, L1!IndInv,
+       L1!TypeOK
+<1>q. QED
+    BY <1>1, <1>2, <1>3, SMT
+    DEF SettledCallOwesNothing, L1!L0!HasStatus,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+       L1!OwedPayloads, ManagedIndInv, ManagedMachineInv,
+       LifecycleInv
+
+LEMMA FinishCancelledParseKeepsTheSettledClean ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           FinishCancelledParse(cId)
+    PROVE  SettledCallOwesNothing'
+<1>1. call_dispose_state' = call_dispose_state
+    BY SMT DEF  FinishCancelledParse, ConsumingTerminal,
+       ConsumingTerminal, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!IndInv, L1!TypeOK
+<1>2. call_dispose_state[cId] # "settled"
+    BY SMT DEF  FinishCancelledParse, ConsumingTerminal, ManagedTypeOK,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!IndInv, L1!TypeOK, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!HostOwnsNoPayload, L1!OwedPayloads
+<1>3. \A c \in CallIds : c # cId =>
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+          /\ buffers_held_by_host'[c]
+                 = buffers_held_by_host[c]
+    BY SMT DEF  FinishCancelledParse, ConsumingTerminal, ManagedTypeOK,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       L1!HostConsumesEvent, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, SettledCallOwesNothing, L1!IndInv,
+       L1!TypeOK
+<1>q. QED
+    BY <1>1, <1>2, <1>3, SMT
+    DEF SettledCallOwesNothing, L1!L0!HasStatus,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+       L1!OwedPayloads, ManagedIndInv, ManagedMachineInv,
+       LifecycleInv
+
+LEMMA DrainReleaseKeepsTheSettledClean ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           DrainRelease(cId)
+    PROVE  SettledCallOwesNothing'
+<1>1. call_dispose_state' = call_dispose_state
+    BY SMT DEF  DrainRelease, ConsumingTerminal, ManagedTypeOK,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, SettledCallOwesNothing, L1!IndInv,
+       L1!TypeOK
+<1>2. call_dispose_state[cId] # "settled"
+    BY SMT DEF  DrainRelease, ConsumingTerminal, ManagedTypeOK,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!IndInv, L1!TypeOK, L1!HostConsumesEvent,
+       L1!HostOwnsSomePayload, L1!HostOwnsNoPayload, L1!OwedPayloads
+<1>3. \A c \in CallIds : c # cId =>
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+          /\ buffers_held_by_host'[c]
+                 = buffers_held_by_host[c]
+    BY SMT DEF  DrainRelease, ConsumingTerminal, ManagedTypeOK,
+       ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
+       ReaderVars, WriterVars, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
+       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, L1!L0!HasStatus, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       L1!HostConsumesEvent, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, SettledCallOwesNothing, L1!IndInv,
+       L1!TypeOK
+<1>q. QED
+    BY <1>1, <1>2, <1>3, SMT
+    DEF SettledCallOwesNothing, L1!L0!HasStatus,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+       L1!OwedPayloads, ManagedIndInv, ManagedMachineInv,
+       LifecycleInv
+
+LEMMA ConsumeHeaderKeepsTheSettledClean ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           ConsumeHeader(cId)
+    PROVE  SettledCallOwesNothing'
+<1>1. call_dispose_state' = call_dispose_state
+    BY SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!IndInv, L1!TypeOK
+<1>2. call_dispose_state[cId] # "settled"
+    BY SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
+       L1!L0!TypeOK, l1_vars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, SettledCallOwesNothing, L1!IndInv,
+       L1!TypeOK, L1!HostConsumesEvent, L1!HostOwnsSomePayload,
+       L1!HostOwnsNoPayload, L1!OwedPayloads
+<1>3. \A c \in CallIds : c # cId =>
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+          /\ buffers_held_by_host'[c]
+                 = buffers_held_by_host[c]
+    BY SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK,
+       L1!L0!TypeOK, l1_vars, L1!HostConsumesEvent, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!IndInv, L1!TypeOK
+<1>q. QED
+    BY <1>1, <1>2, <1>3, SMT
+    DEF SettledCallOwesNothing, L1!L0!HasStatus,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+       L1!OwedPayloads, ManagedIndInv, ManagedMachineInv,
+       LifecycleInv
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -13978,8 +14145,7 @@ LEMMA KeepsFinishConsumePayload ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK, ReadCancellationSettled
+        BY FinishConsumePayloadKeepsTheSettledClean
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14633,8 +14799,7 @@ LEMMA KeepsFinishCancelledParse ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK
+        BY FinishCancelledParseKeepsTheSettledClean
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -14889,8 +15054,7 @@ LEMMA KeepsConsumeHeader ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK
+        BY ConsumeHeaderKeepsTheSettledClean
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -15277,8 +15441,7 @@ LEMMA KeepsDrainRelease ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK
+        BY DrainReleaseKeepsTheSettledClean
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
