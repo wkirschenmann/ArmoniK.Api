@@ -9150,6 +9150,134 @@ LEMMA ConsumeHeaderKeepsTheSettledClean ==
        L1!OwedPayloads, ManagedIndInv, ManagedMachineInv,
        LifecycleInv
 
+
+\* A consume moves the ring tail up, so the occupancy of the
+\* call it consumes for falls and no frame carries the claim.
+\* What carries it is that the call is not left parsing, for a
+\* reason of its own in each case, while every other call keeps
+\* both its reader and its ring.
+
+LEMMA FinishConsumePayloadKeepsTheParsedSlot ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           FinishConsumePayload(cId)
+    PROVE  ParsingReadOwnsItsSlot'
+<1>1. \A c \in CallIds : c # cId =>
+          /\ reader_state'[c] = reader_state[c]
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+    BY SMT DEF  FinishConsumePayload, ReadCancellationSettled,
+       ConsumingTerminal, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!HostConsumesEvent,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, l1_vars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+<1>2. ~(reader_state'[cId] \in {"parsing", "parsing_cancelled"})
+    BY SMT DEF  FinishConsumePayload, ReadCancellationSettled,
+       ConsumingTerminal, ManagedCallVars, ManagedRuntimeVars,
+       ManagedChannelVars, ReaderVars, WriterVars, L1!HostConsumesEvent,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, l1_vars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       ConsumingTerminal, ParsingReadOwnsItsSlot, RingOccupancy, RingHead,
+       RingTail
+<1>q. QED
+    BY <1>1, <1>2, SMT DEF ParsingReadOwnsItsSlot,
+       RingOccupancy, RingHead, RingTail, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv
+
+LEMMA FinishCancelledParseKeepsTheParsedSlot ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           FinishCancelledParse(cId)
+    PROVE  ParsingReadOwnsItsSlot'
+<1>1. \A c \in CallIds : c # cId =>
+          /\ reader_state'[c] = reader_state[c]
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+    BY SMT DEF  FinishCancelledParse, ConsumingTerminal, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, l1_vars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK
+<1>2. ~(reader_state'[cId] \in {"parsing", "parsing_cancelled"})
+    BY SMT DEF  FinishCancelledParse, ConsumingTerminal, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, l1_vars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK, ConsumingTerminal, ParsingReadOwnsItsSlot,
+       RingOccupancy, RingHead, RingTail
+<1>q. QED
+    BY <1>1, <1>2, SMT DEF ParsingReadOwnsItsSlot,
+       RingOccupancy, RingHead, RingTail, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv
+
+LEMMA DrainReleaseKeepsTheParsedSlot ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           DrainRelease(cId)
+    PROVE  ParsingReadOwnsItsSlot'
+<1>1. \A c \in CallIds : c # cId =>
+          /\ reader_state'[c] = reader_state[c]
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+    BY SMT DEF  DrainRelease, ConsumingTerminal, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, l1_vars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK
+<1>2. ~(reader_state'[cId] \in {"parsing", "parsing_cancelled"})
+    BY SMT DEF  DrainRelease, ConsumingTerminal, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, l1_vars, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, ReaderInv, LifecycleInv, ManagedGlue, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK, DrainNeverOverlapsApplicationConsumer,
+       ConsumerPhaseMatchesDispose, ParsingReadOwnsItsSlot, RingOccupancy,
+       RingHead, RingTail
+<1>q. QED
+    BY <1>1, <1>2, SMT DEF ParsingReadOwnsItsSlot,
+       RingOccupancy, RingHead, RingTail, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv
+
+LEMMA ConsumeHeaderKeepsTheParsedSlot ==
+    ASSUME NEW cId \in CallIds, ManagedIndInv,
+           ConsumeHeader(cId)
+    PROVE  ParsingReadOwnsItsSlot'
+<1>1. \A c \in CallIds : c # cId =>
+          /\ reader_state'[c] = reader_state[c]
+          /\ events_delivered'[c] = events_delivered[c]
+          /\ payloads_consumed_by_host'[c]
+                 = payloads_consumed_by_host[c]
+    BY SMT DEF  ConsumeHeader, RingTail, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+<1>2. ~(reader_state'[cId] \in {"parsing", "parsing_cancelled"})
+    BY SMT DEF  ConsumeHeader, RingTail, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, l1_vars,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       PrologueReaderOnlyWaits, RingTail, ParsingReadOwnsItsSlot,
+       RingOccupancy, RingHead, RingTail
+<1>q. QED
+    BY <1>1, <1>2, SMT DEF ParsingReadOwnsItsSlot,
+       RingOccupancy, RingHead, RingTail, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -14105,7 +14233,7 @@ LEMMA KeepsFinishConsumePayload ==
     <1>4. ReadCancelPendingOnlyInFlight'
         OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+        BY FinishConsumePayloadKeepsTheParsedSlot
     <1>6. WriterInv'
         OBVIOUS
     <1>7. TokenPublishedBeforeStart'
@@ -14759,7 +14887,7 @@ LEMMA KeepsFinishCancelledParse ==
         BY SMT DEF L1!IndInv,
            L1!TypeOK, L1!L0!TypeOK, CancelledParseHasNoPendingRequest
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+        BY FinishCancelledParseKeepsTheParsedSlot
     <1>6. WriterInv'
         OBVIOUS
     <1>7. TokenPublishedBeforeStart'
@@ -15014,7 +15142,7 @@ LEMMA KeepsConsumeHeader ==
     <1>4. ReadCancelPendingOnlyInFlight'
         OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+        BY ConsumeHeaderKeepsTheParsedSlot
     <1>6. WriterInv'
         OBVIOUS
     <1>7. TokenPublishedBeforeStart'
@@ -15401,7 +15529,7 @@ LEMMA KeepsDrainRelease ==
     <1>4. ReadCancelPendingOnlyInFlight'
         OBVIOUS
     <1>5. ParsingReadOwnsItsSlot'
-        BY ParsingReadOwnsItsSlotIsFramed
+        BY DrainReleaseKeepsTheParsedSlot
     <1>6. WriterInv'
         OBVIOUS
     <1>7. TokenPublishedBeforeStart'
