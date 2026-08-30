@@ -9589,6 +9589,53 @@ LEMMA RetryLendSucceedsOwesTheSettledNothing ==
        SettledCallOwesNothing, L1!L0!HasStatus, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads
 
+\* Starting a call is the only step that makes one used, so it is the
+\* only one that has to answer for the equivalence there.  Its guard
+\* has the channel's runtime running and one runtime runs at a time,
+\* so nothing has failed - which is how the invariant saying an
+\* unused call has no events at all is reached.
+LEMMA StartCallKeepsTheStatusTerminal ==
+    ASSUME NEW cId \in CallIds, NEW chId \in ChannelIds,
+           ManagedIndInv, StartCall(cId, chId)
+    PROVE  StatusMeansTerminal'
+<1>1. L1!L0!NotFailed
+    BY SMT DEF StartCall, L1!CallStart, L1!L0!CallStart,
+       L1!L0!NotFailed, ManagedIndInv, ManagedMachineInv,
+       LifecycleInv, LiveChannelUsesCurrentRuntime, L1!IndInv,
+       L1!L0!SingleRuntime, L1!TypeOK, L1!L0!TypeOK
+<1>2. events_delivered[cId] = <<>>
+    BY <1>1, SMT DEF StartCall, L1!CallStart, L1!L0!CallStart,
+       L1!L0!IsUnusedCall, ManagedIndInv, L1!IndInv, L1!StrongInv,
+       L1!L0!StrongInv, L1!L0!StructuralInv,
+       L1!L0!UnusedCallsAreEmpty, L1!TypeOK, L1!L0!TypeOK
+<1>q. QED
+    BY <1>2, SMT DEF StartCall, L1!CallStart, L1!L0!CallStart,
+       StatusMeansTerminal, L1!L0!IsUnusedCall, L1!L0!HasStatus,
+       L1!L0!IsTerminalCall, L1!L0!StatusKinds, ManagedIndInv,
+       ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+
+\* The destroy is allowed only on a quiescent runtime, and quiescent
+\* is released: that is what rules out the stopping state the phase
+\* it leaves admitted, and the phase it lands in admits only the
+\* released one.
+LEMMA FinishDisposeRuntimeKeepsTheRuntimeAgreement ==
+    ASSUME NEW rtId \in RuntimeIds,
+           ManagedIndInv, FinishDisposeRuntime(rtId)
+    PROVE  RuntimeStateMatchesNative'
+    BY SMT DEF FinishDisposeRuntime, L1!RuntimeDestroy,
+       L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+       RuntimeStateMatchesNative, AdmissibleRuntimeStates,
+       ManagedIndInv, ManagedMachineInv, LifecycleInv, L1!IndInv,
+       L1!TypeOK, L1!L0!TypeOK,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -13945,8 +13992,7 @@ LEMMA KeepsFinishDisposeRuntime ==
     <1>17. ChannelStateMatchesNative'
         BY ChannelAgreementIsFramed
     <1>18. RuntimeStateMatchesNative'
-        BY SMT DEF AdmissibleRuntimeStates,
-           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+        BY FinishDisposeRuntimeKeepsTheRuntimeAgreement
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
@@ -16955,12 +17001,7 @@ LEMMA KeepsStartCall ==
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
-        BY SMT DEF StatusMeansTerminal,
-           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
-           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
-           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
-           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+        BY StartCallKeepsTheStatusTerminal
     <1>g7. LiveCallHasLiveChannel'
         BY SMT DEF LiveCallHasLiveChannel,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK
