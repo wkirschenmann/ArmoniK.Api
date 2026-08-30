@@ -23445,12 +23445,25 @@ LEMMA SerializationHasAnExit ==
 \* abort is not visibly one of the disjuncts the settling quantifies over.
 <1>3. ENABLED <<WriteAborted(cId, b)>>_vars
           => ENABLED <<SerializationSettles(cId)>>_vars
-    BY <1>1, ExpandENABLED, Isa
-    DEF SerializationSettles, WriteAbortsSomewhere, WriteAborted,
-       CommitWrite, L1!HostReturnsBuffer, L1!SendMessage, L1!L0!SendMessage,
-       ManagedStutter, vars, l1_vars, managed_vars, L1!vars, L1!l0_vars,
-       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-       L1!L0!CallVars
+  \* At the action level first: the abort is one of the settling's
+  \* disjuncts, with the buffer the PICK named as the witness.  Lifted
+  \* straight, the implication is refused; with that step in hand it
+  \* is only long.  ExpandENABLED wants every definition under the
+  \* ENABLED unfolded transitively - it names them one at a time and
+  \* will not proceed while one is hidden - so the list cannot be
+  \* trimmed.  SMT is named because it is the one that closes what
+  \* that unfolding produces: Zenon runs out of time on it and
+  \* Isabelle refuses.
+  <2>1. <<WriteAborted(cId, b)>>_vars
+            => <<SerializationSettles(cId)>>_vars
+      BY DEF SerializationSettles, WriteAbortsSomewhere
+  <2>2. QED
+      BY <2>1, ExpandENABLED, SMT
+      DEF WriteAborted, SerializationSettles, WriteAbortsSomewhere,
+         CommitWrite, L1!HostReturnsBuffer, L1!SendMessage,
+         L1!L0!SendMessage, vars, l1_vars, managed_vars, L1!vars,
+         L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
 <1>4. QED BY <1>2, <1>3
 
 \* And settling leaves the serializing state: the abort goes idle, the
