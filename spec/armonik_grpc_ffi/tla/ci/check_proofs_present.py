@@ -26,6 +26,7 @@ MODULES = [
     "FfiGrpcTheorems_proofs.tla",
     "FfiGrpcEnabledTheorems_proofs.tla",
     "AbstractGrpcTheorems_proofs.tla",
+    "DotNetBindingTheorems_proofs.tla",
 ]
 
 HEAD = re.compile(r"^(THEOREM|LEMMA|PROPOSITION|COROLLARY)\s+(\w+)\s*==", re.M)

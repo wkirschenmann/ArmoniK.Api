@@ -26,6 +26,7 @@ PAIRS = [
     ("FfiGrpcTheorems.tla", "FfiGrpcTheorems_proofs.tla"),
     ("FfiGrpcEnabledTheorems.tla", "FfiGrpcEnabledTheorems_proofs.tla"),
     ("AbstractGrpcTheorems.tla", "AbstractGrpcTheorems_proofs.tla"),
+    ("DotNetBindingTheorems.tla", "DotNetBindingTheorems_proofs.tla"),
 ]
 
 HEAD = re.compile(r"^(THEOREM|LEMMA|PROPOSITION|COROLLARY)\s+(\w+)\s*==(.*)$")
