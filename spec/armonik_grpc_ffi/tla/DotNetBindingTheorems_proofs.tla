@@ -18088,27 +18088,131 @@ LEMMA InitEstablishesManagedIndInv == Init => ManagedIndInv
 \* Nothing has happened: no reader, no writer, no token, no lease.  Each
 \* conjunct is an implication whose antecedent is false at Init, save the
 \* ones that speak of the absent runtime, and those are what Init sets.
-<1>3. ManagedMachineInv
-    BY <1>0, SMT
-    DEF Init, ManagedInit, L1!Init, L1!L0!Init, ManagedMachineInv, ReaderInv,
-       WriterInv, LifecycleInv, ConsumerPhaseMatchesDispose,
-       AtMostOneReaderOutstanding, DrainNeverOverlapsApplicationConsumer,
-       ReadCancelPendingOnlyInFlight, ParsingReadOwnsItsSlot,
+<1>3a. ReaderInv
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds, ReaderInv,
+       ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+       DrainNeverOverlapsApplicationConsumer,
+       ReadCancelPendingOnlyInFlight, ParsingReadOwnsItsSlot, ReadInFlight,
+       RingOccupancy, RingHead, RingTail, RingDrained,
+       L1!HostOwnsNoPayload, L1!OwedPayloads
+<1>3b. WriterInv
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds, WriterInv,
        WaitingWriterHoldsNoBuffer, SerializingWriterHoldsTheBuffer,
        WaitMatchesRefusal, ManagedWriterNeverObservesSlotBusy,
-       RetryLenMatchesWait, TokenPublishedBeforeStart,
-       RootSurvivesCallbacks, RuntimeRootSurvivesCallbacks,
-       DisposeAwaitsDestroy, RuntimeManagerCoherent,
-       LiveChannelUsesCurrentRuntime, ManagedShutdownHasNoHostDebt,
-       LiveChannelKeepsRuntimeAlive, NoRuntimeShutdownWhileLeased,
-       RejectedChannelHasNoNativeHalf, ChannelStateMatchesNative,
-       RuntimeStateMatchesNative, AdmissibleRuntimeStates, DisposeLeavesNoManagedWaiter,
-       SettledCallOwesNothing, AbsentRuntimeOwesNothing, ReadInFlight,
-       RingOccupancy, RingHead, RingTail, RingDrained, ChannelSettled,
-       AllLeasesReleased, NoRetryLen, L1!HostOwnsNoPayload,
+       RetryLenMatchesWait, NoRetryLen, L1!HostHoldsNoBuffer,
+       L1!IsLentBuffer, L1!IsReturnedBuffer
+<1>3c1. /\ TokenPublishedBeforeStart
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
-       L1!IsReturnedBuffer, L1!L0!IsUnusedCall, L1!L0!HasStatus,
-       L1!L0!StatusKinds
+       L1!IsReturnedBuffer, TokenPublishedBeforeStart
+<1>3c2. /\ RootSurvivesCallbacks
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, RootSurvivesCallbacks
+<1>3c3. /\ RuntimeRootSurvivesCallbacks
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, RuntimeRootSurvivesCallbacks
+<1>3c4. /\ DisposeAwaitsDestroy
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, DisposeAwaitsDestroy
+<1>3c5. /\ RuntimeManagerCoherent
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, RuntimeManagerCoherent
+<1>3c6. /\ LiveChannelUsesCurrentRuntime
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, LiveChannelUsesCurrentRuntime
+<1>3c7. /\ ManagedShutdownHasNoHostDebt
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, ManagedShutdownHasNoHostDebt
+<1>3c8. /\ LiveChannelKeepsRuntimeAlive
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, LiveChannelKeepsRuntimeAlive
+<1>3c9. /\ NoRuntimeShutdownWhileLeased
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, NoRuntimeShutdownWhileLeased
+<1>3c10. /\ RejectedChannelHasNoNativeHalf
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, RejectedChannelHasNoNativeHalf
+<1>3c11. /\ ChannelStateMatchesNative
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, ChannelStateMatchesNative
+<1>3c12. /\ RuntimeStateMatchesNative
+    BY <1>0, NoneNotInRuntimeIds, SMT DEF Init, ManagedInit, L1!Init,
+       L1!L0!Init, L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, RuntimeStateMatchesNative
+<1>3c13. /\ DisposeLeavesNoManagedWaiter
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, DisposeLeavesNoManagedWaiter
+<1>3c14. /\ SettledCallOwesNothing
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, SettledCallOwesNothing
+<1>3c15. /\ AbsentRuntimeOwesNothing
+    BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
+       L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
+       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, AbsentRuntimeOwesNothing
+<1>3c. LifecycleInv
+    BY <1>3c1, <1>3c2, <1>3c3, <1>3c4, <1>3c5, <1>3c6, <1>3c7, <1>3c8,
+       <1>3c9, <1>3c10, <1>3c11, <1>3c12, <1>3c13, <1>3c14, <1>3c15 DEF LifecycleInv
+<1>3. ManagedMachineInv
+    BY <1>3a, <1>3b, <1>3c DEF ManagedMachineInv
 <1>4. ManagedGlue
     BY <1>0, SMT
     DEF Init, ManagedInit, L1!Init, L1!L0!Init, ManagedGlue,
@@ -23169,6 +23273,7 @@ LEMMA TailNeverRetreats ==
 \* climbs back: what the ladder needs to descend.
 LEMMA OccupancyNeverClimbsPastTheStatus ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
+           ManagedTypeOK', L1!TypeOK',
            L1!L0!HasStatus(cId), [Next]_vars
     PROVE  RingOccupancy(cId)' <= RingOccupancy(cId)
 <1>1. events_delivered[cId]' = events_delivered[cId]
@@ -23477,6 +23582,17 @@ THEOREM AwaitingWriteDoneAlwaysEnds ==
 (* AND SO A PENDING WRITE SETTLES                                          *)
 (***************************************************************************)
 
+\* A write is pending in one of two states, and the chain that ends
+\* it names them one at a time: the temporal prover reads the set and
+\* its members as unrelated atoms.
+LEMMA WritePendingIsOneOfTheTwo ==
+    ASSUME NEW cId \in CallIds,
+           writer_state[cId] \in {"serializing",
+                                  "awaiting_write_done"}
+    PROVE  \/ writer_state[cId] = "serializing"
+           \/ writer_state[cId] = "awaiting_write_done"
+    OBVIOUS
+
 THEOREM PendingWriteEventuallySettledHolds ==
     Spec => PendingWriteEventuallySettled
 <1>0. SUFFICES ASSUME Spec, NEW cId \in CallIds
@@ -23508,7 +23624,12 @@ THEOREM PendingWriteEventuallySettledHolds ==
 <1>6. [](writer_state[cId] = "idle"
              => writer_state[cId] \in {"idle", "closed"})
     BY IdleIsSettled, PTL
-<1>7. QED BY <1>4, <1>5, <1>6, PTL
+<1>6b. [](writer_state[cId] \in {"serializing",
+                                 "awaiting_write_done"}
+             => \/ writer_state[cId] = "serializing"
+                \/ writer_state[cId] = "awaiting_write_done")
+    BY WritePendingIsOneOfTheTwo, PTL
+<1>7. QED BY <1>4, <1>5, <1>6, <1>6b, PTL
 
 
 \* The status is a latch: nothing appends to a ring that has it, so its last
@@ -26926,7 +27047,8 @@ THEOREM RingEventuallyDrains ==
   <2>3. [](~RingDrained(cId) => PayloadOwed(cId))
     BY <2>1, UndrainedRingOwes, PTL
   <2>4. [](RingOccupancy(cId)' <= RingOccupancy(cId))
-    BY <1>1, <2>1, <2>1b, OccupancyNeverClimbsPastTheStatus, PTL
+    BY <1>1, <2>1, <2>1b, <2>1c, OccupancyNeverClimbsPastTheStatus,
+       PTL
   <2>5. [](<<L1!HostConsumesEvent(cId)>>_l1_vars
                => RingOccupancy(cId)' = RingOccupancy(cId) - 1)
     BY <2>1, ConsumptionLowersTheOccupancy, PTL
@@ -39432,7 +39554,8 @@ LEMMA ReleaseIsEnabled ==
                                WriterVars, runtime_root_live,
                                current_runtime>> )>>_vars
     BY <1>2, ExpandENABLED, SMT
-    DEF L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
+    DEF ManagedIndInv, L1!IndInv,
+       L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
        L1!RequestCancellationOfActiveCalls, L1!L0!ChannelsOf,
        ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
        vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
@@ -39468,7 +39591,8 @@ LEMMA ReleaseIsEnabled ==
                                WriterVars, runtime_root_live,
                                current_runtime>> )>>_vars
     BY <1>3, ExpandENABLED, SMT
-    DEF ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
+    DEF ManagedIndInv, L1!IndInv,
+       ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
        vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
