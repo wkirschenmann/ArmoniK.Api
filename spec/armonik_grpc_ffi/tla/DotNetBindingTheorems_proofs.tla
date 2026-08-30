@@ -9511,6 +9511,84 @@ LEMMA ResolveChannelDisposeKeepsTheChannelsAgreed ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ManagedGlue,
        ReaderInv, WriterInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
 
+\* The lend takes a buffer, so the frame lemma cannot serve it: what
+\* holds is that the call it lends to is active, hence not settled,
+\* and every settled call keeps the three quantities it is read on.
+LEMMA RetryLendSucceedsSparesTheSettledCalls ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
+           NEW charge \in L1!Sizes,
+           ManagedTypeOK, L1!TypeOK,
+           RetryLendSucceeds(cId, b, charge)
+    PROVE  \A c \in CallIds :
+               call_dispose_state'[c] = "settled" =>
+                   /\ call_dispose_state[c] = "settled"
+                   /\ events_delivered'[c] = events_delivered[c]
+                   /\ payloads_consumed_by_host'[c]
+                          = payloads_consumed_by_host[c]
+                   /\ buffers_held_by_host'[c]
+                          = buffers_held_by_host[c]
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              call_dispose_state[c] = "settled"
+    BY SMT DEF  RetryLendSucceeds, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars
+<1>2. \A c \in CallIds :
+          call_dispose_state[c] = "settled" =>
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY SMT DEF  RetryLendSucceeds, ManagedTypeOK, ManagedCallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
+       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK, l1_vars,
+       BindingMayDowncall
+<1>q. QED
+    BY <1>1, <1>2, Zenon
+
+\* And the conjunct itself, so the site cites one lemma rather than
+\* assembling it under its own seventy-five definitions.
+LEMMA CommitWriteOwesTheSettledNothing ==
+    ASSUME NEW cId \in CallIds, NEW msg \in Messages,
+           NEW b \in BufferIds,
+           ManagedIndInv, CommitWrite(cId, msg, b)
+    PROVE  SettledCallOwesNothing'
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              /\ call_dispose_state[c] = "settled"
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY CommitWriteSparesTheSettledCalls DEF ManagedIndInv, L1!IndInv
+<1>q. QED
+    BY <1>1, SMT DEF ManagedIndInv, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!L0!HasStatus, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads
+
+LEMMA RetryLendSucceedsOwesTheSettledNothing ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
+           NEW charge \in L1!Sizes,
+           ManagedIndInv, RetryLendSucceeds(cId, b, charge)
+    PROVE  SettledCallOwesNothing'
+<1>1. \A c \in CallIds :
+          call_dispose_state'[c] = "settled" =>
+              /\ call_dispose_state[c] = "settled"
+              /\ events_delivered'[c] = events_delivered[c]
+              /\ payloads_consumed_by_host'[c]
+                     = payloads_consumed_by_host[c]
+              /\ buffers_held_by_host'[c]
+                     = buffers_held_by_host[c]
+    BY RetryLendSucceedsSparesTheSettledCalls
+    DEF ManagedIndInv, L1!IndInv
+<1>q. QED
+    BY <1>1, SMT DEF ManagedIndInv, ManagedMachineInv, LifecycleInv,
+       SettledCallOwesNothing, L1!L0!HasStatus, L1!HostOwnsNoPayload,
+       L1!HostHoldsNoBuffer, L1!OwedPayloads
+
 LEMMA SettledCallOwesNothingIsFramed ==
     ASSUME SettledCallOwesNothing,
            UNCHANGED <<call_dispose_state, events_delivered,
@@ -17358,8 +17436,7 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall
+        BY RetryLendSucceedsOwesTheSettledNothing
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -17488,10 +17565,7 @@ LEMMA KeepsCommitWrite ==
     <1>19. DisposeLeavesNoManagedWaiter'
         OBVIOUS
     <1>20. SettledCallOwesNothing'
-        BY CommitWriteSparesTheSettledCalls, SMT
-        DEF SettledCallOwesNothing, L1!L0!HasStatus,
-           L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
-           L1!OwedPayloads
+        BY CommitWriteOwesTheSettledNothing
     <1>21. AbsentRuntimeOwesNothing'
         OBVIOUS
     <1>g1. NotInitRuntimeIsUndestroyed'
@@ -40141,15 +40215,15 @@ LEMMA CallLeavesTheChannel ==
 
 \* The join of the settled calls over a set, one element at a time.
 LEMMA SettledJoins ==
-    ASSUME NEW T, NEW x, NEW chId \in ChannelIds
-    PROVE  (\A c \in T \union {x} :
+    ASSUME NEW T, NEW cId, NEW chId \in ChannelIds
+    PROVE  (\A c \in T \union {cId} :
                 call_channel[c] = chId
                     => call_dispose_state[c] = "settled")
                <=> /\ (\A c \in T :
                            call_channel[c] = chId
                                => call_dispose_state[c] = "settled")
-                   /\ (call_channel[x] = chId
-                           => call_dispose_state[x] = "settled")
+                   /\ (call_channel[cId] = chId
+                           => call_dispose_state[cId] = "settled")
     OBVIOUS
 
 LEMMA NobodyOnTheEmptySet ==
