@@ -27,7 +27,7 @@ DOC = os.path.join(SPEC, "design.md")
 
 # Structural conjuncts of a manifest that the document deliberately does not
 # list: they say the state is well typed, not what the library guarantees.
-STRUCTURAL = {"TypeOK"}
+STRUCTURAL = {"TypeOK", "ManagedTypeOK"}
 
 # Guarantees about an action rather than about a state, which no conjunction
 # of state predicates can carry.  Each must be a declared theorem.
@@ -35,6 +35,7 @@ ACTION_GUARANTEES = {
     "Level 1": {"WriteDoneFreesASlot": "FfiGrpcTheorems.tla",
                 "DestroyedRuntimeRejectsHandles": "FfiGrpcTheorems.tla"},
     "Level 0": {},
+    "Level 2": {},
 }
 
 # level -> (document region start, document region end, manifests)
@@ -51,6 +52,11 @@ LEVELS = [
       ("FfiGrpc_defs.tla", "BufferStateInv"),
       ("FfiGrpc_defs.tla", "SafetyInvariantExtras"),
       ("FfiGrpc.tla", "LivenessProperties")]),
+    ("Level 2",
+     "#### Level-2 safety invariants (to be proved by TLAPS)",
+     "#### Held by construction",
+     [("DotNetBinding_defs.tla", "ManagedSafety"),
+      ("DotNetBinding_defs.tla", "ManagedLiveness")]),
 ]
 
 

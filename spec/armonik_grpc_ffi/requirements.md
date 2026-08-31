@@ -350,7 +350,7 @@ design before implementation.
 
 1. The TLA+ models live in `spec/armonik_grpc_ffi/tla/`.
 2. The abstract spec (`AbstractGrpc.tla`) describes the observable functional contract (calls,
-   terminal, cancel, retry).
+   terminal, cancel).
 3. The FFI spec (`FfiGrpc.tla`) refines the abstract spec by adding concrete mechanisms
    (handles, callbacks, queues, shutdown).
 4. The .NET binding spec (`DotNetBinding.tla`) refines the FFI spec by modeling roots, TCS,
@@ -361,6 +361,13 @@ design before implementation.
    conditional on the declared fairness assumptions.
 7. Safety properties are proved by TLAPS (TLA+ Proof System) rather than verified by TLC model
    checking. TLC may serve as an exploratory tool but the target is formal proof.
+
+**The automatic retry of Requirement 3 is not modelled**, at any level: no attempt count, no
+backoff, no replay buffer, no retryable status codes.  It is a policy over calls the models
+already describe rather than a mechanism of the FFI protocol, and it is verified by that
+requirement's own tests instead.  The retry the level-2 model does carry is the buffer
+lending retry - `BudgetWaitEndsWhenHopeless`, `MessageTooLargeIsNotRetried` - which is the
+binding's own scheduling and a different mechanism that shares the word.
 
 ---
 

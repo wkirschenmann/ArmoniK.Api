@@ -1,0 +1,85 @@
+--------------------------- MODULE DotNetBinding_MCcall ---------------------------
+(***************************************************************************)
+(* TLC model checking configuration for DotNetBinding.                     *)
+(* Exploration and debugging, not evidence - but during convergence it is  *)
+(* the dead-action detector: TLAPS happily proves that an action that can  *)
+(* never fire preserves everything, so before any proof exists, TLC's      *)
+(* per-action coverage statistics are what certifies every action fires.   *)
+(* Run with -coverage 1 and read the action counts.                        *)
+(***************************************************************************)
+
+EXTENDS DotNetBinding_defs, TLC
+
+(***************************************************************************)
+(* FINITE EXPLORATION BOUND                                                *)
+(***************************************************************************)
+
+\* The managed variables are bounded by the level-0 streams and the finite
+\* phase machines, so bounding the streams is enough for a finite graph.
+StateConstraint ==
+    /\ \A cId \in CallIds : Len(submitted[cId]) <= 1
+    /\ \A cId \in CallIds : Len(received[cId]) <= 1
+
+\* The call path, directed: one channel, one runtime, no teardown until
+\* the call is disposed.  Pruning the teardown and the second generation
+\* collapses the graph onto the reader, the writer and the completions -
+\* the actions a blind breadth-first run reaches last.
+CallPathOnly ==
+    runtime_dispose_state = "active" =>
+        \/ \A c \in CallIds : call_dispose_state[c] = "settled"
+        \/ \A ch \in ChannelIds :
+               channel_dispose_state[ch] # "disposed"
+
+\* Overrides MessageLength: a .cfg constant assignment cannot carry a
+\* function literal.  One byte per message - the ceiling is the subject,
+\* not a spread of sizes.
+MC_MessageLength == [msg \in Messages |-> 1]
+
+\* The level-1 safety aggregate, under a cfg-citable name.
+MC_L1Safety == L1!SafetyInvariant
+
+(***************************************************************************)
+(* TLC WORKAROUND                                                          *)
+(* TLC cannot resolve doubly-instantiated variable tuples (L1!l0_vars is   *)
+(* L0!vars seen through two INSTANCE layers).  Both tuple definitions are  *)
+(* overridden in every configuration with flat lists of the shared         *)
+(* variables, exactly as FfiGrpc_MC overrides l0_vars.                     *)
+(***************************************************************************)
+
+MC_l0_vars == <<runtime_state, channel_state, channel_runtime,
+                call_state, call_channel, submitted, sent, received,
+                delivered, events_delivered, send_closed, status_pending>>
+
+MC_ffi_vars == <<buffers_held_by_host, write_dones_emitted,
+                 write_done_callback_running, delivery_callback_running,
+                 payloads_consumed_by_host, handle_released,
+                 cancel_requested, shutdown_event_emitted,
+                 shutdown_callback_running, runtime_destroyed,
+                 buffer_state, buffer_send, second_event_owed,
+                 last_lend_status, resources_released_emitted,
+                 resources_released_callback_running,
+                 buffer_charge, buffer_length, memory_used>>
+
+MC_l1_vars == <<MC_l0_vars, MC_ffi_vars>>
+
+(***************************************************************************)
+(* DIRECTED CHECK - the second-event chain is dead BY DESIGN at level 2:   *)
+(* a call is disposed only with its writer settled and its ring drained,   *)
+(* and the teardown starts only when every channel is settled, so          *)
+(* SHUTDOWN_COMPLETE always finds no host debt and never owes              *)
+(* AK_EVENT_RESOURCES_RELEASED.  The directed configuration prunes buffer  *)
+(* returns before the shutdown event; the invariant below HOLDS, and a     *)
+(* violation of it means the dispose discipline leaks debt into the        *)
+(* shutdown.  The level-1 event stays modelled and passed through for      *)
+(* refinement completeness.                                                *)
+(***************************************************************************)
+
+DebtSurvivesToShutdown ==
+    \/ \E rtId \in RuntimeIds : shutdown_event_emitted[rtId]
+    \/ \A cId \in CallIds, b \in BufferIds :
+           buffer_state[cId][b] # "returned"
+
+SecondEventNeverEmitted ==
+    \A rtId \in RuntimeIds : ~resources_released_callback_running[rtId]
+
+===============================================================================

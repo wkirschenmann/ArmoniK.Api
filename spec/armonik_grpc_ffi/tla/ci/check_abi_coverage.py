@@ -33,6 +33,8 @@ OBSERVATIONAL = {
     "ak_abi_version",
     "ak_runtime_status",
     "ak_call_debt_of",
+    "ak_runtime_memory_usage",
+    "ak_runtime_memory_usage_detailed",
 }
 
 TABLE_START = "### Where each level-1 action happens"
