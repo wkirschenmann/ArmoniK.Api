@@ -11,7 +11,13 @@ as they comply with the contracts described here.
 
 ---
 
-## Layer 1 — `armonik-transport`
+## Layer 1 — `armonik-transport`, module `http2`
+
+Layers 1 and 2 are two contracts carried by one crate: `armonik-transport` holds
+`http2` for the connector and `grpc` for the gRPC engine.  The engine needs the
+connector and nothing else needs the engine, so a crate boundary between them would
+carry no dependency the module boundary does not.  The numbers stay because the two
+contracts stay.
 
 ### Public contract: `tower::Service<Uri>`
 
@@ -153,7 +159,7 @@ pub struct TransportError {
 
 ---
 
-## Layer 2 — `armonik-grpc-channel`
+## Layer 2 — `armonik-transport`, module `grpc`
 
 ### GrpcChannelConfig
 
@@ -346,7 +352,7 @@ impl TaskHandle {
 
 ### Consumption by the Rust ArmoniK client
 
-The Rust ArmoniK client (`armonik::Client<T>`) uses `armonik-grpc-channel` via an adapter
+The Rust ArmoniK client (`armonik::Client<T>`) uses the `grpc` module via an adapter
 compatible with the generated Tonic stubs. `tonic::transport::Channel` is a concrete type
 and cannot be implemented; the trait a generated stub actually requires is `GrpcService`,
 which any `tower::Service<http::Request<Body>>` satisfies. That is the boundary:
@@ -407,7 +413,7 @@ a task of its own in phase 5, alongside T5.2.
 
 ---
 
-## Layer 3 — `armonik-grpc-channel-ffi`
+## Layer 3 — `armonik-transport-ffi`
 
 ### Principles
 
@@ -665,7 +671,7 @@ refinement.
 | `EmitResourcesReleased` | the runtime task invokes the callback with `AK_EVENT_RESOURCES_RELEASED`, owed only when `SHUTDOWN_COMPLETE` carried `AK_HOST_MUST_RETURN` |
 | `ResourcesReleasedCallbackReturns` | that callback returns, which completes the resources branch. It does not by itself make the status `AK_RUNTIME_QUIESCENT`: the order against `RuntimeRelease` is free, so the level-0 transition may still be owed |
 | `RuntimeDestroy` | `ak_runtime_destroy` accepts, its precondition checked |
-| `NetworkSend` / `NetworkReceive` / `ReceiveStatus` | internal to `armonik-grpc-channel`, not observable at the ABI |
+| `NetworkSend` / `NetworkReceive` / `ReceiveStatus` | internal to the `grpc` module, not observable at the ABI |
 | `RuntimeFail` | any unrecoverable runtime fault, including a genuine allocator failure inside `ak_get_call_buffer` - but not reaching the configured ceiling, which is a refusal; the model leaves the state that follows unconstrained |
 | `RemainFailed` / `RemainReleased` | explicit stutter, so a terminal runtime state has a step and the temporal proofs need no special case |
 
@@ -719,7 +725,7 @@ Note: `RetryConfig` appears both in `GrpcChannelConfig` (channel default) and, p
 per-call override. Only the type is shared with the schema; the per-call override travels as
 an ABI field like the rest of `CallStartOptions`.
 
-The schema is committed at `packages/rust/armonik-grpc-channel-ffi/include/channel_config.schema.json`.
+The schema is committed at `packages/rust/armonik-transport-ffi/include/channel_config.schema.json`.
 
 ### FFI entry points (complete V1 list)
 
