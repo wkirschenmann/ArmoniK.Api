@@ -3347,13 +3347,16 @@ collects them.  What the argument cost is a second family of invariants, below.
 
 #### The derived invariants
 
-Seven invariants carry the liveness argument and appear in no manifest, because none of
+Thirteen invariants carry the liveness argument and appear in no manifest, because none of
 them is a guarantee the library offers: each is a fact about the machine that the safety
-proof never needed and a leads-to edge cannot do without.  Six are collected by
-`DerivedInvariantsHold`, the seventh by `LastHolderHolds`; all seven are defined in
-`DotNetBinding.tla` beside the published ones.  The manifest checker cannot see them - it
-binds this document to the manifests - so this list is the only thing binding them, and a
-new one belongs here on the day it is written.
+proof never needed and a leads-to edge cannot do without.  Six theorems carry them -
+`DerivedInvariantsHold`, `DrainInvariantsHold`, `ReaderGlueHolds`,
+`StatusResolutionHolds`, `ServedRootsHold` and `LastHolderHolds` - each of the shape
+`Spec => []Inv`, and all thirteen are defined in `DotNetBinding.tla` beside the published
+ones.  The manifest checker cannot see them, since it binds this document to the
+manifests; `ci/check_derived_invariants.py` binds them to this table instead, by reading
+that shape rather than a list.  It exists because this list was written from one theorem
+and named seven of the thirteen on the day it was added.
 
 | Invariant | What it says | Promises that rest on it |
 |-----------|--------------|--------------------------|
@@ -3364,6 +3367,12 @@ new one belongs here on the day it is written.
 | `AwaitingWriteDoneHasOneComing` | a writer waiting on its acquittal has a send in flight or the callback on the stack | the pending write |
 | `SerializingWriterHoldsANamedBuffer` | a serializing writer holds a buffer that can be named | the pending write, through `SerializationHasAnExit` |
 | `LastHolderAwaitsItsRuntime` | the last holder's channel keeps its runtime, and while the destroy it triggered has not landed that runtime is the current one, mid-teardown | the channel dispose |
+| `PublishedCallHasStarted` | a call whose token is published exists at level 0 | seven of the seventeen, the call root's release included |
+| `DrainingCallIsCancelled` | a draining call exists and is either cancel-requested or already past active | the call dispose, both read resolutions, the cancelled drain |
+| `InFlightReaderHoldsTheToken` | a read in flight is on a call whose token is published | the read resolutions and the cancellation observation |
+| `ConsumedTerminalFinishesTheReader` | an active call whose ring is drained past its first slot has a finished reader | the read resolutions, the settlement |
+| `StatusResolvedOnceTheRingIsDrained` | a drained ring past its first slot means the status is resolved | the status, the call dispose |
+| `LiveRootIsServed` | a live call root has its token published, and past the status a delivery callback is running | the call root's release |
 
 Two of the seven were forced by the send side and are worth naming for what they rule
 out.  `AwaitingWriteDoneHasOneComing` is what makes the wait end without any hypothesis on

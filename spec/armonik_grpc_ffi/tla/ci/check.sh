@@ -30,6 +30,7 @@ done
 "$PY" ci/check_arity.py || fail=1
 "$PY" ci/check_state_literals.py || fail=1
 "$PY" ci/check_sketch_actions.py || fail=1
+"$PY" ci/check_derived_invariants.py || fail=1
 
 for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          AbstractGrpcTheorems.tla AbstractGrpc_MC.tla \
