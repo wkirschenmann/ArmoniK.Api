@@ -137,6 +137,15 @@ THEOREM DeliveryFairnessRequirement ==
 
 THEOREM EventualMetadataHolds == Spec => EventualMetadata
 
+\* The per-call form, declared so a refinement can take one call's
+\* promise without stripping the quantifier through a backend.
+THEOREM EventualTerminalAt ==
+    ASSUME NEW cId \in CallIds
+    PROVE  Spec => (TerminalPending(cId) ~> TerminalAnswered(cId))
+
+THEOREM EventualMetadataAt ==
+    ASSUME NEW cId \in CallIds
+    PROVE  Spec => (MetadataPending(cId) ~> MetadataAnswered(cId))
 
 THEOREM EventualTerminalHolds == Spec => EventualTerminal
 

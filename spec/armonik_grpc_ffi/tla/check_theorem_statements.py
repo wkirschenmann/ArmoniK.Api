@@ -1,5 +1,5 @@
-# Checks the AbstractGrpcTheorems / AbstractGrpcTheorems_proofs contract:
-# every theorem declared in the interface must be restated verbatim in the
+# Checks the Theorems / Theorems_proofs contract of every level: each
+# theorem declared in an interface module must be restated verbatim in its
 # proofs module. Run it whenever either file changes; CI should run it
 # before tlapm.
 import io
@@ -8,6 +8,11 @@ import re
 import sys
 
 D = os.path.dirname(os.path.abspath(__file__))
+
+PAIRS = [
+    ("AbstractGrpcTheorems.tla", "AbstractGrpcTheorems_proofs.tla"),
+    ("FfiGrpcTheorems.tla", "FfiGrpcTheorems_proofs.tla"),
+]
 
 
 def statements(path):
@@ -29,18 +34,25 @@ def statements(path):
     return out
 
 
-iface = statements(os.path.join(D, "AbstractGrpcTheorems.tla"))
-proofs = statements(os.path.join(D, "AbstractGrpcTheorems_proofs.tla"))
-
 bad = False
-for name, stmt in iface.items():
-    if name not in proofs:
-        print("MISSING IN PROOFS:", name)
-        bad = True
-    elif proofs[name] != stmt:
-        print("STATEMENT DRIFT:", name)
-        bad = True
+total = 0
+for iface_name, proofs_name in PAIRS:
+    iface_path = os.path.join(D, iface_name)
+    proofs_path = os.path.join(D, proofs_name)
+    if not os.path.exists(proofs_path):
+        print("SKIPPED (no proofs module yet): %s" % proofs_name)
+        continue
+    iface = statements(iface_path)
+    proofs = statements(proofs_path)
+    for name, stmt in iface.items():
+        if name not in proofs:
+            print("MISSING IN PROOFS: %s (%s)" % (name, iface_name))
+            bad = True
+        elif proofs[name] != stmt:
+            print("STATEMENT DRIFT: %s (%s)" % (name, iface_name))
+            bad = True
+    total += len(iface)
 if bad:
     sys.exit(1)
-print("OK: %d declarations, all restated verbatim in the proofs module."
-      % len(iface))
+print("OK: %d declarations, all restated verbatim in their proofs modules."
+      % total)
