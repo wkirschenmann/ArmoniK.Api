@@ -410,3 +410,18 @@ target/
 # Documentation artifacts
 build/
 .venv-doc
+
+
+# TLA files
+**/.tlacache/
+**/tla/out/
+# TLC writes its run directory as out_<config>/ when told to, which the
+# bare out/ pattern does not match - one such directory reached a commit's
+# index before this line existed.
+**/tla/out_*/
+**/tla/states/
+# The model checker is a toolchain download, not a source artifact.
+**/tla/tla2tools.jar
+# TLC counterexample-trace artifacts
+*_TTrace_*.tla
+*_TTrace_*.bin
