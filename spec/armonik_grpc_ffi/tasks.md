@@ -28,6 +28,14 @@ Each task below indicates whether it picks from the stack or writes from scratch
 
 ## Phase 0 — TLA+ (before any FFI implementation)
 
+**The invariant names in T0.1-T0.3 are the pre-model sketch and are not the contract.**
+They were written before the specifications existed and most did not survive the
+modelling: ten of T0.1's fifteen names exist, one of T0.3's four, and none of T0.2's
+eight.  What each level guarantees is the manifests in `DotNetBinding_defs.tla`,
+`FfiGrpc_defs.tla` and `AbstractGrpc.tla`, bound to design.md's property lists by
+`ci/check_property_manifest.py`.  Read the tasks below for what was asked, the
+manifests for what holds.
+
 ### T0.1: Level 0 TLA+ spec (AbstractGrpc)
 
 **Prerequisite**: None
@@ -42,6 +50,8 @@ Each task below indicates whether it picks from the stack or writes from scratch
   EventualMessage
 
 **Deliverable**: TLA+ spec explorable by TLC. Structure ready for TLAPS.
+**Status**: done. `AbstractGrpcState`, `AbstractGrpc`, `AbstractGrpc_defs`,
+`AbstractGrpcTheorems` and four TLC configurations.
 
 ### T0.2: Level 1 TLA+ spec (FfiGrpc)
 
@@ -54,6 +64,10 @@ Each task below indicates whether it picks from the stack or writes from scratch
 - Decomposition of Level 0 fairness into local fairness
 
 **Deliverable**: Level 1 TLA+ spec. Refinement verified by TLC.
+**Status**: done, and the refinement is proved rather than only checked:
+`RefinesInit`, `RefinesNext` disjunct by disjunct, and the fairness lifts.
+The refusals' enabledness lives in `FfiGrpcEnabledTheorems`, apart because a
+statement that writes ENABLED cannot be reached through an instance.
 
 ### T0.3: Level 2 TLA+ spec (DotNetBinding)
 
@@ -66,6 +80,10 @@ Each task below indicates whether it picks from the stack or writes from scratch
 - Fairness justification "callback returns" (bounded trampoline)
 
 **Deliverable**: Level 2 TLA+ spec. Refinement verified.
+**Status**: done. `Spec => L1!Spec` proved, so level 1's guarantees are inherited
+rather than restated.  Six TLC configurations plus two witnesses, whose targets
+are stated negatively so a violation trace is the result - without them either
+branch could be dead code.
 
 ### T0.4: TLAPS proofs (3 levels)
 
@@ -76,6 +94,33 @@ Each task below indicates whether it picks from the stack or writes from scratch
 - Fairness decomposition
 
 **Deliverable**: `spec/armonik_grpc_ffi/tla/proofs/`. TLAPS validates.
+**Status**: done.  The proofs are `*Theorems_proofs.tla` beside their interfaces
+rather than a `proofs/` subdirectory - the layout the statement contract needs,
+since each proofs module restates its interface verbatim.  Verified with the
+fingerprint cache disabled, which is the only run that says anything about the
+text as it stands: 1809, 23, 11421 and 28818 obligations, no failure.  A green
+run over a warm cache says only that the obligations were once discharged.
+
+The TLAPS proof is verified manually and will stay that way: building tlapm with its
+backends costs more per pull request than the team is willing to spend.  This is a
+decision, not a gap waiting to be filled, and the consequence is worth stating plainly:
+`ci/check.sh` checks the declarations, the footprints, the parses and the bindings
+between this document and the manifests; nothing checks that the proofs still close.
+
+Before merging anything that touches a `*_proofs.tla` or a definition under it, on a
+machine with tlapm:
+
+```
+cd spec/armonik_grpc_ffi/tla
+for m in AbstractGrpcTheorems_proofs FfiGrpcEnabledTheorems_proofs \
+         FfiGrpcTheorems_proofs DotNetBindingTheorems_proofs; do
+  TLAPM=<path-to-tlapm> bash ci/verify_proofs.sh $m.tla
+done
+```
+
+`verify_proofs.sh` passes `--nofp`, which is the whole point: a run over a warm cache
+says the obligations were once discharged by a text that may since have changed.
+
 
 ---
 
@@ -84,11 +129,12 @@ Each task below indicates whether it picks from the stack or writes from scratch
 The bare minimum for a unary call: a plain HTTP/2 connector (no TLS, no proxy, no retry),
 gRPC framing, minimal FFI, minimal .NET binding.
 
-### T1.1: Create `armonik-grpc-channel` — minimal connector + framing + unary
+### T1.1: Add the `grpc` module to `armonik-transport` — framing + unary
 
 **Prerequisite**: None (parallelizable with Phase 0)
 **Source**: from scratch, picking the plain HTTP connector from the existing stack
-**Commit**: Create `packages/rust/armonik-grpc-channel/`:
+**Commit**: Add `packages/rust/armonik-transport/src/grpc/` beside the `http2` module
+the crate already carries:
 - Dependencies: hyper, hyper-util, http, bytes, tokio
 - `GrpcChannel::new(endpoint, executor)` — connects in plain HTTP/2 (no TLS)
 - gRPC framing (encode/decode length-prefixed)
@@ -98,11 +144,11 @@ gRPC framing, minimal FFI, minimal .NET binding.
 
 **Deliverable**: Rust integration test: unary call to a local gRPC server (plain HTTP/2).
 
-### T1.2: Create `armonik-grpc-channel-ffi` — minimal unary ABI
+### T1.2: Create `armonik-transport-ffi` — minimal unary ABI
 
 **Prerequisite**: T1.1, T0.2 (FFI spec proved or at least written)
 **Source**: from scratch per the design
-**Commit**: Create `packages/rust/armonik-grpc-channel-ffi/`:
+**Commit**: Create `packages/rust/armonik-transport-ffi/`:
 - `ak_runtime_create`, `ak_runtime_status`, `ak_runtime_begin_shutdown`
 - `ak_channel_create` (minimal JSON config: just endpoint)
 - `ak_call_start`, `ak_call_send_message` (zero-copy), `ak_call_end_send`,
@@ -349,17 +395,18 @@ Native vs managed. net48 and net8.0. Results documented.
 
 ---
 
-## Phase 7 — Rust ArmoniK Client on armonik-grpc-channel
+## Phase 7 — Rust ArmoniK Client on armonik-transport
 
-### T7.1: Adapt the Rust ArmoniK client to use armonik-grpc-channel
+### T7.1: Adapt the Rust ArmoniK client to use the `grpc` module
 
 **Prerequisite**: T1.1, T2.3 (functional Rust channel with all 4 cardinalities)
 **Commit**: Replace the direct Tonic dependency in the Rust ArmoniK client with an adapter
-that consumes `armonik-grpc-channel`. The generated Tonic stubs work via a `Channel` adapter
+that consumes `armonik-transport`'s `grpc` module. The generated Tonic stubs work via a
+`Channel` adapter
 that delegates to `GrpcChannel`. The Rust client and the .NET binding share the same native
 gRPC engine.
 
-**Deliverable**: Rust ArmoniK client tests pass using `armonik-grpc-channel` instead of
+**Deliverable**: Rust ArmoniK client tests pass using `armonik-transport` instead of
 Tonic directly. Same functional behavior.
 
 ---

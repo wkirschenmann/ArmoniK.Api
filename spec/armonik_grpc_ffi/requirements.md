@@ -17,15 +17,21 @@ Today, the gRPC transport relies on managed .NET components (`Grpc.Net.Client`,
    versions, hence the gRPC-Web fallback.
 
 The project consists of replacing this transport with a **native gRPC channel written in Rust**,
-common to all platforms, exposed to .NET via a thin C FFI. The architecture has 5 layers:
+common to all platforms, exposed to .NET via a thin C FFI. The architecture has 5 layers,
+the first two being two modules of one crate:
 
 ```
-armonik-transport (Rust, networking)
-  → armonik-grpc-channel (Rust, gRPC semantics)
-    → armonik-grpc-channel-ffi (Rust → C ABI, runtime isolation)
-      → ArmoniK.Api.Client.RustGrpcChannel (C#, native CallInvoker)
-        → ArmoniK.Api.Client (C#, gRPC stubs, public API unchanged)
+armonik-transport (Rust)
+  module http2 (networking)          ← layer 1
+  module grpc   (gRPC semantics)     ← layer 2
+  → armonik-transport-ffi (Rust → C ABI, runtime isolation)
+    → ArmoniK.Api.Client.RustGrpcChannel (C#, native CallInvoker)
+      → ArmoniK.Api.Client (C#, gRPC stubs, public API unchanged)
 ```
+
+Layers 1 and 2 are two contracts and one crate.  The gRPC engine needs the connector and
+nothing else needs the gRPC engine, so a crate boundary between them would carry no
+dependency that the module boundary does not.
 
 The application developer sees no API change. Network behavior becomes identical regardless of
 the .NET runtime version. All options become effective.
@@ -284,7 +290,7 @@ reading the transport source code.
 ## Requirement 12: Public connector contract (ArmoniK team)
 
 **User Story:** As an ArmoniK team member, I want the public boundary between
-`armonik-transport` and `armonik-grpc-channel` to be formalized and stable, so that I can
+`armonik-transport`'s `http2` and `grpc` modules to be formalized and stable, so that I can
 develop the two crates independently.
 
 ### Acceptance Criteria
@@ -295,7 +301,7 @@ develop the two crates independently.
 3. The connector does not depend on any gRPC notion (no status, no retry, no deadline).
 4. The channel does not reinterpret transport options (no double endpoint/TLS resolution).
 5. The contract is tested: an incompatible change in the connector breaks an upstream test.
-6. The Rust ArmoniK client (`armonik::Client`) uses `armonik-grpc-channel` as its transport
+6. The Rust ArmoniK client (`armonik::Client`) uses `armonik-transport`'s `grpc` module as its transport
    (via a Tonic adapter or directly), sharing the same gRPC engine that the FFI exposes to
    bindings.
 

@@ -25,16 +25,16 @@
 │     Native CallInvoker, binding runtime,                │  (multitarget if justified)
 │     trampoline, host queue, SafeHandles, shutdown       │
 ├─────────────────────────────────────────────────────────┤
-│  3. armonik-grpc-channel-ffi                            │  Rust → DLL/SO C
+│  3. armonik-transport-ffi                               │  Rust → DLL/SO C
 │     Versioned C ABI, owned Tokio runtime,               │
 │     handles, callbacks, registries, shutdown            │
 ├─────────────────────────────────────────────────────────┤
-│  2. armonik-grpc-channel                                │  Rust — lib crate
+│  2. armonik-transport :: grpc                           │  Rust — lib crate
 │     Functional gRPC channel: framing, metadata,         │
 │     status, retry, deadline, flow control, 4 cardinal.  │
 ├─────────────────────────────────────────────────────────┤
-│  1. armonik-transport                                   │  Rust — lib crate
-│     Network connector: endpoint, TCP, TLS/mTLS,         │
+│  1. armonik-transport :: http2                          │  Rust - lib crate; layers 1 and 2
+│     Network connector: endpoint, TCP, TLS/mTLS,         │  are two modules of one crate
 │     proxy, connect timeout, DNS                         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -63,13 +63,13 @@ The crate exists and provides:
 
 ### Missing Features
 
-- **Stable public contract for the `Connector`** — The boundary between what `armonik-transport`
-  exposes and what `armonik-grpc-channel` consumes is not formalized. This is the prerequisite
+- **Stable public contract for the `Connector`** — The boundary between what the `http2`
+  module exposes and what the `grpc` module consumes is not formalized. This is the prerequisite
   for everything else: the public trait/type of the connector, its guarantees, its error contract.
 
 - **Extraction of options that don't belong to it** — `RetryConfig`, `Http2Config`, request timeout
   and pool options are currently declared here but applied above. They must migrate to
-  `armonik-grpc-channel`. The residual configuration for `armonik-transport` is: endpoint,
+  the `grpc` module. The residual configuration for `http2` is: endpoint,
   TLS/mTLS, TCP, proxy, connect timeout.
 
 - **Effective `OverrideTargetName`** — The option exists but does not modify the name verified by
@@ -85,7 +85,7 @@ The crate exists and provides:
 
 ---
 
-## Layer 2 — `armonik-grpc-channel` (create)
+## Layer 2 — `armonik-transport`, module `grpc` (create)
 
 ### Responsibility
 
@@ -175,7 +175,7 @@ pub trait Executor: Send + Sync + 'static {
 
 ---
 
-## Layer 3 — `armonik-grpc-channel-ffi` (create)
+## Layer 3 — `armonik-transport-ffi` (create)
 
 ### Responsibility
 
@@ -277,7 +277,7 @@ AK_NOT_INITIALIZED → AK_RUNNING → AK_STOPPING → AK_DRAINING → AK_RELEASE
 
 Channel configuration is passed as UTF-8 JSON. The JSON schema is the single source of truth for
 options (shared across all layers). The schema lives in the FFI crate and is generated from the Rust
-types of `armonik-grpc-channel` + `armonik-transport`. It is committed in the repo so that bindings
+types of `armonik-transport`, both modules. It is committed in the repo so that bindings
 can generate their code.
 
 ---
