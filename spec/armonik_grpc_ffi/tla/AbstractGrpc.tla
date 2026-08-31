@@ -5,7 +5,10 @@
 (* message delivery as seen by a client.                                   *)
 (*                                                                         *)
 (* All state is modeled as total functions over finite identifier sets.    *)
-(* RELEASED is what the ABI publishes as AK_RUNTIME_QUIESCENT.             *)
+(* RELEASED is where a runtime ends.  Level 1 refines it into two          *)
+(* observable statuses - AK_RUNTIME_GRPC_STOPPED and AK_RUNTIME_QUIESCENT -*)
+(* whose difference is what the host still holds; that ownership question  *)
+(* does not exist at this level.                                           *)
 (***************************************************************************)
 
 EXTENDS AbstractGrpcState, Naturals, Sequences
@@ -490,6 +493,16 @@ TerminalWaiting(cId) == IsActiveCall(cId)
 
 TerminalReached(cId) == HasStatus(cId)
 
+\* The pending/answered forms carry the failure escape inside the
+\* name: a quantified leads-to is strippable only when both operands
+\* are bare named applications.
+TerminalPending(cId) == TerminalWaiting(cId) /\ NotFailed
+
+TerminalAnswered(cId) == TerminalReached(cId) \/ ~NotFailed
+
+MetadataPending(cId) == MetadataWaiting(cId) /\ NotFailed
+
+MetadataAnswered(cId) == MetadataDelivered(cId) \/ ~NotFailed
 
 \* A runtime the caller has asked to stop.
 ShutdownWaiting(rtId) == runtime_state[rtId] = "STOPPING"
@@ -524,8 +537,7 @@ DeliveryDoneAt(cId, i) ==
 \* Every active call eventually terminates, unless a runtime fails.
 EventualTerminal ==
     \A cId \in CallIds :
-        (TerminalWaiting(cId) /\ NotFailed) ~>
-            (TerminalReached(cId) \/ ~NotFailed)
+        TerminalPending(cId) ~> TerminalAnswered(cId)
 
 \* A runtime asked to stop always settles, and in this very slot.  This is
 \* stronger than what the generic failure lifting produces, which only
@@ -557,8 +569,7 @@ DeliveryProgress ==
 \* A started call eventually gets its initial metadata.
 EventualMetadata ==
     \A cId \in CallIds :
-        (MetadataWaiting(cId) /\ NotFailed) ~>
-            (MetadataDelivered(cId) \/ ~NotFailed)
+        MetadataPending(cId) ~> MetadataAnswered(cId)
 
 \* The five guarantees under one name, so the top-level proof can cite them
 \* as a single obligation.
@@ -574,7 +585,7 @@ LivenessProperties ==
 (*                                                                         *)
 (* Two kinds of conjuncts live here.  NetworkSend, ReceiveStatus,          *)
 (* RuntimeRelease and ChannelFinishClosing are promises of the library:    *)
-(* the level-1 refinement (the binding) must discharge them with its own   *)
+(* the FFI refinement must discharge them with its own                     *)
 (* threads.  The Deliver* conjuncts are continuing obligations of the      *)
 (* caller: level 0 has no demand variable, so delivery is guarded by       *)
 (* availability alone, and a caller that stops reading falsifies them.     *)
