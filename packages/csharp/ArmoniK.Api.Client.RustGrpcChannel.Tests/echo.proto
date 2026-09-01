@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package armonik.transport.ffi.test;
+
+option csharp_namespace = "ArmoniK.Api.Client.RustGrpcChannel.Tests";
+
+message EchoRequest {
+  string text = 1;
+}
+
+message EchoReply {
+  string text = 1;
+  string saw_metadata = 2;
+}
+
+service Echo {
+  rpc Say (EchoRequest) returns (EchoReply);
+  rpc Refuse (EchoRequest) returns (EchoReply);
+  rpc Never (EchoRequest) returns (EchoReply);
+}

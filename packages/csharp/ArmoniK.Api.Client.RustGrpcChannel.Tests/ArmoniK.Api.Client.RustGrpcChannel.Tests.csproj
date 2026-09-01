@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.71.0" PrivateAssets="All" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="echo.proto" GrpcServices="Both" />
+  </ItemGroup>
+
+  <!-- The engine under test is the Rust cdylib. Copied beside the test assembly rather than
+       resolved from PATH, so a stale one somewhere else cannot be what answers. -->
+  <Target Name="CopyNativeEngine" AfterTargets="Build">
+    <PropertyGroup>
+      <NativeEngineDirectory>$(MSBuildThisFileDirectory)..\..\rust\target\$(Configuration.ToLower())\</NativeEngineDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <NativeEngine Include="$(NativeEngineDirectory)armonik_transport_ffi.dll"
+                    Condition="Exists('$(NativeEngineDirectory)armonik_transport_ffi.dll')" />
+      <NativeEngine Include="$(NativeEngineDirectory)libarmonik_transport_ffi.so"
+                    Condition="Exists('$(NativeEngineDirectory)libarmonik_transport_ffi.so')" />
+      <NativeEngine Include="$(NativeEngineDirectory)libarmonik_transport_ffi.dylib"
+                    Condition="Exists('$(NativeEngineDirectory)libarmonik_transport_ffi.dylib')" />
+    </ItemGroup>
+    <!-- Failing here rather than in nine identical DllNotFoundException reports. -->
+    <Error Condition="'@(NativeEngine)' == ''"
+           Text="no engine in $(NativeEngineDirectory): build it with `cargo build -p armonik-transport-ffi`" />
+    <Copy SourceFiles="@(NativeEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

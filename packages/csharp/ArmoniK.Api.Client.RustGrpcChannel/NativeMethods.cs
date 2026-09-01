@@ -1,0 +1,190 @@
+using System;
+using System.Runtime.InteropServices;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel;
+
+/// <summary>
+///   The `ak_*` entry points, as declared in
+///   `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`.
+/// </summary>
+/// <remarks>
+///   `Cdecl` is spelled out rather than left to the default: it is what the header says, and on
+///   x86 the default would be wrong.
+/// </remarks>
+internal static class NativeMethods
+{
+  internal const string Library = "armonik_transport_ffi";
+
+  internal enum AkStatus
+  {
+    Ok               = 0,
+    HandleStale      = 1,
+    SlotBusy         = 2,
+    InvalidArg       = 3,
+    Internal         = 4,
+    BudgetBusy       = 5,
+    InvalidState     = 6,
+    MessageTooLarge  = 7,
+  }
+
+  internal enum AkRuntimeState
+  {
+    Running           = 1,
+    GrpcStopping      = 2,
+    GrpcStopped       = 3,
+    Quiescent         = 4,
+    FailedUnquiesced  = 5,
+  }
+
+  internal enum AkEventKind
+  {
+    InitialMetadata   = 1,
+    Message           = 2,
+    Status            = 3,
+    WriteDone         = 4,
+    ShutdownComplete  = 5,
+    ResourcesReleased = 6,
+  }
+
+  internal enum AkHostDebt
+  {
+    NothingToReturn = 0,
+    MustReturn      = 1,
+  }
+
+  /// <summary>Bytes lent to the library for the duration of one downcall.</summary>
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkBytesIn
+  {
+    internal IntPtr Ptr;
+    internal UIntPtr Len;
+  }
+
+  /// <summary>
+  ///   A view owned by this side until <see cref="ak_event_consumed" />. It is <c>Owner</c> and not
+  ///   <c>Ptr</c> that identifies the allocation, and a null <c>Owner</c> - not a zero length - is
+  ///   what says there is nothing to give back.
+  /// </summary>
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkBytes
+  {
+    internal IntPtr Ptr;
+    internal UIntPtr Len;
+    internal IntPtr Owner;
+  }
+
+  /// <summary>A buffer lent out of a call's arena, given back exactly once.</summary>
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkBuffer
+  {
+    internal IntPtr Ptr;
+    internal UIntPtr Len;
+    internal IntPtr Owner;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkEvent
+  {
+    internal AkEventKind Kind;
+    internal AkBytes Payload;
+    internal int StatusCode;
+    internal AkHostDebt HostDebt;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkRuntimeConfig
+  {
+    internal uint StructSize;
+    internal uint WorkerThreads;
+    internal ulong MemoryCeiling;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkCallStartOptions
+  {
+    internal uint StructSize;
+    internal AkBytesIn Method;
+    internal AkBytesIn Metadata;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  internal struct AkCallDebt
+  {
+    internal uint PayloadsOwed;
+    internal uint BuffersLent;
+    internal uint CallbacksInFlight;
+    internal int TerminalDelivered;
+  }
+
+  /// <summary>
+  ///   Where every event of a runtime arrives, on one of the library's own threads.
+  /// </summary>
+  /// <remarks>
+  ///   A delegate marshalled to a function pointer is not kept alive by the native side holding
+  ///   that pointer, so whoever passes one has to root it for as long as the runtime may call it.
+  /// </remarks>
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+  internal delegate void AkCallback(IntPtr runtimeCtx,
+                                    IntPtr callCtx,
+                                    IntPtr @event);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_runtime_create(ref AkRuntimeConfig config,
+                                                    AkCallback callback,
+                                                    IntPtr runtimeCtx,
+                                                    out ulong outRuntime);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkRuntimeState ak_runtime_status(ulong runtime);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_runtime_begin_shutdown(ulong runtime);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_runtime_destroy(ulong runtime);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_channel_create(ulong runtime,
+                                                    AkBytesIn configJson,
+                                                    out ulong outChannel);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern void ak_channel_release(ulong channel);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_call_start(ulong channel,
+                                                ref AkCallStartOptions options,
+                                                IntPtr callCtx,
+                                                out ulong outCall);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_get_call_buffer(ulong call,
+                                                     UIntPtr len,
+                                                     out AkBuffer outBuffer);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_call_send_message(ulong call,
+                                                       AkBuffer buffer);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern void ak_return_call_buffer(AkBuffer buffer);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_call_end_send(ulong call);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_call_cancel(ulong call);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_call_debt_of(ulong call,
+                                                  out AkCallDebt outDebt);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern int ak_abi_version();
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern void ak_event_consumed(AkBytes payload);
+
+  /// <summary>The version this binding is written against.</summary>
+  internal const int AbiVersion = 1;
+}
