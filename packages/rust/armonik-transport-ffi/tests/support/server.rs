@@ -11,56 +11,22 @@ use std::time::Duration;
 use armonik_transport::reexports::hyper;
 use armonik_transport::reexports::hyper_util::rt::{TokioExecutor, TokioIo};
 use armonik_transport::reexports::tonic::body::Body as TonicBody;
-use armonik_transport::reexports::tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use armonik_transport::reexports::tonic::metadata::{MetadataMap, MetadataValue};
 use armonik_transport::reexports::tonic::{Code, Request, Response, Status};
-use bytes::{Buf, BufMut, Bytes};
+use bytes::Bytes;
 use hyper::body::Incoming;
+
+// The neighbouring crate's test codec, taken by path rather than copied: it reaches everything
+// through `armonik_transport::reexports`, so it compiles unchanged here.
+#[path = "../../../armonik-transport/tests/common/codec.rs"]
+mod codec;
+
+use codec::BytesCodec;
 use tower_service::Service;
 
 pub const ECHO: &str = "/armonik_transport_ffi.test.Echo/Echo";
 pub const FAIL: &str = "/armonik_transport_ffi.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport_ffi.test.Echo/Slow";
-
-/// A codec whose wire representation *is* the message, so one server answers any method path.
-#[derive(Clone, Copy, Default)]
-struct BytesCodec;
-
-impl Codec for BytesCodec {
-    type Encode = Bytes;
-    type Decode = Bytes;
-    type Encoder = Self;
-    type Decoder = Self;
-
-    fn encoder(&mut self) -> Self::Encoder {
-        *self
-    }
-
-    fn decoder(&mut self) -> Self::Decoder {
-        *self
-    }
-}
-
-impl Encoder for BytesCodec {
-    type Item = Bytes;
-    type Error = Status;
-
-    fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
-        dst.reserve(item.len());
-        dst.put_slice(&item);
-        Ok(())
-    }
-}
-
-impl Decoder for BytesCodec {
-    type Item = Bytes;
-    type Error = Status;
-
-    fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
-        let len = src.remaining();
-        Ok(Some(src.copy_to_bytes(len)))
-    }
-}
 
 type Answer = Pin<Box<dyn Future<Output = Result<Response<Bytes>, Status>> + Send>>;
 

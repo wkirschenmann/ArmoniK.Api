@@ -77,13 +77,14 @@ impl ak_bytes_in {
     ///
     /// `ptr` must be valid for `len` bytes for the duration of the borrow.
     pub(crate) unsafe fn as_slice<'a>(&self) -> Option<&'a [u8]> {
-        match (self.ptr.is_null(), self.len) {
-            (true, 0) => Some(&[]),
-            (true, _) => None,
-            (false, 0) => Some(&[]),
-            // SAFETY: forwarded from this function's own contract.
-            (false, len) => Some(unsafe { std::slice::from_raw_parts(self.ptr, len) }),
+        if self.len == 0 {
+            return Some(&[]);
         }
+        if self.ptr.is_null() {
+            return None;
+        }
+        // SAFETY: forwarded from this function's own contract.
+        Some(unsafe { std::slice::from_raw_parts(self.ptr, self.len) })
     }
 }
 

@@ -10,9 +10,6 @@ use serde::Deserialize;
 /// How many buffers one call may have out at once.
 pub(crate) const MAX_SENDS_IN_FLIGHT: u32 = 1;
 
-/// How many delivered payloads one call may have unconsumed at once.
-pub(crate) const DELIVERY_CREDITS: usize = 1;
-
 /// What the JSON says. Unknown fields are refused rather than ignored: an option spelled wrong
 /// and dropped in silence is the failure mode this whole configuration path exists to avoid.
 #[derive(Debug, Deserialize)]

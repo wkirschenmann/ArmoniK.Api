@@ -39,7 +39,9 @@ impl<T> Registry<T> {
     pub(crate) fn reserve(&self) -> ak_handle {
         let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
 
-        let index = slots.iter().position(|slot| slot.value.is_none() && !slot.reserved);
+        let index = slots
+            .iter()
+            .position(|slot| slot.value.is_none() && !slot.reserved);
         let index = match index {
             Some(index) => {
                 // A reused slot advances, so every token it ever named but the newest is stale.

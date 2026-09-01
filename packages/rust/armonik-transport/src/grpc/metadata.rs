@@ -21,7 +21,7 @@ const BINARY_OUT: GeneralPurpose = GeneralPurpose::new(
         .with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
 
-const BINARY_SUFFIX: &str = "-bin";
+pub const BINARY_SUFFIX: &str = "-bin";
 
 pub(crate) const GRPC_STATUS: &str = "grpc-status";
 pub(crate) const GRPC_MESSAGE: &str = "grpc-message";
@@ -95,7 +95,7 @@ impl Metadata {
             .map(|(_, value)| value)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &MetadataValue)> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &MetadataValue)> {
         self.entries
             .iter()
             .map(|(key, value)| (key.as_str(), value))

@@ -15,7 +15,7 @@
 //! Keys and values are opaque bytes: a `-bin` metadata value is raw binary, so validating text is
 //! the caller's business and the decoder carries no policy.
 
-use armonik_transport::grpc::{Metadata, MetadataValue};
+use armonik_transport::grpc::{Metadata, MetadataValue, BINARY_SUFFIX};
 use bytes::Bytes;
 
 /// Key and value borrowed straight out of the host's blob, in the order they appeared.
@@ -75,7 +75,7 @@ pub(crate) fn decode_metadata(bytes: &[u8]) -> Option<Metadata> {
     let mut metadata = Metadata::new();
     for (key, value) in decode(bytes).ok()? {
         let key = std::str::from_utf8(key).ok()?;
-        let entry = if key.ends_with("-bin") {
+        let entry = if key.ends_with(BINARY_SUFFIX) {
             MetadataValue::Binary(Bytes::copy_from_slice(value))
         } else {
             MetadataValue::Ascii(std::str::from_utf8(value).ok()?.to_owned())
@@ -87,17 +87,13 @@ pub(crate) fn decode_metadata(bytes: &[u8]) -> Option<Metadata> {
 
 /// The blob describing this metadata, with binary values as the bytes they are.
 pub(crate) fn encode_metadata(metadata: &Metadata) -> Vec<u8> {
-    let pairs: Vec<(&[u8], &[u8])> = metadata
-        .iter()
-        .map(|(key, value)| {
-            let value: &[u8] = match value {
-                MetadataValue::Ascii(text) => text.as_bytes(),
-                MetadataValue::Binary(bytes) => bytes,
-            };
-            (key.as_bytes(), value)
-        })
-        .collect();
-    encode(pairs.into_iter())
+    encode(metadata.iter().map(|(key, value)| {
+        let value: &[u8] = match value {
+            MetadataValue::Ascii(text) => text.as_bytes(),
+            MetadataValue::Binary(bytes) => bytes,
+        };
+        (key.as_bytes(), value)
+    }))
 }
 
 fn read_u32(cursor: &mut &[u8]) -> Result<u32, BlobError> {

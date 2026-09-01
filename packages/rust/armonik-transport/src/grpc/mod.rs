@@ -17,5 +17,5 @@ pub use call::{
 pub use channel::{GrpcChannel, GrpcChannelConfig};
 pub use error::{CallError, ChannelError};
 pub use executor::{BoxedTask, Executor, TaskHandle, TokioExecutor};
-pub use metadata::{Metadata, MetadataError, MetadataValue};
+pub use metadata::{Metadata, MetadataError, MetadataValue, BINARY_SUFFIX};
 pub use status::{GrpcStatus, GrpcStatusCode};

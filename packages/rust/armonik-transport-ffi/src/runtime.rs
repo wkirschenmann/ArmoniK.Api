@@ -223,17 +223,25 @@ impl AkRuntime {
             .collect()
     }
 
-    /// Stales every handle this runtime owns, and hands back what they named.
+    /// Takes this runtime's channels out of the registry and hands them over.
+    fn take_own_channels(this: &Weak<Self>) -> Vec<Arc<AkChannel>> {
+        tables::channels()
+            .values()
+            .into_iter()
+            .filter(|channel| Weak::ptr_eq(&channel.runtime, this))
+            .inspect(|channel| {
+                tables::channels().remove(channel.handle());
+            })
+            .collect()
+    }
+
+    /// Stales every handle this runtime owns.
     pub(crate) fn stale_own_handles(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         for call in Self::own_calls(&weak) {
             tables::calls().remove(call.handle());
         }
-        for channel in tables::channels().values() {
-            if Weak::ptr_eq(&channel.runtime, &weak) {
-                tables::channels().remove(channel.handle());
-            }
-        }
+        Self::take_own_channels(&weak);
     }
 
     /// Closes the start gate and drains. Idempotent: a second call is a no-op.
@@ -265,16 +273,14 @@ impl AkRuntime {
             // Closing a channel cancels its calls, which is what makes them reach a terminal.
             // The call registry is not drained: a handle stays valid until its call is reclaimed,
             // and reclamation is what empties it.
-            for channel in tables::channels().values() {
-                if Weak::ptr_eq(&channel.runtime, &weak) {
-                    tables::channels().remove(channel.handle());
-                    channel.grpc.close();
-                }
+            for channel in Self::take_own_channels(&weak) {
+                channel.grpc.close();
             }
-            for call in Self::own_calls(&weak) {
+            let calls = Self::own_calls(&weak);
+            for call in &calls {
                 call.cancel();
             }
-            for call in Self::own_calls(&weak) {
+            for call in &calls {
                 call.finished().await;
             }
 

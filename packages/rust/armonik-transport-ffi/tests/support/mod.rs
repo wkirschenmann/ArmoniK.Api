@@ -212,6 +212,17 @@ fn kinds(seen: &[Event]) -> Vec<ak_event_kind> {
     seen.iter().map(|event| event.kind).collect()
 }
 
+/// The events the ABI serializes among themselves. WRITE_DONE is a second domain and the
+/// runtime's own two belong to no call.
+fn is_data(kind: ak_event_kind) -> bool {
+    matches!(
+        kind,
+        ak_event_kind::AK_EVENT_INITIAL_METADATA
+            | ak_event_kind::AK_EVENT_MESSAGE
+            | ak_event_kind::AK_EVENT_STATUS
+    )
+}
+
 /// A snapshot of what a runtime has delivered.
 #[derive(Debug)]
 pub struct Seen(Vec<Event>);
@@ -221,19 +232,11 @@ impl Seen {
         kinds(&self.0)
     }
 
-    /// The events the ABI serializes among themselves, WRITE_DONE and the runtime's own left out.
     pub fn data_kinds(&self) -> Vec<ak_event_kind> {
         self.0
             .iter()
             .map(|event| event.kind)
-            .filter(|kind| {
-                matches!(
-                    kind,
-                    ak_event_kind::AK_EVENT_INITIAL_METADATA
-                        | ak_event_kind::AK_EVENT_MESSAGE
-                        | ak_event_kind::AK_EVENT_STATUS
-                )
-            })
+            .filter(|kind| is_data(*kind))
             .collect()
     }
 
@@ -282,14 +285,7 @@ impl Seen {
     pub fn first_data_event_was_owned(&self) -> bool {
         self.0
             .iter()
-            .find(|event| {
-                matches!(
-                    event.kind,
-                    ak_event_kind::AK_EVENT_INITIAL_METADATA
-                        | ak_event_kind::AK_EVENT_MESSAGE
-                        | ak_event_kind::AK_EVENT_STATUS
-                )
-            })
+            .find(|event| is_data(event.kind))
             .is_some_and(|event| event.had_owner)
     }
 }

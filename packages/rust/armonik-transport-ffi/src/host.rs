@@ -51,27 +51,21 @@ impl Host {
         }));
     }
 
-    /// An event carrying a payload the host must consume.
-    pub(crate) fn deliver(&self, call_ctx: HostPtr, kind: ak_event_kind, payload: ak_bytes) {
+    /// An event carrying a payload the host must consume. `status_code` is the terminal's, and
+    /// zero on every other kind.
+    pub(crate) fn deliver(
+        &self,
+        call_ctx: HostPtr,
+        kind: ak_event_kind,
+        payload: ak_bytes,
+        status_code: i32,
+    ) {
         self.emit(
             call_ctx,
             &ak_event {
                 kind,
                 payload,
-                status_code: 0,
-                host_debt: ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
-            },
-        );
-    }
-
-    /// The terminal, whose code travels beside the payload rather than in it.
-    pub(crate) fn deliver_status(&self, call_ctx: HostPtr, code: i32, payload: ak_bytes) {
-        self.emit(
-            call_ctx,
-            &ak_event {
-                kind: ak_event_kind::AK_EVENT_STATUS,
-                payload,
-                status_code: code,
+                status_code,
                 host_debt: ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
             },
         );

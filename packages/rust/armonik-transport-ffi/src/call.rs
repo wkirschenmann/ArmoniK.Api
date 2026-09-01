@@ -17,6 +17,9 @@ use crate::blob;
 use crate::host::{Host, HostPtr};
 use crate::runtime::{AkRuntime, Ledger};
 
+/// How many delivered payloads one call may have unconsumed at once.
+pub(crate) const DELIVERY_CREDITS: usize = 1;
+
 /// What the writing side hands the actor.
 pub(crate) enum Command {
     Send(Bytes),
@@ -205,9 +208,9 @@ impl CallState {
         }
     }
 
-    /// Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only
-    /// exit for a buffer whose send is refused, and the call is not reclaimed until it happens.
+    #[allow(clippy::boxed_local)]
     pub(crate) fn give_back(&self, lent: Box<Lent>) {
+        // The box is the allocation coming back from the host; dropping it here is the point.
         self.took_back(lent.data.len());
         self.window.release();
     }
@@ -352,12 +355,6 @@ fn lend_payload(call: &Arc<CallState>, data: Vec<u8>, returns_credit: bool) -> a
     }
 }
 
-/// What a call needs to start, once its handle is known.
-pub(crate) struct Halves {
-    pub(crate) send: SendHalf,
-    pub(crate) recv: RecvHalf,
-}
-
 /// Builds the shared state of a call. The tasks start once the handle names it.
 pub(crate) fn create(
     ctx: HostPtr,
@@ -397,20 +394,16 @@ pub(crate) fn create(
 pub(crate) fn start(
     state: &Arc<CallState>,
     handle: ak_handle,
-    halves: Halves,
+    send: SendHalf,
+    recv: RecvHalf,
     commands: mpsc::Receiver<Command>,
     spawner: &tokio::runtime::Handle,
 ) {
     let _ = state.handle.set(handle);
     let (writer_done, writer_is_done) = oneshot::channel();
 
-    spawner.spawn(writer(
-        Arc::clone(state),
-        halves.send,
-        commands,
-        writer_done,
-    ));
-    spawner.spawn(reader(Arc::clone(state), halves.recv, writer_is_done));
+    spawner.spawn(writer(Arc::clone(state), send, commands, writer_done));
+    spawner.spawn(reader(Arc::clone(state), recv, writer_is_done));
     spawner.spawn(reclaim(Arc::clone(state)));
 }
 
@@ -527,7 +520,9 @@ async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: onesh
 
     let payload = lend_payload(&state, status_payload(&message, &trailers), false);
     state.debt.callbacks.fetch_add(1, Ordering::AcqRel);
-    state.host.deliver_status(state.ctx, code, payload);
+    state
+        .host
+        .deliver(state.ctx, ak_event_kind::AK_EVENT_STATUS, payload, code);
     state.debt.terminal.store(true, Ordering::Release);
     state.debt.callbacks.fetch_sub(1, Ordering::AcqRel);
     state.moved_on();
@@ -569,7 +564,7 @@ async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Vec<u8>) -> 
 
     let payload = lend_payload(state, data, true);
     state.debt.callbacks.fetch_add(1, Ordering::AcqRel);
-    state.host.deliver(state.ctx, kind, payload);
+    state.host.deliver(state.ctx, kind, payload, 0);
     state.debt.callbacks.fetch_sub(1, Ordering::AcqRel);
     state.moved_on();
     true
