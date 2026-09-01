@@ -64,10 +64,11 @@ impl Metadata {
     /// The key is lowercased: header names are case-insensitive, and holding two spellings of one
     /// key would make `get` depend on which spelling the caller used.
     pub fn append(&mut self, key: &str, value: MetadataValue) -> Result<(), MetadataError> {
-        let key = checked(key, &value)?;
+        let key = validate_key(key)?;
         if is_reserved(&key) {
             return Err(MetadataError::ReservedKey { key });
         }
+        validate_value(&key, &value)?;
         self.entries.push((key, value));
         Ok(())
     }
@@ -156,8 +157,9 @@ impl Metadata {
             if is_reserved(key) {
                 continue;
             }
-            let key = checked(key, value)?;
 
+            // Stored keys are already lowercased header names, so the only thing left that can
+            // refuse an entry is a value `http` will not carry.
             let name = HeaderName::from_bytes(key.as_bytes())
                 .map_err(|_| MetadataError::InvalidKey { key: key.clone() })?;
             let encoded = match value {
@@ -181,13 +183,6 @@ fn is_reserved(key: &str) -> bool {
     key.starts_with(':')
         || key.starts_with("grpc-")
         || matches!(key, "content-type" | "te" | "user-agent")
-}
-
-/// The lowercased key, once key and value are known to be representable as a header.
-fn checked(key: &str, value: &MetadataValue) -> Result<String, MetadataError> {
-    let key = validate_key(key)?;
-    validate_value(&key, value)?;
-    Ok(key)
 }
 
 fn validate_key(key: &str) -> Result<String, MetadataError> {
@@ -398,12 +393,18 @@ mod tests {
             "x-accented",
             HeaderValue::from_bytes(&[b'c', b'a', b'f', 0xe9]).expect("http allows this"),
         );
+        // HTAB is likewise legal in an HTTP header value and outside gRPC's ASCII metadata.
+        headers.insert(
+            "x-tabbed",
+            HeaderValue::from_bytes(b"one	two").expect("http allows this"),
+        );
         headers.insert("x-other", HeaderValue::from_static("kept"));
 
         let metadata = Metadata::from_headers(&headers);
         assert_eq!(metadata.len(), 1);
         assert!(metadata.get("broken-bin").is_none());
         assert!(metadata.get("x-accented").is_none());
+        assert!(metadata.get("x-tabbed").is_none());
 
         let mut request = HeaderMap::new();
         metadata

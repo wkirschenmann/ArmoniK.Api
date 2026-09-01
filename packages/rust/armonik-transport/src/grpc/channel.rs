@@ -21,6 +21,9 @@ const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_V
 /// The only message encoding this engine reads, and the only one it asks for.
 const ACCEPTED_ENCODING: &str = "identity";
 
+/// What gRPC implementations take as the largest message worth receiving unasked.
+const DEFAULT_MAX_RECV_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+
 /// How a channel is configured.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -31,6 +34,9 @@ pub struct GrpcChannelConfig {
     pub user_agent: Option<String>,
     /// How many buffers a call may have out at once before a send has to wait.
     pub max_sends_in_flight: usize,
+    /// The largest message this channel will reassemble, refused on the length the peer
+    /// announces rather than after it has been held.
+    pub max_recv_message_size: usize,
 }
 
 impl GrpcChannelConfig {
@@ -40,6 +46,7 @@ impl GrpcChannelConfig {
             transport,
             user_agent: None,
             max_sends_in_flight: 1,
+            max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
         }
     }
 }
@@ -89,6 +96,7 @@ impl GrpcChannel {
                 executor: Arc::new(executor),
                 user_agent,
                 max_sends_in_flight: config.max_sends_in_flight,
+                max_recv_message_size: config.max_recv_message_size,
                 connection: Mutex::new(None),
                 closed: watch::channel(false).0,
             }),
@@ -128,6 +136,7 @@ impl GrpcChannel {
 
         let (grpc_call, body, driving) = call::create(
             self.inner.max_sends_in_flight,
+            self.inner.max_recv_message_size,
             self.inner.closed.subscribe(),
         );
 
@@ -174,6 +183,7 @@ pub(crate) struct Inner {
     executor: Arc<dyn Executor>,
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
+    max_recv_message_size: usize,
     connection: Mutex<Option<SendRequest<RequestBody>>>,
     closed: watch::Sender<bool>,
 }
@@ -274,6 +284,7 @@ mod tests {
             )),
             user_agent: HeaderValue::from_static("test"),
             max_sends_in_flight: 1,
+            max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
             connection: Mutex::new(None),
             closed: watch::channel(false).0,
         }

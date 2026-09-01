@@ -71,6 +71,30 @@ async fn unary(
     read_to_terminal(&mut recv).await
 }
 
+/// One unary call to `method`, on a server started for it alone.
+async fn call_on(method: &str, message: Bytes) -> (Metadata, Vec<Bytes>, GrpcStatus) {
+    let server = TestServer::start().await;
+    unary(
+        &channel(&server.endpoint),
+        CallStartOptions::new(method),
+        message,
+    )
+    .await
+}
+
+/// Reads to the terminal and expects a cancellation there, within a bound a loaded machine keeps.
+async fn ends_cancelled(recv: &mut RecvHalf, why: &str) {
+    let terminal = tokio::time::timeout(Duration::from_secs(5), recv.next_message())
+        .await
+        .unwrap_or_else(|_| panic!("{why}"))
+        .expect("a terminal");
+
+    match terminal {
+        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::Cancelled),
+        other => panic!("{other:?}"),
+    }
+}
+
 async fn read_to_terminal(recv: &mut RecvHalf) -> (Metadata, Vec<Bytes>, GrpcStatus) {
     let head = recv
         .recv_initial_metadata()
@@ -112,13 +136,7 @@ async fn a_unary_call_reaches_a_grpc_server_and_comes_back() {
 
 #[tokio::test]
 async fn an_empty_message_is_a_message_and_not_an_absence() {
-    let server = TestServer::start().await;
-    let (_, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new(ECHO),
-        Bytes::new(),
-    )
-    .await;
+    let (_, messages, status) = call_on(ECHO, Bytes::new()).await;
 
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(messages, vec![Bytes::new()]);
@@ -130,13 +148,7 @@ async fn a_message_larger_than_one_http2_frame_survives_the_round_trip() {
     // deframer has to put the message back together.
     const SIZE: usize = 256 * 1024;
 
-    let server = TestServer::start().await;
-    let (_, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new(ECHO),
-        Bytes::from(vec![0x5a; SIZE]),
-    )
-    .await;
+    let (_, messages, status) = call_on(ECHO, Bytes::from(vec![0x5a; SIZE])).await;
 
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(messages.len(), 1);
@@ -166,13 +178,7 @@ async fn a_binary_metadata_entry_crosses_the_wire_as_bytes() {
 
 #[tokio::test]
 async fn the_request_carries_the_headers_grpc_asks_for() {
-    let server = TestServer::start().await;
-    let (_, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/EchoHeaders"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (_, messages, status) = call_on("/raw/EchoHeaders", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     let seen = String::from_utf8(messages.concat().to_vec()).expect("the headers as text");
@@ -188,13 +194,7 @@ async fn the_request_carries_the_headers_grpc_asks_for() {
 
 #[tokio::test]
 async fn a_method_the_server_refuses_comes_back_as_its_status_and_its_trailers() {
-    let server = TestServer::start().await;
-    let (head, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new(FAIL),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (head, messages, status) = call_on(FAIL, Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::PermissionDenied);
     assert_eq!(status.message, "not for you");
@@ -210,10 +210,8 @@ async fn a_method_the_server_refuses_comes_back_as_its_status_and_its_trailers()
 
 #[tokio::test]
 async fn a_method_the_server_does_not_have_is_unimplemented() {
-    let server = TestServer::start().await;
-    let (_, _, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/armonik_transport.test.Echo/Absent"),
+    let (_, _, status) = call_on(
+        "/armonik_transport.test.Echo/Absent",
         Bytes::from_static(b"x"),
     )
     .await;
@@ -323,15 +321,11 @@ async fn a_cancelled_call_ends_as_cancelled_without_waiting_for_the_server() {
     // Idempotent: a second cancellation is not a second decision.
     control.cancel();
 
-    let terminal = tokio::time::timeout(Duration::from_secs(5), recv.next_message())
-        .await
-        .expect("cancelling does not wait for the server's own answer")
-        .expect("a terminal");
-
-    match terminal {
-        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::Cancelled),
-        other => panic!("{other:?}"),
-    }
+    ends_cancelled(
+        &mut recv,
+        "cancelling does not wait for the server's own answer",
+    )
+    .await;
     assert_eq!(
         recv.next_message().await,
         Err(CallError::Ended),
@@ -360,14 +354,7 @@ async fn closing_a_channel_refuses_new_calls_and_ends_the_ones_under_way() {
         Some(ChannelError::Closed)
     );
 
-    let terminal = tokio::time::timeout(Duration::from_secs(5), recv.next_message())
-        .await
-        .expect("closing ends the calls under way")
-        .expect("a terminal");
-    match terminal {
-        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::Cancelled),
-        other => panic!("{other:?}"),
-    }
+    ends_cancelled(&mut recv, "closing ends the calls under way").await;
 }
 
 // ---------------------------------------------------------------- what is not a gRPC answer
@@ -406,6 +393,11 @@ async fn connecting_up_front_reports_what_a_call_would_have_reported() {
     }
 }
 
+// A close landing between a successful handshake and the session being stored has no test: the
+// check for it is `Inner::sender`'s second one, and over loopback the dial and the handshake -
+// which resolves on writing the preface, without waiting for the peer's settings - both finish
+// inside a microsecond. Nothing this side can hold that window open without a connector the
+// channel would have to be made generic over.
 #[tokio::test]
 async fn a_closed_channel_opens_no_session() {
     let server = TestServer::start().await;
@@ -447,13 +439,7 @@ async fn a_send_window_of_nothing_is_refused() {
 
 #[tokio::test]
 async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
-    let server = TestServer::start().await;
-    let (_, _, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/NotFound"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (_, _, status) = call_on("/raw/NotFound", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::Unimplemented, "{status}");
     assert!(status.message.contains("HTTP 404"), "{status}");
@@ -461,13 +447,7 @@ async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
 
 #[tokio::test]
 async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
-    let server = TestServer::start().await;
-    let (_, _, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/StatusBehindError"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (_, _, status) = call_on("/raw/StatusBehindError", Bytes::from_static(b"x")).await;
 
     // A peer that answered in gRPC has said how the call ended; the HTTP status is not a better
     // account of it than its own.
@@ -477,13 +457,7 @@ async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
 
 #[tokio::test]
 async fn a_two_hundred_that_is_not_grpc_is_an_internal_failure() {
-    let server = TestServer::start().await;
-    let (_, _, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/NotGrpc"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (_, _, status) = call_on("/raw/NotGrpc", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("content type"), "{status}");
@@ -491,13 +465,7 @@ async fn a_two_hundred_that_is_not_grpc_is_an_internal_failure() {
 
 #[tokio::test]
 async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
-    let server = TestServer::start().await;
-    let (_, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/Compressed"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (_, messages, status) = call_on("/raw/Compressed", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("compressed"), "{status}");
@@ -505,14 +473,43 @@ async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
 }
 
 #[tokio::test]
-async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
+async fn a_message_past_the_maximum_ends_the_call_rather_than_being_held() {
+    let (_, messages, status) = call_on("/raw/TooBig", Bytes::from_static(b"x")).await;
+
+    // Announced at 64 MiB against a 4 MiB default, and only twelve bytes of it ever sent: the
+    // refusal comes off the header, before anything is held.
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+    assert!(status.message.contains("67108864"), "{status}");
+    assert!(messages.is_empty());
+}
+
+#[tokio::test]
+async fn the_channel_sets_the_maximum_message_size() {
     let server = TestServer::start().await;
-    let (head, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/HeadThenError"),
+    let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
+    config.max_recv_message_size = 64 * 1024 * 1024;
+
+    let channel = GrpcChannel::new(
+        config,
+        TokioExecutor::new(tokio::runtime::Handle::current()),
+    )
+    .expect("a plain endpoint");
+
+    // Raised past what the peer announces, the same response is a stream that simply never
+    // completes its message, and it ends for that reason instead.
+    let (_, _, status) = unary(
+        &channel,
+        CallStartOptions::new("/raw/TooBig"),
         Bytes::from_static(b"x"),
     )
     .await;
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+}
+
+#[tokio::test]
+async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
+    let (head, messages, status) = call_on("/raw/HeadThenError", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
     assert_eq!(status.message, "no room left");
@@ -525,13 +522,7 @@ async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
 
 #[tokio::test]
 async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
-    let server = TestServer::start().await;
-    let (_, messages, status) = unary(
-        &channel(&server.endpoint),
-        CallStartOptions::new("/raw/NoTrailers"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
+    let (_, messages, status) = call_on("/raw/NoTrailers", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("grpc-status"), "{status}");
@@ -665,6 +656,15 @@ fn grpc_message(flag: u8, payload: &[u8]) -> Bytes {
     Bytes::from(framed)
 }
 
+/// A frame header announcing `declared` bytes, followed by fewer of them.
+fn announced_message(declared: u32, payload: &[u8]) -> Bytes {
+    let mut framed = Vec::with_capacity(5 + payload.len());
+    framed.push(0);
+    framed.extend_from_slice(&declared.to_be_bytes());
+    framed.extend_from_slice(payload);
+    Bytes::from(framed)
+}
+
 fn trailers(pairs: &[(&'static str, &'static str)]) -> Frame<Bytes> {
     let mut map = HeaderMap::new();
     for (key, value) in pairs {
@@ -710,6 +710,13 @@ fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 .status(StatusCode::OK)
                 .header("content-type", "text/plain"),
             vec![Frame::data(Bytes::from_static(b"an ordinary web page"))],
+        ),
+        "TooBig" => (
+            grpc_head(),
+            vec![Frame::data(announced_message(
+                64 * 1024 * 1024,
+                b"only a taste",
+            ))],
         ),
         "Compressed" => (
             grpc_head(),

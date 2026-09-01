@@ -146,6 +146,10 @@ pub enum TransportErrorKind {
     DnsResolution,
     TcpConnect,
     TlsHandshake,
+    /// The stream was connected and no HTTP/2 session could be established on
+    /// it. The module is named for that protocol and owns the handshake, so
+    /// the failure is named here rather than in the gRPC engine above.
+    Http2Handshake,
     ProxyConnect,
     Timeout,
     Configuration,
@@ -171,6 +175,15 @@ pub struct GrpcChannelConfig {
     pub default_deadline: Option<Duration>,
     pub pool: Option<PoolConfig>,
     pub user_agent: Option<String>,
+    /// The largest message the engine reassembles, refused on the length the
+    /// peer announces. It is what bounds the reassembly buffer: the HTTP/2
+    /// window bounds what is in flight and is released as each frame is
+    /// taken, so a message that never completes would grow that buffer
+    /// without the window ever being exceeded. 4 MiB, as gRPC has it.
+    pub max_recv_message_size: usize,
+    /// How many buffers one call may have out at once before a send waits.
+    /// Default 1.
+    pub max_sends_in_flight: usize,
     // No eager_connect flag: connecting is GrpcChannel::connect().await.
 }
 
@@ -221,8 +234,10 @@ impl GrpcChannel {
     /// Establishes the connection and reports how it went. Optional: the first
     /// call connects lazily otherwise. This replaces the eager_connect flag,
     /// which asked a synchronous constructor to start asynchronous work and
-    /// had nowhere to report its failure.
-    pub async fn connect(&self) -> Result<(), TransportError>;
+    /// had nowhere to report its failure. The error is ChannelError rather
+    /// than TransportError because a closed channel opens no connection, and
+    /// that is an outcome of this call rather than of the network.
+    pub async fn connect(&self) -> Result<(), ChannelError>;
 
     /// Starts a gRPC call.
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError>;
