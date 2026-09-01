@@ -1,0 +1,30 @@
+[package]
+name = "armonik-transport-ffi"
+description = "C ABI over armonik-transport's gRPC engine, for hosts that cannot link Rust"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+# `cdylib` is what a host application loads; `lib` is what the integration tests link against.
+[lib]
+crate-type = ["lib", "cdylib"]
+name = "armonik_transport_ffi"
+
+[dependencies]
+# By path: this crate is never published, and the two move together.
+armonik-transport = { path = "../armonik-transport" }
+bytes.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+armonik-transport = { path = "../armonik-transport" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tonic = { workspace = true, features = ["codegen", "server", "router"] }
+tower-service.workspace = true
+hyper = { workspace = true, features = ["server", "http2"] }
+http.workspace = true
