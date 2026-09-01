@@ -103,11 +103,20 @@ impl Drop for Host {
     }
 }
 
-/// One unary call: lend a buffer, fill it, commit, half-close.
-fn send_one(call: ak_handle, message: &[u8]) {
+/// Asks for a buffer, and checks the ABI's promise that a refusal touches nothing.
+fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     let mut buffer = empty_buffer();
     // SAFETY: the out pointer is live for the call.
-    let status = unsafe { ak_get_call_buffer(call, message.len(), &mut buffer) };
+    let status = unsafe { ak_get_call_buffer(call, len, &mut buffer) };
+    if status != ak_status::AK_STATUS_OK {
+        assert!(buffer.owner.is_null(), "a refusal leaves *out as it was");
+    }
+    (status, buffer)
+}
+
+/// One unary call: lend a buffer, fill it, commit, half-close.
+fn send_one(call: ak_handle, message: &[u8]) {
+    let (status, buffer) = lend(call, message.len());
     assert_eq!(status, ak_status::AK_STATUS_OK);
     assert_eq!(buffer.len, message.len());
 
@@ -183,7 +192,7 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
     );
 
     // Nothing of the call is outstanding, so the runtime has taken its handle back on its own.
-    host.recorder.await_call_reclaimed(call);
+    support::Recorder::await_call_reclaimed(call);
     assert_eq!(
         ak_call_cancel(call),
         ak_status::AK_STATUS_HANDLE_STALE,
@@ -227,20 +236,11 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     let channel = host.channel(&server.endpoint);
     let call = start_call(channel, SLOW, &[]);
 
-    let mut first = empty_buffer();
-    // SAFETY: the out pointer is live for the call.
-    assert_eq!(
-        unsafe { ak_get_call_buffer(call, 4, &mut first) },
-        ak_status::AK_STATUS_OK
-    );
+    let (status, first) = lend(call, 4);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
 
     // A window of one, and one buffer out: backpressure, not an error.
-    let mut second = empty_buffer();
-    // SAFETY: as above.
-    assert_eq!(
-        unsafe { ak_get_call_buffer(call, 4, &mut second) },
-        ak_status::AK_STATUS_SLOT_BUSY
-    );
+    assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_SLOT_BUSY);
 
     // Committing does not free the slot - the buffer only moves from one side of the count to
     // the other - so the window is still full.
@@ -253,11 +253,8 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     // What frees it is the acquittal, and nothing else: the server never answers, so no terminal
     // can be what unblocks this.
     host.recorder.await_write_done();
-    // SAFETY: the out pointer is live for the call.
-    assert_eq!(
-        unsafe { ak_get_call_buffer(call, 4, &mut second) },
-        ak_status::AK_STATUS_OK
-    );
+    let (status, second) = lend(call, 4);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
     // SAFETY: `second` is the buffer just lent.
     unsafe { ak_return_call_buffer(second) };
 
@@ -274,12 +271,8 @@ fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
     let channel = host.channel(&server.endpoint);
     let call = start_call(channel, SLOW, &[]);
 
-    let mut buffer = empty_buffer();
-    // SAFETY: the out pointer is live for the call.
-    assert_eq!(
-        unsafe { ak_get_call_buffer(call, 4, &mut buffer) },
-        ak_status::AK_STATUS_OK
-    );
+    let (status, buffer) = lend(call, 4);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
 
     // Refused, and the buffer stays the host's: the header names ak_return_call_buffer as its
@@ -306,10 +299,8 @@ fn a_call_reports_what_the_host_owes_it() {
     let call = start_call(channel, SLOW, &[]);
 
     let mut debt = ak_call_debt::default();
-    let mut buffer = empty_buffer();
+    let (_, buffer) = lend(call, 8);
     // SAFETY: the out pointer is live for the call.
-    unsafe { ak_get_call_buffer(call, 8, &mut buffer) };
-    // SAFETY: as above.
     assert_eq!(
         unsafe { ak_call_debt_of(call, &mut debt) },
         ak_status::AK_STATUS_OK
@@ -343,22 +334,13 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
     let channel = host.channel(&server.endpoint);
     let call = start_call(channel, ECHO, &[]);
 
-    let mut buffer = empty_buffer();
-
     // Past the ceiling itself: no return by anyone will ever make room, so the refusal is
     // permanent and the host is told not to retry.
-    // SAFETY: the out pointer is live for the call.
-    assert_eq!(
-        unsafe { ak_get_call_buffer(call, 65, &mut buffer) },
-        ak_status::AK_STATUS_MESSAGE_TOO_LARGE
-    );
+    assert_eq!(lend(call, 65).0, ak_status::AK_STATUS_MESSAGE_TOO_LARGE);
 
     // Within the ceiling, so it is lent and it is what the runtime reports as occupied.
-    // SAFETY: as above.
-    assert_eq!(
-        unsafe { ak_get_call_buffer(call, 40, &mut buffer) },
-        ak_status::AK_STATUS_OK
-    );
+    let (status, buffer) = lend(call, 40);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
     let mut usage = ak_memory_usage::default();
     // SAFETY: the out pointer is live for the call.
     assert_eq!(

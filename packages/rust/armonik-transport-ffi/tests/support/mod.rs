@@ -93,12 +93,7 @@ impl Recorder {
     }
 
     pub fn kinds(&self) -> Vec<ak_event_kind> {
-        self.seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .map(|event| event.kind)
-            .collect()
+        kinds(&self.seen.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     pub fn shutdown_debt(&self) -> Option<ak_host_debt> {
@@ -136,40 +131,33 @@ impl Recorder {
         Seen(seen.clone())
     }
 
-    /// Waits for a call's terminal.
-    pub fn await_terminal(&self) -> Seen {
-        self.wait_for("a terminal", |seen| {
-            seen.iter()
-                .any(|event| event.kind == ak_event_kind::AK_EVENT_STATUS)
-        })
+    /// Waits for one event of `kind`.
+    fn await_kind(&self, what: &str, kind: ak_event_kind) -> Seen {
+        self.wait_for(what, |seen| seen.iter().any(|event| event.kind == kind))
     }
 
     /// Waits for a call's first event, which is always its metadata.
     pub fn await_metadata(&self) -> Seen {
-        self.wait_for("the metadata", |seen| {
-            seen.iter()
-                .any(|event| event.kind == ak_event_kind::AK_EVENT_INITIAL_METADATA)
-        })
+        self.await_kind("the metadata", ak_event_kind::AK_EVENT_INITIAL_METADATA)
+    }
+
+    /// Waits for a call's terminal.
+    pub fn await_terminal(&self) -> Seen {
+        self.await_kind("a terminal", ak_event_kind::AK_EVENT_STATUS)
     }
 
     /// Waits for a send to be acquitted.
     pub fn await_write_done(&self) -> Seen {
-        self.wait_for("an acquittal", |seen| {
-            seen.iter()
-                .any(|event| event.kind == ak_event_kind::AK_EVENT_WRITE_DONE)
-        })
+        self.await_kind("an acquittal", ak_event_kind::AK_EVENT_WRITE_DONE)
     }
 
     pub fn await_shutdown(&self) -> Seen {
-        self.wait_for("a shutdown", |seen| {
-            seen.iter()
-                .any(|event| event.kind == ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
-        })
+        self.await_kind("a shutdown", ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
     }
 
     /// Waits for the runtime to take a call's handle back, which it does on its own once nothing
     /// of the call is outstanding.
-    pub fn await_call_reclaimed(&self, call: ak_handle) {
+    pub fn await_call_reclaimed(call: ak_handle) {
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
             if ak_call_cancel(call) == ak_status::AK_STATUS_HANDLE_STALE {
@@ -263,12 +251,8 @@ impl Seen {
         let Some(terminal) = self.terminal() else {
             return String::new();
         };
-        let bytes = &terminal.payload;
-        if bytes.len() < 4 {
-            return String::new();
-        }
-        let len = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-        String::from_utf8_lossy(&bytes[4..4 + len]).into_owned()
+        let message = take(&mut &terminal.payload[..]).unwrap_or_default();
+        String::from_utf8_lossy(&message).into_owned()
     }
 
     pub fn initial_metadata(&self) -> HashMap<Vec<u8>, Vec<u8>> {

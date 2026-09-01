@@ -119,7 +119,7 @@ impl Ledger {
 pub(crate) struct AkChannel {
     pub(crate) grpc: GrpcChannel,
     pub(crate) runtime: Weak<AkRuntime>,
-    handle: ak_handle,
+    pub(crate) handle: ak_handle,
 }
 
 impl AkChannel {
@@ -129,10 +129,6 @@ impl AkChannel {
             runtime: Arc::downgrade(runtime),
             handle,
         }
-    }
-
-    fn handle(&self) -> ak_handle {
-        self.handle
     }
 }
 
@@ -230,7 +226,7 @@ impl AkRuntime {
             .into_iter()
             .filter(|channel| Weak::ptr_eq(&channel.runtime, this))
             .inspect(|channel| {
-                tables::channels().remove(channel.handle());
+                tables::channels().remove(channel.handle);
             })
             .collect()
     }
