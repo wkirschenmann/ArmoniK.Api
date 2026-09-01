@@ -1,3 +1,6 @@
+//! The terminal of a call, and how a response head or a set of trailers is read as one.
+//!
+//! The only place the wire's spelling of a status is understood.
 
 use http::header::{HeaderMap, CONTENT_TYPE};
 use http::StatusCode;
@@ -6,6 +9,7 @@ use super::metadata::{Metadata, GRPC_MESSAGE, GRPC_STATUS};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(i32)]
+/// The gRPC status codes, as they travel in `grpc-status`.
 pub enum GrpcStatusCode {
     Ok = 0,
     Cancelled = 1,
@@ -27,6 +31,8 @@ pub enum GrpcStatusCode {
 }
 
 impl GrpcStatusCode {
+    /// A value outside the range is `Unknown`: the space is closed, so a code nobody defined
+    /// carries no more than "the call failed and we cannot say how".
     pub fn from_wire(code: i32) -> Self {
         match code {
             0 => Self::Ok,
@@ -49,6 +55,8 @@ impl GrpcStatusCode {
         }
     }
 
+    /// The code a response that never became gRPC maps to. The table is the one in the gRPC
+    /// HTTP/2 specification; anything it does not name is `Unknown`.
     pub fn from_http_status(status: u16) -> Self {
         match status {
             400 => Self::Internal,
@@ -87,9 +95,13 @@ impl std::fmt::Display for GrpcStatusCode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// How a call ended.
 pub struct GrpcStatus {
+    /// The code the server sent, or the one the failure maps to.
     pub code: GrpcStatusCode,
+    /// The `grpc-message`, percent-decoded. Empty when the call succeeded.
     pub message: String,
+    /// The trailers, minus `grpc-status` and `grpc-message`, which are this status.
     pub trailing_metadata: Metadata,
 }
 
@@ -117,6 +129,7 @@ pub(crate) fn cancelled() -> GrpcStatus {
     GrpcStatus::new(GrpcStatusCode::Cancelled, "the call was cancelled")
 }
 
+/// The terminal a set of headers or trailers states, if it states one.
 pub(crate) fn stated_status(headers: &HeaderMap) -> Option<GrpcStatus> {
     let raw = headers.get(GRPC_STATUS)?;
 
@@ -152,6 +165,9 @@ pub(crate) fn http_status(status: StatusCode, headers: &HeaderMap) -> GrpcStatus
     }
 }
 
+/// Whether the content type says the body is gRPC. The subtype after `+` names the message
+/// encoding, which is the caller's business rather than this engine's; media types are
+/// case-insensitive, so the comparison is too.
 pub(crate) fn speaks_grpc(headers: &HeaderMap) -> bool {
     headers
         .get(CONTENT_TYPE)
@@ -165,6 +181,11 @@ pub(crate) fn speaks_grpc(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+/// Percent-decoding for `grpc-message`.
+///
+/// An invalid escape is kept verbatim rather than rejected: this is a human-readable reason for
+/// a failure that has already happened, and refusing to read it would replace the server's
+/// account of the failure with an account of the encoding.
 fn decode_message(raw: &[u8]) -> String {
     let mut out = Vec::with_capacity(raw.len());
     let mut index = 0;
@@ -223,6 +244,7 @@ mod tests {
     fn a_percent_escape_is_decoded_and_a_broken_one_is_kept() {
         assert_eq!(decode_message(b"plain"), "plain");
         assert_eq!(decode_message(b"a%20b"), "a b");
+        // A truncated or non-hex escape is what the server sent; it is not ours to drop.
         assert_eq!(decode_message(b"100%"), "100%");
         assert_eq!(decode_message(b"a%zzb"), "a%zzb");
     }

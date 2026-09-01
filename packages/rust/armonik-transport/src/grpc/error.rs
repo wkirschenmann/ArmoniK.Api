@@ -1,3 +1,9 @@
+//! What the engine refuses, as opposed to what a call ends with.
+//!
+//! A call that reaches the network ends with a [`super::GrpcStatus`], whatever happens to it: a
+//! connection that cannot be made, a peer that answers something other than gRPC, a cancellation.
+//! That is what gRPC promises a caller, and what the abstract model means by every started call
+//! reaching a terminal. The errors here are the other outcomes, where no call is under way.
 
 use crate::http2::TransportError;
 
@@ -5,11 +11,19 @@ use super::metadata::MetadataError;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
+/// Why a channel could not do what was asked of it.
 pub enum ChannelError {
+    /// The channel is closed and takes no new calls.
     Closed,
-    Transport { source: TransportError },
-    InvalidMethod { method: String },
-    InvalidMetadata { source: MetadataError },
+    Transport {
+        source: TransportError,
+    },
+    InvalidMethod {
+        method: String,
+    },
+    InvalidMetadata {
+        source: MetadataError,
+    },
 }
 
 impl std::fmt::Display for ChannelError {
@@ -44,9 +58,14 @@ impl std::error::Error for ChannelError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
+/// Why an operation on a call could not happen.
 pub enum CallError {
+    /// The message is longer than the four-byte gRPC length prefix can express.
     MessageTooLong { len: usize },
+    /// The call has reached its terminal; the status it ended with is on the reading half.
     Ended,
+    /// The task driving the call went away without reaching a terminal, which is what an
+    /// executor that drops its tasks looks like from here.
     Aborted,
 }
 

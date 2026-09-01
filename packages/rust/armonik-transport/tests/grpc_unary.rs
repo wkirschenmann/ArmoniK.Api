@@ -1,3 +1,9 @@
+//! Unary calls, over plain HTTP/2, against a real gRPC server.
+//!
+//! The gRPC methods are served by `tonic`, so what these tests exercise is this engine's
+//! framing and header handling against an implementation that owes it nothing. The responses
+//! `tonic` will not produce - an HTTP error page, a body that is not gRPC, a compressed
+//! message - are canned by hand under `/raw/`, framed by the test rather than by the engine.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -44,6 +50,7 @@ fn channel(endpoint: &str) -> GrpcChannel {
     .expect("a plain endpoint and default options")
 }
 
+/// One unary call: send `message`, half-close, then read to the terminal.
 async fn unary(
     channel: &GrpcChannel,
     options: CallStartOptions,
@@ -54,12 +61,15 @@ async fn unary(
         .expect("the call starts")
         .split();
 
+    // A call can reach its terminal before the request is written - a refused connection, a
+    // Trailers-Only refusal - and that is not a failure of the test.
     let _ = send.send_message(message).await;
     let _ = send.end_send().await;
 
     read_to_terminal(&mut recv).await
 }
 
+/// One unary call to `method`, on a server started for it alone.
 async fn call_on(method: &str, message: Bytes) -> (Metadata, Vec<Bytes>, GrpcStatus) {
     let server = TestServer::start().await;
     unary(
@@ -70,6 +80,8 @@ async fn call_on(method: &str, message: Bytes) -> (Metadata, Vec<Bytes>, GrpcSta
     .await
 }
 
+/// Reads to the terminal and expects a cancellation there, within a bound a loaded machine
+/// keeps.
 async fn ends_cancelled(recv: &mut RecvHalf, why: &str) {
     let terminal = tokio::time::timeout(Duration::from_secs(5), recv.next_message())
         .await
@@ -129,6 +141,8 @@ async fn an_empty_message_is_a_message_and_not_an_absence() {
 
 #[tokio::test]
 async fn a_message_larger_than_one_http2_frame_survives_the_round_trip() {
+    // Well past the 16 KiB default frame size, so the response arrives in several chunks and
+    // the deframer has to put the message back together.
     const SIZE: usize = 256 * 1024;
 
     let (_, messages, status) = call_on(ECHO, Bytes::from(vec![0x5a; SIZE])).await;
@@ -186,6 +200,8 @@ async fn a_method_the_server_refuses_comes_back_as_its_status_and_its_trailers()
         Some(&MetadataValue::Ascii("policy".to_owned()))
     );
     assert!(messages.is_empty());
+    // A refusal is a Trailers-Only response: there is no response head, and the contract is
+    // that this reads as empty metadata rather than as a failure.
     assert!(head.is_empty(), "{head:?}");
 }
 
@@ -198,6 +214,8 @@ async fn a_method_the_server_does_not_have_is_unimplemented() {
     .await;
 
     assert_eq!(status.code, GrpcStatusCode::Unimplemented, "{status}");
+    // The server's own words, so this is the gRPC status and not the HTTP 404 mapping, which
+    // happens to produce the same code.
     assert_eq!(status.message, "no such method");
 }
 
@@ -237,6 +255,9 @@ async fn nothing_can_be_sent_once_the_call_has_reached_its_terminal() {
     let server = TestServer::start().await;
     let channel = channel(&server.endpoint);
 
+    // A canned response answers without reading the request, so the writing side is still
+    // open when the terminal lands - which is the state under test. The reading half stays
+    // bound too: dropping it would end the call by itself and prove nothing.
     let (mut send, mut recv, _control) = channel
         .start_call(CallStartOptions::new("/raw/HeadThenError"))
         .expect("the call starts")
@@ -267,6 +288,9 @@ async fn dropping_the_reading_half_ends_the_call() {
 
     drop(recv);
 
+    // Nothing about the server, which is still asleep, is involved: a call nobody will read
+    // is over, and the writing side says so.
+
     assert_eq!(
         send.send_message(Bytes::from_static(b"more")).await,
         Err(CallError::Ended)
@@ -288,6 +312,7 @@ async fn a_cancelled_call_ends_as_cancelled_without_waiting_for_the_server() {
     send.end_send().await.expect("the request half-closes");
 
     control.cancel();
+    // Idempotent: a second cancellation is not a second decision.
     control.cancel();
 
     ends_cancelled(
@@ -368,6 +393,7 @@ async fn a_closed_channel_opens_no_session() {
     channel.close();
 
     assert_eq!(channel.connect().await, Err(ChannelError::Closed));
+    // Nothing was dialled, so nothing is left holding a socket the channel will not release.
     assert_eq!(server.connections(), 0);
 }
 
@@ -410,6 +436,8 @@ async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
 async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
     let (_, _, status) = call_on("/raw/StatusBehindError", Bytes::from_static(b"x")).await;
 
+    // A peer that answered in gRPC has said how the call ended; the HTTP status is not a better
+    // account of it than its own.
     assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
     assert_eq!(status.message, "no room left");
 }
@@ -435,6 +463,9 @@ async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
 async fn a_message_past_the_maximum_ends_the_call_rather_than_being_held() {
     let (_, messages, status) = call_on("/raw/TooBig", Bytes::from_static(b"x")).await;
 
+    // Announced at 64 MiB against a 4 MiB default, and only twelve bytes of it ever sent:
+    // the refusal comes off the header, before anything is held.
+
     assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
     assert!(status.message.contains("67108864"), "{status}");
     assert!(messages.is_empty());
@@ -447,6 +478,7 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     let server = TestServer::start().await;
     let payload = Bytes::from(vec![0x27; SIZE]);
 
+    // Five megabytes against the four-megabyte default: the reply is refused on its length.
     let (_, _, status) = unary(
         &channel(&server.endpoint),
         CallStartOptions::new(ECHO),
@@ -455,6 +487,7 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     .await;
     assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
 
+    // The same reply, on a channel that allows it, comes back whole.
     let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
     config.max_recv_message_size = 8 * 1024 * 1024;
@@ -490,12 +523,15 @@ async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("grpc-status"), "{status}");
+    // What arrived before the stream stopped is still delivered.
     assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
 }
 
+/// What a handler does with a request, once `tonic` has decoded it.
 type Answer = Pin<Box<dyn Future<Output = Result<Response<Bytes>, Status>> + Send>>;
 
 #[derive(Clone, Copy)]
+/// One gRPC method, as the function that answers it.
 struct Handler(fn(Request<Bytes>) -> Answer);
 
 impl Service<Request<Bytes>> for Handler {
@@ -512,6 +548,7 @@ impl Service<Request<Bytes>> for Handler {
     }
 }
 
+/// Echoes the request, and echoes back whatever `x-request` metadata came with it.
 fn echo(request: Request<Bytes>) -> Answer {
     let text = request
         .metadata()
@@ -537,6 +574,7 @@ fn echo(request: Request<Bytes>) -> Answer {
     })
 }
 
+/// Refuses, with a reason in the trailers.
 fn fail(_request: Request<Bytes>) -> Answer {
     Box::pin(async move {
         let mut metadata = MetadataMap::new();
@@ -549,6 +587,7 @@ fn fail(_request: Request<Bytes>) -> Answer {
     })
 }
 
+/// Never answers within the life of a test, so a call on it ends only because it was stopped.
 fn slow(_request: Request<Bytes>) -> Answer {
     Box::pin(async move {
         tokio::time::sleep(Duration::from_secs(3600)).await;
@@ -556,6 +595,7 @@ fn slow(_request: Request<Bytes>) -> Answer {
     })
 }
 
+/// The gRPC methods, plus the canned responses gRPC servers do not produce.
 async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> {
     use armonik_transport::reexports::tonic::server::Grpc;
 
@@ -572,12 +612,14 @@ async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody>
     };
 
     Grpc::new(BytesCodec)
+        // The engine's own maximum is what these tests are about, so the server imposes none.
         .max_decoding_message_size(usize::MAX)
         .max_encoding_message_size(usize::MAX)
         .unary(&mut Handler(handler), request.map(TonicBody::new))
         .await
 }
 
+/// A body that hands over frames already decided on.
 struct Canned {
     frames: std::vec::IntoIter<Frame<Bytes>>,
 }
@@ -594,6 +636,8 @@ impl Body for Canned {
     }
 }
 
+/// One gRPC message, framed by hand, so what these responses send owes nothing to the engine
+/// under test.
 fn grpc_message(flag: u8, payload: &[u8]) -> Bytes {
     let mut framed = Vec::with_capacity(5 + payload.len());
     framed.push(flag);
@@ -602,6 +646,7 @@ fn grpc_message(flag: u8, payload: &[u8]) -> Bytes {
     Bytes::from(framed)
 }
 
+/// A frame header announcing `declared` bytes, followed by fewer of them.
 fn announced_message(declared: u32, payload: &[u8]) -> Bytes {
     let mut framed = Vec::with_capacity(5 + payload.len());
     framed.push(0);
@@ -677,6 +722,7 @@ fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 trailers(&[("grpc-status", "8"), ("grpc-message", "no%20room%20left")]),
             ],
         ),
+        // A well-formed message and then nothing: a stream that never says how it ended.
         "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
         other => panic!("no canned response is named `{other}`"),
     };
@@ -694,12 +740,14 @@ fn grpc_head() -> hyper::http::response::Builder {
         .header("content-type", "application/grpc")
 }
 
+/// The server the tests call, and the count of connections it has accepted.
 struct TestServer {
     endpoint: String,
     connections: Arc<AtomicUsize>,
 }
 
 impl TestServer {
+    /// Serves on an ephemeral loopback port, for as long as the test runs.
     async fn start() -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -733,6 +781,7 @@ impl TestServer {
     }
 }
 
+/// An endpoint that was listening and is not any more.
 async fn closed_port() -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

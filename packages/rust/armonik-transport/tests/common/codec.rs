@@ -1,3 +1,8 @@
+//! The raw-bytes codec the gRPC test servers route every method through.
+//!
+//! Its wire representation *is* the message, so one server answers any method path. Shared by
+//! `#[path]` rather than through `common`, so each test binary takes this and nothing else and
+//! neither reports the rest of `common` as dead.
 
 use armonik_transport::reexports::tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use armonik_transport::reexports::tonic::Status;
