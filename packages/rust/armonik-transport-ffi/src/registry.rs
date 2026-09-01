@@ -1,3 +1,10 @@
+//! Handles are tokens, not pointers.
+//!
+//! Each is a slot index and a generation. A token naming a slot that has since been reused fails
+//! its generation check, so a downcall on a reclaimed object reports a status instead of reaching
+//! into whatever took its place - which closes ABA on a reused slot, and lets the runtime reclaim
+//! a call without asking the host first.
+
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::abi::{ak_handle, AK_HANDLE_NONE};
@@ -5,9 +12,11 @@ use crate::abi::{ak_handle, AK_HANDLE_NONE};
 struct Slot<T> {
     generation: u32,
     value: Option<Arc<T>>,
+    /// Named and not yet published. Keeps a second reservation off the same slot.
     reserved: bool,
 }
 
+/// The live objects of one kind, addressed by token.
 pub(crate) struct Registry<T> {
     slots: Mutex<Vec<Slot<T>>>,
 }
@@ -21,6 +30,12 @@ impl<T> Default for Registry<T> {
 }
 
 impl<T> Registry<T> {
+    /// Takes a free slot and names it, without putting anything in it yet.
+    ///
+    /// Two phases because an object has to know its own handle before anything can find it, and
+    /// because its tasks must not run before it is findable: a value published after its own
+    /// reclamation has already looked would stay for the life of the process. Every caller
+    /// publishes on the next statement, with nothing fallible in between.
     pub(crate) fn reserve(&self) -> ak_handle {
         let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
 
@@ -29,6 +44,7 @@ impl<T> Registry<T> {
             .position(|slot| slot.value.is_none() && !slot.reserved);
         let index = match index {
             Some(index) => {
+                // A reused slot advances, so every token it ever named but the newest is stale.
                 slots[index].generation = slots[index].generation.wrapping_add(1).max(1);
                 index
             }
@@ -45,6 +61,7 @@ impl<T> Registry<T> {
         token(index, slots[index].generation)
     }
 
+    /// Puts `value` in the slot `handle` names.
     pub(crate) fn publish(&self, handle: ak_handle, value: Arc<T>) {
         let Some((index, generation)) = parts(handle) else {
             return;
@@ -57,6 +74,7 @@ impl<T> Registry<T> {
         }
     }
 
+    /// What the token names, if it still names anything.
     pub(crate) fn get(&self, handle: ak_handle) -> Option<Arc<T>> {
         let (index, generation) = parts(handle)?;
         let slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
@@ -67,6 +85,7 @@ impl<T> Registry<T> {
         slot.value.clone()
     }
 
+    /// Empties the slot, so every token naming it goes stale, and hands back what was in it.
     pub(crate) fn remove(&self, handle: ak_handle) -> Option<Arc<T>> {
         let (index, generation) = parts(handle)?;
         let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
@@ -78,6 +97,7 @@ impl<T> Registry<T> {
         slot.value.take()
     }
 
+    /// Every value currently held, as a snapshot.
     pub(crate) fn values(&self) -> Vec<Arc<T>> {
         let slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
         slots.iter().filter_map(|slot| slot.value.clone()).collect()
@@ -90,6 +110,8 @@ impl<T> Registry<T> {
     }
 }
 
+/// The token for a slot at a generation. Generations start at one, so no live token is
+/// [`AK_HANDLE_NONE`].
 fn token(index: usize, generation: u32) -> ak_handle {
     ((generation as u64) << 32) | (index as u64 & 0xffff_ffff)
 }
@@ -109,6 +131,7 @@ fn parts(handle: ak_handle) -> Option<(usize, u32)> {
 mod tests {
     use super::*;
 
+    /// The two phases as every caller uses them.
     fn insert<T>(registry: &Registry<T>, value: Arc<T>) -> ak_handle {
         let handle = registry.reserve();
         registry.publish(handle, value);
@@ -151,6 +174,7 @@ mod tests {
 
         assert!(registry.get(handle).is_none());
         assert!(registry.values().is_empty());
+        // A second reservation takes a different slot rather than the one being named.
         assert_ne!(registry.reserve(), handle);
 
         registry.publish(handle, Arc::new(3));

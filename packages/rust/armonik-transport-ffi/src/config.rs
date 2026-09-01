@@ -1,3 +1,5 @@
+//! The channel configuration, as the host sends it.
+
 use std::time::Duration;
 
 use armonik_transport::grpc::GrpcChannelConfig;
@@ -9,6 +11,8 @@ pub(crate) const MAX_SENDS_IN_FLIGHT: u32 = 1;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// What the JSON says. Unknown fields are refused rather than ignored: an option spelled wrong
+/// and dropped in silence is the failure this configuration path exists to avoid.
 pub(crate) struct ChannelSettings {
     endpoint: String,
     #[serde(default)]
@@ -40,8 +44,10 @@ impl ChannelSettings {
     }
 }
 
+/// Reads the configuration, or refuses it.
 pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
     let settings: ChannelSettings = serde_json::from_slice(json).ok()?;
+    // Parsed here so `into_channel_config` cannot be reached with an endpoint that is not a URI.
     settings.endpoint.parse::<Uri>().ok()?;
     Some(settings)
 }

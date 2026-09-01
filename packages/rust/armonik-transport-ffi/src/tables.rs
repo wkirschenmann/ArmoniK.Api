@@ -1,3 +1,8 @@
+//! The three registries, which live for the process.
+//!
+//! A handle carries no runtime, so a downcall on a call resolves it here rather than through the
+//! runtime that owns it. Which runtime that is, is a field on the object.
+
 use std::sync::OnceLock;
 
 use crate::call::CallState;

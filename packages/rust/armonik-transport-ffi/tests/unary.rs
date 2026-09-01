@@ -1,3 +1,9 @@
+//! A unary call through the C ABI, against a real gRPC server.
+//!
+//! The test plays the host: it builds the structs the way C would, hands the library a callback,
+//! and gives back everything the ABI says it owes. What it asserts is the event sequence, the
+//! ownership ledger, and that the runtime reaches quiescence by itself.
+
 mod support;
 
 use std::ffi::c_void;
@@ -6,6 +12,7 @@ use std::time::{Duration, Instant};
 use armonik_transport_ffi::*;
 use support::{blob, empty_buffer, Recorder, TestServer, ECHO, FAIL, SLOW};
 
+/// Drives the ABI the way a binding would, and cleans up after itself.
 struct Host {
     runtime: ak_handle,
     recorder: Box<Recorder>,
@@ -25,6 +32,8 @@ impl Host {
         };
         let mut runtime = AK_HANDLE_NONE;
 
+        // SAFETY: the config and the out pointer are live for the call, and the recorder
+        // outlives the runtime because this struct owns both and drops them in that order.
         let status = unsafe {
             ak_runtime_create(
                 &config,
@@ -59,6 +68,7 @@ impl Host {
         channel
     }
 
+    /// Shuts the runtime down and waits for it to say nothing of it is outstanding.
     fn stop(&self) {
         assert_eq!(
             ak_runtime_begin_shutdown(self.runtime),
@@ -92,6 +102,7 @@ impl Drop for Host {
     }
 }
 
+/// Asks for a buffer, and checks the ABI's promise that a refusal touches nothing.
 fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     let mut buffer = empty_buffer();
     let status = unsafe { ak_get_call_buffer(call, len, &mut buffer) };
@@ -101,11 +112,13 @@ fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     (status, buffer)
 }
 
+/// One unary call: lend a buffer, fill it, commit, half-close.
 fn send_one(call: ak_handle, message: &[u8]) {
     let (status, buffer) = lend(call, message.len());
     assert_eq!(status, ak_status::AK_STATUS_OK);
     assert_eq!(buffer.len, message.len());
 
+    // SAFETY: the library lent exactly `message.len()` writable bytes at `ptr`.
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
 
     assert_eq!(
@@ -144,6 +157,8 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
 
     let seen = host.recorder.await_terminal();
 
+    // The order the ABI promises of the data events. WRITE_DONE is a second domain and may
+    // land anywhere among them, so it is counted rather than pinned to a position.
     assert_eq!(
         seen.data_kinds(),
         vec![
@@ -169,6 +184,7 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
         "the request metadata crossed the ABI and its answer came back"
     );
 
+    // Nothing of the call is outstanding, so the runtime has taken its handle back on its own.
     support::Recorder::await_call_reclaimed(call);
     assert_eq!(
         ak_call_cancel(call),
@@ -214,6 +230,7 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     let (status, first) = lend(call, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
 
+    // A window of one, and one buffer out: backpressure, not an error.
     assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_SLOT_BUSY);
 
     assert_eq!(
@@ -221,6 +238,8 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
         ak_status::AK_STATUS_OK
     );
 
+    // What frees the slot is the acquittal, and nothing else: the server never answers, so
+    // no terminal can be what unblocks this.
     host.recorder.await_write_done();
     let (status, second) = lend(call, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
@@ -295,6 +314,8 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
     let channel = host.channel(&server.endpoint);
     let call = start_call(channel, ECHO, &[]);
 
+    // Past the ceiling itself: no return by anyone will ever make room, so the refusal is
+    // permanent and the host is told not to retry.
     assert_eq!(lend(call, 65).0, ak_status::AK_STATUS_MESSAGE_TOO_LARGE);
 
     let (status, buffer) = lend(call, 40);
@@ -326,6 +347,8 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
 fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid() {
     let server = TestServer::start();
     let host = Host::start();
+    // This host deliberately does not consume, which is what gives the runtime something to
+    // report; with one credit it therefore sees the metadata and no message after it.
     host.recorder.hold_payloads();
     let channel = host.channel(&server.endpoint);
 
@@ -385,6 +408,7 @@ fn a_struct_of_an_unknown_size_is_refused_rather_than_read() {
     let channel = host.channel("http://127.0.0.1:1");
 
     let options = ak_call_start_options {
+        // A caller compiled against a version this library does not know.
         struct_size: 7,
         method: ak_bytes_in {
             ptr: ECHO.as_ptr(),
@@ -417,6 +441,7 @@ fn a_token_naming_nothing_is_refused_rather_than_dereferenced() {
         ak_runtime_begin_shutdown(u64::MAX),
         ak_status::AK_STATUS_HANDLE_STALE
     );
+    // Freeing something that names nothing is a no-op rather than a fault.
     ak_channel_release(u64::MAX);
 }
 
