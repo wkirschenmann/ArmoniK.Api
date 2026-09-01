@@ -237,8 +237,11 @@ pub unsafe extern "C" fn ak_call_start(
             config::MAX_SENDS_IN_FLIGHT,
             call::DELIVERY_CREDITS,
         );
+        // Published before the tasks run: a call that ends at once would otherwise reach its
+        // reclamation, find the slot empty, and then be published into it as a dead entry with
+        // nothing left to take it out again.
+        tables::calls().publish(handle, Arc::clone(&state));
         call::start(&state, send, recv, commands, runtime.spawner());
-        tables::calls().publish(handle, state);
 
         // SAFETY: checked non-null above.
         unsafe { *out = handle };

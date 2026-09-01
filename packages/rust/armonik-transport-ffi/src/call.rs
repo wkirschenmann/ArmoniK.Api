@@ -205,7 +205,12 @@ impl CallState {
         }
         match self.commands.try_send(Command::EndSend) {
             Ok(()) => ak_status::AK_STATUS_OK,
-            Err(_) => ak_status::AK_STATUS_INVALID_STATE,
+            Err(_) => {
+                // Nothing was queued, so nothing has half-closed: the claim goes back rather
+                // than leaving a call that can neither send nor end.
+                self.ended_sending.store(false, Ordering::Release);
+                ak_status::AK_STATUS_INVALID_STATE
+            }
         }
     }
 

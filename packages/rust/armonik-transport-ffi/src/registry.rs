@@ -36,6 +36,9 @@ impl<T> Registry<T> {
     /// Two phases because an object has to know its own handle before anything can find it: a
     /// value published under a name it does not carry cannot be removed by the code that walks
     /// the registry, and stays for the life of the process.
+    ///
+    /// Every caller publishes on the next statement, with nothing fallible in between, so the
+    /// only way to leave a slot reserved is to panic between the two - which costs one slot.
     pub(crate) fn reserve(&self) -> ak_handle {
         let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
 
