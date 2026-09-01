@@ -91,8 +91,9 @@ impl Deframer {
                 max: self.max_message_size,
             });
         }
-        // Where `usize` is 32 bits, `HEADER_LEN + len` is reachable past its end, and the
-        // consumers below trust that sum.
+        // Reachable only when the maximum above is `usize::MAX`, and then only where `usize` is
+        // 32 bits: the consumers below trust this sum, which without the check runs past the end
+        // of the type.
         match HEADER_LEN.checked_add(len) {
             Some(whole) if self.buffered >= whole => {}
             _ => return Ok(None),

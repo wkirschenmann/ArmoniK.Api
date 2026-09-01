@@ -34,8 +34,10 @@ pub struct GrpcChannelConfig {
     pub user_agent: Option<String>,
     /// How many buffers a call may have out at once before a send has to wait.
     pub max_sends_in_flight: usize,
-    /// The largest message this channel will reassemble, refused on the length the peer
-    /// announces rather than after it has been held.
+    /// The largest message this channel reassembles, refused on the length the peer announces
+    /// rather than after the bytes are held. It bounds what one message costs, not what the
+    /// engine holds at once: a message spanning several chunks is held twice while it is put
+    /// together, and a chunk already taken from the connection is held whatever it announces.
     pub max_recv_message_size: usize,
 }
 
@@ -67,6 +69,13 @@ impl GrpcChannel {
             return Err(IncompatibleOptionsSnafu {
                 msg: "`max_sends_in_flight` is the number of buffers a call may have out at \
                       once, so zero would let it send nothing",
+            }
+            .build());
+        }
+
+        if config.max_recv_message_size == 0 {
+            return Err(IncompatibleOptionsSnafu {
+                msg: "`max_recv_message_size` of zero admits only empty messages, which is not                       what a caller writing zero for `no limit` is asking for",
             }
             .build());
         }

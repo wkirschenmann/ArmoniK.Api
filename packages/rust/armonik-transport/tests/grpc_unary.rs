@@ -484,27 +484,36 @@ async fn a_message_past_the_maximum_ends_the_call_rather_than_being_held() {
 }
 
 #[tokio::test]
-async fn the_channel_sets_the_maximum_message_size() {
+async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
+    const SIZE: usize = 5 * 1024 * 1024;
+
     let server = TestServer::start().await;
+    let payload = Bytes::from(vec![0x27; SIZE]);
+
+    // Five megabytes against the four-megabyte default: the reply is refused on its length.
+    let (_, _, status) = unary(
+        &channel(&server.endpoint),
+        CallStartOptions::new(ECHO),
+        payload.clone(),
+    )
+    .await;
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+
+    // The same reply, on a channel that allows it, comes back whole.
     let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
-    config.max_recv_message_size = 64 * 1024 * 1024;
-
-    let channel = GrpcChannel::new(
+    config.max_recv_message_size = 8 * 1024 * 1024;
+    let roomy = GrpcChannel::new(
         config,
         TokioExecutor::new(tokio::runtime::Handle::current()),
     )
     .expect("a plain endpoint");
 
-    // Raised past what the peer announces, the same response is a stream that simply never
-    // completes its message, and it ends for that reason instead.
-    let (_, _, status) = unary(
-        &channel,
-        CallStartOptions::new("/raw/TooBig"),
-        Bytes::from_static(b"x"),
-    )
-    .await;
-    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    let (_, messages, status) = unary(&roomy, CallStartOptions::new(ECHO), payload).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].len(), SIZE);
+    assert!(messages[0].iter().all(|byte| *byte == 0x27));
 }
 
 #[tokio::test]
@@ -609,25 +618,19 @@ async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody>
         return canned(raw, request.headers());
     }
 
-    let request = request.map(TonicBody::new);
-    match path.as_str() {
-        ECHO => {
-            Grpc::new(BytesCodec)
-                .unary(&mut Handler(echo), request)
-                .await
-        }
-        FAIL => {
-            Grpc::new(BytesCodec)
-                .unary(&mut Handler(fail), request)
-                .await
-        }
-        SLOW => {
-            Grpc::new(BytesCodec)
-                .unary(&mut Handler(slow), request)
-                .await
-        }
-        _ => Status::unimplemented("no such method").into_http(),
-    }
+    let handler = match path.as_str() {
+        ECHO => echo,
+        FAIL => fail,
+        SLOW => slow,
+        _ => return Status::unimplemented("no such method").into_http(),
+    };
+
+    Grpc::new(BytesCodec)
+        // The engine's own maximum is what these tests are about, so the server imposes none.
+        .max_decoding_message_size(usize::MAX)
+        .max_encoding_message_size(usize::MAX)
+        .unary(&mut Handler(handler), request.map(TonicBody::new))
+        .await
 }
 
 /// A body that hands over frames already decided on.

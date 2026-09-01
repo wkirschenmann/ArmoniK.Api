@@ -170,8 +170,9 @@ impl Metadata {
                 continue;
             }
 
-            // Stored keys are already lowercased header names, so the only thing left that can
-            // refuse an entry is a value `http` will not carry.
+            // Both constructors validate, so neither conversion below can fail on what is
+            // stored; they guard against a third way of building one of these rather than a
+            // path a caller reaches. What can fail is the map filling up.
             let name = HeaderName::from_bytes(key.as_bytes())
                 .map_err(|_| MetadataError::InvalidKey { key: key.clone() })?;
             let encoded = match value {
