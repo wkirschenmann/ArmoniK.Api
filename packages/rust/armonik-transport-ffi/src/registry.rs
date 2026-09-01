@@ -13,6 +13,8 @@ use crate::abi::{ak_handle, AK_HANDLE_NONE};
 struct Slot<T> {
     generation: u32,
     value: Option<Arc<T>>,
+    /// Named and not yet published. Keeps a second reservation off the same slot.
+    reserved: bool,
 }
 
 /// The live objects of one kind, addressed by token.
@@ -29,11 +31,15 @@ impl<T> Default for Registry<T> {
 }
 
 impl<T> Registry<T> {
-    /// Puts `value` in a free slot and names it.
-    pub(crate) fn insert(&self, value: Arc<T>) -> ak_handle {
+    /// Takes a free slot and names it, without putting anything in it yet.
+    ///
+    /// Two phases because an object has to know its own handle before anything can find it: a
+    /// value published under a name it does not carry cannot be removed by the code that walks
+    /// the registry, and stays for the life of the process.
+    pub(crate) fn reserve(&self) -> ak_handle {
         let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
 
-        let index = slots.iter().position(|slot| slot.value.is_none());
+        let index = slots.iter().position(|slot| slot.value.is_none() && !slot.reserved);
         let index = match index {
             Some(index) => {
                 // A reused slot advances, so every token it ever named but the newest is stale.
@@ -44,12 +50,26 @@ impl<T> Registry<T> {
                 slots.push(Slot {
                     generation: 1,
                     value: None,
+                    reserved: false,
                 });
                 slots.len() - 1
             }
         };
-        slots[index].value = Some(value);
+        slots[index].reserved = true;
         token(index, slots[index].generation)
+    }
+
+    /// Puts `value` in the slot `handle` names.
+    pub(crate) fn publish(&self, handle: ak_handle, value: Arc<T>) {
+        let Some((index, generation)) = parts(handle) else {
+            return;
+        };
+        let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(slot) = slots.get_mut(index) {
+            if slot.generation == generation {
+                slot.value = Some(value);
+            }
+        }
     }
 
     /// What the token names, if it still names anything.
@@ -71,6 +91,7 @@ impl<T> Registry<T> {
         if slot.generation != generation {
             return None;
         }
+        slot.reserved = false;
         slot.value.take()
     }
 
@@ -109,10 +130,17 @@ fn parts(handle: ak_handle) -> Option<(usize, u32)> {
 mod tests {
     use super::*;
 
+    /// The two phases as every caller uses them.
+    fn insert<T>(registry: &Registry<T>, value: Arc<T>) -> ak_handle {
+        let handle = registry.reserve();
+        registry.publish(handle, value);
+        handle
+    }
+
     #[test]
     fn a_token_names_what_was_put_in_it() {
         let registry = Registry::default();
-        let handle = registry.insert(Arc::new(7u32));
+        let handle = insert(&registry, Arc::new(7u32));
 
         assert_eq!(registry.get(handle).as_deref(), Some(&7));
         assert_eq!(registry.len(), 1);
@@ -121,10 +149,10 @@ mod tests {
     #[test]
     fn a_token_for_a_reused_slot_names_nothing() {
         let registry = Registry::default();
-        let first = registry.insert(Arc::new(1u32));
+        let first = insert(&registry, Arc::new(1u32));
         registry.remove(first);
 
-        let second = registry.insert(Arc::new(2u32));
+        let second = insert(&registry, Arc::new(2u32));
         assert_ne!(first, second, "the slot came back at a new generation");
         assert!(registry.get(first).is_none(), "the old token is stale");
         assert_eq!(registry.get(second).as_deref(), Some(&2));
@@ -140,10 +168,24 @@ mod tests {
     }
 
     #[test]
+    fn a_reserved_slot_holds_nothing_until_it_is_published() {
+        let registry = Registry::<u32>::default();
+        let handle = registry.reserve();
+
+        assert!(registry.get(handle).is_none());
+        assert!(registry.values().is_empty());
+        // A second reservation takes a different slot rather than the one being named.
+        assert_ne!(registry.reserve(), handle);
+
+        registry.publish(handle, Arc::new(3));
+        assert_eq!(registry.get(handle).as_deref(), Some(&3));
+    }
+
+    #[test]
     fn a_snapshot_holds_what_the_registry_holds() {
         let registry = Registry::default();
-        let first = registry.insert(Arc::new(1u32));
-        registry.insert(Arc::new(2u32));
+        let first = insert(&registry, Arc::new(1u32));
+        insert(&registry, Arc::new(2u32));
         registry.remove(first);
 
         let values: Vec<u32> = registry.values().iter().map(|value| **value).collect();
@@ -154,7 +196,7 @@ mod tests {
     #[test]
     fn removing_twice_answers_once() {
         let registry = Registry::default();
-        let handle = registry.insert(Arc::new(1u32));
+        let handle = insert(&registry, Arc::new(1u32));
 
         assert!(registry.remove(handle).is_some());
         assert!(registry.remove(handle).is_none());

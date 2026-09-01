@@ -10,7 +10,7 @@ use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
-use support::{blob, Recorder, Seen, TestServer, ECHO, FAIL};
+use support::{blob, empty_buffer, Recorder, TestServer, ECHO, FAIL, SLOW};
 
 /// Drives the ABI the way a binding would, and cleans up after itself.
 struct Host {
@@ -105,11 +105,7 @@ impl Drop for Host {
 
 /// One unary call: lend a buffer, fill it, commit, half-close.
 fn send_one(call: ak_handle, message: &[u8]) {
-    let mut buffer = ak_buffer {
-        ptr: std::ptr::null_mut(),
-        len: 0,
-        owner: std::ptr::null_mut(),
-    };
+    let mut buffer = empty_buffer();
     // SAFETY: the out pointer is live for the call.
     let status = unsafe { ak_get_call_buffer(call, message.len(), &mut buffer) };
     assert_eq!(status, ak_status::AK_STATUS_OK);
@@ -229,13 +225,9 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     let server = TestServer::start();
     let host = Host::start();
     let channel = host.channel(&server.endpoint);
-    let call = start_call(channel, ECHO, &[]);
+    let call = start_call(channel, SLOW, &[]);
 
-    let mut first = ak_buffer {
-        ptr: std::ptr::null_mut(),
-        len: 0,
-        owner: std::ptr::null_mut(),
-    };
+    let mut first = empty_buffer();
     // SAFETY: the out pointer is live for the call.
     assert_eq!(
         unsafe { ak_get_call_buffer(call, 4, &mut first) },
@@ -243,16 +235,24 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     );
 
     // A window of one, and one buffer out: backpressure, not an error.
-    let mut second = first;
+    let mut second = empty_buffer();
     // SAFETY: as above.
     assert_eq!(
         unsafe { ak_get_call_buffer(call, 4, &mut second) },
         ak_status::AK_STATUS_SLOT_BUSY
     );
 
-    // Giving the buffer back unused frees its slot, which is the other exit the ABI names.
+    // Committing does not free the slot - the buffer only moves from one side of the count to
+    // the other - so the window is still full.
     // SAFETY: `first` is the buffer just lent and has not been given back.
-    unsafe { ak_return_call_buffer(first) };
+    assert_eq!(
+        unsafe { ak_call_send_message(call, first) },
+        ak_status::AK_STATUS_OK
+    );
+
+    // What frees it is the acquittal, and nothing else: the server never answers, so no terminal
+    // can be what unblocks this.
+    host.recorder.await_write_done();
     // SAFETY: the out pointer is live for the call.
     assert_eq!(
         unsafe { ak_get_call_buffer(call, 4, &mut second) },
@@ -268,17 +268,82 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
 }
 
 #[test]
+fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel(&server.endpoint);
+    let call = start_call(channel, SLOW, &[]);
+
+    let mut buffer = empty_buffer();
+    // SAFETY: the out pointer is live for the call.
+    assert_eq!(
+        unsafe { ak_get_call_buffer(call, 4, &mut buffer) },
+        ak_status::AK_STATUS_OK
+    );
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+
+    // Refused, and the buffer stays the host's: the header names ak_return_call_buffer as its
+    // only exit, so freeing it here would leave the host pointing at released memory.
+    // SAFETY: `buffer` is the one just lent and has not been given back.
+    assert_eq!(
+        unsafe { ak_call_send_message(call, buffer) },
+        ak_status::AK_STATUS_INVALID_STATE
+    );
+    // SAFETY: still the host's, exactly as it was lent.
+    unsafe { ak_return_call_buffer(buffer) };
+
+    host.recorder.await_terminal();
+    ak_channel_release(channel);
+    host.stop();
+}
+
+#[test]
+fn a_call_reports_what_the_host_owes_it() {
+    let server = TestServer::start();
+    let host = Host::start();
+    host.recorder.hold_payloads();
+    let channel = host.channel(&server.endpoint);
+    let call = start_call(channel, SLOW, &[]);
+
+    let mut debt = ak_call_debt::default();
+    let mut buffer = empty_buffer();
+    // SAFETY: the out pointer is live for the call.
+    unsafe { ak_get_call_buffer(call, 8, &mut buffer) };
+    // SAFETY: as above.
+    assert_eq!(
+        unsafe { ak_call_debt_of(call, &mut debt) },
+        ak_status::AK_STATUS_OK
+    );
+    assert_eq!(debt.buffers_lent, 1);
+    assert_eq!(debt.terminal_delivered, 0);
+
+    // SAFETY: `buffer` is the one just lent.
+    unsafe { ak_return_call_buffer(buffer) };
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    host.recorder.await_terminal();
+
+    // SAFETY: the out pointer is live for the call.
+    unsafe { ak_call_debt_of(call, &mut debt) };
+    assert_eq!(debt.buffers_lent, 0);
+    assert_eq!(debt.terminal_delivered, 1);
+    assert!(
+        debt.payloads_owed >= 1,
+        "the host is holding what it was given: {debt:?}"
+    );
+
+    host.recorder.consume_all();
+    ak_channel_release(channel);
+    host.stop();
+}
+
+#[test]
 fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
     let server = TestServer::start();
     let host = Host::with_ceiling(64);
     let channel = host.channel(&server.endpoint);
     let call = start_call(channel, ECHO, &[]);
 
-    let mut buffer = ak_buffer {
-        ptr: std::ptr::null_mut(),
-        len: 0,
-        owner: std::ptr::null_mut(),
-    };
+    let mut buffer = empty_buffer();
 
     // Past the ceiling itself: no return by anyone will ever make room, so the refusal is
     // permanent and the host is told not to retry.
@@ -469,9 +534,4 @@ fn consuming_an_unowned_payload_is_a_no_op() {
             owner: std::ptr::null_mut(),
         })
     };
-}
-
-// Keeps `Seen` in the crate's use even when only some tests are run.
-fn _assert_seen_is_debug(seen: &Seen) -> String {
-    format!("{seen:?}")
 }

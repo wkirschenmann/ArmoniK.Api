@@ -2,7 +2,7 @@
 
 mod server;
 
-pub use server::{TestServer, ECHO, FAIL};
+pub use server::{TestServer, ECHO, FAIL, SLOW};
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -152,6 +152,14 @@ impl Recorder {
         })
     }
 
+    /// Waits for a send to be acquitted.
+    pub fn await_write_done(&self) -> Seen {
+        self.wait_for("an acquittal", |seen| {
+            seen.iter()
+                .any(|event| event.kind == ak_event_kind::AK_EVENT_WRITE_DONE)
+        })
+    }
+
     pub fn await_shutdown(&self) -> Seen {
         self.wait_for("a shutdown", |seen| {
             seen.iter()
@@ -286,7 +294,20 @@ impl Seen {
     }
 }
 
+/// A buffer as C would leave it before a lend fills it in. The ABI promises `*out` is untouched
+/// on a refusal, so this is also what a host still holds after one.
+pub fn empty_buffer() -> ak_buffer {
+    ak_buffer {
+        ptr: std::ptr::null_mut(),
+        len: 0,
+        owner: std::ptr::null_mut(),
+    }
+}
+
 /// The blob encoding the ABI uses for every list of pairs.
+///
+/// Written out here rather than taken from the library: a test that builds its blob with the
+/// encoder under test cannot catch that encoder changing.
 pub fn blob(pairs: &[(&[u8], &[u8])]) -> Vec<u8> {
     let mut out = (pairs.len() as u32).to_ne_bytes().to_vec();
     for (key, value) in pairs {

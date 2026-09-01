@@ -1,7 +1,7 @@
 //! The runtime: what owns the Tokio threads, the registries, and the shutdown chain.
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use armonik_transport::grpc::GrpcChannel;
 use tokio::sync::watch;
@@ -119,24 +119,20 @@ impl Ledger {
 pub(crate) struct AkChannel {
     pub(crate) grpc: GrpcChannel,
     pub(crate) runtime: Weak<AkRuntime>,
-    handle: OnceLock<ak_handle>,
+    handle: ak_handle,
 }
 
 impl AkChannel {
-    pub(crate) fn new(grpc: GrpcChannel, runtime: &Arc<AkRuntime>) -> Self {
+    pub(crate) fn new(grpc: GrpcChannel, runtime: &Arc<AkRuntime>, handle: ak_handle) -> Self {
         Self {
             grpc,
             runtime: Arc::downgrade(runtime),
-            handle: OnceLock::new(),
+            handle,
         }
     }
 
-    pub(crate) fn name_it(&self, handle: ak_handle) {
-        let _ = self.handle.set(handle);
-    }
-
     fn handle(&self) -> ak_handle {
-        self.handle.get().copied().unwrap_or_default()
+        self.handle
     }
 }
 
@@ -152,6 +148,10 @@ pub(crate) struct AkRuntime {
     state: AtomicI32,
     /// Raised by the first `begin_shutdown`, so a second is a no-op.
     stopping: AtomicBool,
+    /// Held for reading while a downcall passes the start gate and publishes what it started, and
+    /// for writing by the shutdown before it takes its snapshot. Without it a call can be
+    /// published after the runtime has declared its last event.
+    gate: std::sync::RwLock<()>,
 }
 
 impl AkRuntime {
@@ -175,6 +175,7 @@ impl AkRuntime {
             ledger: Arc::new(Ledger::new(memory_ceiling)),
             state: AtomicI32::new(ak_runtime_state::AK_RUNTIME_RUNNING as i32),
             stopping: AtomicBool::new(false),
+            gate: std::sync::RwLock::new(()),
         }))
     }
 
@@ -196,9 +197,16 @@ impl AkRuntime {
         self.state.store(state as i32, Ordering::Release);
     }
 
-    /// Whether the start gate is open: channels and calls begin only on a running runtime.
-    pub(crate) fn accepts_new_work(&self) -> bool {
-        self.state() == ak_runtime_state::AK_RUNTIME_RUNNING
+    /// The start gate, open only while the runtime is running.
+    ///
+    /// The guard is what makes the check and the publishing that follows it one step: the
+    /// shutdown waits for it before deciding what there is to drain.
+    pub(crate) fn pass_the_gate(&self) -> Option<std::sync::RwLockReadGuard<'_, ()>> {
+        let pass = self
+            .gate
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (self.state() == ak_runtime_state::AK_RUNTIME_RUNNING).then_some(pass)
     }
 
     /// Takes a call's handle back, now that nothing of it is outstanding.
@@ -242,6 +250,18 @@ impl AkRuntime {
         let ledger = Arc::clone(&self.ledger);
 
         self.spawner.spawn(async move {
+            // Waits out any downcall that passed the gate and has not published yet, so the
+            // snapshots below cannot miss a call that is about to exist. Nothing is awaited while
+            // it is held.
+            if let Some(runtime) = weak.upgrade() {
+                drop(
+                    runtime
+                        .gate
+                        .write()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                );
+            }
+
             // Closing a channel cancels its calls, which is what makes them reach a terminal.
             // The call registry is not drained: a handle stays valid until its call is reclaimed,
             // and reclamation is what empties it.
@@ -281,8 +301,12 @@ impl AkRuntime {
         });
     }
 
-    /// Gives the threads up. Only reached once nothing of the runtime is outstanding, so no task
-    /// is left to be cut short.
+    /// Gives the threads up, waiting for them.
+    ///
+    /// Only reached from quiescence, so nothing should still be running - but returning while a
+    /// detached thread is inside a host callback is what would make unloading the library unsafe,
+    /// and that is the one thing this call is supposed to permit. The bound keeps a task that
+    /// refuses to end from hanging the downcall for good.
     pub(crate) fn release_threads(&self) {
         let taken = self
             .tokio
@@ -290,7 +314,7 @@ impl AkRuntime {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(tokio) = taken {
-            tokio.shutdown_background();
+            tokio.shutdown_timeout(std::time::Duration::from_secs(5));
         }
     }
 }

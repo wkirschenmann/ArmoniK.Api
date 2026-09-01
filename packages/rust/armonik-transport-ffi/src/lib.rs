@@ -67,7 +67,8 @@ pub unsafe extern "C" fn ak_runtime_create(
         ) {
             Err(status) => status,
             Ok(runtime) => {
-                let handle = tables::runtimes().insert(runtime);
+                let handle = tables::runtimes().reserve();
+                tables::runtimes().publish(handle, runtime);
                 // SAFETY: checked non-null above.
                 unsafe { *out = handle };
                 ak_status::AK_STATUS_OK
@@ -139,9 +140,9 @@ pub unsafe extern "C" fn ak_channel_create(
         let Some(found) = tables::runtimes().get(runtime) else {
             return ak_status::AK_STATUS_HANDLE_STALE;
         };
-        if !found.accepts_new_work() {
+        let Some(_pass) = found.pass_the_gate() else {
             return ak_status::AK_STATUS_INVALID_STATE;
-        }
+        };
         // SAFETY: the host's contract for this argument.
         let Some(json) = (unsafe { config_json.as_slice() }) else {
             return ak_status::AK_STATUS_INVALID_ARG;
@@ -155,9 +156,9 @@ pub unsafe extern "C" fn ak_channel_create(
             return ak_status::AK_STATUS_INVALID_ARG;
         };
 
-        let channel = Arc::new(AkChannel::new(grpc, &found));
-        let handle = tables::channels().insert(Arc::clone(&channel));
-        channel.name_it(handle);
+        let handle = tables::channels().reserve();
+        let channel = Arc::new(AkChannel::new(grpc, &found, handle));
+        tables::channels().publish(handle, channel);
         // SAFETY: checked non-null above.
         unsafe { *out = handle };
         ak_status::AK_STATUS_OK
@@ -204,9 +205,9 @@ pub unsafe extern "C" fn ak_call_start(
         let Some(runtime) = found.runtime.upgrade() else {
             return ak_status::AK_STATUS_HANDLE_STALE;
         };
-        if !runtime.accepts_new_work() {
+        let Some(_pass) = runtime.pass_the_gate() else {
             return ak_status::AK_STATUS_INVALID_STATE;
-        }
+        };
 
         // SAFETY: the host's contract for these arguments.
         let (Some(method), Some(metadata)) = (unsafe { options.method.as_slice() }, unsafe {
@@ -234,7 +235,7 @@ pub unsafe extern "C" fn ak_call_start(
             config::MAX_SENDS_IN_FLIGHT,
             config::DELIVERY_CREDITS,
         );
-        let handle = tables::calls().insert(Arc::clone(&state));
+        let handle = tables::calls().reserve();
         call::start(
             &state,
             handle,
@@ -242,6 +243,7 @@ pub unsafe extern "C" fn ak_call_start(
             commands,
             runtime.spawner(),
         );
+        tables::calls().publish(handle, state);
 
         // SAFETY: checked non-null above.
         unsafe { *out = handle };
