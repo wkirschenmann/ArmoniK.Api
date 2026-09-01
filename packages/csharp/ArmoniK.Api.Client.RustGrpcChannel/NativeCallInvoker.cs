@@ -15,10 +15,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// </remarks>
 public sealed class NativeCallInvoker : CallInvoker
 {
+  private readonly ulong runtime_;
   private readonly ulong channel_;
 
-  internal NativeCallInvoker(ulong channel)
-    => channel_ = channel;
+  internal NativeCallInvoker(ulong runtime,
+                             ulong channel)
+  {
+    runtime_ = runtime;
+    channel_ = channel;
+  }
 
   /// <inheritdoc />
   public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
@@ -30,15 +35,8 @@ public sealed class NativeCallInvoker : CallInvoker
                                     host,
                                     options,
                                     request);
-    try
-    {
-      return call.ResponseAsync.GetAwaiter()
-                 .GetResult();
-    }
-    catch (AggregateException aggregate) when (aggregate.InnerException is not null)
-    {
-      throw aggregate.InnerException;
-    }
+    return call.ResponseAsync.GetAwaiter()
+               .GetResult();
   }
 
   /// <inheritdoc />
@@ -47,73 +45,79 @@ public sealed class NativeCallInvoker : CallInvoker
                                                                                 CallOptions options,
                                                                                 TRequest request)
   {
-    var call = NativeCall.Start(channel_,
-                                method.FullName,
-                                options.Headers);
+    var call = NativeCall<TResponse>.Start(runtime_,
+                                           channel_,
+                                           method.FullName,
+                                           options.Headers,
+                                           method.ResponseMarshaller);
+    call.CancelWith(options.CancellationToken);
 
-    CancellationTokenRegistration cancellation = default;
-    Task<TResponse> response;
-    try
-    {
-      if (options.CancellationToken.CanBeCanceled)
-      {
-        cancellation = options.CancellationToken.Register(call.Cancel);
-      }
-
-      var payload = new SerializedMessage();
-      method.RequestMarshaller.ContextualSerializer(request,
-                                                    payload);
-      call.SendUnary(payload.Bytes);
-
-      response = ReadAsync(call,
-                           method);
-    }
-    catch
-    {
-      // Nothing was handed to the caller, so nothing else will ever release the call.
-      cancellation.Dispose();
-      call.Dispose();
-      throw;
-    }
-
-    return new AsyncUnaryCall<TResponse>(response,
+    return new AsyncUnaryCall<TResponse>(AnswerAsync(call,
+                                                     method.RequestMarshaller,
+                                                     request,
+                                                     options.CancellationToken),
                                          call.ResponseHeadersAsync,
-                                         () => Terminal(call),
-                                         () => call.Trailers,
-                                         () =>
-                                         {
-                                           cancellation.Dispose();
-                                           call.Dispose();
-                                         });
+                                         () => Ended(call)
+                                           .Status,
+                                         () => Ended(call)
+                                           .Trailers,
+                                         call.Dispose);
   }
 
-  private static async Task<TResponse> ReadAsync<TRequest, TResponse>(NativeCall call,
-                                                                      Method<TRequest, TResponse> method)
+  /// <summary>
+  ///   Sends, then answers. The drain starts first and is always awaited: it is what gives the
+  ///   library its payloads back, and a call whose payloads never come back is never reclaimed.
+  /// </summary>
+  private static async Task<TResponse> AnswerAsync<TRequest, TResponse>(NativeCall<TResponse> call,
+                                                                        Marshaller<TRequest> marshaller,
+                                                                        TRequest request,
+                                                                        CancellationToken token)
     where TRequest : class
     where TResponse : class
   {
-    var message = await call.ReadUnaryAsync()
-                            .ConfigureAwait(false);
-    var response = method.ResponseMarshaller.ContextualDeserializer(new ReceivedMessage(message));
-
-    // A unary call's answer is its message and its status together: a message followed by a
-    // failing status is not a success, and grpc-dotnet's own callers rely on that.
-    var status = await call.TerminalAsync.ConfigureAwait(false);
-    if (status.StatusCode != StatusCode.OK)
+    var drained = call.RunAsync();
+    try
     {
-      throw new RpcException(status,
-                             call.Trailers);
+      await call.SendUnaryAsync(marshaller,
+                                request,
+                                token)
+                .ConfigureAwait(false);
+    }
+    catch
+    {
+      call.Cancel();
+      try
+      {
+        await drained.ConfigureAwait(false);
+      }
+      catch
+      {
+        // The send's failure is the one worth reporting; the terminal only follows from it.
+      }
+
+      throw;
     }
 
-    return response;
+    return await drained.ConfigureAwait(false);
   }
 
-  private static Status Terminal(NativeCall call)
-    => call.TerminalAsync.IsCompleted
-         ? call.TerminalAsync.GetAwaiter()
-               .GetResult()
-         : new Status(StatusCode.Unknown,
-                      "the call has not ended yet");
+  private static (Status Status, Metadata Trailers) Ended<TResponse>(NativeCall<TResponse> call)
+    where TResponse : class
+  {
+    if (!call.TerminalAsync.IsCompleted)
+    {
+      throw new InvalidOperationException("the call has not ended yet");
+    }
+
+    var trailers = new Metadata();
+    foreach (var entry in call.Trailers)
+    {
+      trailers.Add(entry);
+    }
+
+    return (call.TerminalAsync.GetAwaiter()
+                .GetResult(), trailers);
+  }
 
   /// <inheritdoc />
   public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,

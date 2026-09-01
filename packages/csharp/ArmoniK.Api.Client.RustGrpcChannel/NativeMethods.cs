@@ -8,8 +8,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///   `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`.
 /// </summary>
 /// <remarks>
-///   `Cdecl` is spelled out rather than left to the default: it is what the header says, and on
-///   x86 the default would be wrong.
+///   The whole header, declared whether or not this binding calls it yet, so the two can be
+///   diffed against each other. `Cdecl` is spelled out rather than left to the default: it is
+///   what the header says, and on x86 the default would be wrong.
 /// </remarks>
 internal static class NativeMethods
 {
@@ -108,6 +109,13 @@ internal static class NativeMethods
   }
 
   [StructLayout(LayoutKind.Sequential)]
+  internal struct AkMemoryUsage
+  {
+    internal ulong BytesUsed;
+    internal ulong Ceiling;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
   internal struct AkCallDebt
   {
     internal uint PayloadsOwed;
@@ -142,6 +150,10 @@ internal static class NativeMethods
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern AkStatus ak_runtime_destroy(ulong runtime);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkStatus ak_runtime_memory_usage(ulong runtime,
+                                                          out AkMemoryUsage outUsage);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern AkStatus ak_channel_create(ulong runtime,

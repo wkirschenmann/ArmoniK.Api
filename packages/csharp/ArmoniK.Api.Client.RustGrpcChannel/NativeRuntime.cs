@@ -9,13 +9,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///   The native runtime, and the trampoline every event of it arrives on.
 /// </summary>
 /// <remarks>
-///   One per process is enough: the runtime owns its threads and every channel leases it. Its
-///   context and the callback stay rooted until <see cref="Dispose" /> returns, which is longer
-///   than the ABI's floor - that one ends at the runtime's last event - and needs no reasoning
-///   about which event was last.
+///   One per process is enough: the runtime owns its threads and every channel leases it.
 /// </remarks>
 public sealed class NativeRuntime : IDisposable
 {
+  /// <summary>How long <see cref="Dispose" /> gives the runtime to stop before giving up on it.</summary>
+  private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(30);
+
   /// <summary>
   ///   Rooted for the runtime's lifetime. A delegate marshalled to a function pointer is not kept
   ///   alive by the native side holding that pointer, so letting this be collected would leave the
@@ -23,7 +23,7 @@ public sealed class NativeRuntime : IDisposable
   /// </summary>
   private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
 
-  private readonly TaskCompletionSource<bool> stopped_ =
+  private readonly TaskCompletionSource<bool> released_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   private GCHandle self_;
@@ -71,75 +71,75 @@ public sealed class NativeRuntime : IDisposable
 
   /// <summary>Opens a channel on this runtime.</summary>
   public NativeChannel Channel(string endpoint)
-    => NativeChannel.Open(handle_,
-                          endpoint);
+    => new(handle_,
+           endpoint);
 
-  private static void OnEvent(IntPtr runtimeCtx,
-                              IntPtr callCtx,
-                              IntPtr eventPtr)
+  /// <summary>What the runtime currently holds against its ceiling.</summary>
+  public (ulong Used, ulong Ceiling) MemoryUsage()
+    => NativeMethods.ak_runtime_memory_usage(handle_,
+                                             out var usage) == NativeMethods.AkStatus.Ok
+         ? (usage.BytesUsed, usage.Ceiling)
+         : (0UL, 0UL);
+
+  private static unsafe void OnEvent(IntPtr runtimeCtx,
+                                     IntPtr callCtx,
+                                     IntPtr eventPtr)
   {
-    // Nothing here may throw: unwinding into C is undefined, and this frame is called from one of
-    // the library's own threads.
+    var @event = (NativeMethods.AkEvent*)eventPtr;
+
+    object? target;
     try
     {
-      var @event = Marshal.PtrToStructure<NativeMethods.AkEvent>(eventPtr);
-      var payload = Copy(@event.Payload);
-
-      if (@event.Payload.Owner != IntPtr.Zero)
-      {
-        // Consumed here, on this thread: it frees the bytes and arms the next event, and with one
-        // delivery credit a call that waits to consume never sees another one.
-        NativeMethods.ak_event_consumed(@event.Payload);
-      }
-
-      if (callCtx != IntPtr.Zero)
-      {
-        var call = GCHandle.FromIntPtr(callCtx)
-                           .Target as NativeCall;
-        call?.OnEvent(@event.Kind,
-                      payload,
-                      @event.StatusCode);
-        return;
-      }
-
-      var runtime = GCHandle.FromIntPtr(runtimeCtx)
-                            .Target as NativeRuntime;
-      runtime?.OnRuntimeEvent(@event);
+      target = GCHandle.FromIntPtr(callCtx != IntPtr.Zero
+                                     ? callCtx
+                                     : runtimeCtx)
+                       .Target;
     }
     catch
     {
-      // Swallowed on purpose: there is nowhere to report it, and letting it out is worse.
+      // A token this side no longer roots is a bug on this side, but the payload is the
+      // library's to reclaim and dropping it here would strand the call for good.
+      NativeMethods.ak_event_consumed(@event->Payload);
+      return;
+    }
+
+    try
+    {
+      if (target is ICallSink call)
+      {
+        call.Publish(@event->Kind,
+                     @event->Payload,
+                     @event->StatusCode);
+        return;
+      }
+
+      (target as NativeRuntime)?.OnRuntimeEvent(@event->Kind,
+                                                @event->HostDebt);
+    }
+    catch
+    {
+      // Publishing a slot cannot fail, so only a bug reaches here - and unwinding into C is a
+      // worse answer to a bug than dropping one event.
     }
   }
 
-  private void OnRuntimeEvent(NativeMethods.AkEvent @event)
+  private void OnRuntimeEvent(NativeMethods.AkEventKind kind,
+                              NativeMethods.AkHostDebt debt)
   {
-    // SHUTDOWN_COMPLETE says whether anything of the runtime is still out; RESOURCES_RELEASED says
-    // it no longer is. Only the status says destroying is permitted, so this only wakes the wait.
-    if (@event.Kind is NativeMethods.AkEventKind.ShutdownComplete
-                    or NativeMethods.AkEventKind.ResourcesReleased)
+    // RESOURCES_RELEASED follows only when the host still owed something; when it owed nothing,
+    // SHUTDOWN_COMPLETE is the last word and waiting for a second event would hang.
+    if (kind == NativeMethods.AkEventKind.ResourcesReleased
+        || (kind == NativeMethods.AkEventKind.ShutdownComplete && debt == NativeMethods.AkHostDebt.NothingToReturn))
     {
-      stopped_.TrySetResult(true);
+      released_.TrySetResult(true);
     }
-  }
-
-  private static byte[] Copy(NativeMethods.AkBytes payload)
-  {
-    var length = (int)payload.Len;
-    if (payload.Ptr == IntPtr.Zero || length == 0)
-    {
-      return Array.Empty<byte>();
-    }
-
-    var bytes = new byte[length];
-    Marshal.Copy(payload.Ptr,
-                 bytes,
-                 0,
-                 length);
-    return bytes;
   }
 
   /// <inheritdoc />
+  /// <exception cref="InvalidOperationException">
+  ///   The runtime did not reach quiescence, so destroying it is not permitted and its threads
+  ///   stay up. Raised rather than swallowed: nothing else would ever report it.
+  /// </exception>
   public void Dispose()
   {
     if (Interlocked.Exchange(ref disposed_,
@@ -150,20 +150,20 @@ public sealed class NativeRuntime : IDisposable
 
     NativeMethods.ak_runtime_begin_shutdown(handle_);
 
-    // Quiescence is the permission, and no event is: the host reaches it by having given
-    // everything back, which this binding does inside the trampoline as each event arrives.
-    var deadline = DateTime.UtcNow.AddSeconds(30);
-    while (NativeMethods.ak_runtime_status(handle_) != NativeMethods.AkRuntimeState.Quiescent
-           && DateTime.UtcNow < deadline)
+    // Quiescence is reached by giving everything back, not by waiting for it, and the drain of
+    // each call is what does that. The wait here is only for the runtime to say it is done.
+    if (!released_.Task.Wait(ShutdownTimeout))
     {
-      Thread.Sleep(5);
+      throw new InvalidOperationException($"the runtime did not quiesce within {ShutdownTimeout} ({NativeMethods.ak_runtime_status(handle_)})");
     }
 
-    NativeMethods.ak_runtime_destroy(handle_);
-
-    if (self_.IsAllocated)
+    var status = NativeMethods.ak_runtime_destroy(handle_);
+    if (status != NativeMethods.AkStatus.Ok)
     {
-      self_.Free();
+      throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");
     }
+
+    // Only now: until destroy returns, a callback can still be in flight carrying this root.
+    self_.Free();
   }
 }

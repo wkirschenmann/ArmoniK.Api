@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 
 using Grpc.Core;
@@ -10,12 +10,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///   The ABI's key/value encoding: a uint32 count, then that many length-prefixed pairs.
 /// </summary>
 /// <remarks>
-///   Native byte order, as the header says, so this reads and writes with <see cref="BitConverter" />
-///   rather than choosing an endianness of its own. Keys may repeat and their order is kept: gRPC
-///   metadata is a multi-map, and two entries under one key must not come out as one.
+///   Native byte order, as the header says, so neither direction chooses an endianness of its
+///   own. Keys may repeat
+///   and their order is kept: gRPC metadata is a multi-map, and two entries under one key must not
+///   come out as one.
 ///   <para>
 ///     A key ending in <c>-bin</c> carries raw bytes on both sides of this boundary: the library
 ///     hands over the decoded value, not its base64 form.
+///   </para>
+///   <para>
+///     Reading is total: a blob that does not parse yields what could be read rather than
+///     throwing. Every one of them was written by the library in this process, so a malformed one
+///     is a bug on the other side of the ABI, and losing an answer that is already in hand would
+///     be the worse way to report it. Where a length prefix is unreadable the rest is unreachable
+///     too - the next field's offset is exactly what was lost - so "what could be read" is a
+///     prefix in every case, never a salvaged remainder.
 ///   </para>
 /// </remarks>
 internal static class Blob
@@ -29,46 +38,35 @@ internal static class Blob
       return Array.Empty<byte>();
     }
 
-    var pairs = new List<KeyValuePair<byte[], byte[]>>(metadata.Count);
+    var size = 4;
     foreach (var entry in metadata)
     {
-      var value = entry.IsBinary
-                    ? entry.ValueBytes
-                    : Encoding.UTF8.GetBytes(entry.Value);
-      pairs.Add(new KeyValuePair<byte[], byte[]>(Encoding.UTF8.GetBytes(entry.Key),
-                                                 value));
-    }
-
-    var size = 4;
-    foreach (var pair in pairs)
-    {
-      size += 8 + pair.Key.Length + pair.Value.Length;
+      size += 8 + Encoding.UTF8.GetByteCount(entry.Key) + (entry.IsBinary
+                                                             ? entry.ValueBytes.Length
+                                                             : Encoding.UTF8.GetByteCount(entry.Value));
     }
 
     var blob = new byte[size];
     var at = 0;
-    WriteUInt32(blob,
-                ref at,
-                (uint)pairs.Count);
-    foreach (var pair in pairs)
+    Write(blob,
+          ref at,
+          (uint)metadata.Count);
+    foreach (var entry in metadata)
     {
       WriteChunk(blob,
                  ref at,
-                 pair.Key);
+                 Encoding.UTF8.GetBytes(entry.Key));
       WriteChunk(blob,
                  ref at,
-                 pair.Value);
+                 entry.IsBinary
+                   ? entry.ValueBytes
+                   : Encoding.UTF8.GetBytes(entry.Value));
     }
 
     return blob;
   }
 
-  /// <summary>
-  ///   Reads a blob the library produced. A truncated one yields what could be read rather than
-  ///   throwing: this runs while an answer is already in hand, and losing the answer over a
-  ///   malformed header would be the worse outcome.
-  /// </summary>
-  internal static Metadata Decode(byte[] blob)
+  internal static Metadata Decode(ReadOnlySpan<byte> blob)
   {
     var metadata = new Metadata();
     if (blob.Length < 4)
@@ -76,31 +74,27 @@ internal static class Blob
       return metadata;
     }
 
-    var at = 0;
-    var count = ReadUInt32(blob,
-                           ref at);
+    var count = Read(ref blob);
     for (var index = 0; index < count; index++)
     {
-      if (!TryReadChunk(blob,
-                        ref at,
-                        out var key) || !TryReadChunk(blob,
-                                                      ref at,
+      if (!TryReadChunk(ref blob,
+                        out var key) || !TryReadChunk(ref blob,
                                                       out var value))
       {
         break;
       }
 
-      var name = Encoding.UTF8.GetString(key);
+      var name = Text(key);
       if (name.EndsWith(BinarySuffix,
                         StringComparison.OrdinalIgnoreCase))
       {
         metadata.Add(name,
-                     value);
+                     value.ToArray());
       }
       else
       {
         metadata.Add(name,
-                     Encoding.UTF8.GetString(value));
+                     Text(value));
       }
     }
 
@@ -111,45 +105,29 @@ internal static class Blob
   ///   The terminal's payload: a length-prefixed reason, then the trailing metadata as a blob. The
   ///   status code itself travels beside it, in the event.
   /// </summary>
-  internal static void DecodeStatus(byte[] payload,
+  internal static void DecodeStatus(ReadOnlySpan<byte> payload,
                                     out string message,
                                     out Metadata trailers)
   {
     message  = string.Empty;
     trailers = new Metadata();
-    if (payload.Length < 4)
-    {
-      return;
-    }
-
-    var at = 0;
-    if (!TryReadChunk(payload,
-                      ref at,
+    if (!TryReadChunk(ref payload,
                       out var reason))
     {
       return;
     }
 
-    message = Encoding.UTF8.GetString(reason);
-    var rest = new byte[payload.Length - at];
-    Buffer.BlockCopy(payload,
-                     at,
-                     rest,
-                     0,
-                     rest.Length);
-    trailers = Decode(rest);
+    message  = Text(reason);
+    trailers = Decode(payload);
   }
 
-  private static void WriteUInt32(byte[] into,
-                                  ref int at,
-                                  uint value)
+  private static void Write(byte[] into,
+                            ref int at,
+                            uint value)
   {
-    var bytes = BitConverter.GetBytes(value);
-    Buffer.BlockCopy(bytes,
-                     0,
-                     into,
-                     at,
-                     4);
+    BitConverter.GetBytes(value)
+                .CopyTo(into,
+                        at);
     at += 4;
   }
 
@@ -157,50 +135,53 @@ internal static class Blob
                                  ref int at,
                                  byte[] chunk)
   {
-    WriteUInt32(into,
-                ref at,
-                (uint)chunk.Length);
-    Buffer.BlockCopy(chunk,
-                     0,
-                     into,
-                     at,
-                     chunk.Length);
+    Write(into,
+          ref at,
+          (uint)chunk.Length);
+    chunk.CopyTo(into,
+                 at);
     at += chunk.Length;
   }
 
-  private static uint ReadUInt32(byte[] from,
-                                 ref int at)
+  private static uint Read(ref ReadOnlySpan<byte> from)
   {
-    var value = BitConverter.ToUInt32(from,
-                                      at);
-    at += 4;
+    var value = MemoryMarshal.Read<uint>(from);
+    from = from.Slice(4);
     return value;
   }
 
-  private static bool TryReadChunk(byte[] from,
-                                   ref int at,
-                                   out byte[] chunk)
+  private static bool TryReadChunk(ref ReadOnlySpan<byte> from,
+                                   out ReadOnlySpan<byte> chunk)
   {
-    chunk = Array.Empty<byte>();
-    if (from.Length - at < 4)
+    chunk = default;
+    if (from.Length < 4)
     {
       return false;
     }
 
-    var length = ReadUInt32(from,
-                            ref at);
-    if (length > (uint)(from.Length - at))
+    var length = Read(ref from);
+    if (length > (uint)from.Length)
     {
       return false;
     }
 
-    chunk = new byte[length];
-    Buffer.BlockCopy(from,
-                     at,
-                     chunk,
-                     0,
-                     (int)length);
-    at += (int)length;
+    chunk = from.Slice(0,
+                       (int)length);
+    from  = from.Slice((int)length);
     return true;
+  }
+
+  private static unsafe string Text(ReadOnlySpan<byte> bytes)
+  {
+    if (bytes.IsEmpty)
+    {
+      return string.Empty;
+    }
+
+    fixed (byte* start = bytes)
+    {
+      return Encoding.UTF8.GetString(start,
+                                     bytes.Length);
+    }
   }
 }
