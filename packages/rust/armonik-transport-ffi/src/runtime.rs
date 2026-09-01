@@ -1,5 +1,3 @@
-//! The runtime: what owns the Tokio threads, the registries, and the shutdown chain.
-
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
@@ -13,20 +11,10 @@ use crate::call::CallState;
 use crate::host::{Host, HostPtr};
 use crate::tables;
 
-/// What the host holds of a runtime: payloads not consumed, buffers not given back.
-///
-/// Quiescence is this reaching zero after the runtime has stopped, which is why the host gets
-/// there by acting rather than by waiting.
 pub(crate) struct Ledger {
-    /// Payloads and buffers together: what decides quiescence. A zero-length payload is still
-    /// something the host holds, which is why this is a count and not the byte total.
     outstanding: AtomicU64,
-    /// Lent buffers only: what the ceiling bounds.
     bytes: AtomicU64,
     ceiling: u64,
-    /// Bumped on every release. A version and not a `Notify`: a waiter that checks its condition
-    /// before creating the future misses a `notify_waiters` landing in between, and here that
-    /// costs the runtime its quiescence forever.
     changed: watch::Sender<u64>,
 }
 
@@ -56,8 +44,6 @@ impl Ledger {
         self.changed.send_modify(|version| *version += 1);
     }
 
-    /// Whether a request of `len` could ever fit. A refusal here is permanent: no return by
-    /// anyone will make room, so retrying is pointless.
     pub(crate) fn could_ever_fit(&self, len: usize) -> Result<(), ak_status> {
         match self.ceiling {
             0 => Ok(()),
@@ -66,7 +52,6 @@ impl Ledger {
         }
     }
 
-    /// Takes `len` bytes against the ceiling, or reports that they are not there yet.
     pub(crate) fn reserve(&self, len: usize) -> Result<(), ak_status> {
         if self.ceiling == 0 {
             self.bytes.fetch_add(len as u64, Ordering::AcqRel);
@@ -95,7 +80,6 @@ impl Ledger {
         }
     }
 
-    /// Gives `len` bytes back to the ceiling, and the buffer back to the count.
     pub(crate) fn release_bytes(&self, len: usize) {
         self.bytes.fetch_sub(len as u64, Ordering::AcqRel);
         self.release();
@@ -115,7 +99,6 @@ impl Ledger {
     }
 }
 
-/// A channel and the runtime it belongs to.
 pub(crate) struct AkChannel {
     pub(crate) grpc: GrpcChannel,
     pub(crate) runtime: Weak<AkRuntime>,
@@ -132,21 +115,13 @@ impl AkChannel {
     }
 }
 
-/// One runtime: its threads, its objects, and the state the host polls.
 pub(crate) struct AkRuntime {
-    /// Taken by `ak_runtime_destroy`, which is what gives the threads up. Behind a lock rather
-    /// than owned outright so that dropping the last handle never has to drop a Tokio runtime
-    /// from one of its own threads, which panics.
     tokio: Mutex<Option<tokio::runtime::Runtime>>,
     spawner: tokio::runtime::Handle,
     pub(crate) host: Arc<Host>,
     pub(crate) ledger: Arc<Ledger>,
     state: AtomicI32,
-    /// Raised by the first `begin_shutdown`, so a second is a no-op.
     stopping: AtomicBool,
-    /// Held for reading while a downcall passes the start gate and publishes what it started, and
-    /// for writing by the shutdown before it takes its snapshot. Without it a call can be
-    /// published after the runtime has declared its last event.
     gate: std::sync::RwLock<()>,
 }
 
@@ -193,10 +168,6 @@ impl AkRuntime {
         self.state.store(state as i32, Ordering::Release);
     }
 
-    /// The start gate, open only while the runtime is running.
-    ///
-    /// The guard is what makes the check and the publishing that follows it one step: the
-    /// shutdown waits for it before deciding what there is to drain.
     pub(crate) fn pass_the_gate(&self) -> Option<std::sync::RwLockReadGuard<'_, ()>> {
         let pass = self
             .gate
@@ -205,12 +176,10 @@ impl AkRuntime {
         (self.state() == ak_runtime_state::AK_RUNTIME_RUNNING).then_some(pass)
     }
 
-    /// Takes a call's handle back, now that nothing of it is outstanding.
     pub(crate) fn reclaim_call(&self, handle: ak_handle) {
         tables::calls().remove(handle);
     }
 
-    /// The calls of this runtime, as a snapshot.
     fn own_calls(this: &Weak<Self>) -> Vec<Arc<CallState>> {
         tables::calls()
             .values()
@@ -219,7 +188,6 @@ impl AkRuntime {
             .collect()
     }
 
-    /// Takes this runtime's channels out of the registry and hands them over.
     fn take_own_channels(this: &Weak<Self>) -> Vec<Arc<AkChannel>> {
         tables::channels()
             .values()
@@ -231,7 +199,6 @@ impl AkRuntime {
             .collect()
     }
 
-    /// Stales every handle this runtime owns.
     pub(crate) fn stale_own_handles(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         for call in Self::own_calls(&weak) {
@@ -240,23 +207,17 @@ impl AkRuntime {
         Self::take_own_channels(&weak);
     }
 
-    /// Closes the start gate and drains. Idempotent: a second call is a no-op.
     pub(crate) fn begin_shutdown(self: &Arc<Self>) {
         if self.stopping.swap(true, Ordering::AcqRel) {
             return;
         }
         self.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPING);
 
-        // The task holds no strong reference: the last one must be free to go on a host thread,
-        // where giving the Tokio runtime up is legal.
         let weak = Arc::downgrade(self);
         let host = Arc::clone(&self.host);
         let ledger = Arc::clone(&self.ledger);
 
         self.spawner.spawn(async move {
-            // Waits out any downcall that passed the gate and has not published yet, so the
-            // snapshots below cannot miss a call that is about to exist. Nothing is awaited while
-            // it is held.
             if let Some(runtime) = weak.upgrade() {
                 drop(
                     runtime
@@ -266,9 +227,6 @@ impl AkRuntime {
                 );
             }
 
-            // Closing a channel cancels its calls, which is what makes them reach a terminal.
-            // The call registry is not drained: a handle stays valid until its call is reclaimed,
-            // and reclamation is what empties it.
             for channel in Self::take_own_channels(&weak) {
                 channel.grpc.close();
             }
@@ -280,8 +238,6 @@ impl AkRuntime {
                 call.finished().await;
             }
 
-            // Every call has delivered its terminal and every callback has returned; what may be
-            // left is what the host holds.
             let debt = if ledger.empty() {
                 ak_host_debt::AK_HOST_NOTHING_TO_RETURN
             } else {
@@ -303,12 +259,6 @@ impl AkRuntime {
         });
     }
 
-    /// Gives the threads up, waiting for them.
-    ///
-    /// Only reached from quiescence, so nothing should still be running - but returning while a
-    /// detached thread is inside a host callback is what would make unloading the library unsafe,
-    /// and that is the one thing this call is supposed to permit. The bound keeps a task that
-    /// refuses to end from hanging the downcall for good.
     pub(crate) fn release_threads(&self) {
         let taken = self
             .tokio

@@ -1,7 +1,3 @@
-//! A gRPC server for the ABI tests, served by `tonic`.
-//!
-//! The engine under test is two crates down, so what answers here owes it nothing.
-
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -16,8 +12,6 @@ use armonik_transport::reexports::tonic::{Code, Request, Response, Status};
 use bytes::Bytes;
 use hyper::body::Incoming;
 
-// The neighbouring crate's test codec, taken by path rather than copied: it reaches everything
-// through `armonik_transport::reexports`, so it compiles unchanged here.
 #[path = "../../../armonik-transport/tests/common/codec.rs"]
 mod codec;
 
@@ -47,7 +41,6 @@ impl Service<Request<Bytes>> for Handler {
     }
 }
 
-/// Echoes the request, and echoes back whatever `x-request` metadata came with it.
 fn echo(request: Request<Bytes>) -> Answer {
     let echoed = request
         .metadata()
@@ -64,7 +57,6 @@ fn echo(request: Request<Bytes>) -> Answer {
     })
 }
 
-/// Refuses, with a reason.
 fn fail(_request: Request<Bytes>) -> Answer {
     Box::pin(async move {
         Err(Status::with_metadata(
@@ -75,7 +67,6 @@ fn fail(_request: Request<Bytes>) -> Answer {
     })
 }
 
-/// Never answers within the life of a test.
 fn slow(_request: Request<Bytes>) -> Answer {
     Box::pin(async move {
         tokio::time::sleep(Duration::from_secs(3600)).await;
@@ -98,10 +89,6 @@ async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody>
         .await
 }
 
-/// A gRPC server on an ephemeral loopback port, on threads of its own.
-///
-/// Its own runtime, because the ABI under test owns the only other one and a test must be able to
-/// shut that one down while the server is still answering.
 pub struct TestServer {
     pub endpoint: String,
     _runtime: tokio::runtime::Runtime,

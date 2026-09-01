@@ -1,13 +1,3 @@
-//! The layouts the header declares, checked against the ones this library compiles to.
-//!
-//! Nothing compiles `include/armonik_transport_ffi.h` in this workspace yet, so the header and the
-//! Rust types could drift apart without anything noticing. These numbers are what a C compiler
-//! produces for that header on a 64-bit target; a change on either side moves one of them.
-//!
-//! It is not the conformance test the ABI owes - that one compiles the header and links against
-//! the built library - but it catches the failure that costs the most: a field added on one side
-//! and forgotten on the other.
-
 use std::mem::{align_of, offset_of, size_of};
 
 use armonik_transport_ffi::*;
@@ -37,7 +27,6 @@ fn an_owned_view_and_a_lent_buffer_have_the_same_shape() {
 fn an_event_carries_its_payload_inline() {
     assert_eq!(size_of::<ak_event>(), 40);
     assert_eq!(offset_of!(ak_event, kind), 0);
-    // The payload is eight-aligned, so the four-byte kind is followed by four of padding.
     assert_eq!(offset_of!(ak_event, payload), 8);
     assert_eq!(offset_of!(ak_event, status_code), 32);
     assert_eq!(offset_of!(ak_event, host_debt), 36);
@@ -106,8 +95,6 @@ fn every_entry_point_the_header_declares_is_exported() {
     ))
     .expect("the header is committed beside the crate");
 
-    // Taking the address is what proves the symbol exists with that signature; a name in the
-    // header and nothing behind it is the failure this catches.
     let exported: &[(&str, *const ())] = &[
         ("ak_runtime_create", ak_runtime_create as *const ()),
         ("ak_runtime_status", ak_runtime_status as *const ()),
@@ -141,7 +128,6 @@ fn every_entry_point_the_header_declares_is_exported() {
         );
     }
 
-    // And the other way round: a declaration the library does not export.
     for line in header.lines() {
         let Some(rest) = line.strip_prefix("ak_status ak_").or_else(|| {
             line.strip_prefix("void ak_")

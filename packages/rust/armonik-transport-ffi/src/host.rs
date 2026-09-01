@@ -1,21 +1,12 @@
-//! The host's side of the boundary: the callback, and the pointers only it understands.
-
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::abi::{ak_bytes, ak_callback, ak_event, ak_event_kind, ak_host_debt};
 
-/// A pointer the host owns and this library only ever hands back.
-///
-/// `Send` and `Sync` because the ABI says so: the host keeps `runtime_ctx` and `call_ctx` valid
-/// across threads until the events that end them, and this library never dereferences either.
 #[derive(Clone, Copy)]
 pub(crate) struct HostPtr(pub(crate) *mut c_void);
 
-// SAFETY: an opaque token this library never reads. Keeping it valid is the host's obligation,
-// stated in the header against the events that end it.
 unsafe impl Send for HostPtr {}
-// SAFETY: as above.
 unsafe impl Sync for HostPtr {}
 
 impl HostPtr {
@@ -24,7 +15,6 @@ impl HostPtr {
     }
 }
 
-/// Where a runtime's events go.
 pub(crate) struct Host {
     callback: ak_callback,
     runtime_ctx: HostPtr,
@@ -38,21 +28,12 @@ impl Host {
         }
     }
 
-    /// Invokes the callback, and swallows a panic raised on this side of it.
-    ///
-    /// A panic unwinding into the host is undefined behaviour, so it stops here. What the host's
-    /// own callback does with a panic of its own is the host's business; this catches the one
-    /// case this library can be responsible for.
     fn emit(&self, call_ctx: HostPtr, event: &ak_event) {
         let _ = catch_unwind(AssertUnwindSafe(|| {
-            // SAFETY: the function pointer and both contexts are valid until the events the ABI
-            // names as their last, which this runtime has not emitted while it is still emitting.
             unsafe { (self.callback)(self.runtime_ctx.0, call_ctx.0, event) }
         }));
     }
 
-    /// An event carrying a payload the host must consume. `status_code` is the terminal's, and
-    /// zero on every other kind.
     pub(crate) fn deliver(
         &self,
         call_ctx: HostPtr,
@@ -71,7 +52,6 @@ impl Host {
         );
     }
 
-    /// An event with nothing to give back.
     pub(crate) fn signal(&self, call_ctx: HostPtr, kind: ak_event_kind) {
         self.emit(
             call_ctx,
@@ -84,7 +64,6 @@ impl Host {
         );
     }
 
-    /// The runtime has stopped, and says whether the host still holds anything of it.
     pub(crate) fn signal_shutdown(&self, debt: ak_host_debt) {
         self.emit(
             HostPtr::null(),

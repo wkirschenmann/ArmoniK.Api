@@ -1,37 +1,14 @@
-//! The one length-prefixed key/value encoding this ABI uses for every list of pairs.
-//!
-//! ```text
-//! u32 count
-//! repeated count times {
-//!     u32 key_len;   key_len bytes
-//!     u32 value_len; value_len bytes
-//! }
-//! ```
-//!
-//! Integers are in native byte order, which is safe because this ABI only ever runs in-process
-//! between this library and its host. The header says so, so it is never mistaken for a portable
-//! wire format.
-//!
-//! Keys and values are opaque bytes: a `-bin` metadata value is raw binary, so validating text is
-//! the caller's business and the decoder carries no policy.
-
 use armonik_transport::grpc::{Metadata, MetadataValue, BINARY_SUFFIX};
 use bytes::Bytes;
 
-/// Key and value borrowed straight out of the host's blob, in the order they appeared.
 pub(crate) type Pairs<'a> = Vec<(&'a [u8], &'a [u8])>;
 
-/// Why a blob could not be read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BlobError {
-    /// A length prefix runs past the end of what the host handed over.
     Truncated,
 }
 
-/// Reads a blob into borrowed pairs.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
-    // No count prefix at all is a count of zero, not a truncated blob: an empty metadata blob is
-    // the ordinary case and a host should not have to write four zero bytes for it.
     if bytes.is_empty() {
         return Ok(Vec::new());
     }
@@ -39,8 +16,6 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
     let mut cursor = bytes;
     let count = read_u32(&mut cursor)? as usize;
 
-    // Every entry costs at least its two length prefixes, so a count that cannot possibly fit is
-    // a malformed blob rather than something to start allocating for.
     if count.saturating_mul(8) > cursor.len() {
         return Err(BlobError::Truncated);
     }
@@ -54,7 +29,6 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
     Ok(pairs)
 }
 
-/// Writes pairs as a blob.
 pub(crate) fn encode<'a>(pairs: impl ExactSizeIterator<Item = (&'a [u8], &'a [u8])>) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&(pairs.len() as u32).to_ne_bytes());
@@ -67,10 +41,6 @@ pub(crate) fn encode<'a>(pairs: impl ExactSizeIterator<Item = (&'a [u8], &'a [u8
     out
 }
 
-/// The metadata a blob describes.
-///
-/// An entry the engine will not carry is refused rather than dropped: this is a request the host
-/// is still building, so telling it is better than sending something else than it asked for.
 pub(crate) fn decode_metadata(bytes: &[u8]) -> Option<Metadata> {
     let mut metadata = Metadata::new();
     for (key, value) in decode(bytes).ok()? {
@@ -85,7 +55,6 @@ pub(crate) fn decode_metadata(bytes: &[u8]) -> Option<Metadata> {
     Some(metadata)
 }
 
-/// The blob describing this metadata, with binary values as the bytes they are.
 pub(crate) fn encode_metadata(metadata: &Metadata) -> Vec<u8> {
     encode(metadata.iter().map(|(key, value)| {
         let value: &[u8] = match value {
@@ -157,7 +126,6 @@ mod tests {
         written.truncate(written.len() - 2);
         assert_eq!(decode(&written), Err(BlobError::Truncated));
 
-        // A count nothing could satisfy is refused before anything is allocated for it.
         let mut absurd = u32::MAX.to_ne_bytes().to_vec();
         absurd.extend_from_slice(b"short");
         assert_eq!(decode(&absurd), Err(BlobError::Truncated));
@@ -181,7 +149,6 @@ mod tests {
 
     #[test]
     fn an_entry_the_engine_will_not_carry_is_refused_rather_than_dropped() {
-        // A reserved key, so the request would go out saying something other than it was asked.
         assert_eq!(decode_metadata(&blob(&[(b"content-type", b"x")])), None);
         assert_eq!(decode_metadata(&blob(&[(b"x-plain", &[0xff])])), None);
     }
