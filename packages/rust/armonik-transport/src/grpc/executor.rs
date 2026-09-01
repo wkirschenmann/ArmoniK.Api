@@ -19,35 +19,20 @@ pub trait Executor: Send + Sync + 'static {
 
 /// A spawned task, insofar as the engine can still act on it.
 pub struct TaskHandle {
-    cancel: Option<Box<dyn Fn() + Send + Sync>>,
+    cancel: Box<dyn Fn() + Send + Sync>,
 }
 
 impl TaskHandle {
     /// A handle whose `cancel` runs `cancel`.
     pub fn new(cancel: impl Fn() + Send + Sync + 'static) -> Self {
         Self {
-            cancel: Some(Box::new(cancel)),
+            cancel: Box::new(cancel),
         }
     }
 
-    /// A handle for an executor that cannot stop a task once it is running.
-    pub fn detached() -> Self {
-        Self { cancel: None }
-    }
-
-    /// Stops the task, if the executor can. Idempotent.
+    /// Stops the task, insofar as the executor can. Idempotent.
     pub fn cancel(&self) {
-        if let Some(cancel) = &self.cancel {
-            cancel();
-        }
-    }
-}
-
-impl std::fmt::Debug for TaskHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TaskHandle")
-            .field("cancellable", &self.cancel.is_some())
-            .finish()
+        (self.cancel)();
     }
 }
 

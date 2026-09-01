@@ -1,7 +1,8 @@
-//! Layer 1: the network dial.
+//! Layer 1: the network, up to an HTTP/2 session.
 //!
-//! A [`tower_service::Service<Uri>`] that yields connected streams. It knows neither HTTP/2 nor
-//! gRPC: what it produces is what the [`crate::grpc`] engine runs an HTTP/2 handshake on.
+//! [`TransportConnector`] is a [`tower_service::Service<Uri>`] yielding connected streams; it
+//! knows neither HTTP/2 nor gRPC and is a network dial and nothing more. [`handshake`] turns one
+//! of those streams into a session. What travels on the session is [`crate::grpc`]'s business.
 //!
 //! This connector dials plain TCP. Transport security is [`crate::connect`], which hands out a
 //! `tonic` channel instead of a stream.
@@ -12,6 +13,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use hyper::client::conn::http2::{Connection, SendRequest};
+use hyper::rt::bounds::Http2ClientConnExec;
 use hyper::Uri;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
@@ -54,10 +57,7 @@ impl TransportConfig {
         }
 
         let host = self.endpoint.host().ok_or_else(|| {
-            TransportError::configuration(format!(
-                "the endpoint `{}` names no host",
-                self.endpoint
-            ))
+            TransportError::configuration(format!("the endpoint `{}` names no host", self.endpoint))
         })?;
 
         // Brackets delimit an IPv6 literal in an authority and are not part of the address.
@@ -85,11 +85,6 @@ impl TransportConnector {
     pub fn new(config: TransportConfig) -> Result<Self, TransportError> {
         config.target()?;
         Ok(Self { config })
-    }
-
-    /// The endpoint the connector was built for.
-    pub fn endpoint(&self) -> &Uri {
-        &self.config.endpoint
     }
 
     /// Resolves and connects, within the configured timeout.
@@ -125,6 +120,27 @@ impl TransportConnector {
             Err(_) => Err(TransportError::timeout(host, port, config.connect_timeout)),
         }
     }
+}
+
+/// Establishes an HTTP/2 session over a connected stream.
+///
+/// The dial and the session on it both belong to this layer; what travels on the session does
+/// not, which is why the body type is left open.
+pub(crate) async fn handshake<E, B>(
+    endpoint: &Uri,
+    executor: E,
+    io: TransportConnection,
+) -> Result<(SendRequest<B>, Connection<TransportConnection, B, E>), TransportError>
+where
+    E: Http2ClientConnExec<B, TransportConnection> + Unpin + Clone,
+    B: hyper::body::Body + 'static,
+    B::Data: Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    hyper::client::conn::http2::Builder::new(executor)
+        .handshake(io)
+        .await
+        .map_err(|error| TransportError::http2_handshake(endpoint, &error))
 }
 
 impl Service<Uri> for TransportConnector {
@@ -206,10 +222,12 @@ impl TransportError {
     }
 
     /// The stream was connected and the HTTP/2 session over it was not.
-    pub(crate) fn http2_handshake(endpoint: &Uri, error: &dyn std::error::Error) -> Self {
+    fn http2_handshake(endpoint: &Uri, error: &dyn std::error::Error) -> Self {
         Self {
             kind: TransportErrorKind::Http2Handshake,
-            message: format!("`{endpoint}` accepted a connection but not an HTTP/2 session: {error}"),
+            message: format!(
+                "`{endpoint}` accepted a connection but not an HTTP/2 session: {error}"
+            ),
         }
     }
 

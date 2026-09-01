@@ -15,15 +15,9 @@ pub enum ChannelError {
     /// The channel is closed and takes no new calls.
     Closed,
     /// The method is not a path a gRPC request can carry.
-    InvalidMethod {
-        /// What was asked for.
-        method: String,
-    },
+    InvalidMethod { method: String },
     /// The request metadata cannot become headers.
-    InvalidMetadata {
-        /// Which entry, and why.
-        source: MetadataError,
-    },
+    InvalidMetadata { source: MetadataError },
 }
 
 impl std::fmt::Display for ChannelError {
@@ -53,10 +47,7 @@ impl std::error::Error for ChannelError {
 #[non_exhaustive]
 pub enum CallError {
     /// The message is longer than the four-byte gRPC length prefix can express.
-    MessageTooLong {
-        /// How long it was.
-        len: usize,
-    },
+    MessageTooLong { len: usize },
     /// The call has reached its terminal, so there is nothing further to send or receive.
     Ended,
     /// The task driving the call went away without reaching a terminal, which is what an

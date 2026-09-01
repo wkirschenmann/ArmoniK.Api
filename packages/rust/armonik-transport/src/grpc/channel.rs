@@ -95,11 +95,6 @@ impl GrpcChannel {
         })
     }
 
-    /// The endpoint this channel calls.
-    pub fn endpoint(&self) -> &Uri {
-        &self.inner.endpoint
-    }
-
     /// Opens the session now, and says how it went.
     ///
     /// Optional: a call opens it otherwise, and reports a failure to open it as its own terminal
@@ -131,8 +126,10 @@ impl GrpcChannel {
             .write_into(&mut headers)
             .map_err(|source| ChannelError::InvalidMetadata { source })?;
 
-        let (grpc_call, body, driving) =
-            call::create(self.inner.max_sends_in_flight, self.inner.closed.subscribe());
+        let (grpc_call, body, driving) = call::create(
+            self.inner.max_sends_in_flight,
+            self.inner.closed.subscribe(),
+        );
 
         let mut request = Request::new(body);
         *request.method_mut() = Method::POST;
@@ -146,12 +143,18 @@ impl GrpcChannel {
         Ok(grpc_call)
     }
 
-    /// Refuses new calls and cancels the ones under way.
-    ///
-    /// The session itself is released when the last clone of this channel is dropped: closing
-    /// says what may still be started, not what is still connected.
+    /// Refuses new calls, cancels the ones under way, and lets the session go.
     pub fn close(&self) {
-        self.inner.closed.send_replace(true);
+        if self.inner.closed.send_replace(true) {
+            return;
+        }
+
+        // Releasing the session means taking the lock the calls dial under, which this method
+        // has no way to await; the executor that runs the calls runs this too.
+        let inner = self.inner.clone();
+        self.inner.executor.spawn(Box::pin(async move {
+            inner.connection.lock().await.take();
+        }));
     }
 }
 
@@ -191,10 +194,8 @@ impl Inner {
         let io = connector.call(self.endpoint.clone()).await?;
 
         let (sender, connection) =
-            hyper::client::conn::http2::Builder::new(HyperExecutor(self.executor.clone()))
-                .handshake(io)
-                .await
-                .map_err(|error| TransportError::http2_handshake(&self.endpoint, &error))?;
+            crate::http2::handshake(&self.endpoint, HyperExecutor(self.executor.clone()), io)
+                .await?;
 
         let endpoint = self.endpoint.clone();
         self.executor.spawn(Box::pin(async move {

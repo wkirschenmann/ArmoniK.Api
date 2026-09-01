@@ -1,6 +1,12 @@
 //! The terminal of a call: a gRPC status code, a message, and the trailing metadata.
+//!
+//! Also how a response head or a set of trailers is read as one, which is the only place the
+//! wire's spelling of a status is understood.
 
-use super::metadata::Metadata;
+use http::header::{HeaderMap, CONTENT_TYPE};
+use http::StatusCode;
+
+use super::metadata::{Metadata, GRPC_MESSAGE, GRPC_STATUS};
 
 /// The gRPC status codes, as they travel in `grpc-status`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -58,7 +64,7 @@ impl GrpcStatusCode {
     /// `Unknown`.
     pub fn from_http_status(status: u16) -> Self {
         match status {
-            400 | 431 => Self::Internal,
+            400 => Self::Internal,
             401 => Self::Unauthenticated,
             403 => Self::PermissionDenied,
             404 => Self::Unimplemented,
@@ -125,28 +131,85 @@ impl std::fmt::Display for GrpcStatus {
     }
 }
 
+/// The terminal of a call this side gave up on.
+pub(crate) fn cancelled() -> GrpcStatus {
+    GrpcStatus::new(GrpcStatusCode::Cancelled, "the call was cancelled")
+}
+
+/// The terminal a set of headers or trailers states, if it states one.
+pub(crate) fn stated_status(headers: &HeaderMap) -> Option<GrpcStatus> {
+    let raw = headers.get(GRPC_STATUS)?;
+
+    let code = std::str::from_utf8(raw.as_bytes())
+        .ok()
+        .and_then(|text| text.trim().parse::<i32>().ok());
+
+    let Some(code) = code else {
+        return Some(GrpcStatus::new(
+            GrpcStatusCode::Internal,
+            "the peer's grpc-status is not a number",
+        ));
+    };
+
+    Some(GrpcStatus {
+        code: GrpcStatusCode::from_wire(code),
+        message: headers
+            .get(GRPC_MESSAGE)
+            .map(|value| decode_message(value.as_bytes()))
+            .unwrap_or_default(),
+        trailing_metadata: Metadata::from_headers(headers),
+    })
+}
+
+/// The terminal of a response that never became gRPC.
+pub(crate) fn http_status(status: StatusCode, headers: &HeaderMap) -> GrpcStatus {
+    GrpcStatus {
+        code: GrpcStatusCode::from_http_status(status.as_u16()),
+        message: format!(
+            "the peer answered HTTP {} rather than gRPC",
+            status.as_u16()
+        ),
+        trailing_metadata: Metadata::from_headers(headers),
+    }
+}
+
+/// Whether the content type says the body is gRPC.
+///
+/// The subtype after `+` names the message encoding, which is the caller's business rather than
+/// this engine's. Media types are case-insensitive, so the comparison is too.
+pub(crate) fn speaks_grpc(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            value
+                .strip_prefix("application/grpc")
+                .map(|rest| rest.is_empty() || rest.starts_with(['+', ';']))
+        })
+        .unwrap_or(false)
+}
+
 /// Percent-decoding for `grpc-message`, which is percent-encoded UTF-8 on the wire.
 ///
 /// Invalid escapes are kept verbatim rather than rejected: this is a human-readable reason for a
 /// failure that has already happened, and refusing to read it would replace the server's account
 /// of the failure with an account of the encoding.
-pub(crate) fn decode_message(raw: &[u8]) -> String {
+fn decode_message(raw: &[u8]) -> String {
     let mut out = Vec::with_capacity(raw.len());
     let mut index = 0;
     while index < raw.len() {
         match raw[index] {
-            b'%' if index + 2 < raw.len() => {
-                match (hex(raw[index + 1]), hex(raw[index + 2])) {
-                    (Some(high), Some(low)) => {
-                        out.push(high << 4 | low);
-                        index += 3;
-                    }
-                    _ => {
-                        out.push(raw[index]);
-                        index += 1;
-                    }
+            b'%' if index + 2 < raw.len() => match (hex(raw[index + 1]), hex(raw[index + 2])) {
+                (Some(high), Some(low)) => {
+                    out.push(high << 4 | low);
+                    index += 3;
                 }
-            }
+                _ => {
+                    out.push(raw[index]);
+                    index += 1;
+                }
+            },
             byte => {
                 out.push(byte);
                 index += 1;
@@ -168,6 +231,15 @@ fn hex(byte: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http::header::HeaderValue;
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (key, value) in pairs {
+            map.append(*key, HeaderValue::from_static(value));
+        }
+        map
+    }
 
     #[test]
     fn a_code_outside_the_defined_range_reads_as_unknown() {
@@ -189,5 +261,81 @@ mod tests {
     #[test]
     fn a_decoded_message_that_is_not_utf8_is_replaced_rather_than_refused() {
         assert_eq!(decode_message(b"%ff"), "\u{fffd}");
+    }
+
+    #[test]
+    fn a_status_carries_its_code_its_reason_and_the_rest_of_the_trailers() {
+        let status = stated_status(&headers(&[
+            ("grpc-status", "9"),
+            ("grpc-message", "not%20now"),
+            ("x-trailer", "kept"),
+        ]))
+        .expect("these trailers state a status");
+
+        assert_eq!(status.code, GrpcStatusCode::FailedPrecondition);
+        assert_eq!(status.message, "not now");
+        assert_eq!(status.trailing_metadata.len(), 1);
+    }
+
+    #[test]
+    fn headers_without_a_status_state_none() {
+        assert_eq!(stated_status(&headers(&[("grpc-message", "orphan")])), None);
+        assert_eq!(stated_status(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn a_status_that_is_not_a_number_is_an_internal_failure() {
+        assert_eq!(
+            stated_status(&headers(&[("grpc-status", "not a number")]))
+                .expect("the header is there")
+                .code,
+            GrpcStatusCode::Internal
+        );
+    }
+
+    #[test]
+    fn a_status_without_a_message_is_still_a_status() {
+        let status = stated_status(&headers(&[("grpc-status", "0")])).expect("a status");
+        assert_eq!(status.code, GrpcStatusCode::Ok);
+        assert!(status.message.is_empty());
+    }
+
+    #[test]
+    fn the_content_type_has_to_say_grpc() {
+        for value in [
+            "application/grpc",
+            "application/grpc+proto",
+            "application/grpc; charset=utf-8",
+            "Application/gRPC",
+        ] {
+            let mut map = HeaderMap::new();
+            map.insert("content-type", HeaderValue::from_str(value).expect("valid"));
+            assert!(speaks_grpc(&map), "{value}");
+        }
+
+        assert!(!speaks_grpc(&headers(&[("content-type", "text/html")])));
+        // A prefix is not a type: `application/grpcweb` is a different protocol.
+        assert!(!speaks_grpc(&headers(&[(
+            "content-type",
+            "application/grpcweb"
+        )])));
+        assert!(!speaks_grpc(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn an_http_failure_maps_to_the_code_grpc_gives_it() {
+        assert_eq!(
+            http_status(StatusCode::NOT_FOUND, &HeaderMap::new()).code,
+            GrpcStatusCode::Unimplemented
+        );
+        assert_eq!(
+            http_status(StatusCode::SERVICE_UNAVAILABLE, &HeaderMap::new()).code,
+            GrpcStatusCode::Unavailable
+        );
+        // Nothing outside the table is guessed at.
+        assert_eq!(
+            http_status(StatusCode::IM_A_TEAPOT, &HeaderMap::new()).code,
+            GrpcStatusCode::Unknown
+        );
     }
 }

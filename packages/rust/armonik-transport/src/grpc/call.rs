@@ -8,7 +8,6 @@ use std::task::{Context, Poll};
 
 use bytes::buf::Chain;
 use bytes::Bytes;
-use http::header::HeaderMap;
 use http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use hyper::body::{Body, Frame};
@@ -17,8 +16,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::channel::Inner;
 use super::error::CallError;
 use super::frame::{frame, Deframer};
-use super::metadata::{Metadata, GRPC_MESSAGE, GRPC_STATUS};
-use super::status::{decode_message, GrpcStatus, GrpcStatusCode};
+use super::metadata::Metadata;
+use super::status::{
+    cancelled, http_status, speaks_grpc, stated_status, GrpcStatus, GrpcStatusCode,
+};
 
 /// What a call is started with.
 #[derive(Clone, Debug)]
@@ -77,16 +78,23 @@ impl GrpcCall {
 /// The writing side of a call.
 #[derive(Debug)]
 pub struct SendHalf {
-    messages: mpsc::Sender<Chain<Bytes, Bytes>>,
+    /// Released once the call is over, which half-closes the request rather than leaving a
+    /// stream open on a call nobody is driving.
+    messages: Option<mpsc::Sender<Chain<Bytes, Bytes>>>,
+    over: watch::Receiver<bool>,
 }
 
 impl SendHalf {
     /// Sends one message, once the send window has room for it.
     ///
     /// The buffer is framed rather than copied, so what the caller passed is what goes out.
+    ///
+    /// A call that has reached its terminal takes no more: the abstract model guards sending on
+    /// a call with no status yet, and a send after one would go out on a stream the peer has
+    /// finished with.
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
         let framed = frame(message)?;
-        self.messages
+        self.open()?
             .send(framed)
             .await
             .map_err(|_| CallError::Ended)
@@ -94,16 +102,19 @@ impl SendHalf {
 
     /// Half-closes the request. Taking `self` is what makes "no send after the end of sending" a
     /// fact about the type rather than a rule to remember.
-    pub async fn end_send(self) -> Result<(), CallError> {
-        // Dropping the sender is the half-close; whether the peer is still there to see it is
+    pub async fn end_send(mut self) -> Result<(), CallError> {
+        // Dropping the sender is the half-close; whether the call is still there to see it is
         // what the answer says.
-        let ended = self.messages.is_closed();
-        drop(self.messages);
-        if ended {
-            Err(CallError::Ended)
-        } else {
-            Ok(())
+        self.open().map(|_| ())
+    }
+
+    /// The sender, unless the call is over - in which case it is released here, which ends the
+    /// request body and with it the stream.
+    fn open(&mut self) -> Result<&mpsc::Sender<Chain<Bytes, Bytes>>, CallError> {
+        if *self.over.borrow() || self.messages.as_ref().is_some_and(|it| it.is_closed()) {
+            self.messages = None;
         }
+        self.messages.as_ref().ok_or(CallError::Ended)
     }
 }
 
@@ -113,7 +124,8 @@ pub struct RecvHalf {
     head: Head,
     messages: mpsc::Receiver<RecvResult>,
     control: CallControl,
-    ended: bool,
+    /// What every further read answers, once there is nothing more to read.
+    ended: Option<CallError>,
 }
 
 #[derive(Debug)]
@@ -131,10 +143,7 @@ impl RecvHalf {
     /// [`Self::next_message`] carries.
     pub async fn recv_initial_metadata(&mut self) -> Result<Metadata, CallError> {
         if let Head::Pending(pending) = &mut self.head {
-            self.head = match pending.await {
-                Ok(metadata) => Head::Ready(metadata),
-                Err(_) => Head::Lost,
-            };
+            self.head = pending.await.map_or(Head::Lost, Head::Ready);
         }
         match &self.head {
             Head::Ready(metadata) => Ok(metadata.clone()),
@@ -147,17 +156,17 @@ impl RecvHalf {
     /// Each call is a request for one message, which is where the backpressure comes from: the
     /// engine reads the connection no further than the reader has asked for.
     pub async fn next_message(&mut self) -> Result<RecvResult, CallError> {
-        if self.ended {
-            return Err(CallError::Ended);
+        if let Some(ended) = &self.ended {
+            return Err(ended.clone());
         }
         match self.messages.recv().await {
             Some(RecvResult::End(status)) => {
-                self.ended = true;
+                self.ended = Some(CallError::Ended);
                 Ok(RecvResult::End(status))
             }
             Some(message) => Ok(message),
             None => {
-                self.ended = true;
+                self.ended = Some(CallError::Aborted);
                 Err(CallError::Aborted)
             }
         }
@@ -173,20 +182,18 @@ impl Drop for RecvHalf {
 }
 
 /// Cancels a call, from wherever the decision is taken.
+///
+/// What it sets is "this call is over", which a cancellation and a terminal both make true; that
+/// is what stops the writing side once the call has ended.
 #[derive(Clone, Debug)]
 pub struct CallControl {
-    state: Arc<CancelState>,
-}
-
-#[derive(Debug)]
-struct CancelState {
-    cancel: watch::Sender<bool>,
+    over: Arc<watch::Sender<bool>>,
 }
 
 impl CallControl {
     /// Cancels the call. Idempotent, and safe to call after it has ended.
     pub fn cancel(&self) {
-        self.state.cancel.send_replace(true);
+        self.over.send_replace(true);
     }
 }
 
@@ -217,41 +224,50 @@ pub(crate) fn create(
     let (message_tx, message_rx) = mpsc::channel(send_window);
     let (head_tx, head_rx) = oneshot::channel();
     let (recv_tx, recv_rx) = mpsc::channel(1);
-    let (cancel_tx, cancel_rx) = watch::channel(false);
+    let (over_tx, over_rx) = watch::channel(false);
 
     let control = CallControl {
-        state: Arc::new(CancelState { cancel: cancel_tx }),
+        over: Arc::new(over_tx),
     };
     let call = GrpcCall {
         send: SendHalf {
-            messages: message_tx,
+            messages: Some(message_tx),
+            over: over_rx.clone(),
         },
         recv: RecvHalf {
             head: Head::Pending(head_rx),
             messages: recv_rx,
             control: control.clone(),
-            ended: false,
+            ended: None,
         },
-        control,
+        control: control.clone(),
     };
     let driving = Driving {
         stop: Stop {
-            cancel: cancel_rx,
+            cancelled: over_rx,
             channel_closed,
         },
         delivery: Delivery {
             head: Some(head_tx),
             messages: recv_tx,
         },
+        control,
     };
 
-    (call, RequestBody { messages: message_rx }, driving)
+    (
+        call,
+        RequestBody {
+            messages: message_rx,
+        },
+        driving,
+    )
 }
 
 /// The driving task's half of a call.
 pub(crate) struct Driving {
     stop: Stop,
     delivery: Delivery,
+    control: CallControl,
 }
 
 /// Runs the call to its terminal, and delivers that terminal whatever happens.
@@ -259,14 +275,20 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
     let Driving {
         mut stop,
         mut delivery,
+        control,
     } = driving;
+
     let status = run(&inner, request, &mut stop, &mut delivery).await;
+    // The call is over the moment its terminal is decided, whichever way it went; the writing
+    // side is told before the reading side, so a reader that has the terminal knows the writer
+    // is already refusing.
+    control.cancel();
     delivery.end(status).await;
 }
 
 /// What ends a call from this side: the caller cancelled it, or the channel closed.
 struct Stop {
-    cancel: watch::Receiver<bool>,
+    cancelled: watch::Receiver<bool>,
     channel_closed: watch::Receiver<bool>,
 }
 
@@ -274,12 +296,14 @@ impl Stop {
     /// Resolves once the call should stop. A sender that is gone counts as stopped: nothing is
     /// left that could ask for the result.
     async fn stopped(&mut self) {
+        // Destructured because `select!` puts both arms in one scope, where two `&mut self`
+        // methods do not borrow-check as the disjoint fields they are.
         let Self {
-            cancel,
+            cancelled,
             channel_closed,
         } = self;
         tokio::select! {
-            _ = cancel.wait_for(|stopped| *stopped) => {}
+            _ = cancelled.wait_for(|over| *over) => {}
             _ = channel_closed.wait_for(|closed| *closed) => {}
         }
     }
@@ -347,12 +371,14 @@ async fn run(
 
     let (head, mut body) = response.into_parts();
 
+    // A peer that states a status in the response head has said how the call ended, and that
+    // answer stands whatever the HTTP status is: a Trailers-Only response is this case, and so
+    // is a gRPC failure served behind an HTTP error.
+    if let Some(status) = stated_status(&head.headers) {
+        return status;
+    }
     if head.status != StatusCode::OK {
         return http_status(head.status, &head.headers);
-    }
-    // A Trailers-Only response carries the whole outcome in the headers and has no body.
-    if head.headers.contains_key(GRPC_STATUS) {
-        return status_from(&head.headers);
     }
     if !speaks_grpc(&head.headers) {
         return GrpcStatus::new(
@@ -365,10 +391,8 @@ async fn run(
 
     let mut deframer = Deframer::default();
     loop {
-        match deliver_ready(&mut deframer, stop, delivery).await {
-            Ok(true) => {}
-            Ok(false) => return cancelled(),
-            Err(status) => return status,
+        if let Err(status) = deliver_ready(&mut deframer, stop, delivery).await {
+            return status;
         }
 
         let frame = match until_stopped(stop, body.frame()).await {
@@ -400,10 +424,8 @@ async fn run(
             },
         };
 
-        match deliver_ready(&mut deframer, stop, delivery).await {
-            Ok(true) => {}
-            Ok(false) => return cancelled(),
-            Err(status) => return status,
+        if let Err(status) = deliver_ready(&mut deframer, stop, delivery).await {
+            return status;
         }
         if !deframer.is_at_message_boundary() {
             return GrpcStatus::new(
@@ -411,160 +433,67 @@ async fn run(
                 "the peer ended the stream in the middle of a message",
             );
         }
-        return status_from(&trailers);
+        return stated_status(&trailers).unwrap_or_else(|| {
+            GrpcStatus::new(
+                GrpcStatusCode::Internal,
+                "the peer's trailers carry no grpc-status",
+            )
+        });
     }
 }
 
 /// Hands over every message the deframer already holds.
 ///
-/// `Ok(false)` says nobody is reading any more, `Err` that the peer's framing is not something
-/// this engine can read.
+/// The error is the terminal to end the call with: either the peer's framing is unreadable, or
+/// nobody is reading any more.
 async fn deliver_ready(
     deframer: &mut Deframer,
     stop: &mut Stop,
     delivery: &Delivery,
-) -> Result<bool, GrpcStatus> {
+) -> Result<(), GrpcStatus> {
     loop {
         match deframer.next_message() {
-            Ok(None) => return Ok(true),
-            Err(error) => {
-                return Err(GrpcStatus::new(
-                    GrpcStatusCode::Internal,
-                    error.to_string(),
-                ))
-            }
+            Ok(None) => return Ok(()),
+            Err(error) => return Err(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string())),
             Ok(Some(message)) => match until_stopped(stop, delivery.message(message)).await {
                 Some(true) => {}
-                _ => return Ok(false),
+                _ => return Err(cancelled()),
             },
         }
     }
 }
 
-fn cancelled() -> GrpcStatus {
-    GrpcStatus::new(GrpcStatusCode::Cancelled, "the call was cancelled")
-}
-
-/// The terminal of a response that never became gRPC.
-fn http_status(status: StatusCode, headers: &HeaderMap) -> GrpcStatus {
-    GrpcStatus {
-        code: GrpcStatusCode::from_http_status(status.as_u16()),
-        message: format!("the peer answered HTTP {} rather than gRPC", status.as_u16()),
-        trailing_metadata: Metadata::from_headers(headers),
-    }
-}
-
-/// The terminal a set of headers or trailers states.
-fn status_from(headers: &HeaderMap) -> GrpcStatus {
-    let code = headers
-        .get(GRPC_STATUS)
-        .and_then(|value| std::str::from_utf8(value.as_bytes()).ok())
-        .and_then(|text| text.trim().parse::<i32>().ok());
-
-    let Some(code) = code else {
-        return GrpcStatus::new(
-            GrpcStatusCode::Internal,
-            "the peer's grpc-status is missing or is not a number",
-        );
-    };
-
-    GrpcStatus {
-        code: GrpcStatusCode::from_wire(code),
-        message: headers
-            .get(GRPC_MESSAGE)
-            .map(|value| decode_message(value.as_bytes()))
-            .unwrap_or_default(),
-        trailing_metadata: Metadata::from_headers(headers),
-    }
-}
-
-/// Whether the content type says the body is gRPC. The subtype after `+` names the message
-/// encoding, which is the caller's business rather than this engine's.
-fn speaks_grpc(headers: &HeaderMap) -> bool {
-    headers
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| {
-            let value = value.trim();
-            value == "application/grpc"
-                || value.starts_with("application/grpc+")
-                || value.starts_with("application/grpc;")
-        })
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
-    use http::header::HeaderValue;
 
-    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
-        let mut map = HeaderMap::new();
-        for (key, value) in pairs {
-            map.append(*key, HeaderValue::from_static(value));
-        }
-        map
-    }
+    #[tokio::test]
+    async fn the_send_window_holds_the_next_message_until_the_last_is_taken() {
+        let (call, mut body, _driving) = create(1, watch::channel(false).1);
+        // The reading half stays bound: dropping it cancels the call, which is the very thing
+        // that would let the second send through for the wrong reason.
+        let (mut send, _recv, _control) = call.split();
 
-    #[test]
-    fn a_status_carries_its_code_its_reason_and_the_rest_of_the_trailers() {
-        let status = status_from(&headers(&[
-            ("grpc-status", "9"),
-            ("grpc-message", "not%20now"),
-            ("x-trailer", "kept"),
-        ]));
+        send.send_message(Bytes::from_static(b"first"))
+            .await
+            .expect("room for the first");
 
-        assert_eq!(status.code, GrpcStatusCode::FailedPrecondition);
-        assert_eq!(status.message, "not now");
-        assert_eq!(status.trailing_metadata.len(), 1);
-    }
+        let held = tokio::time::timeout(
+            Duration::from_millis(50),
+            send.send_message(Bytes::from_static(b"second")),
+        )
+        .await;
+        assert!(held.is_err(), "a window of one holds the second message");
 
-    #[test]
-    fn trailers_without_a_readable_status_are_an_internal_failure() {
-        assert_eq!(
-            status_from(&headers(&[("grpc-message", "orphan")])).code,
-            GrpcStatusCode::Internal
-        );
-        assert_eq!(
-            status_from(&headers(&[("grpc-status", "not a number")])).code,
-            GrpcStatusCode::Internal
-        );
-    }
+        std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx))
+            .await
+            .expect("the first message is there to be taken")
+            .expect("a data frame");
 
-    #[test]
-    fn a_status_without_a_message_is_still_a_status() {
-        let status = status_from(&headers(&[("grpc-status", "0")]));
-        assert_eq!(status.code, GrpcStatusCode::Ok);
-        assert!(status.message.is_empty());
-    }
-
-    #[test]
-    fn the_content_type_has_to_say_grpc() {
-        assert!(speaks_grpc(&headers(&[(
-            "content-type",
-            "application/grpc"
-        )])));
-        assert!(speaks_grpc(&headers(&[(
-            "content-type",
-            "application/grpc+proto"
-        )])));
-        assert!(!speaks_grpc(&headers(&[("content-type", "text/html")])));
-        // A prefix is not a type: `application/grpcweb` is a different protocol.
-        assert!(!speaks_grpc(&headers(&[(
-            "content-type",
-            "application/grpcweb"
-        )])));
-        assert!(!speaks_grpc(&HeaderMap::new()));
-    }
-
-    #[test]
-    fn an_http_failure_maps_to_the_code_grpc_gives_it() {
-        assert_eq!(
-            http_status(StatusCode::NOT_FOUND, &HeaderMap::new()).code,
-            GrpcStatusCode::Unimplemented
-        );
-        assert_eq!(
-            http_status(StatusCode::SERVICE_UNAVAILABLE, &HeaderMap::new()).code,
-            GrpcStatusCode::Unavailable
-        );
+        send.send_message(Bytes::from_static(b"second"))
+            .await
+            .expect("the window has room again");
     }
 }

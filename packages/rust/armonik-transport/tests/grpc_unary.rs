@@ -1,9 +1,9 @@
 //! Unary calls, over plain HTTP/2, against a real gRPC server.
 //!
 //! The gRPC methods are served by `tonic`, so what these tests exercise is this engine's framing
-//! and header handling against an implementation that owes it nothing. The handful of responses
-//! `tonic` will not produce - an HTTP error page, a body that is not gRPC, a non-OK status behind
-//! a response head - are canned by hand under `/raw/`.
+//! and header handling against an implementation that owes it nothing. The responses `tonic` will
+//! not produce - an HTTP error page, a body that is not gRPC, a compressed message - are canned by
+//! hand under `/raw/`, framed by the test rather than by the engine under test.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -19,16 +19,20 @@ use armonik_transport::grpc::{
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use armonik_transport::reexports::hyper;
-use armonik_transport::reexports::hyper_util::rt::{TokioExecutor as HyperExecutor, TokioIo};
+use armonik_transport::reexports::hyper_util::rt::{TokioExecutor as HyperTokio, TokioIo};
 use armonik_transport::reexports::tonic::body::Body as TonicBody;
-use armonik_transport::reexports::tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use armonik_transport::reexports::tonic::metadata::{MetadataMap, MetadataValue as TonicValue};
 use armonik_transport::reexports::tonic::{Code, Request, Response, Status};
-use bytes::{Buf, BufMut, Bytes};
+use bytes::Bytes;
 use http::header::{HeaderMap, HeaderValue};
 use http::{StatusCode, Uri};
 use hyper::body::{Body, Frame, Incoming};
 use tower_service::Service;
+
+#[path = "common/codec.rs"]
+mod codec;
+
+use codec::BytesCodec;
 
 const ECHO: &str = "/armonik_transport.test.Echo/Echo";
 const FAIL: &str = "/armonik_transport.test.Echo/Fail";
@@ -59,11 +63,17 @@ async fn unary(
         .expect("the call starts")
         .split();
 
-    send.send_message(message)
-        .await
-        .expect("the message is accepted");
-    send.end_send().await.expect("the request half-closes");
+    // A call can reach its terminal before the request is written - a refused connection, a
+    // Trailers-Only refusal - and that is not a failure of the test.
+    let _ = send.send_message(message).await;
+    let _ = send.end_send().await;
 
+    read_to_terminal(&mut recv).await
+}
+
+async fn read_to_terminal(
+    recv: &mut armonik_transport::grpc::RecvHalf,
+) -> (Metadata, Vec<Bytes>, GrpcStatus) {
     let head = recv
         .recv_initial_metadata()
         .await
@@ -157,6 +167,28 @@ async fn a_binary_metadata_entry_crosses_the_wire_as_bytes() {
 }
 
 #[tokio::test]
+async fn the_request_carries_the_headers_grpc_asks_for() {
+    let server = TestServer::start().await;
+    let (_, messages, status) = unary(
+        &channel(&server.endpoint),
+        CallStartOptions::new("/raw/EchoHeaders"),
+        Bytes::from_static(b"x"),
+    )
+    .await;
+
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    let seen = String::from_utf8(messages.concat().to_vec()).expect("the headers as text");
+    for expected in [
+        "content-type=application/grpc",
+        "te=trailers",
+        "grpc-accept-encoding=identity",
+        "user-agent=armonik-transport/",
+    ] {
+        assert!(seen.contains(expected), "{expected} missing from {seen}");
+    }
+}
+
+#[tokio::test]
 async fn a_method_the_server_refuses_comes_back_as_its_status_and_its_trailers() {
     let server = TestServer::start().await;
     let (head, messages, status) = unary(
@@ -189,6 +221,9 @@ async fn a_method_the_server_does_not_have_is_unimplemented() {
     .await;
 
     assert_eq!(status.code, GrpcStatusCode::Unimplemented, "{status}");
+    // The server's own words, so this is the gRPC status and not the HTTP 404 mapping, which
+    // happens to produce the same code.
+    assert_eq!(status.message, "no such method");
 }
 
 #[tokio::test]
@@ -222,7 +257,54 @@ async fn calls_on_one_channel_share_one_session() {
     );
 }
 
-// ---------------------------------------------------------------- cancellation and closing
+// ---------------------------------------------------------------- the end of a call
+
+#[tokio::test]
+async fn nothing_can_be_sent_once_the_call_has_reached_its_terminal() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    // A canned response answers without reading the request, so the writing side is still open
+    // when the terminal lands - which is the state under test. The reading half stays bound too:
+    // dropping it would end the call by itself and prove nothing about the terminal.
+    let (mut send, mut recv, _control) = channel
+        .start_call(CallStartOptions::new("/raw/HeadThenError"))
+        .expect("the call starts")
+        .split();
+
+    let (_, _, status) = read_to_terminal(&mut recv).await;
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+
+    assert_eq!(
+        send.send_message(Bytes::from_static(b"too late")).await,
+        Err(CallError::Ended),
+        "the abstract model guards a send on a call with no status yet"
+    );
+    assert_eq!(send.end_send().await, Err(CallError::Ended));
+}
+
+#[tokio::test]
+async fn dropping_the_reading_half_ends_the_call() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (mut send, recv, _control) = channel
+        .start_call(CallStartOptions::new(SLOW))
+        .expect("the call starts")
+        .split();
+    send.send_message(Bytes::from_static(b"x"))
+        .await
+        .expect("the message is accepted");
+
+    drop(recv);
+
+    // Nothing about the server, which is still asleep, is involved: a call nobody will read is
+    // over, and the writing side says so.
+    assert_eq!(
+        send.send_message(Bytes::from_static(b"more")).await,
+        Err(CallError::Ended)
+    );
+}
 
 #[tokio::test]
 async fn a_cancelled_call_ends_as_cancelled_without_waiting_for_the_server() {
@@ -326,11 +408,25 @@ async fn an_https_endpoint_is_refused_rather_than_dialled_in_the_clear() {
         "https://127.0.0.1:443",
     )));
 
-    GrpcChannel::new(
+    let error = GrpcChannel::new(
         config,
         TokioExecutor::new(tokio::runtime::Handle::current()),
     )
     .expect_err("this connector speaks plain HTTP and says so");
+    assert!(error.to_string().contains("https://"), "{error}");
+}
+
+#[tokio::test]
+async fn a_send_window_of_nothing_is_refused() {
+    let mut config =
+        GrpcChannelConfig::new(TransportConfig::new(Uri::from_static("http://127.0.0.1:1")));
+    config.max_sends_in_flight = 0;
+
+    GrpcChannel::new(
+        config,
+        TokioExecutor::new(tokio::runtime::Handle::current()),
+    )
+    .expect_err("a window of zero would let a call send nothing");
 }
 
 #[tokio::test]
@@ -344,6 +440,23 @@ async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
     .await;
 
     assert_eq!(status.code, GrpcStatusCode::Unimplemented, "{status}");
+    assert!(status.message.contains("HTTP 404"), "{status}");
+}
+
+#[tokio::test]
+async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
+    let server = TestServer::start().await;
+    let (_, _, status) = unary(
+        &channel(&server.endpoint),
+        CallStartOptions::new("/raw/StatusBehindError"),
+        Bytes::from_static(b"x"),
+    )
+    .await;
+
+    // A peer that answered in gRPC has said how the call ended; the HTTP status is not a better
+    // account of it than its own.
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+    assert_eq!(status.message, "no room left");
 }
 
 #[tokio::test]
@@ -357,6 +470,22 @@ async fn a_two_hundred_that_is_not_grpc_is_an_internal_failure() {
     .await;
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert!(status.message.contains("content type"), "{status}");
+}
+
+#[tokio::test]
+async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
+    let server = TestServer::start().await;
+    let (_, messages, status) = unary(
+        &channel(&server.endpoint),
+        CallStartOptions::new("/raw/Compressed"),
+        Bytes::from_static(b"x"),
+    )
+    .await;
+
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert!(status.message.contains("compressed"), "{status}");
+    assert!(messages.is_empty());
 }
 
 #[tokio::test]
@@ -381,7 +510,7 @@ async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
 #[tokio::test]
 async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
     let server = TestServer::start().await;
-    let (_, _, status) = unary(
+    let (_, messages, status) = unary(
         &channel(&server.endpoint),
         CallStartOptions::new("/raw/NoTrailers"),
         Bytes::from_static(b"x"),
@@ -389,134 +518,79 @@ async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
     .await;
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert!(status.message.contains("grpc-status"), "{status}");
+    // What arrived before the stream stopped is still delivered.
+    assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
 }
 
 // ---------------------------------------------------------------- the test server
 
-/// A codec whose wire representation *is* the message: no framing beyond what gRPC already adds.
-#[derive(Clone, Copy, Default)]
-struct BytesCodec;
+/// What a handler does with a request, once `tonic` has decoded it.
+type Answer = Pin<Box<dyn Future<Output = Result<Response<Bytes>, Status>> + Send>>;
 
-impl Codec for BytesCodec {
-    type Encode = Bytes;
-    type Decode = Bytes;
-    type Encoder = Self;
-    type Decoder = Self;
+/// One gRPC method, as the function that answers it.
+#[derive(Clone, Copy)]
+struct Handler(fn(Request<Bytes>) -> Answer);
 
-    fn encoder(&mut self) -> Self::Encoder {
-        *self
-    }
-
-    fn decoder(&mut self) -> Self::Decoder {
-        *self
-    }
-}
-
-impl Encoder for BytesCodec {
-    type Item = Bytes;
-    type Error = Status;
-
-    fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
-        dst.reserve(item.len());
-        dst.put_slice(&item);
-        Ok(())
-    }
-}
-
-impl Decoder for BytesCodec {
-    type Item = Bytes;
-    type Error = Status;
-
-    fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
-        let len = src.remaining();
-        Ok(Some(src.copy_to_bytes(len)))
-    }
-}
-
-/// Echoes the request, and echoes back whatever `x-request` metadata came with it.
-#[derive(Clone)]
-struct EchoHandler;
-
-impl Service<Request<Bytes>> for EchoHandler {
+impl Service<Request<Bytes>> for Handler {
     type Response = Response<Bytes>;
     type Error = Status;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Answer;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, request: Request<Bytes>) -> Self::Future {
-        let text = request
-            .metadata()
-            .get("x-request")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| TonicValue::try_from(value).ok());
-        let binary = request
-            .metadata()
-            .get_bin("x-request-bin")
-            .and_then(|value| value.to_bytes().ok());
-
-        Box::pin(async move {
-            let mut response = Response::new(request.into_inner());
-            if let Some(text) = text {
-                response.metadata_mut().insert("x-echoed", text);
-            }
-            if let Some(binary) = binary {
-                response
-                    .metadata_mut()
-                    .insert_bin("x-echoed-bin", TonicValue::from_bytes(&binary));
-            }
-            Ok(response)
-        })
+        (self.0)(request)
     }
+}
+
+/// Echoes the request, and echoes back whatever `x-request` metadata came with it.
+fn echo(request: Request<Bytes>) -> Answer {
+    let text = request
+        .metadata()
+        .get("x-request")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| TonicValue::try_from(value).ok());
+    let binary = request
+        .metadata()
+        .get_bin("x-request-bin")
+        .and_then(|value| value.to_bytes().ok());
+
+    Box::pin(async move {
+        let mut response = Response::new(request.into_inner());
+        if let Some(text) = text {
+            response.metadata_mut().insert("x-echoed", text);
+        }
+        if let Some(binary) = binary {
+            response
+                .metadata_mut()
+                .insert_bin("x-echoed-bin", TonicValue::from_bytes(&binary));
+        }
+        Ok(response)
+    })
 }
 
 /// Refuses, with a reason in the trailers.
-#[derive(Clone)]
-struct FailHandler;
-
-impl Service<Request<Bytes>> for FailHandler {
-    type Response = Response<Bytes>;
-    type Error = Status;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, _request: Request<Bytes>) -> Self::Future {
-        Box::pin(async move {
-            let mut metadata = MetadataMap::new();
-            metadata.insert("x-reason", TonicValue::from_static("policy"));
-            Err(Status::with_metadata(
-                Code::PermissionDenied,
-                "not for you",
-                metadata,
-            ))
-        })
-    }
+fn fail(_request: Request<Bytes>) -> Answer {
+    Box::pin(async move {
+        let mut metadata = MetadataMap::new();
+        metadata.insert("x-reason", TonicValue::from_static("policy"));
+        Err(Status::with_metadata(
+            Code::PermissionDenied,
+            "not for you",
+            metadata,
+        ))
+    })
 }
 
 /// Never answers within the life of a test, so a call on it ends only because it was stopped.
-#[derive(Clone)]
-struct SlowHandler;
-
-impl Service<Request<Bytes>> for SlowHandler {
-    type Response = Response<Bytes>;
-    type Error = Status;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, _request: Request<Bytes>) -> Self::Future {
-        Box::pin(async move {
-            tokio::time::sleep(Duration::from_secs(3600)).await;
-            Ok(Response::new(Bytes::new()))
-        })
-    }
+fn slow(_request: Request<Bytes>) -> Answer {
+    Box::pin(async move {
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        Ok(Response::new(Bytes::new()))
+    })
 }
 
 /// The gRPC methods, plus the canned responses gRPC servers do not produce.
@@ -524,13 +598,27 @@ async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody>
     use armonik_transport::reexports::tonic::server::Grpc;
 
     let path = request.uri().path().to_owned();
-    let request = request.map(TonicBody::new);
+    if let Some(raw) = path.strip_prefix("/raw/") {
+        return canned(raw, request.headers());
+    }
 
+    let request = request.map(TonicBody::new);
     match path.as_str() {
-        ECHO => Grpc::new(BytesCodec).unary(&mut EchoHandler, request).await,
-        FAIL => Grpc::new(BytesCodec).unary(&mut FailHandler, request).await,
-        SLOW => Grpc::new(BytesCodec).unary(&mut SlowHandler, request).await,
-        raw if raw.starts_with("/raw/") => canned(raw),
+        ECHO => {
+            Grpc::new(BytesCodec)
+                .unary(&mut Handler(echo), request)
+                .await
+        }
+        FAIL => {
+            Grpc::new(BytesCodec)
+                .unary(&mut Handler(fail), request)
+                .await
+        }
+        SLOW => {
+            Grpc::new(BytesCodec)
+                .unary(&mut Handler(slow), request)
+                .await
+        }
         _ => Status::unimplemented("no such method").into_http(),
     }
 }
@@ -553,51 +641,74 @@ impl Body for Canned {
 }
 
 /// One gRPC message, framed by hand, so what these responses send owes nothing to this engine.
-fn grpc_message(payload: &[u8]) -> Bytes {
+fn grpc_message(flag: u8, payload: &[u8]) -> Bytes {
     let mut framed = Vec::with_capacity(5 + payload.len());
-    framed.push(0);
+    framed.push(flag);
     framed.extend_from_slice(&(payload.len() as u32).to_be_bytes());
     framed.extend_from_slice(payload);
     Bytes::from(framed)
 }
 
-fn canned(path: &str) -> hyper::Response<TonicBody> {
-    let mut builder = hyper::Response::builder();
+fn trailers(pairs: &[(&'static str, &'static str)]) -> Frame<Bytes> {
+    let mut map = HeaderMap::new();
+    for (key, value) in pairs {
+        map.insert(*key, HeaderValue::from_static(value));
+    }
+    Frame::trailers(map)
+}
+
+fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
+    let mut builder = hyper::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/grpc");
     let mut frames: Vec<Frame<Bytes>> = Vec::new();
 
-    match path {
-        "/raw/NotFound" => {
-            builder = builder
+    match case {
+        "EchoHeaders" => {
+            let seen: Vec<String> = ["content-type", "te", "grpc-accept-encoding", "user-agent"]
+                .iter()
+                .filter_map(|key| {
+                    let value = request.get(*key)?.to_str().ok()?;
+                    Some(format!("{key}={value}"))
+                })
+                .collect();
+            frames.push(Frame::data(grpc_message(0, seen.join(" ").as_bytes())));
+            frames.push(trailers(&[("grpc-status", "0")]));
+        }
+        "NotFound" => {
+            builder = hyper::Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header("content-type", "text/html");
             frames.push(Frame::data(Bytes::from_static(b"<h1>no</h1>")));
         }
-        "/raw/NotGrpc" => {
-            builder = builder
+        "StatusBehindError" => {
+            builder = hyper::Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("content-type", "application/grpc")
+                .header("grpc-status", "8")
+                .header("grpc-message", "no%20room%20left");
+        }
+        "NotGrpc" => {
+            builder = hyper::Response::builder()
                 .status(StatusCode::OK)
                 .header("content-type", "text/plain");
-            frames.push(Frame::data(Bytes::from_static(b"hello")));
+            frames.push(Frame::data(Bytes::from_static(b"an ordinary web page")));
         }
-        "/raw/HeadThenError" => {
-            builder = builder
-                .status(StatusCode::OK)
-                .header("content-type", "application/grpc")
-                .header("x-head", "present");
-            frames.push(Frame::data(grpc_message(b"partial")));
-
-            let mut trailers = HeaderMap::new();
-            trailers.insert("grpc-status", HeaderValue::from_static("8"));
-            trailers.insert("grpc-message", HeaderValue::from_static("no%20room%20left"));
-            frames.push(Frame::trailers(trailers));
+        "Compressed" => {
+            frames.push(Frame::data(grpc_message(1, b"squeezed")));
+            frames.push(trailers(&[("grpc-status", "0")]));
         }
-        // `/raw/NoTrailers`: a well-formed message and then nothing, which is a stream that never
-        // says how it ended.
-        _ => {
-            builder = builder
-                .status(StatusCode::OK)
-                .header("content-type", "application/grpc");
-            frames.push(Frame::data(grpc_message(b"orphan")));
+        "HeadThenError" => {
+            builder = builder.header("x-head", "present");
+            frames.push(Frame::data(grpc_message(0, b"partial")));
+            frames.push(trailers(&[
+                ("grpc-status", "8"),
+                ("grpc-message", "no%20room%20left"),
+            ]));
         }
+        // `NoTrailers`: a well-formed message and then nothing, which is a stream that never says
+        // how it ended.
+        _ => frames.push(Frame::data(grpc_message(0, b"orphan"))),
     }
 
     builder
@@ -630,7 +741,7 @@ impl TestServer {
                     let service = hyper::service::service_fn(|request| async {
                         Ok::<_, Infallible>(answer(request).await)
                     });
-                    let _ = hyper::server::conn::http2::Builder::new(HyperExecutor::new())
+                    let _ = hyper::server::conn::http2::Builder::new(HyperTokio::new())
                         .serve_connection(TokioIo::new(stream), service)
                         .await;
                 });

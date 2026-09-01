@@ -64,11 +64,10 @@ impl Metadata {
     /// The key is lowercased: header names are case-insensitive, and holding two spellings of one
     /// key would make `get` depend on which spelling the caller used.
     pub fn append(&mut self, key: &str, value: MetadataValue) -> Result<(), MetadataError> {
-        let key = validate_key(key)?;
+        let key = checked(key, &value)?;
         if is_reserved(&key) {
             return Err(MetadataError::ReservedKey { key });
         }
-        validate_value(&key, &value)?;
         self.entries.push((key, value));
         Ok(())
     }
@@ -108,7 +107,9 @@ impl Metadata {
 
     /// Every entry, in order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &MetadataValue)> {
-        self.entries.iter().map(|(key, value)| (key.as_str(), value))
+        self.entries
+            .iter()
+            .map(|(key, value)| (key.as_str(), value))
     }
 
     /// Reads what a header map carries, skipping the two headers that are the status rather than
@@ -142,15 +143,16 @@ impl Metadata {
 
     /// Writes these entries into the headers of a request.
     ///
-    /// Metadata read off a response can hold keys a request may not set, so what `append`
-    /// refuses is refused here too rather than trusted from construction.
+    /// A key the channel owns is skipped rather than refused. `append` turns one away, so the
+    /// only way one gets here is [`Self::from_headers`], and forwarding a response head onto a
+    /// new request is a reasonable thing to do; failing it over the `content-type` this engine
+    /// put there itself would not be.
     pub(crate) fn write_into(&self, headers: &mut HeaderMap) -> Result<(), MetadataError> {
         for (key, value) in &self.entries {
-            let key = validate_key(key)?;
+            let key = checked(key, value)?;
             if is_reserved(&key) {
-                return Err(MetadataError::ReservedKey { key });
+                continue;
             }
-            validate_value(&key, value)?;
 
             let name = HeaderName::from_bytes(key.as_bytes())
                 .map_err(|_| MetadataError::InvalidKey { key: key.clone() })?;
@@ -175,6 +177,13 @@ fn is_reserved(key: &str) -> bool {
     key.starts_with(':')
         || key.starts_with("grpc-")
         || matches!(key, "content-type" | "te" | "user-agent")
+}
+
+/// The lowercased key, once key and value are known to be representable as a header.
+fn checked(key: &str, value: &MetadataValue) -> Result<String, MetadataError> {
+    let key = validate_key(key)?;
+    validate_value(&key, value)?;
+    Ok(key)
 }
 
 fn validate_key(key: &str) -> Result<String, MetadataError> {
@@ -210,25 +219,13 @@ fn validate_value(key: &str, value: &MetadataValue) -> Result<(), MetadataError>
 #[non_exhaustive]
 pub enum MetadataError {
     /// The key is not a header name.
-    InvalidKey {
-        /// The key, lowercased.
-        key: String,
-    },
+    InvalidKey { key: String },
     /// The key is one gRPC or HTTP owns.
-    ReservedKey {
-        /// The key, lowercased.
-        key: String,
-    },
+    ReservedKey { key: String },
     /// The value does not fit what its key allows.
-    InvalidValue {
-        /// The key it sits under.
-        key: String,
-    },
+    InvalidValue { key: String },
     /// A `-bin` key carries an ASCII value, or a plain key carries bytes.
-    BinaryMismatch {
-        /// The key it sits under.
-        key: String,
-    },
+    BinaryMismatch { key: String },
 }
 
 impl std::fmt::Display for MetadataError {
@@ -236,7 +233,10 @@ impl std::fmt::Display for MetadataError {
         match self {
             Self::InvalidKey { key } => write!(f, "`{key}` is not a valid metadata key"),
             Self::ReservedKey { key } => {
-                write!(f, "`{key}` is reserved; the channel sets it, not the caller")
+                write!(
+                    f,
+                    "`{key}` is reserved; the channel sets it, not the caller"
+                )
             }
             Self::InvalidValue { key } => write!(
                 f,
@@ -349,10 +349,24 @@ mod tests {
         let mut metadata = Metadata::new();
         assert_eq!(
             metadata.append_ascii("", "x"),
-            Err(MetadataError::InvalidKey {
-                key: String::new()
-            })
+            Err(MetadataError::InvalidKey { key: String::new() })
         );
+    }
+
+    #[test]
+    fn a_response_head_can_be_forwarded_onto_a_request_without_its_reserved_keys() {
+        let mut received = HeaderMap::new();
+        received.insert("content-type", HeaderValue::from_static("application/grpc"));
+        received.insert("grpc-encoding", HeaderValue::from_static("identity"));
+        received.insert("x-trace", HeaderValue::from_static("kept"));
+
+        let mut request = HeaderMap::new();
+        Metadata::from_headers(&received)
+            .write_into(&mut request)
+            .expect("forwarding a response head is not an error");
+
+        assert_eq!(request.len(), 1);
+        assert_eq!(request["x-trace"], "kept");
     }
 
     #[test]

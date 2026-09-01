@@ -18,9 +18,8 @@ const UNCOMPRESSED: u8 = 0;
 /// The payload is chained behind its header rather than copied into one buffer: the caller's
 /// allocation is what goes out, which is what makes a send across the FFI free of a copy.
 pub(crate) fn frame(payload: Bytes) -> Result<Chain<Bytes, Bytes>, CallError> {
-    let len = u32::try_from(payload.len()).map_err(|_| CallError::MessageTooLong {
-        len: payload.len(),
-    })?;
+    let len = u32::try_from(payload.len())
+        .map_err(|_| CallError::MessageTooLong { len: payload.len() })?;
 
     let mut header = BytesMut::with_capacity(HEADER_LEN);
     header.extend_from_slice(&[UNCOMPRESSED]);
@@ -70,9 +69,13 @@ impl Deframer {
             flag => return Err(DeframeError::UnknownFlag { flag }),
         }
 
+        // The length is the peer's to choose, so the arithmetic that decides whether the message
+        // has arrived is checked: where `usize` is 32 bits, `HEADER_LEN + len` is reachable past
+        // its end, and the consumers below trust that sum.
         let len = u32::from_be_bytes([header[1], header[2], header[3], header[4]]) as usize;
-        if self.buffered < HEADER_LEN + len {
-            return Ok(None);
+        match HEADER_LEN.checked_add(len) {
+            Some(whole) if self.buffered >= whole => {}
+            _ => return Ok(None),
         }
 
         self.advance(HEADER_LEN);
@@ -213,7 +216,10 @@ mod tests {
             deframer.push(Bytes::copy_from_slice(&[*byte]));
         }
 
-        assert_eq!(drain(&mut deframer), vec![Bytes::from_static(b"across the chunks")]);
+        assert_eq!(
+            drain(&mut deframer),
+            vec![Bytes::from_static(b"across the chunks")]
+        );
         assert!(deframer.is_at_message_boundary());
     }
 
@@ -245,6 +251,17 @@ mod tests {
         deframer.push(whole.slice(..HEADER_LEN + 3));
 
         assert_eq!(deframer.next_message().expect("well-formed"), None);
+        assert!(!deframer.is_at_message_boundary());
+    }
+
+    #[test]
+    fn a_length_that_cannot_be_reached_waits_rather_than_reaching_past_the_buffer() {
+        // The peer chooses this number. Where `usize` is 32 bits, `HEADER_LEN + len` runs past
+        // its end, and everything that consumes the message trusts that sum.
+        let mut deframer = Deframer::default();
+        deframer.push(Bytes::from_static(&[0, 0xff, 0xff, 0xff, 0xff, b'x']));
+
+        assert_eq!(deframer.next_message(), Ok(None));
         assert!(!deframer.is_at_message_boundary());
     }
 
