@@ -1,4 +1,21 @@
+// This file is part of the ArmoniK project
+// 
+// Copyright (C) ANEO, 2021-2026. All rights reserved.
+// 
+// Licensed under the Apache License, Version 2.0 (the "License")
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 using System;
+using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,9 +89,9 @@ public class UnaryTests
 
   [Test]
   public void TheAbiVersionIsTheOneThisBindingSpeaks()
-    // Start() refuses a library that does not match, so reaching the fixture proves it.
-    => Assert.That(runtime_,
-                   Is.Not.Null);
+    => Assert.That(NativeRuntime.LibraryAbiVersion,
+                   Is.EqualTo(1),
+                   "the loaded library speaks the ABI this binding was written against");
 
   [Test]
   public async Task AUnaryCallReachesTheServerAndComesBack()
@@ -164,7 +181,7 @@ public class UnaryTests
   }
 
   [Test]
-  public void ACancelledCallEndsWithoutWaitingForTheServer()
+  public async Task ACancelledCallEndsWithoutWaitingForTheServer()
   {
     using var channel = Channel();
     using var cancellation = new CancellationTokenSource();
@@ -178,6 +195,14 @@ public class UnaryTests
 
     cancellation.Cancel();
 
+    // Bounded, because the name claims it does not wait for the server - and `Never` would
+    // otherwise let a binding that waits pass, since cancellation ends it there too.
+    var answered = Task.WhenAny(call.ResponseAsync,
+                                Task.Delay(TimeSpan.FromSeconds(5)));
+    Assert.That(await answered.ConfigureAwait(false),
+                Is.SameAs(call.ResponseAsync),
+                "the call ended without waiting on the server");
+
     var thrown = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseAsync.ConfigureAwait(false));
     Assert.That(thrown!.StatusCode,
                 Is.EqualTo(StatusCode.Cancelled));
@@ -189,19 +214,29 @@ public class UnaryTests
     using var channel = Channel();
     var client = Client(channel);
 
-    var running = new Task<EchoReply>[8];
-    for (var index = 0; index < running.Length; index++)
+    var calls = new AsyncUnaryCall<EchoReply>[8];
+    for (var index = 0; index < calls.Length; index++)
     {
-      var text = $"call-{index}";
-      running[index] = client.SayAsync(new EchoRequest
-                                       {
-                                         Text = text,
-                                       })
-                             .ResponseAsync;
+      calls[index] = client.SayAsync(new EchoRequest
+                                     {
+                                       Text = $"call-{index}",
+                                     });
     }
 
-    var replies = await Task.WhenAll(running)
-                            .ConfigureAwait(false);
+    EchoReply[] replies;
+    try
+    {
+      replies = await Task.WhenAll(Array.ConvertAll(calls,
+                                                    call => call.ResponseAsync))
+                          .ConfigureAwait(false);
+    }
+    finally
+    {
+      foreach (var call in calls)
+      {
+        call.Dispose();
+      }
+    }
 
     for (var index = 0; index < replies.Length; index++)
     {
@@ -240,16 +275,67 @@ public class UnaryTests
                 Is.EqualTo("000102ff"));
   }
 
+  /// <summary>
+  ///   The ceiling bounds lent buffers, so several calls at once contend for it and the refusals
+  ///   are real. Without the wait behind `BUDGET_BUSY` this fails rather than slows down.
+  /// </summary>
+  [Test]
+  public async Task CallsWaitForRoomUnderAMemoryCeiling()
+  {
+    var text = new string('x',
+                          100_000);
+    using var runtime = NativeRuntime.Start(workerThreads: 2,
+                                            memoryCeiling: 128 * 1024);
+    using var channel = runtime.Channel(endpoint_);
+    var client = Client(channel);
+
+    // Issued from the pool and not from here: a send holds its buffer only between the lend and
+    // the commit, and both run inline, so calls started one after another never meet.
+    var calls = await Task.WhenAll(Enumerable.Range(0,
+                                                    16)
+                                             .Select(_ => Task.Run(() => client.SayAsync(new EchoRequest
+                                                                                         {
+                                                                                           Text = text,
+                                                                                         }))))
+                          .ConfigureAwait(false);
+
+    try
+    {
+      var replies = await Task.WhenAll(Array.ConvertAll(calls,
+                                                        call => call.ResponseAsync))
+                              .ConfigureAwait(false);
+
+      Assert.That(replies,
+                  Has.All.Matches<EchoReply>(reply => reply.Text == text));
+    }
+    finally
+    {
+      foreach (var call in calls)
+      {
+        call.Dispose();
+      }
+    }
+  }
+
   [Test]
   public void AChannelThatIsReleasedTakesNoNewCall()
   {
     var channel = Channel();
     channel.Dispose();
 
-    Assert.Throws<RpcException>(() => Client(channel)
-                                  .Say(new EchoRequest
-                                       {
-                                         Text = "x",
-                                       }));
+    var thrown = Assert.Throws<RpcException>(() => Client(channel)
+                                              .Say(new EchoRequest
+                                                   {
+                                                     Text = "x",
+                                                   }));
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(thrown!.StatusCode,
+                                  Is.EqualTo(StatusCode.Internal));
+                      Assert.That(thrown.Status.Detail,
+                                  Does.Contain("HandleStale"),
+                                  "refused for the released handle, not for something else");
+                    });
   }
 }
