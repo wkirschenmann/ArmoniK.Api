@@ -184,6 +184,12 @@ followed the design where the two disagreed.
 
 **Deliverable**: .NET E2E test: unary call to a local gRPC server (plain HTTP/2).
 
+**Status**: done.  Four items of the commit list above are stale against design.md, which wins:
+the handles are generational 64-bit tokens the runtime reclaims itself, so no `SafeHandle`; the
+ring is the queue, so no dispatcher; payloads go in a buffer the engine lends out of the call's
+arena, so nothing is pinned; and the delivery ring replaces `Channel<>`, which design.md rules out
+by name (`IAsyncSignal RingSignal; // latched auto-reset, never SemaphoreSlim`).
+
 ### T1.4: Integrate into `ArmoniK.Api.Client` — injectable CallInvoker
 
 **Prerequisite**: T1.3
