@@ -125,7 +125,8 @@ impl TransportConnector {
 /// Establishes an HTTP/2 session over a connected stream.
 ///
 /// The dial and the session on it both belong to this layer; what travels on the session does
-/// not, which is why the body type is left open.
+/// not. Naming the body and the executor concretely would be naming layer 2's types here, so
+/// they stay parameters even though exactly one of each is ever passed.
 pub(crate) async fn handshake<E, B>(
     endpoint: &Uri,
     executor: E,

@@ -14,7 +14,7 @@ use hyper::body::{Body, Frame};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::channel::Inner;
-use super::error::CallError;
+use super::error::{CallError, ChannelError};
 use super::frame::{frame, Deframer};
 use super::metadata::Metadata;
 use super::status::{
@@ -78,8 +78,8 @@ impl GrpcCall {
 /// The writing side of a call.
 #[derive(Debug)]
 pub struct SendHalf {
-    /// Released once the call is over, which half-closes the request rather than leaving a
-    /// stream open on a call nobody is driving.
+    /// Given up when a send or a half-close finds the call over. What tears the stream down
+    /// first, though, is the driver dropping the response body when it returns.
     messages: Option<mpsc::Sender<Chain<Bytes, Bytes>>>,
     over: watch::Receiver<bool>,
 }
@@ -91,30 +91,45 @@ impl SendHalf {
     ///
     /// A call that has reached its terminal takes no more: the abstract model guards sending on
     /// a call with no status yet, and a send after one would go out on a stream the peer has
-    /// finished with.
+    /// finished with. A send already waiting on a full window answers to that too, which is why
+    /// the wait is against the flag as well as against the window.
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
         let framed = frame(message)?;
-        self.open()?
-            .send(framed)
-            .await
-            .map_err(|_| CallError::Ended)
+        let mut over = self.over.clone();
+        let messages = self.open()?.clone();
+
+        let sent = tokio::select! {
+            biased;
+            _ = over.wait_for(|over| *over) => Err(CallError::Ended),
+            queued = messages.send(framed) => queued.map_err(|_| CallError::Ended),
+        };
+        if sent.is_err() {
+            self.release();
+        }
+        sent
     }
 
     /// Half-closes the request. Taking `self` is what makes "no send after the end of sending" a
     /// fact about the type rather than a rule to remember.
-    pub async fn end_send(mut self) -> Result<(), CallError> {
-        // Dropping the sender is the half-close; whether the call is still there to see it is
-        // what the answer says.
-        self.open().map(|_| ())
+    ///
+    /// Cannot fail, and awaits nothing: the half-close is the drop, which happens whatever the
+    /// call has already done. The result is the shape design.md gives this operation; why a call
+    /// ended is its terminal status, which the reading half carries.
+    pub async fn end_send(self) -> Result<(), CallError> {
+        Ok(())
     }
 
-    /// The sender, unless the call is over - in which case it is released here, which ends the
-    /// request body and with it the stream.
+    /// The sender, unless the call is over.
     fn open(&mut self) -> Result<&mpsc::Sender<Chain<Bytes, Bytes>>, CallError> {
         if *self.over.borrow() || self.messages.as_ref().is_some_and(|it| it.is_closed()) {
-            self.messages = None;
+            self.release();
         }
         self.messages.as_ref().ok_or(CallError::Ended)
+    }
+
+    /// Gives up the sender, which ends the request body once the last clone of it goes.
+    fn release(&mut self) {
+        self.messages = None;
     }
 }
 
@@ -244,7 +259,7 @@ pub(crate) fn create(
     };
     let driving = Driving {
         stop: Stop {
-            cancelled: over_rx,
+            over: over_rx,
             channel_closed,
         },
         delivery: Delivery {
@@ -288,7 +303,7 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
 
 /// What ends a call from this side: the caller cancelled it, or the channel closed.
 struct Stop {
-    cancelled: watch::Receiver<bool>,
+    over: watch::Receiver<bool>,
     channel_closed: watch::Receiver<bool>,
 }
 
@@ -299,11 +314,11 @@ impl Stop {
         // Destructured because `select!` puts both arms in one scope, where two `&mut self`
         // methods do not borrow-check as the disjoint fields they are.
         let Self {
-            cancelled,
+            over,
             channel_closed,
         } = self;
         tokio::select! {
-            _ = cancelled.wait_for(|over| *over) => {}
+            _ = over.wait_for(|over| *over) => {}
             _ = channel_closed.wait_for(|closed| *closed) => {}
         }
     }
@@ -353,7 +368,7 @@ async fn run(
     delivery: &mut Delivery,
 ) -> GrpcStatus {
     let mut sender = match until_stopped(stop, inner.sender()).await {
-        None => return cancelled(),
+        None | Some(Err(ChannelError::Closed)) => return cancelled(),
         Some(Err(error)) => return GrpcStatus::new(GrpcStatusCode::Unavailable, error.to_string()),
         Some(Ok(sender)) => sender,
     };
@@ -468,6 +483,52 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[tokio::test]
+    async fn a_call_that_is_over_refuses_a_send_with_its_request_body_still_open() {
+        // The body stays bound, so the mpsc is not closed and only the flag can refuse. End to
+        // end hyper also tears the stream down, which is why this has to be asked here: there,
+        // either mechanism would answer.
+        let (call, _body, _driving) = create(4, watch::channel(false).1);
+        let (mut send, _recv, control) = call.split();
+
+        send.send_message(Bytes::from_static(b"first"))
+            .await
+            .expect("the call is open");
+
+        control.cancel();
+
+        assert_eq!(
+            send.send_message(Bytes::from_static(b"second")).await,
+            Err(CallError::Ended)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_send_waiting_on_a_full_window_is_refused_when_the_call_ends() {
+        let (call, _body, _driving) = create(1, watch::channel(false).1);
+        let (mut send, _recv, control) = call.split();
+
+        send.send_message(Bytes::from_static(b"first"))
+            .await
+            .expect("the window has room");
+
+        // Nothing polls the body, so this one waits rather than being queued.
+        let waiting =
+            tokio::spawn(async move { send.send_message(Bytes::from_static(b"second")).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !waiting.is_finished(),
+            "the second send is on a full window"
+        );
+
+        control.cancel();
+
+        assert_eq!(
+            waiting.await.expect("the send resolved"),
+            Err(CallError::Ended)
+        );
+    }
 
     #[tokio::test]
     async fn the_send_window_holds_the_next_message_until_the_last_is_taken() {

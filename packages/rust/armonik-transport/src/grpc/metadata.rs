@@ -115,9 +115,10 @@ impl Metadata {
     /// Reads what a header map carries, skipping the two headers that are the status rather than
     /// metadata.
     ///
-    /// A header this type cannot represent - a binary value that is not base64, an ASCII value
-    /// that is not text - is dropped rather than failing the call: the response has already
-    /// arrived, and refusing it here would turn a peer's malformed header into a lost result.
+    /// A header this type cannot represent is dropped rather than failing the call: the response
+    /// has already arrived, and refusing it here would turn a peer's malformed header into a
+    /// lost result. What is kept is exactly what could be sent again, so a head read here can be
+    /// forwarded onto a request without a value in it turning out to be unsendable.
     pub(crate) fn from_headers(headers: &HeaderMap) -> Self {
         let mut entries = Vec::with_capacity(headers.len());
         for (name, raw) in headers {
@@ -136,6 +137,9 @@ impl Metadata {
                     Err(_) => continue,
                 }
             };
+            if validate_value(key, &value).is_err() {
+                continue;
+            }
             entries.push((key.to_owned(), value));
         }
         Self { entries }
@@ -149,10 +153,10 @@ impl Metadata {
     /// put there itself would not be.
     pub(crate) fn write_into(&self, headers: &mut HeaderMap) -> Result<(), MetadataError> {
         for (key, value) in &self.entries {
-            let key = checked(key, value)?;
-            if is_reserved(&key) {
+            if is_reserved(key) {
                 continue;
             }
+            let key = checked(key, value)?;
 
             let name = HeaderName::from_bytes(key.as_bytes())
                 .map_err(|_| MetadataError::InvalidKey { key: key.clone() })?;
@@ -388,10 +392,22 @@ mod tests {
     fn a_header_this_type_cannot_represent_is_dropped_rather_than_failing_the_response() {
         let mut headers = HeaderMap::new();
         headers.insert("broken-bin", HeaderValue::from_static("not base64!"));
+        // `http` allows obs-text in a header value; gRPC ASCII metadata does not, so keeping
+        // this would build metadata that cannot be written back out.
+        headers.insert(
+            "x-accented",
+            HeaderValue::from_bytes(&[b'c', b'a', b'f', 0xe9]).expect("http allows this"),
+        );
         headers.insert("x-other", HeaderValue::from_static("kept"));
 
         let metadata = Metadata::from_headers(&headers);
         assert_eq!(metadata.len(), 1);
         assert!(metadata.get("broken-bin").is_none());
+        assert!(metadata.get("x-accented").is_none());
+
+        let mut request = HeaderMap::new();
+        metadata
+            .write_into(&mut request)
+            .expect("what came off a response can go onto a request");
     }
 }

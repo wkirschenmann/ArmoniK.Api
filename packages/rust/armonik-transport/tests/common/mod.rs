@@ -17,7 +17,7 @@ use tower_service::Service;
 
 mod codec;
 
-pub use codec::BytesCodec;
+use codec::BytesCodec;
 
 /// The one method the test service answers to.
 pub const METHOD_PATH: &str = "/armonik_transport.test.Slow/Call";

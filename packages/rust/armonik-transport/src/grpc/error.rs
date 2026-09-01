@@ -6,14 +6,18 @@
 //! what the abstract model says every started call reaches. The errors here are the other
 //! outcomes - the ones where no call is under way at all.
 
+use crate::http2::TransportError;
+
 use super::metadata::MetadataError;
 
-/// Why a call could not be started.
+/// Why a channel could not do what was asked of it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ChannelError {
     /// The channel is closed and takes no new calls.
     Closed,
+    /// The endpoint could not be reached.
+    Transport { source: TransportError },
     /// The method is not a path a gRPC request can carry.
     InvalidMethod { method: String },
     /// The request metadata cannot become headers.
@@ -29,7 +33,14 @@ impl std::fmt::Display for ChannelError {
                 "`{method}` is not a method path; it has to be `/Service/Method`"
             ),
             Self::InvalidMetadata { source } => write!(f, "{source}"),
+            Self::Transport { source } => write!(f, "{source}"),
         }
+    }
+}
+
+impl From<TransportError> for ChannelError {
+    fn from(source: TransportError) -> Self {
+        Self::Transport { source }
     }
 }
 
@@ -37,6 +48,7 @@ impl std::error::Error for ChannelError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::InvalidMetadata { source } => Some(source),
+            Self::Transport { source } => Some(source),
             _ => None,
         }
     }

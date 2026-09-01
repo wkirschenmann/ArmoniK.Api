@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use armonik_transport::grpc::{
     CallError, CallStartOptions, ChannelError, GrpcChannel, GrpcChannelConfig, GrpcStatus,
-    GrpcStatusCode, Metadata, MetadataValue, RecvResult, TokioExecutor,
+    GrpcStatusCode, Metadata, MetadataValue, RecvHalf, RecvResult, TokioExecutor,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use armonik_transport::reexports::hyper;
@@ -71,9 +71,7 @@ async fn unary(
     read_to_terminal(&mut recv).await
 }
 
-async fn read_to_terminal(
-    recv: &mut armonik_transport::grpc::RecvHalf,
-) -> (Metadata, Vec<Bytes>, GrpcStatus) {
+async fn read_to_terminal(recv: &mut RecvHalf) -> (Metadata, Vec<Bytes>, GrpcStatus) {
     let head = recv
         .recv_initial_metadata()
         .await
@@ -275,12 +273,13 @@ async fn nothing_can_be_sent_once_the_call_has_reached_its_terminal() {
     let (_, _, status) = read_to_terminal(&mut recv).await;
     assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
 
+    // The contract, not the mechanism: two things enforce it here, the driver declaring the call
+    // over and hyper tearing the stream down. Which one wins is the unit test's question.
     assert_eq!(
         send.send_message(Bytes::from_static(b"too late")).await,
         Err(CallError::Ended),
         "the abstract model guards a send on a call with no status yet"
     );
-    assert_eq!(send.end_send().await, Err(CallError::Ended));
 }
 
 #[tokio::test]
@@ -399,7 +398,24 @@ async fn connecting_up_front_reports_what_a_call_would_have_reported() {
         .connect()
         .await
         .expect_err("nothing is listening there");
-    assert_eq!(error.kind(), &TransportErrorKind::TcpConnect, "{error}");
+    match error {
+        ChannelError::Transport { source } => {
+            assert_eq!(source.kind(), &TransportErrorKind::TcpConnect, "{source}")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_closed_channel_opens_no_session() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    channel.close();
+
+    assert_eq!(channel.connect().await, Err(ChannelError::Closed));
+    // Nothing was dialled, so nothing is left holding a socket the channel will never release.
+    assert_eq!(server.connections(), 0);
 }
 
 #[tokio::test]
@@ -658,12 +674,7 @@ fn trailers(pairs: &[(&'static str, &'static str)]) -> Frame<Bytes> {
 }
 
 fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
-    let mut builder = hyper::Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/grpc");
-    let mut frames: Vec<Frame<Bytes>> = Vec::new();
-
-    match case {
+    let (builder, frames): (_, Vec<Frame<Bytes>>) = match case {
         "EchoHeaders" => {
             let seen: Vec<String> = ["content-type", "te", "grpc-accept-encoding", "user-agent"]
                 .iter()
@@ -672,50 +683,65 @@ fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                     Some(format!("{key}={value}"))
                 })
                 .collect();
-            frames.push(Frame::data(grpc_message(0, seen.join(" ").as_bytes())));
-            frames.push(trailers(&[("grpc-status", "0")]));
+            (
+                grpc_head(),
+                vec![
+                    Frame::data(grpc_message(0, seen.join(" ").as_bytes())),
+                    trailers(&[("grpc-status", "0")]),
+                ],
+            )
         }
-        "NotFound" => {
-            builder = hyper::Response::builder()
+        "NotFound" => (
+            hyper::Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .header("content-type", "text/html");
-            frames.push(Frame::data(Bytes::from_static(b"<h1>no</h1>")));
-        }
-        "StatusBehindError" => {
-            builder = hyper::Response::builder()
+                .header("content-type", "text/html"),
+            vec![Frame::data(Bytes::from_static(b"<h1>no</h1>"))],
+        ),
+        "StatusBehindError" => (
+            hyper::Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("content-type", "application/grpc")
                 .header("grpc-status", "8")
-                .header("grpc-message", "no%20room%20left");
-        }
-        "NotGrpc" => {
-            builder = hyper::Response::builder()
+                .header("grpc-message", "no%20room%20left"),
+            vec![],
+        ),
+        "NotGrpc" => (
+            hyper::Response::builder()
                 .status(StatusCode::OK)
-                .header("content-type", "text/plain");
-            frames.push(Frame::data(Bytes::from_static(b"an ordinary web page")));
-        }
-        "Compressed" => {
-            frames.push(Frame::data(grpc_message(1, b"squeezed")));
-            frames.push(trailers(&[("grpc-status", "0")]));
-        }
-        "HeadThenError" => {
-            builder = builder.header("x-head", "present");
-            frames.push(Frame::data(grpc_message(0, b"partial")));
-            frames.push(trailers(&[
-                ("grpc-status", "8"),
-                ("grpc-message", "no%20room%20left"),
-            ]));
-        }
-        // `NoTrailers`: a well-formed message and then nothing, which is a stream that never says
-        // how it ended.
-        _ => frames.push(Frame::data(grpc_message(0, b"orphan"))),
-    }
+                .header("content-type", "text/plain"),
+            vec![Frame::data(Bytes::from_static(b"an ordinary web page"))],
+        ),
+        "Compressed" => (
+            grpc_head(),
+            vec![
+                Frame::data(grpc_message(1, b"squeezed")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        "HeadThenError" => (
+            grpc_head().header("x-head", "present"),
+            vec![
+                Frame::data(grpc_message(0, b"partial")),
+                trailers(&[("grpc-status", "8"), ("grpc-message", "no%20room%20left")]),
+            ],
+        ),
+        // A well-formed message and then nothing: a stream that never says how it ended.
+        "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
+        other => panic!("no canned response is named `{other}`"),
+    };
 
     builder
         .body(TonicBody::new(Canned {
             frames: frames.into_iter(),
         }))
         .expect("a well-formed canned response")
+}
+
+/// The head of an ordinary gRPC response.
+fn grpc_head() -> hyper::http::response::Builder {
+    hyper::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/grpc")
 }
 
 /// The server the tests call, and the count of connections it has accepted.

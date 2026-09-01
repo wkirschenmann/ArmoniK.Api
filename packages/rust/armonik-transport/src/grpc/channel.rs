@@ -9,7 +9,7 @@ use tokio::sync::{watch, Mutex};
 use tower_service::Service;
 
 use crate::config::{ConfigError, IncompatibleOptionsSnafu};
-use crate::http2::{TransportConfig, TransportConnector, TransportError};
+use crate::http2::{TransportConfig, TransportConnector};
 
 use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
 use super::error::ChannelError;
@@ -99,7 +99,7 @@ impl GrpcChannel {
     ///
     /// Optional: a call opens it otherwise, and reports a failure to open it as its own terminal
     /// status. This is for a caller that wants to know before it has a call to lose.
-    pub async fn connect(&self) -> Result<(), TransportError> {
+    pub async fn connect(&self) -> Result<(), ChannelError> {
         self.inner.sender().await.map(|_| ())
     }
 
@@ -180,8 +180,14 @@ pub(crate) struct Inner {
 
 impl Inner {
     /// The session, opening one if there is none or the last one is gone.
-    pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, TransportError> {
+    ///
+    /// A closed channel opens none: the task `close` spawned to release the session has its own
+    /// turn at this lock, and a session stored after it has run is one nothing will ever release.
+    pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, ChannelError> {
         let mut slot = self.connection.lock().await;
+        if *self.closed.borrow() {
+            return Err(ChannelError::Closed);
+        }
 
         if let Some(sender) = slot.as_ref() {
             if !sender.is_closed() {
@@ -196,6 +202,12 @@ impl Inner {
         let (sender, connection) =
             crate::http2::handshake(&self.endpoint, HyperExecutor(self.executor.clone()), io)
                 .await?;
+
+        // A close that landed while this dial was in flight has already had its turn at the
+        // lock; dropping the session here is what keeps it from outliving the channel.
+        if *self.closed.borrow() {
+            return Err(ChannelError::Closed);
+        }
 
         let endpoint = self.endpoint.clone();
         self.executor.spawn(Box::pin(async move {
