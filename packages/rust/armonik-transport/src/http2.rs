@@ -1,11 +1,3 @@
-//! Layer 1: the network, up to an HTTP/2 session.
-//!
-//! [`TransportConnector`] is a [`tower_service::Service<Uri>`] yielding connected streams; it
-//! knows neither HTTP/2 nor gRPC and is a network dial and nothing more. [`handshake`] turns one
-//! of those streams into a session. What travels on the session is [`crate::grpc`]'s business.
-//!
-//! This connector dials plain TCP. Transport security is [`crate::connect`], which hands out a
-//! `tonic` channel instead of a stream.
 
 use std::future::Future;
 use std::io;
@@ -20,18 +12,14 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
-/// What it takes to reach an endpoint.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct TransportConfig {
-    /// The endpoint to dial. Only the `http` scheme is accepted.
     pub endpoint: Uri,
-    /// Bounds the whole sequence - resolution and connection - not each step.
     pub connect_timeout: Duration,
 }
 
 impl TransportConfig {
-    /// Defaults for everything but the endpoint, which has none.
     pub fn new(endpoint: Uri) -> Self {
         Self {
             endpoint,
@@ -39,7 +27,6 @@ impl TransportConfig {
         }
     }
 
-    /// The endpoint this connector can reach, or why it cannot.
     fn target(&self) -> Result<(&str, u16), TransportError> {
         match self.endpoint.scheme_str() {
             Some("http") => {}
@@ -60,7 +47,6 @@ impl TransportConfig {
             TransportError::configuration(format!("the endpoint `{}` names no host", self.endpoint))
         })?;
 
-        // Brackets delimit an IPv6 literal in an authority and are not part of the address.
         let host = host
             .strip_prefix('[')
             .and_then(|inner| inner.strip_suffix(']'))
@@ -70,24 +56,19 @@ impl TransportConfig {
     }
 }
 
-/// A connected stream, in the shape hyper reads and writes.
 pub type TransportConnection = TokioIo<TcpStream>;
 
-/// The network dial, as a service over the URI to reach.
 #[derive(Clone, Debug)]
 pub struct TransportConnector {
     config: TransportConfig,
 }
 
 impl TransportConnector {
-    /// Builds the connector. Reads no configuration it cannot use: an endpoint this connector
-    /// cannot dial is refused here rather than at the first call.
     pub fn new(config: TransportConfig) -> Result<Self, TransportError> {
         config.target()?;
         Ok(Self { config })
     }
 
-    /// Resolves and connects, within the configured timeout.
     async fn dial(config: TransportConfig) -> Result<TransportConnection, TransportError> {
         let (host, port) = config.target()?;
 
@@ -100,8 +81,6 @@ impl TransportConnector {
             for address in addresses {
                 match TcpStream::connect(address).await {
                     Ok(stream) => {
-                        // Nagle batches small writes, which is the opposite of what a request
-                        // stream wants.
                         let _ = stream.set_nodelay(true);
                         return Ok(TokioIo::new(stream));
                     }
@@ -122,11 +101,6 @@ impl TransportConnector {
     }
 }
 
-/// Establishes an HTTP/2 session over a connected stream.
-///
-/// The dial and the session on it both belong to this layer; what travels on the session does
-/// not. Naming the body and the executor concretely would be naming layer 2's types here, so
-/// they stay parameters even though exactly one of each is ever passed.
 pub(crate) async fn handshake<E, B>(
     endpoint: &Uri,
     executor: E,
@@ -149,7 +123,6 @@ impl Service<Uri> for TransportConnector {
     type Error = TransportError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    /// Availability only: this connector holds no resource whose readiness could be awaited.
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
@@ -161,27 +134,16 @@ impl Service<Uri> for TransportConnector {
     }
 }
 
-/// What stood between the configuration and a connected stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TransportErrorKind {
-    /// The host did not resolve.
     DnsResolution,
-    /// No address the host resolved to accepted a connection.
     TcpConnect,
-    /// The connection was made but no HTTP/2 session could be established on it.
     Http2Handshake,
-    /// The whole sequence outlasted `connect_timeout`.
     Timeout,
-    /// The endpoint is not one this connector can dial.
     Configuration,
 }
 
-/// A dial that did not happen, and why.
-///
-/// The cause chain is rendered rather than carried: an endpoint may hold credentials, and a
-/// structured source would put whatever a dependency chose to say about it in front of a caller
-/// that only needs to know what failed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransportError {
     kind: TransportErrorKind,
@@ -189,7 +151,6 @@ pub struct TransportError {
 }
 
 impl TransportError {
-    /// What kind of failure this is.
     pub fn kind(&self) -> &TransportErrorKind {
         &self.kind
     }
@@ -222,7 +183,6 @@ impl TransportError {
         }
     }
 
-    /// The stream was connected and the HTTP/2 session over it was not.
     fn http2_handshake(endpoint: &Uri, error: &dyn std::error::Error) -> Self {
         Self {
             kind: TransportErrorKind::Http2Handshake,

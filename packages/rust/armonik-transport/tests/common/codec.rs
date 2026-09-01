@@ -1,7 +1,3 @@
-//! The raw-bytes codec the gRPC test servers route every method through.
-//!
-//! Its wire representation *is* the message: no framing beyond what gRPC already adds. Shared by
-//! path rather than through `common`, so each test binary takes this and nothing else.
 
 use armonik_transport::reexports::tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use armonik_transport::reexports::tonic::Status;

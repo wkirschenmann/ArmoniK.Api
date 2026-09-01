@@ -1,7 +1,3 @@
-//! Layer 2: the gRPC engine.
-//!
-//! Framing, metadata, status and calls, over the HTTP/2 session the [`crate::http2`] connector's
-//! stream carries. It speaks messages rather than bodies, which is what the FFI is built on.
 
 mod call;
 mod channel;

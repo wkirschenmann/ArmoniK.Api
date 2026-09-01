@@ -1,4 +1,3 @@
-//! The channel: one HTTP/2 session, and the calls started on it.
 
 use std::sync::Arc;
 
@@ -15,34 +14,22 @@ use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
 use super::error::ChannelError;
 use super::executor::{Executor, HyperExecutor};
 
-/// What this engine says it is, when the configuration says nothing.
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
 
-/// The only message encoding this engine reads, and the only one it asks for.
 const ACCEPTED_ENCODING: &str = "identity";
 
-/// What gRPC implementations take as the largest message worth receiving unasked.
 const DEFAULT_MAX_RECV_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 
-/// How a channel is configured.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct GrpcChannelConfig {
-    /// How to reach the endpoint.
     pub transport: TransportConfig,
-    /// What to send as `user-agent`.
     pub user_agent: Option<String>,
-    /// How many buffers a call may have out at once before a send has to wait.
     pub max_sends_in_flight: usize,
-    /// The largest message this channel reassembles, refused on the length the peer announces
-    /// rather than after the bytes are held. It bounds what one message costs, not what the
-    /// engine holds at once: a message spanning several chunks is held twice while it is put
-    /// together, and a chunk already taken from the connection is held whatever it announces.
     pub max_recv_message_size: usize,
 }
 
 impl GrpcChannelConfig {
-    /// Defaults around a way to reach the endpoint.
     pub fn new(transport: TransportConfig) -> Self {
         Self {
             transport,
@@ -53,17 +40,12 @@ impl GrpcChannelConfig {
     }
 }
 
-/// A gRPC channel: calls, over one HTTP/2 session to one endpoint.
-///
-/// Cloning shares the session rather than opening a second one.
 #[derive(Clone)]
 pub struct GrpcChannel {
     inner: Arc<Inner>,
 }
 
 impl GrpcChannel {
-    /// Builds the channel. Performs no I/O, so a failure here is a configuration that could
-    /// never have worked rather than an endpoint that happened to be down.
     pub fn new(config: GrpcChannelConfig, executor: impl Executor) -> Result<Self, ConfigError> {
         if config.max_sends_in_flight == 0 {
             return Err(IncompatibleOptionsSnafu {
@@ -112,18 +94,10 @@ impl GrpcChannel {
         })
     }
 
-    /// Opens the session now, and says how it went.
-    ///
-    /// Optional: a call opens it otherwise, and reports a failure to open it as its own terminal
-    /// status. This is for a caller that wants to know before it has a call to lose.
     pub async fn connect(&self) -> Result<(), ChannelError> {
         self.inner.sender().await.map(|_| ())
     }
 
-    /// Starts a call.
-    ///
-    /// Returns as soon as the call exists, which is before it has reached the network: the
-    /// request travels on the task this spawns.
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError> {
         if *self.inner.closed.borrow() {
             return Err(ChannelError::Closed);
@@ -164,14 +138,11 @@ impl GrpcChannel {
         Ok(grpc_call)
     }
 
-    /// Refuses new calls, cancels the ones under way, and lets the session go.
     pub fn close(&self) {
         if self.inner.closed.send_replace(true) {
             return;
         }
 
-        // Releasing the session means taking the lock the calls dial under, which this method
-        // has no way to await; the executor that runs the calls runs this too.
         let inner = self.inner.clone();
         self.inner.executor.spawn(Box::pin(async move {
             inner.connection.lock().await.take();
@@ -188,7 +159,6 @@ impl std::fmt::Debug for GrpcChannel {
     }
 }
 
-/// What a channel and the tasks it spawned share.
 pub(crate) struct Inner {
     endpoint: Uri,
     connector: TransportConnector,
@@ -201,15 +171,10 @@ pub(crate) struct Inner {
 }
 
 impl Inner {
-    /// The largest message a call on this channel reassembles.
     pub(crate) fn max_recv_message_size(&self) -> usize {
         self.max_recv_message_size
     }
 
-    /// The session, opening one if there is none or the last one is gone.
-    ///
-    /// A closed channel opens none: the task `close` spawned to release the session has its own
-    /// turn at this lock, and a session stored after it has run is one nothing will ever release.
     pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, ChannelError> {
         let mut slot = self.connection.lock().await;
         if *self.closed.borrow() {
@@ -230,8 +195,6 @@ impl Inner {
             crate::http2::handshake(&self.endpoint, HyperExecutor(self.executor.clone()), io)
                 .await?;
 
-        // A close that landed while this dial was in flight has already had its turn at the
-        // lock; dropping the session here is what keeps it from outliving the channel.
         if *self.closed.borrow() {
             return Err(ChannelError::Closed);
         }
@@ -247,14 +210,11 @@ impl Inner {
         Ok(sender)
     }
 
-    /// The absolute URI a request for `method` is addressed to.
     fn request_uri(&self, method: &str) -> Result<Uri, ChannelError> {
         let invalid = || ChannelError::InvalidMethod {
             method: method.to_owned(),
         };
 
-        // `/Service/Method` and nothing else: a query or a third segment is not something a gRPC
-        // server has anywhere to read.
         if method.contains(['?', '#']) {
             return Err(invalid());
         }
