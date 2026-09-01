@@ -26,10 +26,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///   The ABI's key/value encoding: a uint32 count, then that many length-prefixed pairs.
 /// </summary>
 /// <remarks>
-///   Native byte order, as the header says, so neither direction chooses an endianness of its
-///   own. Keys may repeat
-///   and their order is kept: gRPC metadata is a multi-map, and two entries under one key must not
-///   come out as one.
+///   Native byte order, as the header says, so neither direction chooses an endianness of its own.
+///   Keys may repeat and their order is kept: gRPC metadata is a multi-map, and two entries under
+///   one key must not come out as one.
 ///   <para>
 ///     A key ending in <c>-bin</c> carries raw bytes on both sides of this boundary: the library
 ///     hands over the decoded value, not its base64 form.

@@ -32,11 +32,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///     The lend needs the length, and <see cref="SetPayloadLength" /> is where the marshaller
 ///     first says it, so that is where it happens. A refusal there cannot wait for room, being a
 ///     synchronous callback, so it serializes into managed memory instead and leaves the wait to
-///     <see cref="Committed" />: the arena path stays copy-free, and the copy appears only under
-///     a ceiling that is already refusing work.
+///     the caller: the arena path stays copy-free, and the copy appears only under a ceiling
+///     that is already refusing work.
 ///   </para>
 ///   <para>
-///     Disposing gives back a buffer that was lent and not committed. That is the whole of the
+///     Disposing gives back a buffer that was lent and not handed over. That is the whole of the
 ///     host's half of the contract, and it covers a throwing marshaller as well as a refusal.
 ///   </para>
 /// </remarks>
@@ -48,28 +48,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   private byte[]? spilled_;
   private int written_;
   private bool lent_;
-  private bool committed_;
 
   internal LentBuffer(ulong call)
     => call_ = call;
 
-  /// <summary>How long the message turned out to be.</summary>
-  internal int Length
-    => written_;
-
-  /// <summary>True once the arena holds the message and the engine owns the buffer again.</summary>
-  internal bool Committed
-    => committed_;
-
-  /// <summary>The message, when the ceiling pushed it into managed memory instead.</summary>
-  internal ReadOnlySpan<byte> Spilled
-    => spilled_ is null
-         ? default
-         : new ReadOnlySpan<byte>(spilled_,
-                                  0,
-                                  written_);
-
-  /// <inheritdoc />
   public void Advance(int count)
   {
     if (count < 0 || written_ + count > Capacity)
@@ -81,7 +63,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     written_ += count;
   }
 
-  /// <inheritdoc />
   public Memory<byte> GetMemory(int sizeHint = 0)
   {
     Reserve(sizeHint);
@@ -97,7 +78,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     return block_.Memory.Slice(written_);
   }
 
-  /// <inheritdoc />
   public Span<byte> GetSpan(int sizeHint = 0)
   {
     Reserve(sizeHint);
@@ -108,20 +88,16 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
              : Arena.Slice(written_);
   }
 
-  /// <inheritdoc />
   public override void SetPayloadLength(int payloadLength)
     => Take(payloadLength);
 
-  /// <inheritdoc />
   public override IBufferWriter<byte> GetBufferWriter()
     => this;
 
-  /// <inheritdoc />
   public override void Complete()
   {
   }
 
-  /// <inheritdoc />
   public override void Complete(byte[] payload)
   {
     // The legacy path never announced a length, so nothing was lent and this is already managed.
@@ -153,14 +129,12 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
                                                     buffer_);
     if (status == NativeMethods.AkStatus.Ok)
     {
-      committed_ = true;
-      lent_      = false;
+      lent_ = false;
     }
 
     return status;
   }
 
-  /// <inheritdoc />
   public void Dispose()
   {
     ((IDisposable?)block_)?.Dispose();
@@ -245,11 +219,9 @@ internal sealed class ReceivedMessage : DeserializationContext
     length_ = length;
   }
 
-  /// <inheritdoc />
   public override int PayloadLength
     => length_;
 
-  /// <inheritdoc />
   public override byte[] PayloadAsNewBuffer()
   {
     var bytes = new byte[length_];
@@ -260,7 +232,6 @@ internal sealed class ReceivedMessage : DeserializationContext
     return bytes;
   }
 
-  /// <inheritdoc />
   public override ReadOnlySequence<byte> PayloadAsReadOnlySequence()
     => new(new UnmanagedBlock(start_,
                               length_).Memory);
@@ -279,21 +250,17 @@ internal sealed class UnmanagedBlock : MemoryManager<byte>
     length_ = length;
   }
 
-  /// <inheritdoc />
   public override unsafe Span<byte> GetSpan()
     => new((void*)start_,
            length_);
 
-  /// <inheritdoc />
   public override unsafe MemoryHandle Pin(int elementIndex = 0)
     => new((byte*)start_ + elementIndex);
 
-  /// <inheritdoc />
   public override void Unpin()
   {
   }
 
-  /// <inheritdoc />
   protected override void Dispose(bool disposing)
   {
   }

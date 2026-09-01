@@ -75,7 +75,6 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   internal Metadata Trailers
     => trailers_;
 
-  /// <summary>Starts a call on <paramref name="channel" />, or throws what the ABI answered.</summary>
   internal static NativeCall<TResponse> Start(ulong runtime,
                                               ulong channel,
                                               string method,
@@ -261,7 +260,6 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     return response!;
   }
 
-  /// <summary>Ties <paramref name="token" /> to this call, for as long as the call lasts.</summary>
   internal void CancelWith(CancellationToken token)
   {
     if (token.CanBeCanceled)
