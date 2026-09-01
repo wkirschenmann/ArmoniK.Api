@@ -65,7 +65,10 @@ mod tests {
         let settings = parse(br#"{"endpoint":"http://127.0.0.1:5000"}"#).expect("valid");
         let config = settings.into_channel_config();
 
-        assert_eq!(config.transport.endpoint.to_string(), "http://127.0.0.1:5000/");
+        assert_eq!(
+            config.transport.endpoint.to_string(),
+            "http://127.0.0.1:5000/"
+        );
         assert_eq!(config.max_sends_in_flight, MAX_SENDS_IN_FLIGHT as usize);
     }
 

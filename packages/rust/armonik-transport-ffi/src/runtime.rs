@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use armonik_transport::grpc::GrpcChannel;
 use tokio::sync::Notify;
 
-use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
+use crate::abi::{
+    ak_event_kind, ak_handle, ak_host_debt, ak_memory_usage, ak_runtime_state, ak_status,
+};
 use crate::call::CallState;
 use crate::host::{Host, HostPtr};
 use crate::tables;
@@ -15,13 +17,33 @@ use crate::tables;
 ///
 /// Quiescence is this reaching zero after the runtime has stopped, which is why the host gets
 /// there by acting rather than by waiting.
-#[derive(Default)]
 pub(crate) struct Ledger {
+    /// Payloads and buffers together: what decides quiescence. A zero-length payload is still
+    /// something the host holds, which is why this is a count and not the byte total.
     outstanding: AtomicU64,
+    /// Lent buffers only: what the ceiling bounds.
+    bytes: AtomicU64,
+    ceiling: u64,
     changed: Notify,
 }
 
 impl Ledger {
+    fn new(ceiling: u64) -> Self {
+        Self {
+            outstanding: AtomicU64::new(0),
+            bytes: AtomicU64::new(0),
+            ceiling,
+            changed: Notify::new(),
+        }
+    }
+
+    pub(crate) fn usage(&self) -> ak_memory_usage {
+        ak_memory_usage {
+            bytes_used: self.bytes.load(Ordering::Acquire),
+            ceiling: self.ceiling,
+        }
+    }
+
     pub(crate) fn hold(&self) {
         self.outstanding.fetch_add(1, Ordering::AcqRel);
     }
@@ -29,6 +51,51 @@ impl Ledger {
     pub(crate) fn release(&self) {
         self.outstanding.fetch_sub(1, Ordering::AcqRel);
         self.changed.notify_waiters();
+    }
+
+    /// Whether a request of `len` could ever fit. A refusal here is permanent: no return by
+    /// anyone will make room, so retrying is pointless.
+    pub(crate) fn could_ever_fit(&self, len: usize) -> Result<(), ak_status> {
+        match self.ceiling {
+            0 => Ok(()),
+            ceiling if len as u64 <= ceiling => Ok(()),
+            _ => Err(ak_status::AK_STATUS_MESSAGE_TOO_LARGE),
+        }
+    }
+
+    /// Takes `len` bytes against the ceiling, or reports that they are not there yet.
+    pub(crate) fn reserve(&self, len: usize) -> Result<(), ak_status> {
+        if self.ceiling == 0 {
+            self.bytes.fetch_add(len as u64, Ordering::AcqRel);
+            self.hold();
+            return Ok(());
+        }
+
+        let mut seen = self.bytes.load(Ordering::Acquire);
+        loop {
+            let wanted = seen + len as u64;
+            if wanted > self.ceiling {
+                return Err(ak_status::AK_STATUS_BUDGET_BUSY);
+            }
+            match self.bytes.compare_exchange_weak(
+                seen,
+                wanted,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    self.hold();
+                    return Ok(());
+                }
+                Err(current) => seen = current,
+            }
+        }
+    }
+
+    /// Gives `len` bytes back to the ceiling, and the buffer back to the count.
+    pub(crate) fn release_bytes(&self, len: usize) {
+        self.bytes.fetch_sub(len as u64, Ordering::AcqRel);
+        self.release();
     }
 
     fn empty(&self) -> bool {
@@ -82,7 +149,11 @@ pub(crate) struct AkRuntime {
 }
 
 impl AkRuntime {
-    pub(crate) fn new(worker_threads: u32, host: Host) -> Result<Arc<Self>, ak_status> {
+    pub(crate) fn new(
+        worker_threads: u32,
+        memory_ceiling: u64,
+        host: Host,
+    ) -> Result<Arc<Self>, ak_status> {
         let mut builder = tokio::runtime::Builder::new_multi_thread();
         builder.enable_all();
         if worker_threads > 0 {
@@ -95,7 +166,7 @@ impl AkRuntime {
             tokio: Mutex::new(Some(tokio)),
             spawner,
             host: Arc::new(host),
-            ledger: Arc::default(),
+            ledger: Arc::new(Ledger::new(memory_ceiling)),
             state: AtomicI32::new(ak_runtime_state::AK_RUNTIME_RUNNING as i32),
             stopping: AtomicBool::new(false),
         }))

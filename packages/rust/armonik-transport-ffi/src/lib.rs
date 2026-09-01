@@ -61,7 +61,11 @@ pub unsafe extern "C" fn ak_runtime_create(
             return ak_status::AK_STATUS_INVALID_ARG;
         }
 
-        match AkRuntime::new(config.worker_threads, Host::new(callback, runtime_ctx)) {
+        match AkRuntime::new(
+            config.worker_threads,
+            config.memory_ceiling,
+            Host::new(callback, runtime_ctx),
+        ) {
             Err(status) => status,
             Ok(runtime) => {
                 let handle = tables::runtimes().insert(runtime);
@@ -206,11 +210,9 @@ pub unsafe extern "C" fn ak_call_start(
         }
 
         // SAFETY: the host's contract for these arguments.
-        let (Some(method), Some(metadata)) =
-            (unsafe { options.method.as_slice() }, unsafe {
-                options.metadata.as_slice()
-            })
-        else {
+        let (Some(method), Some(metadata)) = (unsafe { options.method.as_slice() }, unsafe {
+            options.metadata.as_slice()
+        }) else {
             return ak_status::AK_STATUS_INVALID_ARG;
         };
         let (Ok(method), Some(metadata)) =
@@ -346,6 +348,29 @@ pub unsafe extern "C" fn ak_call_debt_of(call: ak_handle, out: *mut ak_call_debt
         };
         // SAFETY: checked non-null above.
         unsafe { *out = found.debt() };
+        ak_status::AK_STATUS_OK
+    })
+}
+
+/// What the runtime-wide ceiling is holding. Purely observational.
+///
+/// # Safety
+///
+/// `out` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn ak_runtime_memory_usage(
+    runtime: ak_handle,
+    out: *mut ak_memory_usage,
+) -> ak_status {
+    guard(|| {
+        if out.is_null() {
+            return ak_status::AK_STATUS_INVALID_ARG;
+        }
+        let Some(found) = tables::runtimes().get(runtime) else {
+            return ak_status::AK_STATUS_HANDLE_STALE;
+        };
+        // SAFETY: checked non-null above.
+        unsafe { *out = found.ledger.usage() };
         ak_status::AK_STATUS_OK
     })
 }

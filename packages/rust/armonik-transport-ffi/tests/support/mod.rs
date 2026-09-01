@@ -78,12 +78,18 @@ pub unsafe extern "C" fn on_event(
 
 impl Recorder {
     fn record(&self, event: Event) {
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).push(event);
+        self.seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(event);
         self.arrived.notify_all();
     }
 
     pub fn len(&self) -> usize {
-        self.seen.lock().unwrap_or_else(PoisonError::into_inner).len()
+        self.seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 
     pub fn kinds(&self) -> Vec<ak_event_kind> {
@@ -301,7 +307,9 @@ fn unblob(bytes: &[u8]) -> HashMap<Vec<u8>, Vec<u8>> {
     let count = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     for _ in 0..count {
         let Some(key) = take(&mut cursor) else { break };
-        let Some(value) = take(&mut cursor) else { break };
+        let Some(value) = take(&mut cursor) else {
+            break;
+        };
         out.insert(key, value);
     }
     out

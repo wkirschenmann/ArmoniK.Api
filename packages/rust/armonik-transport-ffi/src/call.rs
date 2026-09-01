@@ -124,14 +124,22 @@ impl CallState {
         if !self.live() || self.cancelled.load(Ordering::Acquire) {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
+        // Permanent before transient: a request past the ceiling itself will never fit, and
+        // saying so before the window is what stops a host retrying forever.
+        self.ledger.could_ever_fit(len)?;
         if !self.window.take() {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);
         }
+        if let Err(status) = self.ledger.reserve(len) {
+            self.window.release();
+            return Err(status);
+        }
 
         self.debt.buffers.fetch_add(1, Ordering::AcqRel);
-        self.ledger.hold();
 
-        let mut lent = Box::new(Lent { data: vec![0u8; len] });
+        let mut lent = Box::new(Lent {
+            data: vec![0u8; len],
+        });
         let ptr = lent.data.as_mut_ptr();
         Ok(ak_buffer {
             ptr,
@@ -149,7 +157,7 @@ impl CallState {
         // SAFETY: forwarded from this function's own contract.
         let lent = unsafe { Box::from_raw(owner as *mut Lent) };
         self.debt.buffers.fetch_sub(1, Ordering::AcqRel);
-        self.ledger.release();
+        self.ledger.release_bytes(lent.data.len());
         self.settled_may_have_changed();
         lent.data
     }
@@ -317,7 +325,12 @@ pub(crate) fn start(
     let _ = state.handle.set(handle);
     let (writer_done, writer_is_done) = oneshot::channel();
 
-    spawner.spawn(writer(Arc::clone(state), halves.send, commands, writer_done));
+    spawner.spawn(writer(
+        Arc::clone(state),
+        halves.send,
+        commands,
+        writer_done,
+    ));
     spawner.spawn(reader(Arc::clone(state), halves.recv, writer_is_done));
     spawner.spawn(reclaim(Arc::clone(state)));
 }
@@ -360,7 +373,9 @@ async fn writer(
                 // woken by WRITE_DONE may ask for a buffer from inside the callback.
                 state.window.release();
                 state.debt.callbacks.fetch_add(1, Ordering::AcqRel);
-                state.host.signal(state.ctx, ak_event_kind::AK_EVENT_WRITE_DONE);
+                state
+                    .host
+                    .signal(state.ctx, ak_event_kind::AK_EVENT_WRITE_DONE);
                 state.debt.callbacks.fetch_sub(1, Ordering::AcqRel);
                 state.settled_may_have_changed();
             }

@@ -139,6 +139,21 @@ pub struct ak_runtime_config {
     pub struct_size: u32,
     /// Zero leaves the choice to the runtime.
     pub worker_threads: u32,
+    /// The bytes lent buffers may occupy at once, across every call of this runtime. Zero is no
+    /// ceiling.
+    pub memory_ceiling: u64,
+}
+
+/// What the runtime-wide ceiling is holding.
+///
+/// Only a fall in the total proves capacity came back: a buffer occupies the ceiling from the
+/// moment it is lent until the runtime frees its bytes, and committing it hands the same bytes
+/// from the host to the runtime rather than freeing anything.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ak_memory_usage {
+    pub bytes_used: u64,
+    pub ceiling: u64,
 }
 
 /// How a call is started.

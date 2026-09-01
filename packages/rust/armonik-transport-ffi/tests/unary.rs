@@ -20,10 +20,15 @@ struct Host {
 
 impl Host {
     fn start() -> Self {
+        Self::with_ceiling(0)
+    }
+
+    fn with_ceiling(memory_ceiling: u64) -> Self {
         let mut recorder = Box::new(Recorder::default());
         let config = ak_runtime_config {
             struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
             worker_threads: 2,
+            memory_ceiling,
         };
         let mut runtime = AK_HANDLE_NONE;
 
@@ -38,7 +43,10 @@ impl Host {
             )
         };
         assert_eq!(status, ak_status::AK_STATUS_OK);
-        assert_eq!(ak_runtime_status(runtime), ak_runtime_state::AK_RUNTIME_RUNNING);
+        assert_eq!(
+            ak_runtime_status(runtime),
+            ak_runtime_state::AK_RUNTIME_RUNNING
+        );
 
         Self { runtime, recorder }
     }
@@ -203,7 +211,10 @@ fn a_refused_method_comes_back_as_its_status_behind_a_synthesized_metadata_event
 
     // A Trailers-Only refusal carries no response head on the wire; the ABI still emits exactly
     // one INITIAL_METADATA, first, and it takes a delivery credit like any other.
-    assert_eq!(seen.data_kinds()[0], ak_event_kind::AK_EVENT_INITIAL_METADATA);
+    assert_eq!(
+        seen.data_kinds()[0],
+        ak_event_kind::AK_EVENT_INITIAL_METADATA
+    );
     assert!(seen.initial_metadata().is_empty());
     assert!(seen.first_data_event_was_owned(), "empty is not unowned");
     assert_eq!(seen.status_code(), Some(7), "PERMISSION_DENIED");
@@ -249,6 +260,60 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     );
     // SAFETY: `second` is the buffer just lent.
     unsafe { ak_return_call_buffer(call, second) };
+
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    host.recorder.await_terminal();
+    ak_channel_release(channel);
+    host.stop();
+}
+
+#[test]
+fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
+    let server = TestServer::start();
+    let host = Host::with_ceiling(64);
+    let channel = host.channel(&server.endpoint);
+    let call = start_call(channel, ECHO, &[]);
+
+    let mut buffer = ak_buffer {
+        ptr: std::ptr::null_mut(),
+        len: 0,
+        owner: std::ptr::null_mut(),
+    };
+
+    // Past the ceiling itself: no return by anyone will ever make room, so the refusal is
+    // permanent and the host is told not to retry.
+    // SAFETY: the out pointer is live for the call.
+    assert_eq!(
+        unsafe { ak_get_call_buffer(call, 65, &mut buffer) },
+        ak_status::AK_STATUS_MESSAGE_TOO_LARGE
+    );
+
+    // Within the ceiling, so it is lent and it is what the runtime reports as occupied.
+    // SAFETY: as above.
+    assert_eq!(
+        unsafe { ak_get_call_buffer(call, 40, &mut buffer) },
+        ak_status::AK_STATUS_OK
+    );
+    let mut usage = ak_memory_usage::default();
+    // SAFETY: the out pointer is live for the call.
+    assert_eq!(
+        unsafe { ak_runtime_memory_usage(host.runtime, &mut usage) },
+        ak_status::AK_STATUS_OK
+    );
+    assert_eq!(
+        usage,
+        ak_memory_usage {
+            bytes_used: 40,
+            ceiling: 64
+        }
+    );
+
+    // Giving it back is what frees the bytes, which only a fall in the total proves.
+    // SAFETY: `buffer` is the one just lent and has not been given back.
+    unsafe { ak_return_call_buffer(call, buffer) };
+    // SAFETY: the out pointer is live for the call.
+    unsafe { ak_runtime_memory_usage(host.runtime, &mut usage) };
+    assert_eq!(usage.bytes_used, 0);
 
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
@@ -346,8 +411,14 @@ fn a_struct_of_an_unknown_size_is_refused_rather_than_read() {
 
 #[test]
 fn a_token_naming_nothing_is_refused_rather_than_dereferenced() {
-    assert_eq!(ak_call_cancel(AK_HANDLE_NONE), ak_status::AK_STATUS_HANDLE_STALE);
-    assert_eq!(ak_call_end_send(u64::MAX), ak_status::AK_STATUS_HANDLE_STALE);
+    assert_eq!(
+        ak_call_cancel(AK_HANDLE_NONE),
+        ak_status::AK_STATUS_HANDLE_STALE
+    );
+    assert_eq!(
+        ak_call_end_send(u64::MAX),
+        ak_status::AK_STATUS_HANDLE_STALE
+    );
     assert_eq!(
         ak_runtime_begin_shutdown(u64::MAX),
         ak_status::AK_STATUS_HANDLE_STALE
