@@ -143,22 +143,30 @@ the crate already carries:
 - Executor trait
 
 **Deliverable**: Rust integration test: unary call to a local gRPC server (plain HTTP/2).
+**Status**: done.  The crate also gains the `http2` module this task assumed it already had.
 
 ### T1.2: Create `armonik-transport-ffi` — minimal unary ABI
 
 **Prerequisite**: T1.1, T0.2 (FFI spec proved or at least written)
-**Source**: from scratch per the design
+**Source**: from scratch per the design. The crate of that name on `wip/rust-all` is not the
+source: it delegates every gRPC semantic to tonic and exposes a polling ABI, where the design
+calls for an engine that owns its framing under a callback ABI.
 **Commit**: Create `packages/rust/armonik-transport-ffi/`:
-- `ak_runtime_create`, `ak_runtime_status`, `ak_runtime_begin_shutdown`
-- `ak_channel_create` (minimal JSON config: just endpoint)
-- `ak_call_start`, `ak_call_send_message` (zero-copy), `ak_call_end_send`,
-  `ak_call_cancel`, `ak_call_release`, `ak_event_consumed`
-- `ak_abi_version`
-- Events: WRITE_DONE, INITIAL_METADATA, MESSAGE, STATUS, SHUTDOWN_COMPLETE
+- `ak_runtime_create`, `ak_runtime_status`, `ak_runtime_begin_shutdown`, `ak_runtime_destroy`
+- `ak_channel_create` (minimal JSON config: just endpoint), `ak_channel_release`
+- `ak_call_start`, `ak_get_call_buffer`, `ak_call_send_message` (zero-copy),
+  `ak_return_call_buffer`, `ak_call_end_send`, `ak_call_cancel`, `ak_event_consumed`
+- `ak_call_debt_of`, `ak_runtime_memory_usage`, `ak_abi_version`
+- Events: WRITE_DONE, INITIAL_METADATA, MESSAGE, STATUS, SHUTDOWN_COMPLETE,
+  RESOURCES_RELEASED
 - SlotMap registry, owned Tokio runtime, callback with call_ctx
 - One send in flight, one non-consumed event per call
 
+There is no `ak_call_release`: design.md removed it deliberately and says why. This list
+followed the design where the two disagreed.
+
 **Deliverable**: C or Rust FFI test: unary call via the ABI to a local gRPC server.
+**Status**: done.
 
 ### T1.3: Create `ArmoniK.Api.Client.RustGrpcChannel` — .NET unary binding
 

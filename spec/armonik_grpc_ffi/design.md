@@ -3734,19 +3734,30 @@ with its state machines and ownership matrix, the Rust and .NET implementation
 architecture, the formal model and its mapping to the code, and a decision log. Until that
 split happens, read the ABI blocks as normative and the rest as justification.
 
-**The ABI is not yet a contract you can compile against.** What is specified here is the
-shape and the ownership rules; what is missing is everything a second implementer would
-need, and none of it is decided by omission:
+**The header is the contract; two things it needs are still missing.** The header lives at
+`packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`, written by hand and
+committed so an ABI change shows up in review. It settles what this section used to list as
+undecided: `ak_bytes_in` as the borrowed mirror of `ak_bytes`, a `uint32_t struct_size`
+prefix on every options struct (a size the library does not know is refused rather than
+read), `ak_runtime_config` and `ak_call_start_options`, the metadata blob as a
+length-prefixed key/value sequence, and the `AK_EVENT_STATUS` payload as a length-prefixed
+reason followed by the trailing metadata - the code itself is `ak_event.status_code`.
 
-- a real C header that compiles, with `ak_status` enumerated, `ak_runtime_config`,
-  `ak_call_start_options` and the metadata and status payload encodings given as byte
-  layouts rather than described;
-- calling convention, struct alignment and padding rules, and a `size`/`version` prefix on
-  every options struct so the ABI can grow without breaking callers;
+What is still owed:
+
 - an ownership matrix: for each ABI object, who allocates, who frees, and when it stops
-  being legal to touch;
-- conformance tests exercised from Rust, C and C# against the same header, because an ABI
-  that only its author's binding uses is not an ABI.
+  being legal to touch. The header states each rule against its own entry point; nothing
+  gathers them;
+- conformance tests exercised from C and C# against the same header, because an ABI that
+  only its author's binding uses is not an ABI. `tests/layout.rs` pins the sizes and offsets
+  a C compiler produces for the header and checks the declarations and the exports name the
+  same set, which is not the same thing: nothing in this workspace compiles the header.
+
+**What the ABI does not yet implement.** `ak_runtime_memory_usage_detailed` and its
+five-field struct: its three categories need each buffer's position in its lifecycle
+tracked, and it is an observability tool rather than one a retry needs. And no path sets
+`AK_RUNTIME_FAILED_UNQUIESCED`, so the failure model this document describes has no
+implementation - a runtime either reaches quiescence or waits.
 
 **Protocol surface not yet contractualized.** Message and metadata size limits and what a
 violation produces on each side; gRPC compression (`grpc-encoding`,
