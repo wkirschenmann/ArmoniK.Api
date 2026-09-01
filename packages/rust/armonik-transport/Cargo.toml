@@ -20,7 +20,19 @@ tonic = { workspace = true, features = ["channel", "codegen"] }
 snafu.workspace = true
 tracing.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
-hyper-util = { workspace = true, features = ["client", "http1"] }
+# `tokio` for `TokioIo`, which is what puts a `TcpStream` in the shape hyper reads and writes.
+hyper-util = { workspace = true, features = ["client", "http1", "tokio"] }
+http.workspace = true
+# `BodyExt::frame`, to read a response body one frame at a time rather than collecting it.
+http-body-util.workspace = true
+bytes.workspace = true
+# gRPC stores a `-bin` metadata value base64-encoded on the wire.
+base64.workspace = true
+# The gRPC engine spawns: a task per HTTP/2 session, a task per call. `macros` is `select!`, which
+# is how a call watches for its own cancellation while it waits on the network.
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+# The connector is a `tower` service, which is the seam a TLS or proxy connector slots into.
+tower-service.workspace = true
 hyper-rustls = { workspace = true, features = [
   "http1",
   "http2",
@@ -42,7 +54,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 # The integration tests serve a gRPC service to call, which the regular build never does; these features
 # union with the `channel`/`codegen` above for test builds only.
 tonic = { workspace = true, features = ["server", "router"] }
-# The test service is a `tower` service and its codec moves raw `Bytes`; production code here needs
-# neither, since it hands whole channels to its caller rather than framing messages itself.
-tower-service.workspace = true
-bytes.workspace = true
+# The gRPC integration tests run their own accept loop, so they serve HTTP/2 themselves rather
+# than through `tonic::transport::Server`; that is what lets them count connections.
+hyper = { workspace = true, features = ["server"] }
