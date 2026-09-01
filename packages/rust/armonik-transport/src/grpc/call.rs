@@ -214,7 +214,6 @@ impl Body for RequestBody {
 /// Builds the two ends of a call, and everything its driving task needs.
 pub(crate) fn create(
     send_window: usize,
-    max_recv_message_size: usize,
     channel_closed: watch::Receiver<bool>,
 ) -> (GrpcCall, RequestBody, Driving) {
     let (message_tx, message_rx) = mpsc::channel(send_window);
@@ -248,7 +247,6 @@ pub(crate) fn create(
             messages: recv_tx,
         },
         control,
-        max_recv_message_size,
     };
 
     (
@@ -265,7 +263,6 @@ pub(crate) struct Driving {
     stop: Stop,
     delivery: Delivery,
     control: CallControl,
-    max_recv_message_size: usize,
 }
 
 /// Runs the call to its terminal, and delivers that terminal whatever happens.
@@ -274,17 +271,9 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
         mut stop,
         mut delivery,
         control,
-        max_recv_message_size,
     } = driving;
 
-    let status = run(
-        &inner,
-        request,
-        &mut stop,
-        &mut delivery,
-        max_recv_message_size,
-    )
-    .await;
+    let status = run(&inner, request, &mut stop, &mut delivery).await;
     // The call is over the moment its terminal is decided, whichever way it went; the writing
     // side is told before the reading side, so a reader that has the terminal knows the writer
     // is already refusing.
@@ -357,7 +346,6 @@ async fn run(
     request: Request<RequestBody>,
     stop: &mut Stop,
     delivery: &mut Delivery,
-    max_recv_message_size: usize,
 ) -> GrpcStatus {
     let mut sender = match until_stopped(stop, inner.sender()).await {
         None | Some(Err(ChannelError::Closed)) => return cancelled(),
@@ -396,7 +384,7 @@ async fn run(
 
     delivery.head(Metadata::from_headers(&head.headers));
 
-    let mut deframer = Deframer::new(max_recv_message_size);
+    let mut deframer = Deframer::new(inner.max_recv_message_size());
     loop {
         if let Err(status) = deliver_ready(&mut deframer, stop, delivery).await {
             return status;
@@ -478,7 +466,7 @@ mod tests {
         // The body stays bound, so the mpsc is not closed and only the flag can refuse. End to
         // end hyper also tears the stream down, which is why this has to be asked here: there,
         // either mechanism would answer.
-        let (call, _body, _driving) = create(4, usize::MAX, watch::channel(false).1);
+        let (call, _body, _driving) = create(4, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -495,7 +483,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_send_waiting_on_a_full_window_is_refused_when_the_call_ends() {
-        let (call, _body, _driving) = create(1, usize::MAX, watch::channel(false).1);
+        let (call, _body, _driving) = create(1, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -522,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_send_window_holds_the_next_message_until_the_last_is_taken() {
-        let (call, mut body, _driving) = create(1, usize::MAX, watch::channel(false).1);
+        let (call, mut body, _driving) = create(1, watch::channel(false).1);
         // The reading half stays bound: dropping it cancels the call, which is the very thing
         // that would let the second send through for the wrong reason.
         let (mut send, _recv, _control) = call.split();

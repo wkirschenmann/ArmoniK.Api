@@ -312,14 +312,11 @@ mod tests {
         // Only the header is here: the refusal does not wait for the payload, which is the point.
         deframer.push(Bytes::from_static(&[0, 0, 0, 0, 9]));
 
-        assert_eq!(
-            deframer.next_message(),
-            Err(DeframeError::TooLong { len: 9, max: 8 })
-        );
-        assert_eq!(
-            DeframeError::TooLong { len: 9, max: 8 }.code(),
-            GrpcStatusCode::ResourceExhausted
-        );
+        let refused = deframer
+            .next_message()
+            .expect_err("nine bytes are past a maximum of eight");
+        assert_eq!(refused, DeframeError::TooLong { len: 9, max: 8 });
+        assert_eq!(refused.code(), GrpcStatusCode::ResourceExhausted);
 
         let mut deframer = Deframer::new(8);
         deframer.push(framed(b"12345678"));

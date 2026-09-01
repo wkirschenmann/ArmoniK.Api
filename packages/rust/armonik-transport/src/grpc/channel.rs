@@ -121,7 +121,11 @@ impl GrpcChannel {
         }
 
         let uri = self.inner.request_uri(&options.method)?;
-        let mut headers = HeaderMap::with_capacity(4 + options.metadata.len());
+        let mut headers = HeaderMap::new();
+        options
+            .metadata
+            .reserve_in(&mut headers)
+            .map_err(|source| ChannelError::InvalidMetadata { source })?;
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
         headers.insert(TE, HeaderValue::from_static("trailers"));
         headers.insert(USER_AGENT, self.inner.user_agent.clone());
@@ -136,7 +140,6 @@ impl GrpcChannel {
 
         let (grpc_call, body, driving) = call::create(
             self.inner.max_sends_in_flight,
-            self.inner.max_recv_message_size,
             self.inner.closed.subscribe(),
         );
 
@@ -189,6 +192,11 @@ pub(crate) struct Inner {
 }
 
 impl Inner {
+    /// The largest message a call on this channel reassembles.
+    pub(crate) fn max_recv_message_size(&self) -> usize {
+        self.max_recv_message_size
+    }
+
     /// The session, opening one if there is none or the last one is gone.
     ///
     /// A closed channel opens none: the task `close` spawned to release the session has its own

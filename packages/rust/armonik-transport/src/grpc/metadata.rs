@@ -146,6 +146,18 @@ impl Metadata {
         Self { entries }
     }
 
+    /// Room for these entries on top of what `headers` already holds.
+    ///
+    /// `HeaderMap` panics rather than growing past its ceiling, and the entry count here comes
+    /// from the caller, so the room is asked for rather than assumed.
+    pub(crate) fn reserve_in(&self, headers: &mut HeaderMap) -> Result<(), MetadataError> {
+        headers
+            .try_reserve(self.entries.len())
+            .map_err(|_| MetadataError::TooMany {
+                entries: self.entries.len(),
+            })
+    }
+
     /// Writes these entries into the headers of a request.
     ///
     /// A key the channel owns is skipped rather than refused. `append` turns one away, so the
@@ -168,7 +180,11 @@ impl Metadata {
                 MetadataValue::Binary(bytes) => HeaderValue::from_str(&BINARY_OUT.encode(bytes))
                     .map_err(|_| MetadataError::InvalidValue { key: key.clone() })?,
             };
-            headers.append(name, encoded);
+            headers
+                .try_append(name, encoded)
+                .map_err(|_| MetadataError::TooMany {
+                    entries: self.entries.len(),
+                })?;
         }
         Ok(())
     }
@@ -225,6 +241,8 @@ pub enum MetadataError {
     InvalidValue { key: String },
     /// A `-bin` key carries an ASCII value, or a plain key carries bytes.
     BinaryMismatch { key: String },
+    /// More entries than a header map will hold.
+    TooMany { entries: usize },
 }
 
 impl std::fmt::Display for MetadataError {
@@ -247,6 +265,9 @@ impl std::fmt::Display for MetadataError {
                 "`{key}` and its value disagree on being binary; the `-bin` suffix is what \
                  decides it"
             ),
+            Self::TooMany { entries } => {
+                write!(f, "{entries} entries is more than a header map will hold")
+            }
         }
     }
 }
@@ -341,6 +362,24 @@ mod tests {
         assert!(metadata.append_ascii("k", "line\r\nbreak").is_err());
         assert!(metadata.append_ascii("k", "tab\there").is_err());
         assert!(metadata.append_ascii("k", "space and ~tilde").is_ok());
+    }
+
+    #[test]
+    fn more_entries_than_a_header_map_holds_is_an_error_and_not_a_panic() {
+        // `HeaderMap` panics rather than growing past its ceiling, and this count is a caller's
+        // to choose.
+        let mut metadata = Metadata::new();
+        for index in 0..40_000 {
+            metadata
+                .append_ascii(&format!("x-{index}"), "v")
+                .expect("a plain entry");
+        }
+
+        let mut headers = HeaderMap::new();
+        assert!(matches!(
+            metadata.reserve_in(&mut headers),
+            Err(MetadataError::TooMany { .. })
+        ));
     }
 
     #[test]
