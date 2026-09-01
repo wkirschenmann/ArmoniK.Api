@@ -252,14 +252,14 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
 
     // Giving the buffer back unused frees its slot, which is the other exit the ABI names.
     // SAFETY: `first` is the buffer just lent and has not been given back.
-    unsafe { ak_return_call_buffer(call, first) };
+    unsafe { ak_return_call_buffer(first) };
     // SAFETY: the out pointer is live for the call.
     assert_eq!(
         unsafe { ak_get_call_buffer(call, 4, &mut second) },
         ak_status::AK_STATUS_OK
     );
     // SAFETY: `second` is the buffer just lent.
-    unsafe { ak_return_call_buffer(call, second) };
+    unsafe { ak_return_call_buffer(second) };
 
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
@@ -310,7 +310,7 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
 
     // Giving it back is what frees the bytes, which only a fall in the total proves.
     // SAFETY: `buffer` is the one just lent and has not been given back.
-    unsafe { ak_return_call_buffer(call, buffer) };
+    unsafe { ak_return_call_buffer(buffer) };
     // SAFETY: the out pointer is live for the call.
     unsafe { ak_runtime_memory_usage(host.runtime, &mut usage) };
     assert_eq!(usage.bytes_used, 0);

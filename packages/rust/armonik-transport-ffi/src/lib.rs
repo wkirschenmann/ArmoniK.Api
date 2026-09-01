@@ -27,7 +27,6 @@ use std::sync::Arc;
 use armonik_transport::grpc::{CallStartOptions, GrpcChannel, TokioExecutor};
 
 pub use abi::*;
-use call::Payload;
 use host::{Host, HostPtr};
 use runtime::{AkChannel, AkRuntime};
 
@@ -288,25 +287,45 @@ pub unsafe extern "C" fn ak_get_call_buffer(
 #[no_mangle]
 pub unsafe extern "C" fn ak_call_send_message(call: ak_handle, buffer: ak_buffer) -> ak_status {
     guard(|| {
-        let Some(found) = tables::calls().get(call) else {
+        // SAFETY: forwarded from this function's own contract.
+        let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
+            return ak_status::AK_STATUS_INVALID_ARG;
+        };
+        let (Some(owner), Some(found)) = (lent.call(), tables::calls().get(call)) else {
+            // Nothing is committed and nothing is freed: the buffer goes back to the host, which
+            // still has `ak_return_call_buffer` as its exit.
+            let _ = Box::into_raw(lent);
             return ak_status::AK_STATUS_HANDLE_STALE;
         };
-        // SAFETY: forwarded from this function's own contract.
-        unsafe { found.commit(buffer) }
+        // A buffer determines its call, so a pair that disagrees is a host bug rather than a
+        // reason to move some other call's counters.
+        if !Arc::ptr_eq(&owner, &found) {
+            let _ = Box::into_raw(lent);
+            return ak_status::AK_STATUS_INVALID_ARG;
+        }
+        found.commit(lent)
     })
 }
 
 /// Gives a lent buffer back unused. Legal on a cancelled or terminal call.
 ///
+/// Takes no call handle: a buffer determines its call, so there is no pair that can disagree and
+/// no window in which the handle has gone stale and the memory has nowhere to go.
+///
 /// # Safety
 ///
-/// `buffer` must be one this call lent and the host has not given back.
+/// `buffer` must be one this library lent and the host has not given back.
 #[no_mangle]
-pub unsafe extern "C" fn ak_return_call_buffer(call: ak_handle, buffer: ak_buffer) {
+pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
-        if let Some(found) = tables::calls().get(call) {
-            // SAFETY: forwarded from this function's own contract.
-            unsafe { found.give_back(buffer) }
+        // SAFETY: forwarded from this function's own contract.
+        let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
+            return;
+        };
+        match lent.call() {
+            Some(call) => call.give_back(lent),
+            // The call is gone, so there are no counters left to move; the bytes still go.
+            None => drop(lent),
         }
     }));
 }
@@ -397,6 +416,6 @@ pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
         // SAFETY: forwarded from this function's own contract. Dropping is what returns the
         // delivery credit, clears the call's debt and frees the bytes, so no path here can do
         // half of it.
-        drop(unsafe { Box::from_raw(payload.owner as *mut Payload) });
+        drop(unsafe { call::take_payload(payload.owner) });
     }));
 }

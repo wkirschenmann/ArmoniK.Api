@@ -263,8 +263,11 @@ ak_status ak_get_call_buffer(ak_handle call, size_t len, ak_buffer *out);
 ak_status ak_call_send_message(ak_handle call, ak_buffer buffer);
 
 /* Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only exit for
- * a buffer whose send is refused, and the call is not reclaimed until it happens. */
-void ak_return_call_buffer(ak_handle call, ak_buffer buffer);
+ * a buffer whose send is refused, and the call is not reclaimed until it happens.
+ *
+ * Takes no call handle: the buffer determines its call. A refused ak_call_send_message therefore
+ * leaves the buffer with the host, exactly as it was lent. */
+void ak_return_call_buffer(ak_buffer buffer);
 
 /* Signals end of sending. No ak_call_send_message after this. */
 ak_status ak_call_end_send(ak_handle call);

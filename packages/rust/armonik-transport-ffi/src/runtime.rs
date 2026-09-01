@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use armonik_transport::grpc::GrpcChannel;
-use tokio::sync::Notify;
+use tokio::sync::watch;
 
 use crate::abi::{
     ak_event_kind, ak_handle, ak_host_debt, ak_memory_usage, ak_runtime_state, ak_status,
@@ -24,7 +24,10 @@ pub(crate) struct Ledger {
     /// Lent buffers only: what the ceiling bounds.
     bytes: AtomicU64,
     ceiling: u64,
-    changed: Notify,
+    /// Bumped on every release. A version and not a `Notify`: a waiter that checks its condition
+    /// before creating the future misses a `notify_waiters` landing in between, and here that
+    /// costs the runtime its quiescence forever.
+    changed: watch::Sender<u64>,
 }
 
 impl Ledger {
@@ -33,7 +36,7 @@ impl Ledger {
             outstanding: AtomicU64::new(0),
             bytes: AtomicU64::new(0),
             ceiling,
-            changed: Notify::new(),
+            changed: watch::channel(0).0,
         }
     }
 
@@ -50,7 +53,7 @@ impl Ledger {
 
     pub(crate) fn release(&self) {
         self.outstanding.fetch_sub(1, Ordering::AcqRel);
-        self.changed.notify_waiters();
+        self.changed.send_modify(|version| *version += 1);
     }
 
     /// Whether a request of `len` could ever fit. A refusal here is permanent: no return by
@@ -103,8 +106,11 @@ impl Ledger {
     }
 
     async fn drained(&self) {
+        let mut changed = self.changed.subscribe();
         while !self.empty() {
-            self.changed.notified().await;
+            if changed.changed().await.is_err() {
+                return;
+            }
         }
     }
 }
