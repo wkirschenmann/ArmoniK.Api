@@ -183,11 +183,25 @@ pub unsafe extern "C" fn ak_channel_create(
     })
 }
 
-/// Frees the channel. Calls under way are cancelled.
+/// Frees the channel, cancelling its calls first.
+///
+/// The cancellation is not a courtesy: a channel is closing from this moment and the model
+/// admits no closing channel with an active call, so the latch is what makes the drain the
+/// runtime's own business rather than something the host must provoke. A call parked on a
+/// delivery credit is the case that needs it - it is not watching the transport, so closing
+/// the session alone would never reach it.
 #[no_mangle]
 pub extern "C" fn ak_channel_release(channel: ak_handle) {
     let _ = catch_unwind(|| {
         if let Some(found) = tables::channels().remove(channel) {
+            // Latched before the session goes, and in this order: a call that notices the
+            // closed transport takes the same exit, but one parked on a credit only ever
+            // notices its own cancellation.
+            for call in tables::calls().values() {
+                if call.belongs_to_channel(channel) {
+                    call.cancel();
+                }
+            }
             found.grpc.close();
         }
     });
@@ -246,6 +260,7 @@ pub unsafe extern "C" fn ak_call_start(
         let (state, commands) = call::create(
             HostPtr(call_ctx),
             handle,
+            channel,
             &runtime,
             control,
             found.max_sends_in_flight,

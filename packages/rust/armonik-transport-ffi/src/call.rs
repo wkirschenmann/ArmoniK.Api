@@ -95,6 +95,8 @@ pub(crate) struct CallState {
     ended_sending: AtomicBool,
     runtime: Weak<AkRuntime>,
     handle: ak_handle,
+    /// Which channel started it. A channel closing cancels its own calls and no others.
+    channel: ak_handle,
 }
 
 impl CallState {
@@ -113,6 +115,10 @@ impl CallState {
 
     pub(crate) fn handle(&self) -> ak_handle {
         self.handle
+    }
+
+    pub(crate) fn belongs_to_channel(&self, channel: ak_handle) -> bool {
+        self.channel == channel
     }
 
     /// Asks the call to stop. The request takes effect when the actor observes it, which is why
@@ -370,6 +376,7 @@ fn lend_payload(call: &Arc<CallState>, data: Vec<u8>, returns_credit: bool) -> a
 pub(crate) fn create(
     ctx: HostPtr,
     handle: ak_handle,
+    channel: ak_handle,
     runtime: &Arc<AkRuntime>,
     control: CallControl,
     max_sends_in_flight: u32,
@@ -396,6 +403,7 @@ pub(crate) fn create(
         over: watch::channel(false).0,
         ended_sending: AtomicBool::new(false),
         runtime: Arc::downgrade(runtime),
+        channel,
         handle,
     });
     (state, rx)

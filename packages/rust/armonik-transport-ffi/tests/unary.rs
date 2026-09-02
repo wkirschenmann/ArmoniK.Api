@@ -191,6 +191,46 @@ fn a_second_runtime_is_refused_while_the_first_is_alive() {
     );
 }
 
+#[test]
+fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel(&server.endpoint);
+
+    // The payload stays with the host, so the call's only credit stays spent and its reader
+    // parks waiting for one. A reader in that state is not watching the transport, so closing
+    // the session cannot be what reaches it.
+    host.recorder.hold_payloads();
+    let call = start_call(channel, ECHO, &blob(&[]));
+    send_one(call, b"hello");
+    host.recorder.await_metadata();
+
+    ak_channel_release(channel);
+
+    // The cancellation the release latches is what gets the terminal out. Waiting for it is the
+    // assertion: a reader parked on a credit watches nothing but its own cancellation, so
+    // without the latch this would never arrive. The code it carries is whatever the wire had
+    // already settled - here the server's own answer, which raced ahead of the release.
+    let seen = host.recorder.await_terminal();
+    assert!(seen.status_code().is_some());
+
+    // And it arrived without the host giving anything back, which is the point.
+    let mut debt = ak_call_debt {
+        payloads_owed: 0,
+        buffers_lent: 0,
+        callbacks_in_flight: 0,
+        terminal_delivered: 0,
+    };
+    assert_eq!(
+        unsafe { ak_call_debt_of(call, &mut debt) },
+        ak_status::AK_STATUS_OK
+    );
+    assert!(debt.payloads_owed > 0, "{debt:?}");
+
+    host.recorder.consume_all();
+    host.stop();
+}
+
 /// One unary call: lend a buffer, fill it, commit, half-close.
 fn send_one(call: ak_handle, message: &[u8]) {
     let (status, buffer) = lend(call, message.len());
