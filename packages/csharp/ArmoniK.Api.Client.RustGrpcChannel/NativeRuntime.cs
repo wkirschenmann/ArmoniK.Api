@@ -1,13 +1,13 @@
 // This file is part of the ArmoniK project
-// 
+//
 // Copyright (C) ANEO, 2021-2026. All rights reserved.
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,24 +16,25 @@
 
 using System;
 using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 /// <summary>
-///   The native runtime, and the trampoline every event of it arrives on.
+///   One generation of the native runtime, and the trampoline every event of it arrives on.
 /// </summary>
 /// <remarks>
-///   One per process is enough: the runtime owns its threads and every channel leases it.
+///   Materialized and retired by <see cref="NativeRuntimeFactory" />, which is what holds the
+///   leases. The teardown steps are separate because the model separates them, and because the
+///   root may only be released once <c>ak_runtime_destroy</c> has returned.
 /// </remarks>
-public sealed class NativeRuntime : IDisposable
+internal sealed class NativeRuntime
 {
-  /// <summary>How long <see cref="Dispose" /> gives the runtime to stop before giving up on it.</summary>
+  /// <summary>How long the teardown gives the runtime to stop before giving up on it.</summary>
   private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(30);
 
   /// <summary>
-  ///   Rooted for the runtime's lifetime. A delegate marshalled to a function pointer is not kept
+  ///   Rooted for the library's lifetime. A delegate marshalled to a function pointer is not kept
   ///   alive by the native side holding that pointer, so letting this be collected would leave the
   ///   library calling into a freed thunk.
   /// </summary>
@@ -44,7 +45,6 @@ public sealed class NativeRuntime : IDisposable
 
   private GCHandle self_;
   private readonly ulong handle_;
-  private int disposed_;
 
   private NativeRuntime(uint workerThreads,
                         ulong memoryCeiling)
@@ -69,11 +69,16 @@ public sealed class NativeRuntime : IDisposable
     }
   }
 
-  /// <summary>Starts a runtime, after checking the library speaks the ABI this was built against.</summary>
-  /// <param name="workerThreads">Zero leaves the choice to the runtime.</param>
-  /// <param name="memoryCeiling">Bytes lent buffers may occupy at once. Zero is no ceiling.</param>
-  public static NativeRuntime Start(uint workerThreads = 0,
-                                    ulong memoryCeiling = 0)
+  internal ulong Handle
+    => handle_;
+
+  /// <summary>What ABI the loaded library speaks. Diagnostic: <see cref="Create" /> refuses a mismatch.</summary>
+  public static int LibraryAbiVersion
+    => NativeMethods.ak_abi_version();
+
+  /// <summary>Creates a generation, after checking the library speaks the ABI this was built against.</summary>
+  internal static NativeRuntime Create(uint workerThreads,
+                                       ulong memoryCeiling)
   {
     var found = NativeMethods.ak_abi_version();
     if (found != NativeMethods.AbiVersion)
@@ -85,31 +90,57 @@ public sealed class NativeRuntime : IDisposable
                              memoryCeiling);
   }
 
-  /// <summary>What ABI the loaded library speaks. Diagnostic: <see cref="Start" /> refuses a mismatch.</summary>
-  public static int LibraryAbiVersion
-    => NativeMethods.ak_abi_version();
-
-  /// <summary>Opens a channel on this runtime.</summary>
-  /// <param name="endpoint">Where to dial, as a plain HTTP/2 URI.</param>
-  /// <param name="deliveryCredits">
-  ///   How many payloads of one call of this channel may be outstanding at once. The host is
-  ///   what holds them, so the host is what chooses; each call sizes its queue from it.
-  /// </param>
-  public NativeChannel Channel(string endpoint,
-                               int deliveryCredits = 1)
-    => deliveryCredits < 1
-         ? throw new ArgumentOutOfRangeException(nameof(deliveryCredits),
-                                                 "a window of zero admits no delivery at all")
-         : new NativeChannel(handle_,
-                             endpoint,
-                             deliveryCredits);
-
-  /// <summary>What the runtime currently holds against its ceiling.</summary>
-  public (ulong Used, ulong Ceiling) MemoryUsage()
+  /// <summary>What this generation currently holds against its ceiling.</summary>
+  internal (ulong Used, ulong Ceiling) MemoryUsage()
     => NativeMethods.ak_runtime_memory_usage(handle_,
                                              out var usage) == NativeMethods.AkStatus.Ok
          ? (usage.BytesUsed, usage.Ceiling)
          : (0UL, 0UL);
+
+  internal void BeginShutdown()
+    => NativeMethods.ak_runtime_begin_shutdown(handle_);
+
+  /// <summary>
+  ///   Waits for the runtime to say it has stopped and owes nothing.
+  /// </summary>
+  /// <remarks>
+  ///   Quiescence is reached by giving everything back, not by waiting for it, and each call's
+  ///   drain is what does that. This waits only for the runtime's own word on it.
+  /// </remarks>
+  internal async Task ReleasedAsync()
+  {
+    var answered = await Task.WhenAny(released_.Task,
+                                      Task.Delay(ShutdownTimeout))
+                             .ConfigureAwait(false);
+    if (answered != released_.Task)
+    {
+      throw new InvalidOperationException($"the runtime did not quiesce within {ShutdownTimeout} ({NativeMethods.ak_runtime_status(handle_)})");
+    }
+
+    await released_.Task.ConfigureAwait(false);
+  }
+
+  /// <exception cref="InvalidOperationException">
+  ///   Destroying is permitted only from quiescence, so a refusal leaves the threads up. Raised
+  ///   rather than swallowed: nothing else would ever report it.
+  /// </exception>
+  internal void Destroy()
+  {
+    var status = NativeMethods.ak_runtime_destroy(handle_);
+    if (status != NativeMethods.AkStatus.Ok)
+    {
+      throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");
+    }
+  }
+
+  /// <summary>Releases the root. Legal only once <see cref="Destroy" /> has returned.</summary>
+  internal void FreeRoot()
+  {
+    if (self_.IsAllocated)
+    {
+      self_.Free();
+    }
+  }
 
   private static unsafe void OnEvent(IntPtr runtimeCtx,
                                      IntPtr callCtx,
@@ -163,37 +194,5 @@ public sealed class NativeRuntime : IDisposable
     {
       released_.TrySetResult(true);
     }
-  }
-
-  /// <inheritdoc />
-  /// <exception cref="InvalidOperationException">
-  ///   The runtime did not reach quiescence, so destroying it is not permitted and its threads
-  ///   stay up. Raised rather than swallowed: nothing else would ever report it.
-  /// </exception>
-  public void Dispose()
-  {
-    if (Interlocked.Exchange(ref disposed_,
-                             1) != 0)
-    {
-      return;
-    }
-
-    NativeMethods.ak_runtime_begin_shutdown(handle_);
-
-    // Quiescence is reached by giving everything back, not by waiting for it, and the drain of
-    // each call is what does that. The wait here is only for the runtime to say it is done.
-    if (!released_.Task.Wait(ShutdownTimeout))
-    {
-      throw new InvalidOperationException($"the runtime did not quiesce within {ShutdownTimeout} ({NativeMethods.ak_runtime_status(handle_)})");
-    }
-
-    var status = NativeMethods.ak_runtime_destroy(handle_);
-    if (status != NativeMethods.AkStatus.Ok)
-    {
-      throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");
-    }
-
-    // Only now: until destroy returns, a callback can still be in flight carrying this root.
-    self_.Free();
   }
 }

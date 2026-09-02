@@ -44,7 +44,6 @@ public class UnaryTests
 {
   private WebApplication? server_;
   private string endpoint_ = string.Empty;
-  private NativeRuntime? runtime_;
 
   [OneTimeSetUp]
   public async Task StartServer()
@@ -65,13 +64,27 @@ public class UnaryTests
     endpoint_ = server_.Urls.GetEnumerator() is var urls && urls.MoveNext()
                   ? urls.Current
                   : throw new InvalidOperationException("the test server bound no address");
-    runtime_ = NativeRuntime.Start(workerThreads: 2);
+    NativeRuntimeFactory.Configure(workerThreads: 2);
+  }
+
+  /// <summary>
+  ///   Checked after every test, because a leaked lease would otherwise surface as a hang in
+  ///   some later one: the generation is torn down by the release that empties the set, so a
+  ///   test that disposed its channels leaves the factory with nothing.
+  /// </summary>
+  [TearDown]
+  public void EveryLeaseWentBack()
+  {
+    Assert.That(NativeRuntimeFactory.State,
+                Is.EqualTo("Absent"),
+                "the test left no lease behind");
+    // The options are the generation's, so a test that set its own does not leave them here.
+    NativeRuntimeFactory.Configure(workerThreads: 2);
   }
 
   [OneTimeTearDown]
   public async Task StopServer()
   {
-    runtime_?.Dispose();
     if (server_ is not null)
     {
       await server_.StopAsync()
@@ -85,11 +98,11 @@ public class UnaryTests
     => new(channel.CreateCallInvoker());
 
   private NativeChannel Channel()
-    => runtime_!.Channel(endpoint_);
+    => NativeRuntimeFactory.Channel(endpoint_);
 
   [Test]
   public void TheAbiVersionIsTheOneThisBindingSpeaks()
-    => Assert.That(NativeRuntime.LibraryAbiVersion,
+    => Assert.That(NativeRuntimeFactory.LibraryAbiVersion,
                    Is.EqualTo(1),
                    "the loaded library speaks the ABI this binding was written against");
 
@@ -284,9 +297,16 @@ public class UnaryTests
   {
     var text = new string('x',
                           100_000);
-    using var runtime = NativeRuntime.Start(workerThreads: 2,
-                                            memoryCeiling: 128 * 1024);
-    using var channel = runtime.Channel(endpoint_);
+
+    // The ceiling belongs to the generation, and there is one generation for the process, so
+    // this test owns the factory for its duration - which is also the only moment its options
+    // may be set.
+    Assert.That(NativeRuntimeFactory.State,
+                Is.EqualTo("Absent"),
+                "no other channel is open");
+    NativeRuntimeFactory.Configure(workerThreads: 2,
+                                   memoryCeiling: 128 * 1024);
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
     var client = Client(channel);
 
     // Issued from the pool and not from here: a send holds its buffer only between the lend and
@@ -324,8 +344,8 @@ public class UnaryTests
   [Test]
   public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
   {
-    using var channel = runtime_!.Channel(endpoint_,
-                                          deliveryCredits: 4);
+    using var channel = NativeRuntimeFactory.Channel(endpoint_,
+                                                    deliveryCredits: 4);
 
     var reply = await Client(channel)
                       .SayAsync(new EchoRequest
@@ -340,8 +360,35 @@ public class UnaryTests
 
   [Test]
   public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()
-    => Assert.Throws<ArgumentOutOfRangeException>(() => runtime_!.Channel(endpoint_,
-                                                                         deliveryCredits: 0));
+    => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
+                                                                                     deliveryCredits: 0));
+
+  /// <summary>
+  ///   A channel is the unit of borrowing: the runtime outlives every lease and is torn down by
+  ///   the release that empties the set, whose task completes only once the destroy is done.
+  /// </summary>
+  [Test]
+  public async Task TheLastChannelReleasedIsTheOneThatTearsTheRuntimeDown()
+  {
+    var first = NativeRuntimeFactory.Channel(endpoint_);
+    var second = NativeRuntimeFactory.Channel(endpoint_);
+
+    Assert.That(NativeRuntimeFactory.State,
+                Is.EqualTo("Active"),
+                "one generation, two leases");
+
+    await first.DisposeAsync()
+               .ConfigureAwait(false);
+    Assert.That(NativeRuntimeFactory.State,
+                Is.EqualTo("Active"),
+                "a lease is still out, so nothing may shut down");
+
+    await second.DisposeAsync()
+                .ConfigureAwait(false);
+    Assert.That(NativeRuntimeFactory.State,
+                Is.EqualTo("Absent"),
+                "the last release awaited the destroy before its task completed");
+  }
 
   [Test]
   public void AChannelThatIsReleasedTakesNoNewCall()

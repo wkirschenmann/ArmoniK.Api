@@ -31,18 +31,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// </remarks>
 public sealed class NativeCallInvoker : CallInvoker
 {
-  private readonly ulong runtime_;
-  private readonly ulong channel_;
-  private readonly int deliveryCredits_;
+  private readonly NativeChannel channel_;
 
-  internal NativeCallInvoker(ulong runtime,
-                             ulong channel,
-                             int deliveryCredits)
-  {
-    runtime_         = runtime;
-    channel_         = channel;
-    deliveryCredits_ = deliveryCredits;
-  }
+  internal NativeCallInvoker(NativeChannel channel)
+    => channel_ = channel;
 
   /// <inheritdoc />
   public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
@@ -64,18 +56,24 @@ public sealed class NativeCallInvoker : CallInvoker
                                                                                 CallOptions options,
                                                                                 TRequest request)
   {
-    var call = NativeCall<TResponse>.Start(runtime_,
-                                           channel_,
-                                           deliveryCredits_,
+    var call = NativeCall<TResponse>.Start(channel_.Runtime,
+                                           channel_.Handle,
+                                           channel_.DeliveryCredits,
                                            method.FullName,
                                            options.Headers,
                                            method.ResponseMarshaller);
     call.CancelWith(options.CancellationToken);
 
-    return new AsyncUnaryCall<TResponse>(AnswerAsync(call,
-                                                     method.RequestMarshaller,
-                                                     request,
-                                                     options.CancellationToken),
+    var answered = AnswerAsync(call,
+                               method.RequestMarshaller,
+                               request,
+                               options.CancellationToken);
+    // The channel owns settling its own calls before it releases its native half, so it has to
+    // know which are still in flight.
+    channel_.Track(call,
+                   answered);
+
+    return new AsyncUnaryCall<TResponse>(answered,
                                          call.ResponseHeadersAsync,
                                          () => Ended(call)
                                            .Status,
