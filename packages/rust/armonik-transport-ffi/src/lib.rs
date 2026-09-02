@@ -22,6 +22,7 @@ mod tables;
 
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use armonik_transport::grpc::{CallStartOptions, GrpcChannel, TokioExecutor};
@@ -57,12 +58,25 @@ pub unsafe extern "C" fn ak_runtime_create(
             return ak_status::AK_STATUS_INVALID_ARG;
         }
 
+        // One generation at a time, which is what the model assumes (L0!SingleRuntime) and what
+        // every promise attached to "the runtime" is stated about. A second one is refused
+        // rather than admitted into a state space nothing was proved over.
+        if RUNTIME_LIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        }
+
         match AkRuntime::new(
             config.worker_threads,
             config.memory_ceiling,
             Host::new(callback, runtime_ctx),
         ) {
-            Err(status) => status,
+            Err(status) => {
+                RUNTIME_LIVE.store(false, Ordering::Release);
+                status
+            }
             Ok(runtime) => {
                 let handle = tables::runtimes().reserve();
                 tables::runtimes().publish(handle, runtime);
@@ -72,6 +86,9 @@ pub unsafe extern "C" fn ak_runtime_create(
         }
     })
 }
+
+/// Whether a runtime exists. Cleared by a successful destroy, so a fresh generation may follow.
+static RUNTIME_LIVE: AtomicBool = AtomicBool::new(false);
 
 /// What the runtime is doing. This, and no callback, is what permits destroying it.
 #[no_mangle]
@@ -111,6 +128,7 @@ pub extern "C" fn ak_runtime_destroy(runtime: ak_handle) -> ak_status {
         found.stale_own_handles();
         found.release_threads();
         tables::runtimes().remove(runtime);
+        RUNTIME_LIVE.store(false, Ordering::Release);
         ak_status::AK_STATUS_OK
     })
 }

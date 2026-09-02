@@ -141,7 +141,15 @@ typedef struct {
  * Data callbacks (INITIAL_METADATA, MESSAGE, STATUS) are serialized per call and concurrent
  * between calls. WRITE_DONE may arrive in parallel with any of them, including for the same call:
  * a per-call lock in the handler would hold the slot release hostage behind a slow message
- * handler. */
+ * handler.
+ *
+ * A callback runs on one of this library's own worker threads, and every promise made here about
+ * progress - a send reaching the wire, an acquittal, a call being reclaimed, a shutdown
+ * completing - is made on those threads. So the callback must publish and return: record the
+ * event where the host's own thread will find it, hand the payload on, and end. It must not
+ * parse, allocate what it could have allocated earlier, take a lock the host's own code holds,
+ * or run application code. A host that blocks here does not slow itself down; it stops the
+ * library, and the guarantees above stop with it. */
 typedef void (*ak_callback)(void *runtime_ctx, void *call_ctx, const ak_event *event);
 
 /* === Options ===

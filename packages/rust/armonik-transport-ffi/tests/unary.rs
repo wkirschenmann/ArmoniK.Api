@@ -6,6 +6,8 @@
 
 mod support;
 
+use std::sync::{Mutex, MutexGuard};
+
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
@@ -13,9 +15,14 @@ use armonik_transport_ffi::*;
 use support::{blob, empty_buffer, Recorder, TestServer, ECHO, FAIL, SLOW};
 
 /// Drives the ABI the way a binding would, and cleans up after itself.
+/// One runtime per process, so the tests take turns at it rather than at a runner flag.
+static ONE_RUNTIME: Mutex<()> = Mutex::new(());
+
 struct Host {
     runtime: ak_handle,
     recorder: Box<Recorder>,
+    /// Held until the runtime is destroyed, which `Drop` does before releasing it.
+    _turn: MutexGuard<'static, ()>,
 }
 
 impl Host {
@@ -24,6 +31,9 @@ impl Host {
     }
 
     fn with_ceiling(memory_ceiling: u64) -> Self {
+        // A panicking test poisons nothing worth keeping: the runtime it held is destroyed by
+        // its own Drop, so the next test may take its turn.
+        let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
         let mut recorder = Box::new(Recorder::default());
         let config = ak_runtime_config {
             struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
@@ -48,7 +58,11 @@ impl Host {
             ak_runtime_state::AK_RUNTIME_RUNNING
         );
 
-        Self { runtime, recorder }
+        Self {
+            runtime,
+            recorder,
+            _turn: turn,
+        }
     }
 
     fn channel(&self, endpoint: &str) -> ak_handle {
@@ -140,6 +154,41 @@ fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
 
     ak_channel_release(channel);
     host.stop();
+}
+
+#[test]
+fn a_second_runtime_is_refused_while_the_first_is_alive() {
+    let host = Host::start();
+
+    let config = ak_runtime_config {
+        struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
+        worker_threads: 1,
+        memory_ceiling: 0,
+    };
+    let mut second = AK_HANDLE_NONE;
+
+    // SAFETY: the config and the out pointer are live for the call, and no callback can run
+    // for a runtime that is never created.
+    let status = unsafe {
+        ak_runtime_create(
+            &config,
+            Some(support::on_event),
+            std::ptr::null_mut(),
+            &mut second,
+        )
+    };
+
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(second, AK_HANDLE_NONE, "a refusal leaves *out as it was");
+
+    drop(host);
+
+    // The flag is cleared by the destroy, so a fresh generation may follow.
+    let next = Host::start();
+    assert_eq!(
+        ak_runtime_status(next.runtime),
+        ak_runtime_state::AK_RUNTIME_RUNNING
+    );
 }
 
 /// One unary call: lend a buffer, fill it, commit, half-close.

@@ -170,10 +170,19 @@ impl CallState {
         })
     }
 
-    /// Accounts for a buffer coming back, whichever way it comes.
+    /// Accounts for a buffer coming back unused, bytes and all.
     fn took_back(&self, len: usize) {
         self.debt.buffers.fetch_sub(1, Ordering::AcqRel);
         self.ledger.release_bytes(len);
+        self.moved_on();
+    }
+
+    /// Accounts for a buffer the host committed: it holds it no longer, but the bytes are still
+    /// occupied - they moved from the host to this library, and only the send's acquittal ends
+    /// them. A ceiling that fell here would be bounding what the host holds rather than what is
+    /// outstanding.
+    fn handed_over(&self) {
+        self.debt.buffers.fetch_sub(1, Ordering::AcqRel);
         self.moved_on();
     }
 
@@ -194,7 +203,7 @@ impl CallState {
             let _ = Box::into_raw(lent);
             return ak_status::AK_STATUS_INVALID_STATE;
         };
-        self.took_back(lent.data.len());
+        self.handed_over();
         slot.send(Command::Send(Bytes::from(lent.data)));
         ak_status::AK_STATUS_OK
     }
@@ -438,12 +447,15 @@ async fn writer(
         let Some(command) = command else { break };
         match command {
             Command::Send(bytes) => {
+                let charged = bytes.len();
                 if let Some(half) = send.as_mut() {
                     let _ = half.send_message(bytes).await;
                 }
-                // The slot goes back on emission and not on the callback's return, so a host
-                // woken by WRITE_DONE may ask for a buffer from inside the callback.
+                // The slot and the bytes both go back on emission and not on the callback's
+                // return, so a host woken by WRITE_DONE may ask for a buffer from inside the
+                // callback and find the room its acquittal just freed.
                 state.window.release();
+                state.ledger.release_bytes(charged);
                 state.in_callback(|| {
                     state
                         .host
