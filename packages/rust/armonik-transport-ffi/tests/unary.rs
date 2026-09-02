@@ -112,6 +112,36 @@ fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     (status, buffer)
 }
 
+#[test]
+fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel(&server.endpoint);
+    let call = start_call(channel, ECHO, &blob(&[]));
+
+    let (first, buffer) = lend(call, 8);
+    assert_eq!(first, ak_status::AK_STATUS_OK);
+
+    // Not SLOT_BUSY: backpressure is for a full window, and a host still filling a buffer has
+    // nothing to wait for. It is refused as a state error, and SLOT_BUSY's wake-up promise is
+    // only true because a host eligible to ask holds nothing.
+    let (second, _) = lend(call, 8);
+    assert_eq!(second, ak_status::AK_STATUS_INVALID_STATE);
+
+    unsafe { ak_return_call_buffer(buffer) };
+
+    // Given back, so the next ask is legal again.
+    let (third, third_buffer) = lend(call, 8);
+    assert_eq!(third, ak_status::AK_STATUS_OK);
+    unsafe { ak_return_call_buffer(third_buffer) };
+
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    host.recorder.await_terminal();
+
+    ak_channel_release(channel);
+    host.stop();
+}
+
 /// One unary call: lend a buffer, fill it, commit, half-close.
 fn send_one(call: ak_handle, message: &[u8]) {
     let (status, buffer) = lend(call, message.len());
@@ -230,13 +260,17 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     let (status, first) = lend(call, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
 
-    // A window of one, and one buffer out: backpressure, not an error.
-    assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_SLOT_BUSY);
+    // Still holding it: a host bug and not backpressure, since no acquittal is coming for a
+    // buffer that was never committed. The two refusals answer different questions.
+    assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_INVALID_STATE);
 
     assert_eq!(
         unsafe { ak_call_send_message(call, first) },
         ak_status::AK_STATUS_OK
     );
+
+    // Nothing held now, and the window occupied by an unacquitted send: that is backpressure.
+    assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_SLOT_BUSY);
 
     // What frees the slot is the acquittal, and nothing else: the server never answers, so
     // no terminal can be what unblocks this.

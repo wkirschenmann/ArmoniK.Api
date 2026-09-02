@@ -137,6 +137,13 @@ impl CallState {
         if !self.live() || self.cancelled.load(Ordering::Acquire) {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
+        // One unfilled buffer at a time, whatever the window's depth: a host eligible to ask
+        // holds nothing, which is what makes the window in-flight sends only and SLOT_BUSY's
+        // wake-up its next WRITE_DONE. The depth buys pipelining of committed sends, not of
+        // buffers being filled.
+        if self.debt.buffers.load(Ordering::Acquire) > 0 {
+            return Err(ak_status::AK_STATUS_INVALID_STATE);
+        }
         // Permanent before transient: a request past the ceiling itself will never fit, and
         // saying so before the window is what stops a host retrying forever.
         self.ledger.could_ever_fit(len)?;

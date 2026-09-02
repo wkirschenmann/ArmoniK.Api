@@ -254,9 +254,11 @@ ak_status ak_call_start(ak_handle channel,
 /* Lends a buffer out of the call's arena to serialize into. The exact length is known before the
  * first byte is written, so no growable writer is needed.
  *
- * At most one buffer at a time by default, counting both those the host is filling and those
- * committed and awaiting their WRITE_DONE; beyond that the refusal is AK_STATUS_SLOT_BUSY, whose
- * wake-up is this call's next WRITE_DONE. AK_STATUS_BUDGET_BUSY is the runtime-wide ceiling, and
+ * One unfilled buffer at a time, whatever max_sends_in_flight says: asking for a second while
+ * still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
+ * counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
+ * the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
+ * is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the runtime-wide ceiling, and
  * has no single event announcing room: poll ak_runtime_memory_usage. AK_STATUS_MESSAGE_TOO_LARGE
  * is permanent. On every refusal no buffer is lent and *out is untouched. */
 ak_status ak_get_call_buffer(ak_handle call, size_t len, ak_buffer *out);
