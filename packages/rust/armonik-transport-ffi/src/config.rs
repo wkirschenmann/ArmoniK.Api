@@ -23,6 +23,8 @@ pub(crate) struct ChannelSettings {
     max_recv_message_size: Option<usize>,
     #[serde(default)]
     delivery_credits: Option<usize>,
+    #[serde(default)]
+    max_sends_in_flight: Option<u32>,
 }
 
 impl ChannelSettings {
@@ -32,7 +34,15 @@ impl ChannelSettings {
         self.delivery_credits.unwrap_or(crate::call::DELIVERY_CREDITS)
     }
 
+    /// The send window's mirror of `delivery_credits`: how many buffers a call of this channel
+    /// may have out at once, counting those being filled and those awaiting their WRITE_DONE.
+    pub(crate) fn max_sends_in_flight(&self) -> u32 {
+        self.max_sends_in_flight.unwrap_or(MAX_SENDS_IN_FLIGHT)
+    }
+
     pub(crate) fn into_channel_config(self) -> GrpcChannelConfig {
+        // Read before the endpoint moves out of `self`.
+        let sends = self.max_sends_in_flight();
         let mut transport = TransportConfig::new(
             self.endpoint
                 .parse::<Uri>()
@@ -44,7 +54,7 @@ impl ChannelSettings {
 
         let mut config = GrpcChannelConfig::new(transport);
         config.user_agent = self.user_agent;
-        config.max_sends_in_flight = MAX_SENDS_IN_FLIGHT as usize;
+        config.max_sends_in_flight = sends as usize;
         if let Some(max) = self.max_recv_message_size {
             config.max_recv_message_size = max;
         }
@@ -57,8 +67,9 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
     let settings: ChannelSettings = serde_json::from_slice(json).ok()?;
     // Parsed here so `into_channel_config` cannot be reached with an endpoint that is not a URI.
     settings.endpoint.parse::<Uri>().ok()?;
-    // A window of zero admits no delivery at all, so it is a refusal and not a default.
-    if settings.delivery_credits == Some(0) {
+    // A window of zero admits nothing at all, in either direction, so it is a refusal and not
+    // a default.
+    if settings.delivery_credits == Some(0) || settings.max_sends_in_flight == Some(0) {
         return None;
     }
     Some(settings)
@@ -107,6 +118,24 @@ mod tests {
             4
         );
         assert!(parse(br#"{"endpoint":"http://h:1","delivery_credits":0}"#).is_none());
+    }
+
+    #[test]
+    fn the_send_window_is_the_mirror_of_the_delivery_one() {
+        assert_eq!(
+            parse(br#"{"endpoint":"http://h:1"}"#)
+                .expect("valid")
+                .max_sends_in_flight(),
+            MAX_SENDS_IN_FLIGHT
+        );
+        assert_eq!(
+            parse(br#"{"endpoint":"http://h:1","max_sends_in_flight":3}"#)
+                .expect("valid")
+                .into_channel_config()
+                .max_sends_in_flight,
+            3
+        );
+        assert!(parse(br#"{"endpoint":"http://h:1","max_sends_in_flight":0}"#).is_none());
     }
 
     #[test]

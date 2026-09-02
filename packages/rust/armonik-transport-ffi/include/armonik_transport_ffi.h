@@ -224,12 +224,14 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
 
 /* Creates a channel from a config JSON. Synchronous and performs no I/O, so it fails only on a
  * bad config. The JSON carries at least {"endpoint": "http://host:port"}, and optionally
- * connect_timeout_ms, user_agent, max_recv_message_size and delivery_credits. An option
- * spelled wrong is refused, not ignored.
+ * connect_timeout_ms, user_agent, max_recv_message_size, delivery_credits and
+ * max_sends_in_flight. An option spelled wrong is refused, not ignored.
  *
- * delivery_credits is this channel's delivery window: at most that many payloads of one of
- * its calls are outstanding at once, and it is the host that chooses it because the host is
- * what has to hold them. Zero is refused; the default is 1. */
+ * The last two are the two windows, and they mirror each other. delivery_credits bounds the
+ * payloads of one call outstanding at once, and the host chooses it because the host is what
+ * has to hold them; max_sends_in_flight bounds the buffers one call may have out, counting
+ * those being filled and those awaiting their WRITE_DONE. Zero is refused for either; both
+ * default to 1. */
 ak_status ak_channel_create(ak_handle runtime, ak_bytes_in config_json, ak_handle *out);
 
 /* Frees the channel. Calls under way are cancelled. */

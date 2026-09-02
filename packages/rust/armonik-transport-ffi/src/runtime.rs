@@ -121,6 +121,7 @@ pub(crate) struct AkChannel {
     pub(crate) runtime: Weak<AkRuntime>,
     pub(crate) handle: ak_handle,
     pub(crate) delivery_credits: usize,
+    pub(crate) max_sends_in_flight: u32,
 }
 
 impl AkChannel {
@@ -129,12 +130,14 @@ impl AkChannel {
         runtime: &Arc<AkRuntime>,
         handle: ak_handle,
         delivery_credits: usize,
+        max_sends_in_flight: u32,
     ) -> Self {
         Self {
             grpc,
             runtime: Arc::downgrade(runtime),
             handle,
             delivery_credits,
+            max_sends_in_flight,
         }
     }
 }
