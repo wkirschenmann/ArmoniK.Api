@@ -33,12 +33,8 @@ internal interface ICallSink
 internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   where TResponse : class
 {
-  /// <summary>One more slot than the ABI can leave outstanding, so full and empty stay apart.</summary>
-  private const int RingSize = 4;
-
-  private const int Mask = RingSize - 1;
-
-  private readonly Slot[] ring_ = new Slot[RingSize];
+  private readonly Slot[] ring_;
+  private readonly int mask_;
   private long head_;
   private long tail_;
   private readonly AsyncAutoResetEvent arrived_ = new();
@@ -59,11 +55,29 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   private int cancelled_;
 
   private NativeCall(ulong runtime,
+                     int deliveryCredits,
                      Marshaller<TResponse> marshaller)
   {
     runtime_    = runtime;
     marshaller_ = marshaller;
-    self_       = GCHandle.Alloc(this);
+
+    // The smallest power of two holding the window's peak occupancy, which is one past the
+    // credits: a terminal goes out on a spent window. Publishing therefore never tests for
+    // fullness, which is what lets it run inside the callback.
+    var size = 1;
+    while (size < deliveryCredits + 1)
+    {
+      size <<= 1;
+    }
+
+    ring_ = new Slot[size];
+    mask_ = size - 1;
+
+    // Nobody is obliged to await the headers, and an unobserved fault is noise, not news.
+    _ = headers_.Task.ContinueWith(static answered => _ = answered.Exception,
+                                   TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+
+    self_ = GCHandle.Alloc(this);
   }
 
   internal Task<Metadata> ResponseHeadersAsync
@@ -77,11 +91,13 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
 
   internal static NativeCall<TResponse> Start(ulong runtime,
                                               ulong channel,
+                                              int deliveryCredits,
                                               string method,
                                               Metadata? metadata,
                                               Marshaller<TResponse> marshaller)
   {
     var call = new NativeCall<TResponse>(runtime,
+                                         deliveryCredits,
                                          marshaller);
     var methodBytes = System.Text.Encoding.UTF8.GetBytes(method);
     var metadataBytes = Blob.Encode(metadata);
@@ -132,7 +148,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
       return;
     }
 
-    var at = (int)(head_ & Mask);
+    var at = (int)(head_ & mask_);
     ring_[at].Payload = payload;
     ring_[at].Kind    = kind;
     ring_[at].Status  = statusCode;
@@ -200,7 +216,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
                       .ConfigureAwait(false);
       }
 
-      var slot = ring_[(int)(tail_ & Mask)];
+      var slot = ring_[(int)(tail_ & mask_)];
       try
       {
         switch (slot.Kind)
@@ -220,10 +236,22 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
                               out var reason,
                               out var trailers);
             trailers_ = trailers;
-            // A call that ends before its head still answers the question, with nothing in it.
-            headers_.TrySetResult(new Metadata());
-            terminal_.TrySetResult(new Status((StatusCode)slot.Status,
-                                              reason));
+            var ended = new Status((StatusCode)slot.Status,
+                                   reason);
+            terminal_.TrySetResult(ended);
+            // The head is synthesized when the wire carries none, so reaching here with the
+            // headers still pending means the call died before them. That is what a caller
+            // awaiting them needs to hear, and an empty collection would not say it.
+            if (ended.StatusCode == StatusCode.OK)
+            {
+              headers_.TrySetResult(new Metadata());
+            }
+            else
+            {
+              headers_.TrySetException(new RpcException(ended,
+                                                        trailers));
+            }
+
             break;
         }
       }

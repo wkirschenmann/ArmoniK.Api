@@ -1045,7 +1045,7 @@ int ak_abi_version(void);
 // 1. Frees the native memory (Rust deallocs the buffer)
 // 2. Arms reception of the next event for this call (demand signal)
 // At most DeliveryCredits non-consumed payloads per call (a channel option,
-// default 1) - while the host owes that many, the runtime withholds the next data
+// `delivery_credits` in the channel's config JSON, default 1) - while the host owes that many, the runtime withholds the next data
 // callback; only a terminal may still go out with every credit spent.
 // The payload pointer identifies the allocation to free; the host MUST release
 // in delivery order, so with several credits the oldest outstanding payload is
@@ -1655,9 +1655,11 @@ class CallState
 {
     // The delivery ring is the stream queue: metadata, messages and the
     // terminal all ride it, so there is one buffer per call, not two.
-    // NextPow2(DeliveryCredits + 2): the ABI never leaves more than
-    // DeliveryCredits + 1 payloads outstanding, plus one slot so full and
-    // empty stay distinguishable. It therefore cannot fill.
+    // NextPow2(DeliveryCredits + 1): the ABI never leaves more than
+    // DeliveryCredits + 1 payloads outstanding, and Head and Tail are
+    // monotonic counters rather than wrapped indexes, so occupancy is
+    // Head - Tail and empty is already distinct from full without a slot
+    // spent to tell them apart. It therefore cannot fill.
     Slot[] Ring; int Mask;
     long Head;                     // published by the actor thread
     long Tail;                     // private to the consumer

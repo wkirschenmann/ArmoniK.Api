@@ -90,9 +90,19 @@ public sealed class NativeRuntime : IDisposable
     => NativeMethods.ak_abi_version();
 
   /// <summary>Opens a channel on this runtime.</summary>
-  public NativeChannel Channel(string endpoint)
-    => new(handle_,
-           endpoint);
+  /// <param name="endpoint">Where to dial, as a plain HTTP/2 URI.</param>
+  /// <param name="deliveryCredits">
+  ///   How many payloads of one call of this channel may be outstanding at once. The host is
+  ///   what holds them, so the host is what chooses; each call sizes its queue from it.
+  /// </param>
+  public NativeChannel Channel(string endpoint,
+                               int deliveryCredits = 1)
+    => deliveryCredits < 1
+         ? throw new ArgumentOutOfRangeException(nameof(deliveryCredits),
+                                                 "a window of zero admits no delivery at all")
+         : new NativeChannel(handle_,
+                             endpoint,
+                             deliveryCredits);
 
   /// <summary>What the runtime currently holds against its ceiling.</summary>
   public (ulong Used, ulong Ceiling) MemoryUsage()

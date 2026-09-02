@@ -317,6 +317,32 @@ public class UnaryTests
     }
   }
 
+  /// <summary>
+  ///   The window is a channel option the host chooses, because the host is what holds the
+  ///   payloads. The engine refuses an option it does not know, so a wrong name fails here.
+  /// </summary>
+  [Test]
+  public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
+  {
+    using var channel = runtime_!.Channel(endpoint_,
+                                          deliveryCredits: 4);
+
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest
+                                {
+                                  Text = "deep",
+                                })
+                      .ResponseAsync.ConfigureAwait(false);
+
+    Assert.That(reply.Text,
+                Is.EqualTo("deep"));
+  }
+
+  [Test]
+  public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()
+    => Assert.Throws<ArgumentOutOfRangeException>(() => runtime_!.Channel(endpoint_,
+                                                                         deliveryCredits: 0));
+
   [Test]
   public void AChannelThatIsReleasedTakesNoNewCall()
   {

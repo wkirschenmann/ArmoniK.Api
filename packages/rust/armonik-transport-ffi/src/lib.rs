@@ -145,12 +145,13 @@ pub unsafe extern "C" fn ak_channel_create(
         };
 
         let executor = TokioExecutor::new(found.spawner().clone());
+        let delivery_credits = settings.delivery_credits();
         let Ok(grpc) = GrpcChannel::new(settings.into_channel_config(), executor) else {
             return ak_status::AK_STATUS_INVALID_ARG;
         };
 
         let handle = tables::channels().reserve();
-        let channel = Arc::new(AkChannel::new(grpc, &found, handle));
+        let channel = Arc::new(AkChannel::new(grpc, &found, handle, delivery_credits));
         tables::channels().publish(handle, channel);
         unsafe { *out = handle };
         ak_status::AK_STATUS_OK
@@ -223,7 +224,7 @@ pub unsafe extern "C" fn ak_call_start(
             &runtime,
             control,
             config::MAX_SENDS_IN_FLIGHT,
-            call::DELIVERY_CREDITS,
+            found.delivery_credits,
         );
         // Published before the tasks run: a call that ends at once would otherwise reach its
         // reclamation, find the slot empty, and then be published into it as a dead entry.

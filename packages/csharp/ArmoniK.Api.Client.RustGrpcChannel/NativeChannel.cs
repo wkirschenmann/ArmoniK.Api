@@ -31,15 +31,18 @@ public sealed class NativeChannel : ChannelBase, IDisposable
 {
   private readonly ulong runtime_;
   private readonly ulong handle_;
+  private readonly int deliveryCredits_;
   private int disposed_;
 
   internal NativeChannel(ulong runtime,
-                         string endpoint)
+                         string endpoint,
+                         int deliveryCredits)
     : base(endpoint)
   {
-    runtime_ = runtime;
+    runtime_         = runtime;
+    deliveryCredits_ = deliveryCredits;
 
-    var json = Encoding.UTF8.GetBytes($"{{\"endpoint\":{Quote(endpoint)}}}");
+    var json = Encoding.UTF8.GetBytes($"{{\"endpoint\":{Quote(endpoint)},\"delivery_credits\":{deliveryCredits}}}");
     var pin = GCHandle.Alloc(json,
                              GCHandleType.Pinned);
     try
@@ -67,7 +70,8 @@ public sealed class NativeChannel : ChannelBase, IDisposable
   /// <inheritdoc />
   public override CallInvoker CreateCallInvoker()
     => new NativeCallInvoker(runtime_,
-                             handle_);
+                             handle_,
+                             deliveryCredits_);
 
   /// <inheritdoc />
   protected override Task ShutdownAsyncCore()

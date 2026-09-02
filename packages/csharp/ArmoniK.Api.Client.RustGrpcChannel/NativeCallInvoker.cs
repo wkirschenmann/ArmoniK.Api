@@ -33,12 +33,15 @@ public sealed class NativeCallInvoker : CallInvoker
 {
   private readonly ulong runtime_;
   private readonly ulong channel_;
+  private readonly int deliveryCredits_;
 
   internal NativeCallInvoker(ulong runtime,
-                             ulong channel)
+                             ulong channel,
+                             int deliveryCredits)
   {
-    runtime_ = runtime;
-    channel_ = channel;
+    runtime_         = runtime;
+    channel_         = channel;
+    deliveryCredits_ = deliveryCredits;
   }
 
   /// <inheritdoc />
@@ -63,6 +66,7 @@ public sealed class NativeCallInvoker : CallInvoker
   {
     var call = NativeCall<TResponse>.Start(runtime_,
                                            channel_,
+                                           deliveryCredits_,
                                            method.FullName,
                                            options.Headers,
                                            method.ResponseMarshaller);

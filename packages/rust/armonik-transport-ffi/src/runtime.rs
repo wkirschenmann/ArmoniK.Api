@@ -120,14 +120,21 @@ pub(crate) struct AkChannel {
     pub(crate) grpc: GrpcChannel,
     pub(crate) runtime: Weak<AkRuntime>,
     pub(crate) handle: ak_handle,
+    pub(crate) delivery_credits: usize,
 }
 
 impl AkChannel {
-    pub(crate) fn new(grpc: GrpcChannel, runtime: &Arc<AkRuntime>, handle: ak_handle) -> Self {
+    pub(crate) fn new(
+        grpc: GrpcChannel,
+        runtime: &Arc<AkRuntime>,
+        handle: ak_handle,
+        delivery_credits: usize,
+    ) -> Self {
         Self {
             grpc,
             runtime: Arc::downgrade(runtime),
             handle,
+            delivery_credits,
         }
     }
 }

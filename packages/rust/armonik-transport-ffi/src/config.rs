@@ -21,9 +21,17 @@ pub(crate) struct ChannelSettings {
     user_agent: Option<String>,
     #[serde(default)]
     max_recv_message_size: Option<usize>,
+    #[serde(default)]
+    delivery_credits: Option<usize>,
 }
 
 impl ChannelSettings {
+    /// The ABI's delivery window for calls of this channel. The host sizes its own per-call
+    /// queue from it, which is why it is a channel option and not something negotiated later.
+    pub(crate) fn delivery_credits(&self) -> usize {
+        self.delivery_credits.unwrap_or(crate::call::DELIVERY_CREDITS)
+    }
+
     pub(crate) fn into_channel_config(self) -> GrpcChannelConfig {
         let mut transport = TransportConfig::new(
             self.endpoint
@@ -49,6 +57,10 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
     let settings: ChannelSettings = serde_json::from_slice(json).ok()?;
     // Parsed here so `into_channel_config` cannot be reached with an endpoint that is not a URI.
     settings.endpoint.parse::<Uri>().ok()?;
+    // A window of zero admits no delivery at all, so it is a refusal and not a default.
+    if settings.delivery_credits == Some(0) {
+        return None;
+    }
     Some(settings)
 }
 
@@ -78,6 +90,23 @@ mod tests {
         assert!(parse(br#"{"endpoint":"not a uri"}"#).is_none());
         assert!(parse(b"{}").is_none());
         assert!(parse(b"not json").is_none());
+    }
+
+    #[test]
+    fn the_delivery_window_defaults_to_the_abi_depth_and_zero_is_refused() {
+        assert_eq!(
+            parse(br#"{"endpoint":"http://h:1"}"#)
+                .expect("valid")
+                .delivery_credits(),
+            crate::call::DELIVERY_CREDITS
+        );
+        assert_eq!(
+            parse(br#"{"endpoint":"http://h:1","delivery_credits":4}"#)
+                .expect("valid")
+                .delivery_credits(),
+            4
+        );
+        assert!(parse(br#"{"endpoint":"http://h:1","delivery_credits":0}"#).is_none());
     }
 
     #[test]
