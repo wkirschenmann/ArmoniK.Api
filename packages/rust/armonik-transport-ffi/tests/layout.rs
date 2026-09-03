@@ -1,8 +1,9 @@
 //! The layouts the header declares, checked against the ones this library compiles to.
 //!
 //! Nothing compiles `include/armonik_transport_ffi.h` in this workspace, so the header and the
-//! Rust types could drift apart with nothing noticing. These numbers are what a C compiler
-//! produces for that header on a 64-bit target.
+//! Rust types could drift apart with nothing noticing. These are what a C compiler produces for
+//! that header, expressed in pointer widths rather than in the numbers of one target: the ABI
+//! ships for x86, x64 and arm64, and absolute sizes would only ever have described one of them.
 //!
 //! It is not the conformance test the ABI owes - that one compiles the header and links against
 //! the built library - but it catches the failure that costs the most: a field added on one side
@@ -12,35 +13,41 @@ use std::mem::{align_of, offset_of, size_of};
 
 use armonik_transport_ffi::*;
 
+/// A pointer's width here. Every layout below is written in terms of it, so one set of
+/// assertions covers a 32-bit target and a 64-bit one.
+const PTR: usize = size_of::<usize>();
+
 #[test]
 fn a_borrowed_view_is_a_pointer_and_a_length() {
-    assert_eq!(size_of::<ak_bytes_in>(), 16);
-    assert_eq!(align_of::<ak_bytes_in>(), 8);
+    assert_eq!(size_of::<ak_bytes_in>(), 2 * PTR);
+    assert_eq!(align_of::<ak_bytes_in>(), PTR);
     assert_eq!(offset_of!(ak_bytes_in, ptr), 0);
-    assert_eq!(offset_of!(ak_bytes_in, len), 8);
+    assert_eq!(offset_of!(ak_bytes_in, len), PTR);
 }
 
 #[test]
 fn an_owned_view_and_a_lent_buffer_have_the_same_shape() {
-    assert_eq!(size_of::<ak_bytes>(), 24);
+    assert_eq!(size_of::<ak_bytes>(), 3 * PTR);
     assert_eq!(offset_of!(ak_bytes, ptr), 0);
-    assert_eq!(offset_of!(ak_bytes, len), 8);
-    assert_eq!(offset_of!(ak_bytes, owner), 16);
+    assert_eq!(offset_of!(ak_bytes, len), PTR);
+    assert_eq!(offset_of!(ak_bytes, owner), 2 * PTR);
 
-    assert_eq!(size_of::<ak_buffer>(), 24);
+    assert_eq!(size_of::<ak_buffer>(), 3 * PTR);
     assert_eq!(offset_of!(ak_buffer, ptr), 0);
-    assert_eq!(offset_of!(ak_buffer, len), 8);
-    assert_eq!(offset_of!(ak_buffer, owner), 16);
+    assert_eq!(offset_of!(ak_buffer, len), PTR);
+    assert_eq!(offset_of!(ak_buffer, owner), 2 * PTR);
 }
 
 #[test]
 fn an_event_carries_its_payload_inline() {
-    assert_eq!(size_of::<ak_event>(), 40);
+    // The payload is pointer-aligned, so on a 64-bit target the four-byte kind is followed by
+    // four of padding and on a 32-bit one by none. Two four-byte enums then close it, which is
+    // why the total is the same expression either way.
+    assert_eq!(size_of::<ak_event>(), 4 * PTR + 8);
     assert_eq!(offset_of!(ak_event, kind), 0);
-    // The payload is eight-aligned, so the four-byte kind is followed by four of padding.
-    assert_eq!(offset_of!(ak_event, payload), 8);
-    assert_eq!(offset_of!(ak_event, status_code), 32);
-    assert_eq!(offset_of!(ak_event, host_debt), 36);
+    assert_eq!(offset_of!(ak_event, payload), PTR);
+    assert_eq!(offset_of!(ak_event, status_code), 4 * PTR);
+    assert_eq!(offset_of!(ak_event, host_debt), 4 * PTR + 4);
 }
 
 #[test]
@@ -49,6 +56,7 @@ fn every_enum_the_abi_crosses_is_an_int() {
     assert_eq!(size_of::<ak_runtime_state>(), 4);
     assert_eq!(size_of::<ak_event_kind>(), 4);
     assert_eq!(size_of::<ak_host_debt>(), 4);
+    assert_eq!(size_of::<ak_channel_state>(), 4);
 }
 
 #[test]
@@ -59,9 +67,9 @@ fn an_options_struct_starts_with_the_size_that_versions_it() {
     assert_eq!(size_of::<ak_runtime_config>(), 16);
 
     assert_eq!(offset_of!(ak_call_start_options, struct_size), 0);
-    assert_eq!(offset_of!(ak_call_start_options, method), 8);
-    assert_eq!(offset_of!(ak_call_start_options, metadata), 24);
-    assert_eq!(size_of::<ak_call_start_options>(), 40);
+    assert_eq!(offset_of!(ak_call_start_options, method), PTR);
+    assert_eq!(offset_of!(ak_call_start_options, metadata), 3 * PTR);
+    assert_eq!(size_of::<ak_call_start_options>(), 5 * PTR);
 }
 
 #[test]
@@ -80,6 +88,8 @@ fn the_observational_structs_are_plain_integers() {
 #[test]
 fn the_null_token_is_zero_so_a_zeroed_handle_names_nothing() {
     assert_eq!(AK_HANDLE_NONE, 0);
+    // Eight on every target, pointers included: a handle is a generational token and not an
+    // address, which is why nothing here may store one in a pointer-sized field.
     assert_eq!(size_of::<ak_handle>(), 8);
 }
 
@@ -122,6 +132,7 @@ fn every_entry_point_the_header_declares_is_exported() {
         ),
         ("ak_channel_create", ak_channel_create as *const ()),
         ("ak_channel_release", ak_channel_release as *const ()),
+        ("ak_channel_status", ak_channel_status as *const ()),
         ("ak_call_start", ak_call_start as *const ()),
         ("ak_get_call_buffer", ak_get_call_buffer as *const ()),
         ("ak_call_send_message", ak_call_send_message as *const ()),
@@ -147,6 +158,7 @@ fn every_entry_point_the_header_declares_is_exported() {
             line.strip_prefix("void ak_")
                 .or_else(|| line.strip_prefix("int ak_"))
                 .or_else(|| line.strip_prefix("ak_runtime_state ak_"))
+                .or_else(|| line.strip_prefix("ak_channel_state ak_"))
         }) else {
             continue;
         };

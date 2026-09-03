@@ -201,6 +201,34 @@ Explicit error if native DLL is missing.
 
 ---
 
+### T1.5: Architectures and runtimes — x86, x64, arm, and .NET Framework
+
+**Prerequisite**: T1.4
+**Why it is here and not in the original plan**: phase 1 was written for one architecture and one
+runtime. The requirement is x86, x64 and arm — arm on .NET only, .NET Framework being Windows
+x86/x64 — and the binding must be exercised from .NET Framework 4.7.2, 4.8 and .NET 8.0 client
+processes. That is a scope addition rather than a detail of T1.3, so it gets its own task.
+
+**Commit**:
+- `tests/layout.rs` in pointer widths rather than absolute x64 numbers, and run for i686 as well as
+  x86_64. Done; the receipt is in its own commit.
+- Multi-target cargo builds: `--target` per RID in the binding's build step, which today builds the
+  host architecture alone, plus the cross toolchains for each.
+- `runtimes/<rid>/native` packaging, so .NET resolves the engine with no code of ours; plus the
+  `build/*.targets` and the `NativeMethods` static constructor that .NET Framework needs, having no
+  RID probing. One loading path for every Framework consumer: both architectures are copied beside
+  the application and `IntPtr.Size` picks, AnyCPU and an explicit `PlatformTarget` alike. The loader
+  is a no-op where that folder is absent, which is the .NET case, so it is the same code there.
+- The echo server as its own `net8.0` executable, because Kestrel and Grpc.AspNetCore do not run on
+  .NET Framework, and the tests multi-targeted `net4.7;net4.8;net8.0` dialling it — which is how
+  `ArmoniK.Api.Client.Test` and `ArmoniK.Api.Mock` already work (`test.yml:165-181`).
+- `test.yml` as a matrix over target framework and architecture, with a Rust toolchain in the C# job.
+
+**Deliverable**: the unary E2E test green from a .NET Framework 4.7.2, a 4.8 and a .NET 8.0 process,
+on x86 and x64, with arm64 built and packaged.
+
+---
+
 ## Phase 2 — Streaming (the 3 other cardinalities)
 
 ### T2.1: Client streaming (Rust channel + FFI + .NET)
