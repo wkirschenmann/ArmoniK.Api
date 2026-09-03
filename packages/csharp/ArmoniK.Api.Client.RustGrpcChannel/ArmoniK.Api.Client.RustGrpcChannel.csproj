@@ -59,6 +59,27 @@
     <RustTarget Include="osx-arm64" Triple="aarch64-apple-darwin" Library="libarmonik_transport_ffi.dylib" />
   </ItemGroup>
 
+  <!-- What the package carries. .NET reads runtimes/[rid]/native itself; the targets file is for
+       .NET Framework, which does not. Built in a target rather than declared, because only the
+       architectures actually built should be packed and an item condition may not ask that of
+       its own identity. A package made without the whole matrix then says so by omission rather
+       than by a broken entry. -->
+  <Target Name="AddNativeEngineToPackage" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <NativeEngineAsset Include="@(RustTarget->'$(RustWorkspace)target\%(Triple)\$(RustProfile)\%(Library)')"
+                         Rid="%(RustTarget.Identity)" />
+      <None Include="@(NativeEngineAsset)"
+            Condition="Exists('%(NativeEngineAsset.Identity)')"
+            Pack="true"
+            PackagePath="runtimes\%(NativeEngineAsset.Rid)\native\"
+            Visible="false" />
+      <None Include="build\ArmoniK.Api.Client.RustGrpcChannel.targets"
+            Pack="true"
+            PackagePath="build\;buildTransitive\"
+            Visible="false" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="BuildNativeEngine" BeforeTargets="BeforeBuild"
           Outputs="%(RustTarget.Identity)">
     <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild

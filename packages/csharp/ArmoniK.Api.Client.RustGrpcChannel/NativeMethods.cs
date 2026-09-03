@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
@@ -31,6 +32,46 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 internal static class NativeMethods
 {
   internal const string Library = "armonik_transport_ffi";
+
+  /// <summary>
+  ///   Loads the engine for this process's word size, where the framework will not.
+  /// </summary>
+  /// <remarks>
+  ///   .NET resolves a native asset by runtime identifier out of the package, so there is nothing
+  ///   to do there. .NET Framework has no such thing: the package's targets file puts both
+  ///   architectures in `x86` and `x64` beside the application, and this picks one and loads it by
+  ///   full path, after which the runtime's own probe for the bare name finds it already in the
+  ///   process. `IntPtr.Size` is the right question in every case, AnyCPU included, which is why
+  ///   there is one path here and not one per `PlatformTarget`.
+  ///   <para>
+  ///     A static constructor because it must run before the first P/Invoke of this class, and
+  ///     nothing here may throw: a failed one turns every later call into a
+  ///     <see cref="TypeInitializationException" /> naming none of this.
+  ///   </para>
+  /// </remarks>
+  static NativeMethods()
+  {
+    try
+    {
+      var beside = Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
+                                IntPtr.Size == 8
+                                  ? "x64"
+                                  : "x86",
+                                Library + ".dll");
+      if (File.Exists(beside))
+      {
+        LoadLibrary(beside);
+      }
+    }
+    catch
+    {
+      // Whatever the reason, the load that matters is the one the first DllImport does, and it
+      // reports its own failure. Guessing here would only hide that one.
+    }
+  }
+
+  [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern IntPtr LoadLibrary(string path);
 
   internal enum AkStatus
   {
