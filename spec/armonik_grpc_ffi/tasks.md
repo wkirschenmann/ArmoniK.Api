@@ -227,6 +227,11 @@ processes. That is a scope addition rather than a detail of T1.3, so it gets its
 **Deliverable**: the unary E2E test green from a .NET Framework 4.7.2, a 4.8 and a .NET 8.0 process,
 on x86 and x64, with arm64 built and packaged.
 
+**Status**: done, apart from arm64, which has no runner here to build or run on - the mapping and
+the packaging carry it, and the first CI job on an arm host will say whether that is enough. The
+matrix is 15 tests over three runtimes and two architectures, and `test.yml` runs seven
+combinations of runtime, architecture and operating system.
+
 ---
 
 ## Phase 2 — Streaming (the 3 other cardinalities)

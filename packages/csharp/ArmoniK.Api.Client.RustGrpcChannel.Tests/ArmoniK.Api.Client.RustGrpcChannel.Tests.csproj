@@ -15,6 +15,12 @@
 
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <!-- So a 4.7 or 4.8 host builds without that targeting pack installed, which is what lets
+         this run on a machine that only has the .NET SDK. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- The generated client needs these two and nothing else: the server half of the contract
          lives in another process, so Grpc.AspNetCore does not belong here. -->
@@ -73,11 +79,13 @@
        triple now. -->
   <Target Name="CopyNativeEngineForTests" AfterTargets="CopyFilesToOutputDirectory">
     <PropertyGroup>
-      <TestEngineTriple Condition="'$(PlatformTarget)' == 'x64'">x86_64-pc-windows-msvc</TestEngineTriple>
-      <TestEngineTriple Condition="'$(PlatformTarget)' == 'x86'">i686-pc-windows-msvc</TestEngineTriple>
-      <TestEngineTriple Condition="'$(PlatformTarget)' == 'ARM64'">aarch64-pc-windows-msvc</TestEngineTriple>
-      <TestEngineTriple Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'x64'">x86_64-unknown-linux-gnu</TestEngineTriple>
-      <TestEngineTriple Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'ARM64'">aarch64-unknown-linux-gnu</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'x64'">x86_64-pc-windows-msvc</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'x86'">i686-pc-windows-msvc</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'ARM64'">aarch64-pc-windows-msvc</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('Linux')) AND '$(PlatformTarget)' == 'x64'">x86_64-unknown-linux-gnu</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('Linux')) AND '$(PlatformTarget)' == 'ARM64'">aarch64-unknown-linux-gnu</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('OSX')) AND '$(PlatformTarget)' == 'x64'">x86_64-apple-darwin</TestEngineTriple>
+      <TestEngineTriple Condition="$([MSBuild]::IsOSPlatform('OSX')) AND '$(PlatformTarget)' == 'ARM64'">aarch64-apple-darwin</TestEngineTriple>
     </PropertyGroup>
     <ItemGroup>
       <BuiltEngine Include="$(MSBuildThisFileDirectory)..\..\rust\target\$(TestEngineTriple)\$(Configuration.ToLower())\*armonik_transport_ffi.dll" />
