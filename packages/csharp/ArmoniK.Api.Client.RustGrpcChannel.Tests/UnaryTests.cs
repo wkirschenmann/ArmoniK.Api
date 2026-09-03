@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,6 +71,41 @@ public class UnaryTests
 
   private NativeChannel Channel()
     => NativeRuntimeFactory.Channel(endpoint_);
+
+  /// <summary>
+  ///   The engine beside this host is built for the word size this host runs as.
+  /// </summary>
+  /// <remarks>
+  ///   The build chooses the engine from `PlatformTarget` and the test host's architecture comes
+  ///   from the same place, so a mismatch means one of the two was decided somewhere else. It
+  ///   would otherwise surface as a `BadImageFormatException` from whichever P/Invoke ran first,
+  ///   which says nothing about why.
+  /// </remarks>
+  [Test]
+  public void TheEngineBesideThisHostMatchesItsWordSize()
+  {
+    var engine = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                              "armonik_transport_ffi.dll");
+    if (!File.Exists(engine))
+    {
+      Assert.Ignore("not a Windows build; the engine is an .so or a .dylib");
+    }
+
+    // The COFF machine field, at the offset the PE signature points to.
+    using var file = File.OpenRead(engine);
+    using var reader = new BinaryReader(file);
+    file.Seek(0x3c,
+              SeekOrigin.Begin);
+    file.Seek(reader.ReadUInt32() + 4,
+              SeekOrigin.Begin);
+
+    var machine = reader.ReadUInt16();
+    Assert.That(machine,
+                Is.EqualTo(IntPtr.Size == 8
+                             ? 0x8664
+                             : 0x014c),
+                $"a {IntPtr.Size * 8}-bit host beside a 0x{machine:x4} engine");
+  }
 
   [Test]
   public void TheAbiVersionIsTheOneThisBindingSpeaks()

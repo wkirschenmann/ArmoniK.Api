@@ -57,6 +57,7 @@ internal sealed class EchoServerProcess : IDisposable
                                                      $"\"{assembly}\"")
                                 {
                                   RedirectStandardOutput = true,
+                                  RedirectStandardError  = true,
                                   UseShellExecute        = false,
                                   CreateNoWindow         = true,
                                 },
@@ -94,7 +95,14 @@ internal sealed class EchoServerProcess : IDisposable
       var line = process.StandardOutput.ReadLine();
       if (line is null)
       {
-        throw new InvalidOperationException($"the server ended before saying where it listens (exit {process.ExitCode})");
+        // Its own account of why, or the exit code is all anyone gets: a server that died
+        // before its first line leaves nothing else to go on.
+        var complaint = process.StandardError.ReadToEnd()
+                               .Trim();
+        throw new InvalidOperationException($"the server ended before saying where it listens (exit {process.ExitCode})"
+                                            + (complaint.Length == 0
+                                                 ? string.Empty
+                                                 : Environment.NewLine + complaint));
       }
 
       if (line.StartsWith(EndpointPrefix,
