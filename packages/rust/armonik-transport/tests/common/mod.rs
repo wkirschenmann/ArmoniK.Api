@@ -3,6 +3,9 @@
 //! Hand-rolled rather than generated: this crate has no protos and deliberately no `protoc` in its
 //! build, so the codec moves opaque bytes and the service is one method that sleeps before replying.
 
+// Two test binaries share this, and neither uses all of it.
+#![allow(dead_code)]
+
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -16,6 +19,7 @@ use bytes::Bytes;
 use tower_service::Service;
 
 mod codec;
+pub mod echo;
 
 use codec::BytesCodec;
 

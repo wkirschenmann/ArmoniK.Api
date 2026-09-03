@@ -3,6 +3,7 @@
 //! A key ending in `-bin` carries bytes, and this type holds them decoded. gRPC stores such a
 //! value base64-encoded on the wire, so a caller never sees the wire form.
 
+use super::status;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
@@ -22,9 +23,6 @@ const BINARY_OUT: GeneralPurpose = GeneralPurpose::new(
 );
 
 pub const BINARY_SUFFIX: &str = "-bin";
-
-pub(crate) const GRPC_STATUS: &str = "grpc-status";
-pub(crate) const GRPC_MESSAGE: &str = "grpc-message";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// One metadata value, in the form its key implies.
@@ -112,7 +110,7 @@ impl Metadata {
         let mut entries = Vec::with_capacity(headers.len());
         for (name, raw) in headers {
             let key = name.as_str();
-            if key == GRPC_STATUS || key == GRPC_MESSAGE {
+            if key == status::GRPC_STATUS || key == status::GRPC_MESSAGE {
                 continue;
             }
             let value = if key.ends_with(BINARY_SUFFIX) {

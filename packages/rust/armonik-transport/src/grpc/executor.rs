@@ -11,26 +11,12 @@ use std::sync::Arc;
 pub type BoxedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// Somewhere to run the engine's background tasks.
+///
+/// Spawning answers nothing: a task the engine started is one it ends by other means - a call by
+/// its terminal, the session by its last sender being dropped - so a handle to abort it would be
+/// a second way to stop something that already has one, and the two could disagree.
 pub trait Executor: Send + Sync + 'static {
-    fn spawn(&self, future: BoxedTask) -> TaskHandle;
-}
-
-/// A spawned task, insofar as the engine can still act on it.
-pub struct TaskHandle {
-    cancel: Box<dyn Fn() + Send + Sync>,
-}
-
-impl TaskHandle {
-    pub fn new(cancel: impl Fn() + Send + Sync + 'static) -> Self {
-        Self {
-            cancel: Box::new(cancel),
-        }
-    }
-
-    /// Stops the task, insofar as the executor can. Idempotent.
-    pub fn cancel(&self) {
-        (self.cancel)();
-    }
+    fn spawn(&self, future: BoxedTask);
 }
 
 #[derive(Clone, Debug)]
@@ -49,9 +35,8 @@ impl TokioExecutor {
 }
 
 impl Executor for TokioExecutor {
-    fn spawn(&self, future: BoxedTask) -> TaskHandle {
-        let task = self.handle.spawn(future);
-        TaskHandle::new(move || task.abort())
+    fn spawn(&self, future: BoxedTask) {
+        self.handle.spawn(future);
     }
 }
 

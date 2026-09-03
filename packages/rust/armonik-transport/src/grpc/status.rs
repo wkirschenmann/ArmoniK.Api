@@ -5,7 +5,13 @@
 use http::header::{HeaderMap, CONTENT_TYPE};
 use http::StatusCode;
 
-use super::metadata::{Metadata, GRPC_MESSAGE, GRPC_STATUS};
+use super::metadata::Metadata;
+
+/// The two trailers a status travels in. Here rather than with the other header names: this
+/// module is the only thing that reads them, and a reader looking for where `grpc-status` is
+/// understood should find the spelling in the same file as the understanding.
+pub(crate) const GRPC_STATUS: &str = "grpc-status";
+pub(crate) const GRPC_MESSAGE: &str = "grpc-message";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(i32)]

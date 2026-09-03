@@ -120,12 +120,34 @@ impl TransportConnector {
     }
 }
 
-/// Establishes an HTTP/2 session over a connected stream.
+/// Dials `endpoint` and establishes an HTTP/2 session on it.
 ///
-/// The dial and the session on it both belong to this layer; what travels on the session
-/// does not. Naming the body and the executor concretely would be naming layer 2's types
-/// here, so they stay parameters even though exactly one of each is ever passed.
-pub(crate) async fn handshake<E, B>(
+/// One entry point rather than three steps, because the three are one decision: what a caller
+/// wants is a session, and how a connection is asked for - a `tower` service polled ready and
+/// then called - is this module's business. A caller that performed those steps itself would be
+/// carrying the transport's vocabulary in order to say "connect".
+///
+/// The body and the executor stay parameters even though exactly one of each is ever passed:
+/// naming them concretely would name what travels on the session, which does not belong here.
+pub(crate) async fn open<E, B>(
+    connector: &TransportConnector,
+    endpoint: &Uri,
+    executor: E,
+) -> Result<(SendRequest<B>, Connection<TransportConnection, B, E>), TransportError>
+where
+    E: Http2ClientConnExec<B, TransportConnection> + Unpin + Clone,
+    B: hyper::body::Body + 'static,
+    B::Data: Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    let mut connector = connector.clone();
+    std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
+    let io = connector.call(endpoint.clone()).await?;
+    handshake(endpoint, executor, io).await
+}
+
+/// Establishes an HTTP/2 session over an already connected stream.
+async fn handshake<E, B>(
     endpoint: &Uri,
     executor: E,
     io: TransportConnection,

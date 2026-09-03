@@ -6,12 +6,12 @@ use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, TE, USER_AG
 use http::{Method, Request, Uri};
 use hyper::client::conn::http2::SendRequest;
 use tokio::sync::{watch, Mutex};
-use tower_service::Service;
 
 use crate::config::{ConfigError, IncompatibleOptionsSnafu};
 use crate::http2::{TransportConfig, TransportConnector};
 
 use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
+use super::driver;
 use super::error::ChannelError;
 use super::executor::{Executor, HyperExecutor};
 
@@ -154,9 +154,11 @@ impl GrpcChannel {
         *request.uri_mut() = uri;
         *request.headers_mut() = headers;
 
-        self.inner
-            .executor
-            .spawn(Box::pin(call::drive(self.inner.clone(), request, driving)));
+        self.inner.executor.spawn(Box::pin(driver::drive(
+            self.inner.clone(),
+            request,
+            driving,
+        )));
 
         Ok(grpc_call)
     }
@@ -218,13 +220,12 @@ impl Inner {
             }
         }
 
-        let mut connector = self.connector.clone();
-        std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
-        let io = connector.call(self.endpoint.clone()).await?;
-
-        let (sender, connection) =
-            crate::http2::handshake(&self.endpoint, HyperExecutor(self.executor.clone()), io)
-                .await?;
+        let (sender, connection) = crate::http2::open(
+            &self.connector,
+            &self.endpoint,
+            HyperExecutor(self.executor.clone()),
+        )
+        .await?;
 
         // A close that landed while this dial was in flight has already had its turn at the
         // lock; dropping the session here keeps it from outliving the channel.
