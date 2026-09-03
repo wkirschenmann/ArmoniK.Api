@@ -41,7 +41,13 @@ pub(crate) fn call_settled(call: ak_handle, channel: ak_handle) {
     settle_channel(channel);
 }
 
-/// Marks a closing channel closed once no call of it is left.
+/// Marks a closing channel closed once no call of it is still active.
+///
+/// Active and not *reclaimed*, which is the whole of this: a call stays in the table until the
+/// host has given back every payload and buffer, so waiting for it to leave would make CLOSED
+/// wait on the host - the same deadlock the header warns about for QUIESCENT, and the opposite
+/// of what it promises here. A call past its terminal has nothing more to come, which is what
+/// the model means by no longer active.
 ///
 /// Only a closing channel finishes closing: an open one with no calls is idle, not done.
 fn settle_channel(handle: ak_handle) {
@@ -54,7 +60,7 @@ fn settle_channel(handle: ak_handle) {
     if !tables::calls()
         .values()
         .into_iter()
-        .any(|call| call.belongs_to_channel(handle))
+        .any(|call| call.belongs_to_channel(handle) && call.active())
     {
         found.finish_closing();
     }

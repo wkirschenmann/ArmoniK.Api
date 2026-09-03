@@ -14,7 +14,9 @@ use armonik_transport::grpc::{
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
-use crate::abi::{ak_buffer, ak_bytes, ak_call_debt, ak_event_kind, ak_handle, ak_status};
+use crate::abi::{
+    ak_buffer, ak_bytes, ak_call_debt, ak_channel_state, ak_event_kind, ak_handle, ak_status,
+};
 use crate::blob;
 use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
@@ -127,6 +129,12 @@ impl CallState {
 
     pub(crate) fn belongs_to_channel(&self, channel: ak_handle) -> bool {
         self.channel == channel
+    }
+
+    /// Whether the call still has anything to come. A call past its terminal is not active, even
+    /// though it stays in the table until the host gives back what it holds.
+    pub(crate) fn active(&self) -> bool {
+        !self.debt.terminal.load(Ordering::Acquire)
     }
 
     /// Asks the call to stop. The request takes effect when the actor observes it, which is why
@@ -652,6 +660,17 @@ pub(crate) fn start_on(
         channel.delivery_credits,
     );
     tables::calls().publish(handle, Arc::clone(&state));
+
+    // Published, and only now asked whether the channel is still open. The check before this
+    // cannot stand alone: a release that latches between it and the publish snapshots the call
+    // table without this call in it, so nothing cancels it and the channel waits on a call it
+    // never saw. Re-reading afterwards closes that window from the other side - either the
+    // release's snapshot contains this call and cancels it, or its latch preceded this read and
+    // this cancels itself. The table's own lock is what orders the two.
+    if channel.state() != ak_channel_state::AK_CHANNEL_OPEN {
+        state.cancel();
+    }
+
     start(&state, send, recv, commands, services.spawner);
     Ok(handle)
 }
