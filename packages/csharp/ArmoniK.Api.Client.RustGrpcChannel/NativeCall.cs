@@ -205,6 +205,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
 
       await runtime_.WaitForRoomAsync(token)
                     .ConfigureAwait(false);
+
+      // A call cancelled while it waited has nothing left to send, and a wait that cannot see
+      // that is what keeps a channel's dispose queued behind it: the drain has already reached
+      // its terminal, so nothing else would ever complete this send.
+      if (Volatile.Read(ref cancelled_) != 0)
+      {
+        throw Failed("the call was cancelled while it waited for room against the ceiling");
+      }
     }
 
     var closed = NativeMethods.ak_call_end_send(handle_);
@@ -224,6 +232,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   {
     TResponse? response = null;
     var seen = 0;
+    Exception? refused = null;
 
     while (true)
     {
@@ -245,31 +254,30 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
           case NativeMethods.AkEventKind.Message:
             seen++;
             response = marshaller_.ContextualDeserializer(new ReceivedMessage(slot.Payload.Ptr,
-                                                                             (int)slot.Payload.Len));
+                                                                              (int)slot.Payload.Len));
             break;
 
           case NativeMethods.AkEventKind.Status:
-            Blob.DecodeStatus(Bytes(slot.Payload),
-                              out var reason,
-                              out var trailers);
-            trailers_ = trailers;
-            var ended = new Status((StatusCode)slot.Status,
-                                   reason);
-            terminal_.TrySetResult(ended);
-            // The head is synthesized when the wire carries none, so reaching here with the
-            // headers still pending means the call died before them. That is what a caller
-            // awaiting them needs to hear, and an empty collection would not say it.
-            if (ended.StatusCode == StatusCode.OK)
-            {
-              headers_.TrySetResult(new Metadata());
-            }
-            else
-            {
-              headers_.TrySetException(new RpcException(ended,
-                                                        trailers));
-            }
-
+            Settle(slot);
             break;
+        }
+      }
+      catch (Exception thrown)
+      {
+        // Kept, not thrown: leaving this loop would abandon every later slot, the terminal
+        // above all, and a payload never consumed is a call never reclaimed and a runtime that
+        // never quiesces - one malformed message would cost the process its engine. So the
+        // drain carries the failure to the end and reports it there.
+        refused ??= thrown;
+
+        // The terminal's own decode failing is the case that cannot be deferred: nothing else
+        // will resolve the call, so it gets a status saying why rather than none at all.
+        if (slot.Kind == NativeMethods.AkEventKind.Status)
+        {
+          var synthetic = new Status(StatusCode.Internal,
+                                     $"the call's terminal could not be read: {thrown.Message}");
+          terminal_.TrySetResult(synthetic);
+          headers_.TrySetException(new RpcException(synthetic));
         }
       }
       finally
@@ -285,6 +293,16 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     }
 
     cancellation_.Dispose();
+
+    // Now that every payload is back, whatever the drain could not read is the answer.
+    if (refused is not null)
+    {
+      throw refused is RpcException rpc
+              ? rpc
+              : new RpcException(new Status(StatusCode.Internal,
+                                            $"the call's events could not be read: {refused.Message}"),
+                                 trailers_);
+    }
 
     var status = await terminal_.Task.ConfigureAwait(false);
     if (status.StatusCode != StatusCode.OK)
@@ -303,6 +321,32 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     }
 
     return response!;
+  }
+
+  /// <summary>Resolves the call from its terminal event.</summary>
+  private void Settle(in Slot slot)
+  {
+    Blob.DecodeStatus(Bytes(slot.Payload),
+                      out var reason,
+                      out var trailers);
+    trailers_ = trailers;
+
+    var ended = new Status((StatusCode)slot.Status,
+                           reason);
+    terminal_.TrySetResult(ended);
+
+    // The head is synthesized when the wire carries none, so reaching here with the headers
+    // still pending means the call died before them. That is what a caller awaiting them needs
+    // to hear, and an empty collection would not say it.
+    if (ended.StatusCode == StatusCode.OK)
+    {
+      headers_.TrySetResult(new Metadata());
+    }
+    else
+    {
+      headers_.TrySetException(new RpcException(ended,
+                                                trailers));
+    }
   }
 
   internal void CancelWith(CancellationToken token)

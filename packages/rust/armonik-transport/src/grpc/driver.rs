@@ -72,7 +72,7 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
     // writing side is told before the reading side, so a reader holding the terminal knows
     // the writer is already refusing.
     control.cancel();
-    delivery.end(status).await;
+    delivery.end(&mut stop, status).await;
 }
 
 /// What ends a call from this side: the caller cancelled it, or the channel closed.
@@ -82,6 +82,15 @@ struct Stop {
 }
 
 impl Stop {
+    /// Resolves once the channel closes, and not when the call itself ends.
+    ///
+    /// The terminal hand-over needs this one rather than `stopped`: `drive` raises `over` just
+    /// before it, so a wait on the call's own end would abandon every terminal instead of
+    /// delivering it. What must still be able to reap the task is the channel going away.
+    async fn channel_closed(&mut self) {
+        let _ = self.channel_closed.wait_for(|closed| *closed).await;
+    }
+
     /// Resolves once the call should stop. A sender that is gone counts as stopped: nothing
     /// is left that could ask for the result.
     async fn stopped(&mut self) {
@@ -128,10 +137,29 @@ impl Delivery {
             .is_ok()
     }
 
-    async fn end(mut self, status: GrpcStatus) {
+    /// Hands the terminal over, or gives up if the call is stopped while trying.
+    ///
+    /// The status is already decided - it came from the network - and getting it to the boundary
+    /// is this crate's obligation, not the caller's. But a consumer that holds its half without
+    /// reading would otherwise park this task for ever, and `close` could not reap it: this was
+    /// the one send not guarded, so it was also the one a closing channel could not reach.
+    ///
+    /// Guarded on the channel alone, deliberately. The call's own end is raised immediately
+    /// before this runs, so waiting on that would abandon every terminal.
+    ///
+    /// Untested, and not for want of trying: whether the task was reaped is not observable
+    /// through this crate's API - `close` answers nothing and a spawn returns nothing - and a
+    /// test that reads in order to look relieves the very block it is checking for. The two
+    /// outcomes differ only in whether a consumer that stopped reading later sees the status or
+    /// `Aborted`, which no caller of a closing channel is entitled to rely on either way.
+    async fn end(mut self, stop: &mut Stop, status: GrpcStatus) {
         // A call that never saw a response head still answers the question, with nothing in it.
         self.head(Metadata::new());
-        let _ = self.messages.send(RecvResult::End(status)).await;
+        tokio::select! {
+            biased;
+            _ = self.messages.send(RecvResult::End(status)) => {}
+            _ = stop.channel_closed() => {}
+        }
     }
 }
 
