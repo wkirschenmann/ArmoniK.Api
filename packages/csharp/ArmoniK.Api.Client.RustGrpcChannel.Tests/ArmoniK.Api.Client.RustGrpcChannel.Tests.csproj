@@ -23,24 +23,17 @@
     <Protobuf Include="echo.proto" GrpcServices="Both" />
   </ItemGroup>
 
-  <!-- The engine under test is the Rust cdylib. Copied beside the test assembly rather than
-       resolved from PATH, so a stale one somewhere else cannot be what answers. -->
-  <Target Name="CopyNativeEngine" AfterTargets="Build">
-    <PropertyGroup>
-      <NativeEngineDirectory>$(MSBuildThisFileDirectory)..\..\rust\target\$(Configuration.ToLower())\</NativeEngineDirectory>
-    </PropertyGroup>
+  <!-- The engine the binding's own build produced, beside this assembly: resolved from PATH it
+       could be a stale one somewhere else that answers. -->
+  <Target Name="CopyNativeEngineForTests" AfterTargets="Build">
     <ItemGroup>
-      <NativeEngine Include="$(NativeEngineDirectory)armonik_transport_ffi.dll"
-                    Condition="Exists('$(NativeEngineDirectory)armonik_transport_ffi.dll')" />
-      <NativeEngine Include="$(NativeEngineDirectory)libarmonik_transport_ffi.so"
-                    Condition="Exists('$(NativeEngineDirectory)libarmonik_transport_ffi.so')" />
-      <NativeEngine Include="$(NativeEngineDirectory)libarmonik_transport_ffi.dylib"
-                    Condition="Exists('$(NativeEngineDirectory)libarmonik_transport_ffi.dylib')" />
+      <BuiltEngine Include="$(MSBuildThisFileDirectory)..\..\rust\target\$(Configuration.ToLower())\*armonik_transport_ffi.dll" />
+      <BuiltEngine Include="$(MSBuildThisFileDirectory)..\..\rust\target\$(Configuration.ToLower())\*armonik_transport_ffi.so" />
+      <BuiltEngine Include="$(MSBuildThisFileDirectory)..\..\rust\target\$(Configuration.ToLower())\*armonik_transport_ffi.dylib" />
     </ItemGroup>
-    <!-- Failing here rather than in nine identical DllNotFoundException reports. -->
-    <Error Condition="'@(NativeEngine)' == ''"
-           Text="no engine in $(NativeEngineDirectory): build it with `cargo build -p armonik-transport-ffi`" />
-    <Copy SourceFiles="@(NativeEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Error Condition="'@(BuiltEngine)' == ''"
+           Text="no native engine under packages/rust/target/$(Configuration.ToLower()); the binding's build produces it" />
+    <Copy SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>
