@@ -1,0 +1,159 @@
+// This file is part of the ArmoniK project
+//
+// Copyright (C) ANEO, 2021-2026. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License")
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
+
+/// <summary>
+///   The echo server, running as a .NET 8 process these tests dial.
+/// </summary>
+/// <remarks>
+///   Out of process because Kestrel and Grpc.AspNetCore are ASP.NET Core, which does not run on
+///   .NET Framework: a fixture that hosted the server in-process could not load on 4.7.2 at all.
+///   The server chooses its own port and prints it, so nothing here has to reserve one and
+///   concurrent runs do not collide.
+/// </remarks>
+internal sealed class EchoServerProcess : IDisposable
+{
+  private const string EndpointPrefix = "ENDPOINT ";
+  private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);
+
+  private readonly Process process_;
+
+  private EchoServerProcess(Process process,
+                            string endpoint)
+  {
+    process_ = process;
+    Endpoint = endpoint;
+  }
+
+  /// <summary>Where it is listening, as a plain HTTP/2 URI.</summary>
+  internal string Endpoint { get; }
+
+  internal static EchoServerProcess Start()
+  {
+    var assembly = ServerAssembly();
+    var process = new Process
+                  {
+                    StartInfo = new ProcessStartInfo("dotnet",
+                                                     $"\"{assembly}\"")
+                                {
+                                  RedirectStandardOutput = true,
+                                  UseShellExecute        = false,
+                                  CreateNoWindow         = true,
+                                },
+                  };
+
+    if (!process.Start())
+    {
+      throw new InvalidOperationException($"`dotnet {assembly}` did not start");
+    }
+
+    try
+    {
+      return new EchoServerProcess(process,
+                                   ReadEndpoint(process));
+    }
+    catch
+    {
+      Kill(process);
+      throw;
+    }
+  }
+
+  /// <summary>
+  ///   Reads the endpoint line, which the server prints once it is listening.
+  /// </summary>
+  /// <remarks>
+  ///   Waiting for that line is also what makes the server ready: a test that dialled before it
+  ///   would fail on a connection refused rather than on anything it meant to check.
+  /// </remarks>
+  private static string ReadEndpoint(Process process)
+  {
+    var deadline = DateTime.UtcNow + StartTimeout;
+    while (DateTime.UtcNow < deadline)
+    {
+      var line = process.StandardOutput.ReadLine();
+      if (line is null)
+      {
+        throw new InvalidOperationException($"the server ended before saying where it listens (exit {process.ExitCode})");
+      }
+
+      if (line.StartsWith(EndpointPrefix,
+                          StringComparison.Ordinal))
+      {
+        return line.Substring(EndpointPrefix.Length)
+                   .Trim();
+      }
+    }
+
+    throw new TimeoutException($"the server said nothing in {StartTimeout}");
+  }
+
+  /// <summary>
+  ///   Where the server was built, as the build recorded it.
+  /// </summary>
+  /// <remarks>
+  ///   These tests run from three framework directories and the server from one, so its path is
+  ///   not derivable from where this assembly happens to be.
+  /// </remarks>
+  private static string ServerAssembly()
+  {
+    var recorded = typeof(EchoServerProcess).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                                            .FirstOrDefault(metadata => metadata.Key == "TestServerAssembly")
+                                           ?.Value;
+    if (string.IsNullOrEmpty(recorded))
+    {
+      throw new InvalidOperationException("the build recorded no TestServerAssembly");
+    }
+
+    var assembly = Path.GetFullPath(recorded!);
+    if (!File.Exists(assembly))
+    {
+      throw new FileNotFoundException($"the test server is not built: {assembly}",
+                                      assembly);
+    }
+
+    return assembly;
+  }
+
+  private static void Kill(Process process)
+  {
+    try
+    {
+      if (!process.HasExited)
+      {
+        process.Kill();
+      }
+    }
+    catch (InvalidOperationException)
+    {
+      // It ended between the question and the answer, which is the outcome being asked for.
+    }
+  }
+
+  /// <inheritdoc />
+  public void Dispose()
+  {
+    Kill(process_);
+    process_.Dispose();
+  }
+}

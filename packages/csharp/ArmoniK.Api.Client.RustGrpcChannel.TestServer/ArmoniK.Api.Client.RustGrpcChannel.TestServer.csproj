@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- The gRPC server every client target dials. Kestrel and Grpc.AspNetCore are ASP.NET Core,
+         which does not run on .NET Framework, so the server cannot live in a test project that
+         has to load on 4.7.2 - it is its own process instead. -->
+    <RootNamespace>ArmoniK.Api.Client.RustGrpcChannel.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.71.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="echo.proto" GrpcServices="Server" />
+  </ItemGroup>
+
+</Project>

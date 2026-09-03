@@ -16,17 +16,10 @@
 
 using System;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
 using Grpc.Core;
-
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
 using NUnit.Framework;
 
@@ -42,28 +35,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 [TestFixture]
 public class UnaryTests
 {
-  private WebApplication? server_;
+  private EchoServerProcess? server_;
   private string endpoint_ = string.Empty;
 
   [OneTimeSetUp]
-  public async Task StartServer()
+  public void StartServer()
   {
-    var builder = WebApplication.CreateBuilder();
-    // 127.0.0.1 and not localhost: Kestrel refuses a dynamic port on the latter, and the engine
-    // under test dials plain HTTP/2 with no upgrade, so the listener must speak it outright.
-    builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback,
-                                                               0,
-                                                               listen => listen.Protocols = HttpProtocols.Http2));
-    builder.Services.AddGrpc();
-
-    server_ = builder.Build();
-    server_.MapGrpcService<EchoService>();
-    await server_.StartAsync()
-                 .ConfigureAwait(false);
-
-    endpoint_ = server_.Urls.GetEnumerator() is var urls && urls.MoveNext()
-                  ? urls.Current
-                  : throw new InvalidOperationException("the test server bound no address");
+    server_   = EchoServerProcess.Start();
+    endpoint_ = server_.Endpoint;
     NativeRuntimeFactory.Configure(workerThreads: 2);
   }
 
@@ -83,16 +62,8 @@ public class UnaryTests
   }
 
   [OneTimeTearDown]
-  public async Task StopServer()
-  {
-    if (server_ is not null)
-    {
-      await server_.StopAsync()
-                   .ConfigureAwait(false);
-      await server_.DisposeAsync()
-                   .ConfigureAwait(false);
-    }
-  }
+  public void StopServer()
+    => server_?.Dispose();
 
   private Echo.EchoClient Client(NativeChannel channel)
     => new(channel.CreateCallInvoker());

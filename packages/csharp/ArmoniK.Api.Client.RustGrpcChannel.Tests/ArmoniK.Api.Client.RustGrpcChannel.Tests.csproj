@@ -1,14 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- The binding ships netstandard2.0 and net8.0, and a .NET Framework consumer resolves to the
+         netstandard2.0 half. That half is the one nothing exercised, so it gets its own hosts. -->
+    <TargetFrameworks>net4.7;net4.8;net8.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <LangVersion>10</LangVersion>
     <Nullable>enable</Nullable>
+    <!-- The engine is a native library of one architecture, so the host must not silently be of
+         another: AnyCPU on a 64-bit machine would run 64-bit and load the x64 engine, which is
+         right, but only by accident. -->
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
+    <!-- The generated client needs these two and nothing else: the server half of the contract
+         lives in another process, so Grpc.AspNetCore does not belong here. -->
+    <PackageReference Include="Google.Protobuf" Version="3.31.1" />
     <PackageReference Include="Grpc.Tools" Version="2.71.0" PrivateAssets="All" />
     <PackageReference Include="NUnit" Version="3.14.0" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
@@ -17,25 +26,35 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj" />
+    <!-- Built but not referenced: it is a net8.0 process these tests start, not a library they
+         link, and a net4.7 host could not load it anyway. -->
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\ArmoniK.Api.Client.RustGrpcChannel.TestServer.csproj"
+                      ReferenceOutputAssembly="false"
+                      SetTargetFramework="TargetFramework=net8.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="echo.proto" GrpcServices="Both" />
+    <Protobuf Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\echo.proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <!-- Where that process lives, handed to the fixture rather than rediscovered at run time: the
+       tests run from three different framework directories and the server from only one. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="TestServerAssembly"
+                      Value="$(MSBuildThisFileDirectory)..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\bin\$(Configuration)\net8.0\ArmoniK.Api.Client.RustGrpcChannel.TestServer.dll" />
   </ItemGroup>
 
   <!-- The engine the binding's own build produced, for the architecture this test host runs as,
        beside this assembly: resolved from PATH it could be a stale one somewhere else that
-       answers. Naming a target explicitly makes cargo write under target/[triple]/, so the path
-       carries the triple now. -->
-  <Target Name="CopyNativeEngineForTests" AfterTargets="Build">
+       answers. Naming a target makes cargo write under target/[triple]/, so the path carries the
+       triple now. -->
+  <Target Name="CopyNativeEngineForTests" AfterTargets="CopyFilesToOutputDirectory">
     <PropertyGroup>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'win-x64'">x86_64-pc-windows-msvc</TestEngineTriple>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'win-x86'">i686-pc-windows-msvc</TestEngineTriple>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'win-arm64'">aarch64-pc-windows-msvc</TestEngineTriple>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'linux-x64'">x86_64-unknown-linux-gnu</TestEngineTriple>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'linux-arm64'">aarch64-unknown-linux-gnu</TestEngineTriple>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'osx-x64'">x86_64-apple-darwin</TestEngineTriple>
-      <TestEngineTriple Condition="'$(NETCoreSdkRuntimeIdentifier)' == 'osx-arm64'">aarch64-apple-darwin</TestEngineTriple>
+      <TestEngineTriple Condition="'$(PlatformTarget)' == 'x64'">x86_64-pc-windows-msvc</TestEngineTriple>
+      <TestEngineTriple Condition="'$(PlatformTarget)' == 'x86'">i686-pc-windows-msvc</TestEngineTriple>
+      <TestEngineTriple Condition="'$(PlatformTarget)' == 'ARM64'">aarch64-pc-windows-msvc</TestEngineTriple>
+      <TestEngineTriple Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'x64'">x86_64-unknown-linux-gnu</TestEngineTriple>
+      <TestEngineTriple Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND '$(PlatformTarget)' == 'ARM64'">aarch64-unknown-linux-gnu</TestEngineTriple>
     </PropertyGroup>
     <ItemGroup>
       <BuiltEngine Include="$(MSBuildThisFileDirectory)..\..\rust\target\$(TestEngineTriple)\$(Configuration.ToLower())\*armonik_transport_ffi.dll" />
@@ -43,9 +62,9 @@
       <BuiltEngine Include="$(MSBuildThisFileDirectory)..\..\rust\target\$(TestEngineTriple)\$(Configuration.ToLower())\*armonik_transport_ffi.dylib" />
     </ItemGroup>
     <Error Condition="'$(TestEngineTriple)' == ''"
-           Text="no Rust target is mapped for $(NETCoreSdkRuntimeIdentifier)" />
+           Text="no Rust target is mapped for PlatformTarget $(PlatformTarget)" />
     <Error Condition="'@(BuiltEngine)' == ''"
-           Text="no native engine under packages/rust/target/$(TestEngineTriple)/$(Configuration.ToLower()); the binding's build produces it" />
+           Text="no native engine under packages/rust/target/$(TestEngineTriple)/$(Configuration.ToLower()); build the binding with -p:NativeEngineRids for this architecture" />
     <Copy SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
