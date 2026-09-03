@@ -118,7 +118,7 @@ public static class NativeRuntimeFactory
 
   /// <summary>What ABI the loaded library speaks. Opening a channel refuses a mismatch.</summary>
   public static int LibraryAbiVersion
-    => NativeRuntime.LibraryAbiVersion;
+    => NativeMethods.ak_abi_version();
 
   /// <summary>The state the model calls <c>runtime_dispose_state</c>, for tests and assertions.</summary>
   public static string State
@@ -199,14 +199,11 @@ public static class NativeRuntimeFactory
       state_ = RuntimeDisposeState.Destroying;
     }
 
-    retiring.BeginShutdown();
-
     Exception? failure = null;
     try
     {
-      await retiring.ReleasedAsync()
+      await retiring.RetireAsync()
                     .ConfigureAwait(false);
-      retiring.Destroy();
     }
     catch (Exception raised)
     {
@@ -223,8 +220,6 @@ public static class NativeRuntimeFactory
 
       if (failure is null)
       {
-        // The root outlives every callback, and destroy returning is what says there are none.
-        retiring.FreeRoot();
         current_ = null;
         state_   = RuntimeDisposeState.Absent;
         leases_  = 0;

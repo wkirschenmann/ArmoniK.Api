@@ -33,6 +33,9 @@ internal static class NativeMethods
 {
   internal const string Library = "armonik_transport_ffi";
 
+  /// <summary>The version this binding is written against.</summary>
+  internal const int AbiVersion = 1;
+
   /// <summary>
   ///   Loads the engine for this process's word size, where the framework will not.
   /// </summary>
@@ -265,6 +268,4 @@ internal static class NativeMethods
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern void ak_event_consumed(AkBytes payload);
 
-  /// <summary>The version this binding is written against.</summary>
-  internal const int AbiVersion = 1;
 }

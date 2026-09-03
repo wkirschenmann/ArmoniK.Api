@@ -381,6 +381,22 @@ public class UnaryTests
     // A second channel holds the generation, so the first one's half can be looked at after it
     // is released rather than vanishing with the runtime.
     var keepsAlive = NativeRuntimeFactory.Channel(endpoint_);
+    try
+    {
+      await TheTwoHalves(keepsAlive)
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      // Whatever the assertions did, the lease goes back: the per-test teardown checks the
+      // factory is empty, and one leak would fail every test after this one.
+      await keepsAlive.DisposeAsync()
+                      .ConfigureAwait(false);
+    }
+  }
+
+  private async Task TheTwoHalves(NativeChannel keepsAlive)
+  {
     var channel = NativeRuntimeFactory.Channel(endpoint_);
     Assert.That(channel.NativeState,
                 Is.EqualTo("Open"));
@@ -395,18 +411,23 @@ public class UnaryTests
     await channel.DisposeAsync()
                  .ConfigureAwait(false);
 
-    // Disposing settles this channel's calls first, so the engine has nothing left to drain and
-    // reports closed rather than closing.
+    Assert.Multiple(() =>
+                    {
+                      // Disposing settles this channel's calls first, so the engine has nothing
+                      // left to drain and reports closed rather than closing.
+                      Assert.That(channel.NativeState,
+                                  Is.EqualTo("Closed"));
+                      // Disposed and not Released: the two release states are what the dispose
+                      // passes through, and by the time its task completes it is past both.
+                      Assert.That(channel.DisposeState,
+                                  Is.EqualTo("Disposed"));
+                    });
+
+
+    // Still open, because the channel keeping the generation alive has not been released yet;
+    // what happens after that is the caller's business.
     Assert.That(channel.NativeState,
                 Is.EqualTo("Closed"));
-
-    await keepsAlive.DisposeAsync()
-                    .ConfigureAwait(false);
-
-    // The last release destroyed the generation, and a released channel's handle is reclaimed
-    // with it - so neither half names a channel any more.
-    Assert.That(channel.NativeState,
-                Is.EqualTo("None"));
   }
 
   /// <summary>

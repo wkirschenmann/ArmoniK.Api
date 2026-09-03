@@ -16,6 +16,7 @@
 
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
@@ -32,6 +33,8 @@ internal sealed class NativeRuntime
 {
   /// <summary>How long the teardown gives the runtime to stop before giving up on it.</summary>
   private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(30);
+
+  private static readonly TimeSpan RoomPollInterval = TimeSpan.FromMilliseconds(2);
 
   /// <summary>
   ///   Rooted for the library's lifetime. A delegate marshalled to a function pointer is not kept
@@ -72,10 +75,6 @@ internal sealed class NativeRuntime
   internal ulong Handle
     => handle_;
 
-  /// <summary>What ABI the loaded library speaks. Diagnostic: <see cref="Create" /> refuses a mismatch.</summary>
-  public static int LibraryAbiVersion
-    => NativeMethods.ak_abi_version();
-
   /// <summary>Creates a generation, after checking the library speaks the ABI this was built against.</summary>
   internal static NativeRuntime Create(uint workerThreads,
                                        ulong memoryCeiling)
@@ -90,15 +89,50 @@ internal sealed class NativeRuntime
                              memoryCeiling);
   }
 
-  /// <summary>What this generation currently holds against its ceiling.</summary>
-  internal (ulong Used, ulong Ceiling) MemoryUsage()
-    => NativeMethods.ak_runtime_memory_usage(handle_,
-                                             out var usage) == NativeMethods.AkStatus.Ok
-         ? (usage.BytesUsed, usage.Ceiling)
-         : (0UL, 0UL);
+  /// <summary>
+  ///   Waits until the ceiling admits another lend.
+  /// </summary>
+  /// <remarks>
+  ///   The ceiling is the runtime's, so the wait is too: a call refused a buffer has no idea what
+  ///   else is holding one. There is no event announcing room either, which is why this polls the
+  ///   figure the header names for it.
+  /// </remarks>
+  internal async Task WaitForRoomAsync(CancellationToken token)
+  {
+    while (true)
+    {
+      token.ThrowIfCancellationRequested();
+      await Task.Delay(RoomPollInterval,
+                       token)
+                .ConfigureAwait(false);
 
-  internal void BeginShutdown()
-    => NativeMethods.ak_runtime_begin_shutdown(handle_);
+      if (NativeMethods.ak_runtime_memory_usage(handle_,
+                                                out var usage) != NativeMethods.AkStatus.Ok
+          || usage.Ceiling == 0
+          || usage.BytesUsed < usage.Ceiling)
+      {
+        return;
+      }
+    }
+  }
+
+  /// <summary>
+  ///   Stops, waits for quiescence, destroys, and only then releases the root.
+  /// </summary>
+  /// <remarks>
+  ///   In that order, and here rather than at the caller: the root may be released only once
+  ///   `ak_runtime_destroy` has returned, since until then a callback can still be in flight
+  ///   carrying it. An ordering documented at two sites and enforced at neither is what this
+  ///   replaces.
+  /// </remarks>
+  internal async Task RetireAsync()
+  {
+    NativeMethods.ak_runtime_begin_shutdown(handle_);
+    await ReleasedAsync()
+      .ConfigureAwait(false);
+    Destroy();
+    FreeRoot();
+  }
 
   /// <summary>
   ///   Waits for the runtime to say it has stopped and owes nothing.
@@ -107,7 +141,7 @@ internal sealed class NativeRuntime
   ///   Quiescence is reached by giving everything back, not by waiting for it, and each call's
   ///   drain is what does that. This waits only for the runtime's own word on it.
   /// </remarks>
-  internal async Task ReleasedAsync()
+  private async Task ReleasedAsync()
   {
     var answered = await Task.WhenAny(released_.Task,
                                       Task.Delay(ShutdownTimeout))
@@ -124,7 +158,7 @@ internal sealed class NativeRuntime
   ///   Destroying is permitted only from quiescence, so a refusal leaves the threads up. Raised
   ///   rather than swallowed: nothing else would ever report it.
   /// </exception>
-  internal void Destroy()
+  private void Destroy()
   {
     var status = NativeMethods.ak_runtime_destroy(handle_);
     if (status != NativeMethods.AkStatus.Ok)
@@ -134,7 +168,7 @@ internal sealed class NativeRuntime
   }
 
   /// <summary>Releases the root. Legal only once <see cref="Destroy" /> has returned.</summary>
-  internal void FreeRoot()
+  private void FreeRoot()
   {
     if (self_.IsAllocated)
     {

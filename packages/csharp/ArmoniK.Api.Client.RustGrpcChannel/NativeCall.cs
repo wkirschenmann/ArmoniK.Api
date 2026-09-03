@@ -1,5 +1,22 @@
+// This file is part of the ArmoniK project
+//
+// Copyright (C) ANEO, 2021-2026. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License")
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -46,7 +63,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   private readonly Marshaller<TResponse> marshaller_;
-  private readonly ulong runtime_;
+  private readonly NativeRuntime runtime_;
 
   private GCHandle self_;
   private ulong handle_;
@@ -54,7 +71,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   private CancellationTokenRegistration cancellation_;
   private int cancelled_;
 
-  private NativeCall(ulong runtime,
+  private NativeCall(NativeRuntime runtime,
                      int deliveryCredits,
                      Marshaller<TResponse> marshaller)
   {
@@ -89,7 +106,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   internal Metadata Trailers
     => trailers_;
 
-  internal static NativeCall<TResponse> Start(ulong runtime,
+  internal static NativeCall<TResponse> Start(NativeRuntime runtime,
                                               ulong channel,
                                               int deliveryCredits,
                                               string method,
@@ -99,7 +116,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     var call = new NativeCall<TResponse>(runtime,
                                          deliveryCredits,
                                          marshaller);
-    var methodBytes = System.Text.Encoding.UTF8.GetBytes(method);
+    var methodBytes = Encoding.UTF8.GetBytes(method);
     var metadataBytes = Blob.Encode(metadata);
 
     var methodPin = GCHandle.Alloc(methodBytes,
@@ -186,8 +203,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
         throw Failed($"the message was refused ({status})");
       }
 
-      await WaitForRoomAsync(token)
-        .ConfigureAwait(false);
+      await runtime_.WaitForRoomAsync(token)
+                    .ConfigureAwait(false);
     }
 
     var closed = NativeMethods.ak_call_end_send(handle_);
@@ -315,26 +332,6 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   /// </remarks>
   public void Dispose()
     => Cancel();
-
-  private async Task WaitForRoomAsync(CancellationToken token)
-  {
-    // The ceiling has no event announcing room, so this is the poll the header prescribes.
-    while (true)
-    {
-      token.ThrowIfCancellationRequested();
-      await Task.Delay(TimeSpan.FromMilliseconds(2),
-                       token)
-                .ConfigureAwait(false);
-
-      if (NativeMethods.ak_runtime_memory_usage(runtime_,
-                                                out var usage) != NativeMethods.AkStatus.Ok
-          || usage.Ceiling == 0
-          || usage.BytesUsed < usage.Ceiling)
-      {
-        return;
-      }
-    }
-  }
 
   private static unsafe ReadOnlySpan<byte> Bytes(in NativeMethods.AkBytes payload)
     => new((void*)payload.Ptr,

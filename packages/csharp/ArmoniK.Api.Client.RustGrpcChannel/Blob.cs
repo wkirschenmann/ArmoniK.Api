@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -45,6 +46,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 internal static class Blob
 {
   private const string BinarySuffix = "-bin";
+
+  private const char Quotation = '"';
 
   internal static byte[] Encode(Metadata? metadata)
   {
@@ -134,6 +137,50 @@ internal static class Blob
 
     message  = Text(reason);
     trailers = Decode(payload);
+  }
+
+  /// <summary>Reverse solidus, which is JSON's escape character.</summary>
+  private const char Escape = (char)0x5c;
+
+  /// <summary>
+  ///   The channel config the engine parses, as JSON.
+  /// </summary>
+  /// <remarks>
+  ///   Here beside the other encoding this ABI asks for, and not in the channel: the header lists
+  ///   more options than these two and refuses one it does not know rather than ignoring it, so
+  ///   the next option added wants one obvious home. Written by hand because a netstandard2.0
+  ///   target would need a package to do it any other way, and the shape is two fields.
+  /// </remarks>
+  internal static byte[] ChannelConfig(string endpoint,
+                                       int deliveryCredits)
+    => Encoding.UTF8.GetBytes("{" + Quote("endpoint") + ":" + Quote(endpoint) + "," + Quote("delivery_credits") + ":" + deliveryCredits.ToString(CultureInfo.InvariantCulture) + "}");
+
+  /// <summary>One JSON string, escaped. An endpoint is a URI and may carry either of these.</summary>
+  private static string Quote(string value)
+  {
+    var quoted = new StringBuilder(value.Length + 2).Append(Quotation);
+    foreach (var character in value)
+    {
+      if (character == Quotation || character == Escape)
+      {
+        quoted.Append(Escape)
+              .Append(character);
+      }
+      else if (character < ' ')
+      {
+        quoted.Append(Escape)
+              .Append('u')
+              .Append(((int)character).ToString("x4",
+                                                CultureInfo.InvariantCulture));
+      }
+      else
+      {
+        quoted.Append(character);
+      }
+    }
+
+    return quoted.Append(Quotation)
+                 .ToString();
   }
 
   private static void Write(byte[] into,

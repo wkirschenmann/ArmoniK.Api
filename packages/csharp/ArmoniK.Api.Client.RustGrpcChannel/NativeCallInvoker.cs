@@ -56,12 +56,9 @@ public sealed class NativeCallInvoker : CallInvoker
                                                                                 CallOptions options,
                                                                                 TRequest request)
   {
-    var call = NativeCall<TResponse>.Start(channel_.Runtime,
-                                           channel_.Handle,
-                                           channel_.DeliveryCredits,
-                                           method.FullName,
-                                           options.Headers,
-                                           method.ResponseMarshaller);
+    var call = channel_.StartCall(method.FullName,
+                                 options.Headers,
+                                 method.ResponseMarshaller);
     call.CancelWith(options.CancellationToken);
 
     var answered = AnswerAsync(call,

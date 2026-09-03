@@ -18,7 +18,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -73,7 +72,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     runtime_         = runtime;
     deliveryCredits_ = deliveryCredits;
 
-    var json = Encoding.UTF8.GetBytes($"{{\"endpoint\":{Quote(endpoint)},\"delivery_credits\":{deliveryCredits}}}");
+    var json = Blob.ChannelConfig(endpoint,
+                                  deliveryCredits);
     var pin = GCHandle.Alloc(json,
                              GCHandleType.Pinned);
     try
@@ -99,8 +99,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   }
 
   /// <summary>The state the model calls <c>channel_dispose_state</c>, for tests and assertions.</summary>
-  internal ChannelDisposeState DisposeState
-    => state_;
+  public string DisposeState
+    => state_.ToString();
 
   /// <summary>
   ///   What the engine says of its half, which is the model's <c>channel_state</c>.
@@ -117,14 +117,24 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   public override CallInvoker CreateCallInvoker()
     => new NativeCallInvoker(this);
 
-  internal ulong Handle
-    => handle_;
-
-  internal ulong Runtime
-    => runtime_.Handle;
-
-  internal int DeliveryCredits
-    => deliveryCredits_;
+  /// <summary>
+  ///   Starts a call on this channel.
+  /// </summary>
+  /// <remarks>
+  ///   Here and not at the invoker: the handle, the delivery window and the runtime that owns the
+  ///   ceiling are all the channel's, and an invoker that forwarded them would be a courier for a
+  ///   sentence it has no part in.
+  /// </remarks>
+  internal NativeCall<TResponse> StartCall<TResponse>(string method,
+                                                      Metadata? metadata,
+                                                      Marshaller<TResponse> marshaller)
+    where TResponse : class
+    => NativeCall<TResponse>.Start(runtime_,
+                                   handle_,
+                                   deliveryCredits_,
+                                   method,
+                                   metadata,
+                                   marshaller);
 
   /// <summary>
   ///   Records a call as this channel's until it settles.
@@ -166,7 +176,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
       }
 
       await Task.WhenAll(live_.Values.ToArray()
-                              .Select(Settled))
+                              .Select(IgnoringFailure))
                 .ConfigureAwait(false);
 
       NativeMethods.ak_channel_release(handle_);
@@ -213,43 +223,9 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
       .AsTask();
 
   /// <summary>A call that ended badly still settled, which is all this waits for.</summary>
-  private static Task Settled(Task drain)
+  private static Task IgnoringFailure(Task drain)
     => drain.ContinueWith(static _ =>
                           {
                           },
                           TaskContinuationOptions.ExecuteSynchronously);
-
-  private static string Quote(string value)
-  {
-    var quoted = new StringBuilder(value.Length + 2).Append('"');
-    foreach (var character in value)
-    {
-      switch (character)
-      {
-        case '"':
-          quoted.Append("\\\"");
-          break;
-
-        case '\\':
-          quoted.Append("\\\\");
-          break;
-
-        default:
-          if (character < ' ')
-          {
-            quoted.Append("\\u")
-                  .Append(((int)character).ToString("x4"));
-          }
-          else
-          {
-            quoted.Append(character);
-          }
-
-          break;
-      }
-    }
-
-    return quoted.Append('"')
-                 .ToString();
-  }
 }
