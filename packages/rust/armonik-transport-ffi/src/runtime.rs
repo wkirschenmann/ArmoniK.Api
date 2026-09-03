@@ -1,184 +1,18 @@
-//! The runtime: what owns the Tokio threads, the ledger, and the shutdown chain.
+//! The runtime: the threads, the start gate, and the shutdown chain.
+//!
+//! One generation at a time, which is the model's own assumption and what every promise about
+//! "the runtime" is stated over. It owns a ledger and it closes its channels, but it defines
+//! neither: what belongs here is the lifecycle nothing else can see.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use armonik_transport::grpc::GrpcChannel;
-use tokio::sync::watch;
-
-use crate::abi::{
-    ak_channel_state, ak_event_kind, ak_handle, ak_host_debt, ak_memory_usage, ak_runtime_state,
-    ak_status,
-};
+use crate::abi::{ak_event_kind, ak_host_debt, ak_runtime_state, ak_status};
 use crate::call::CallState;
+use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
+use crate::ledger::Ledger;
 use crate::tables;
-
-/// What the host holds of a runtime: payloads not consumed, buffers not given back.
-///
-/// Quiescence is this reaching zero after the runtime has stopped, which is why the host gets
-/// there by acting rather than by waiting.
-pub(crate) struct Ledger {
-    /// Payloads and buffers together: what decides quiescence. A zero-length payload is
-    /// still something the host holds, which is why this counts and does not weigh.
-    outstanding: AtomicU64,
-    /// Lent buffers only: what the ceiling bounds.
-    bytes: AtomicU64,
-    ceiling: u64,
-    /// Bumped on every release. A version and not a `Notify`: a waiter that checks its
-    /// condition before creating the future misses a `notify_waiters` landing in between,
-    /// and here that costs the runtime its quiescence for good.
-    changed: watch::Sender<u64>,
-}
-
-impl Ledger {
-    fn new(ceiling: u64) -> Self {
-        Self {
-            outstanding: AtomicU64::new(0),
-            bytes: AtomicU64::new(0),
-            ceiling,
-            changed: watch::channel(0).0,
-        }
-    }
-
-    pub(crate) fn usage(&self) -> ak_memory_usage {
-        ak_memory_usage {
-            bytes_used: self.bytes.load(Ordering::Acquire),
-            ceiling: self.ceiling,
-        }
-    }
-
-    pub(crate) fn hold(&self) {
-        self.outstanding.fetch_add(1, Ordering::AcqRel);
-    }
-
-    pub(crate) fn release(&self) {
-        self.outstanding.fetch_sub(1, Ordering::AcqRel);
-        self.changed.send_modify(|version| *version += 1);
-    }
-
-    /// Whether a request of `len` could ever fit. A refusal here is permanent: no return by
-    /// anyone will make room, so retrying is pointless.
-    pub(crate) fn could_ever_fit(&self, len: usize) -> Result<(), ak_status> {
-        match self.ceiling {
-            0 => Ok(()),
-            ceiling if len as u64 <= ceiling => Ok(()),
-            _ => Err(ak_status::AK_STATUS_MESSAGE_TOO_LARGE),
-        }
-    }
-
-    /// Takes `len` bytes against the ceiling, or reports that they are not there yet.
-    pub(crate) fn reserve(&self, len: usize) -> Result<(), ak_status> {
-        if self.ceiling == 0 {
-            self.bytes.fetch_add(len as u64, Ordering::AcqRel);
-            self.hold();
-            return Ok(());
-        }
-
-        let mut seen = self.bytes.load(Ordering::Acquire);
-        loop {
-            let wanted = seen + len as u64;
-            if wanted > self.ceiling {
-                return Err(ak_status::AK_STATUS_BUDGET_BUSY);
-            }
-            match self.bytes.compare_exchange_weak(
-                seen,
-                wanted,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    self.hold();
-                    return Ok(());
-                }
-                Err(current) => seen = current,
-            }
-        }
-    }
-
-    /// Gives `len` bytes back to the ceiling, and the buffer back to the count.
-    pub(crate) fn release_bytes(&self, len: usize) {
-        self.bytes.fetch_sub(len as u64, Ordering::AcqRel);
-        self.release();
-    }
-
-    fn empty(&self) -> bool {
-        self.outstanding.load(Ordering::Acquire) == 0
-    }
-
-    async fn drained(&self) {
-        let mut changed = self.changed.subscribe();
-        while !self.empty() {
-            if changed.changed().await.is_err() {
-                return;
-            }
-        }
-    }
-}
-
-/// A channel and the runtime it belongs to.
-pub(crate) struct AkChannel {
-    pub(crate) grpc: GrpcChannel,
-    pub(crate) runtime: Weak<AkRuntime>,
-    pub(crate) handle: ak_handle,
-    pub(crate) delivery_credits: usize,
-    pub(crate) max_sends_in_flight: u32,
-    /// Open, closing, closed - as an `ak_channel_state` discriminant, so the observer is a read.
-    closing: AtomicU8,
-}
-
-impl AkChannel {
-    pub(crate) fn new(
-        grpc: GrpcChannel,
-        runtime: &Arc<AkRuntime>,
-        handle: ak_handle,
-        delivery_credits: usize,
-        max_sends_in_flight: u32,
-    ) -> Self {
-        Self {
-            grpc,
-            runtime: Arc::downgrade(runtime),
-            handle,
-            delivery_credits,
-            max_sends_in_flight,
-            closing: AtomicU8::new(ak_channel_state::AK_CHANNEL_OPEN as u8),
-        }
-    }
-
-    pub(crate) fn state(&self) -> ak_channel_state {
-        match self.closing.load(Ordering::Acquire) {
-            n if n == ak_channel_state::AK_CHANNEL_OPEN as u8 => ak_channel_state::AK_CHANNEL_OPEN,
-            n if n == ak_channel_state::AK_CHANNEL_CLOSING as u8 => {
-                ak_channel_state::AK_CHANNEL_CLOSING
-            }
-            _ => ak_channel_state::AK_CHANNEL_CLOSED,
-        }
-    }
-
-    /// Latches the channel to closing. Answers false if it was already, so a second release
-    /// cancels nothing twice.
-    pub(crate) fn start_closing(&self) -> bool {
-        self.closing
-            .compare_exchange(
-                ak_channel_state::AK_CHANNEL_OPEN as u8,
-                ak_channel_state::AK_CHANNEL_CLOSING as u8,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-    }
-
-    /// Closed once nothing of it is active. Only a closing channel finishes closing: an open one
-    /// with no calls is idle, not done.
-    pub(crate) fn finish_closing(&self) {
-        let _ = self.closing.compare_exchange(
-            ak_channel_state::AK_CHANNEL_CLOSING as u8,
-            ak_channel_state::AK_CHANNEL_CLOSED as u8,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
-    }
-}
 
 /// One runtime: its threads, its objects, and the state the host polls.
 pub(crate) struct AkRuntime {
@@ -251,61 +85,28 @@ impl AkRuntime {
         (self.state() == ak_runtime_state::AK_RUNTIME_RUNNING).then_some(pass)
     }
 
-    /// Takes a call's handle back, now that nothing of it is outstanding.
-    pub(crate) fn reclaim_call(&self, handle: ak_handle) {
-        let gone = tables::calls().remove(handle);
-        // Removed first, so the count below cannot see the call it is asking about. A closing
-        // channel whose last call has gone has finished closing, and this library is what
-        // decides that - the engine's close is fire-and-forget and says nothing back.
-        if let Some(call) = gone {
-            Self::settle_channel_of(call.channel());
-        }
+    /// Every call there is, which is every call of this runtime: one generation exists at a
+    /// time, so a filter by owner would be filtering a set it already holds whole.
+    fn own_calls() -> Vec<Arc<CallState>> {
+        tables::calls().values()
     }
 
-    /// Marks a closing channel closed once no call of it is left.
-    pub(crate) fn settle_channel_of(channel: ak_handle) {
-        let Some(found) = tables::channels().get(channel) else {
-            return;
-        };
-        if found.state() != ak_channel_state::AK_CHANNEL_CLOSING {
-            return;
-        }
-        if !tables::calls()
-            .values()
-            .into_iter()
-            .any(|call| call.belongs_to_channel(channel))
-        {
-            found.finish_closing();
-        }
-    }
-
-    fn own_calls(this: &Weak<Self>) -> Vec<Arc<CallState>> {
-        tables::calls()
-            .values()
-            .into_iter()
-            .filter(|call| call.belongs_to(this))
-            .collect()
-    }
-
-    /// Takes this runtime's channels out of the registry and hands them over.
-    fn take_own_channels(this: &Weak<Self>) -> Vec<Arc<AkChannel>> {
+    /// The same, taken out of the table rather than read: a channel closed by a shutdown is not
+    /// one a later downcall may name.
+    fn take_own_channels() -> Vec<Arc<AkChannel>> {
         tables::channels()
             .values()
             .into_iter()
-            .filter(|channel| Weak::ptr_eq(&channel.runtime, this))
-            .inspect(|channel| {
-                tables::channels().remove(channel.handle);
-            })
+            .filter_map(|channel| tables::channels().remove(channel.handle))
             .collect()
     }
 
     /// Stales every handle this runtime owns.
-    pub(crate) fn stale_own_handles(self: &Arc<Self>) {
-        let weak = Arc::downgrade(self);
-        for call in Self::own_calls(&weak) {
+    pub(crate) fn stale_own_handles(&self) {
+        for call in Self::own_calls() {
             tables::calls().remove(call.handle());
         }
-        Self::take_own_channels(&weak);
+        Self::take_own_channels();
     }
 
     /// Closes the start gate and drains. Idempotent: a second call is a no-op.
@@ -334,10 +135,10 @@ impl AkRuntime {
                 );
             }
 
-            for channel in Self::take_own_channels(&weak) {
+            for channel in Self::take_own_channels() {
                 channel.grpc.close();
             }
-            let calls = Self::own_calls(&weak);
+            let calls = Self::own_calls();
             for call in &calls {
                 call.cancel();
             }

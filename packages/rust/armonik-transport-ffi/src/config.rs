@@ -7,7 +7,10 @@ use armonik_transport::http2::TransportConfig;
 use armonik_transport::reexports::http::Uri;
 use serde::Deserialize;
 
-pub(crate) const MAX_SENDS_IN_FLIGHT: u32 = 1;
+/// The two windows the header calls mirrors of each other, and their defaults, together: the
+/// send window bounds the buffers a call may have out, the delivery window the payloads.
+const MAX_SENDS_IN_FLIGHT: u32 = 1;
+const DELIVERY_CREDITS: usize = 1;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,7 +34,7 @@ impl ChannelSettings {
     /// The ABI's delivery window for calls of this channel. The host sizes its own per-call
     /// queue from it, which is why it is a channel option and not something negotiated later.
     pub(crate) fn delivery_credits(&self) -> usize {
-        self.delivery_credits.unwrap_or(crate::call::DELIVERY_CREDITS)
+        self.delivery_credits.unwrap_or(DELIVERY_CREDITS)
     }
 
     /// The send window's mirror of `delivery_credits`: how many buffers a call of this channel
@@ -109,7 +112,7 @@ mod tests {
             parse(br#"{"endpoint":"http://h:1"}"#)
                 .expect("valid")
                 .delivery_credits(),
-            crate::call::DELIVERY_CREDITS
+            DELIVERY_CREDITS
         );
         assert_eq!(
             parse(br#"{"endpoint":"http://h:1","delivery_credits":4}"#)

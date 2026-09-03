@@ -252,7 +252,10 @@ fn an_idle_channel_is_closed_the_moment_it_is_released() {
     let host = Host::start();
     let channel = host.channel(&server.endpoint);
 
-    assert_eq!(ak_channel_status(channel), ak_channel_state::AK_CHANNEL_OPEN);
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_OPEN
+    );
 
     ak_channel_release(channel);
 

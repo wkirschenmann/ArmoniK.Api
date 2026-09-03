@@ -14,8 +14,11 @@
 mod abi;
 mod blob;
 mod call;
+mod channel;
 mod config;
 mod host;
+mod ledger;
+mod lifecycle;
 mod registry;
 mod runtime;
 mod tables;
@@ -25,11 +28,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use armonik_transport::grpc::{CallStartOptions, GrpcChannel, TokioExecutor};
-
 pub use abi::*;
 use host::{Host, HostPtr};
-use runtime::{AkChannel, AkRuntime};
+use runtime::AkRuntime;
 
 /// Runs `body`, answering `AK_STATUS_INTERNAL` if it panics.
 fn guard(body: impl FnOnce() -> ak_status) -> ak_status {
@@ -173,27 +174,12 @@ pub unsafe extern "C" fn ak_channel_create(
         let Some(json) = (unsafe { config_json.as_slice() }) else {
             return ak_status::AK_STATUS_INVALID_ARG;
         };
-        let Some(settings) = config::parse(json) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
 
-        let executor = TokioExecutor::new(found.spawner().clone());
-        let delivery_credits = settings.delivery_credits();
-        let max_sends_in_flight = settings.max_sends_in_flight();
-        let Ok(grpc) = GrpcChannel::new(settings.into_channel_config(), executor) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
+        match channel::create(runtime, found.spawner(), json) {
+            Err(status) => return status,
+            Ok(handle) => unsafe { *out = handle },
+        }
 
-        let handle = tables::channels().reserve();
-        let channel = Arc::new(AkChannel::new(
-            grpc,
-            &found,
-            handle,
-            delivery_credits,
-            max_sends_in_flight,
-        ));
-        tables::channels().publish(handle, channel);
-        unsafe { *out = handle };
         ak_status::AK_STATUS_OK
     })
 }
@@ -207,28 +193,7 @@ pub unsafe extern "C" fn ak_channel_create(
 /// the session alone would never reach it.
 #[no_mangle]
 pub extern "C" fn ak_channel_release(channel: ak_handle) {
-    let _ = catch_unwind(|| {
-        let Some(found) = tables::channels().get(channel) else {
-            return;
-        };
-        if !found.start_closing() {
-            return;
-        }
-
-        // Latched before the session goes, and in this order: a call that notices the closed
-        // transport takes the same exit, but one parked on a credit only ever notices its own
-        // cancellation.
-        for call in tables::calls().values() {
-            if call.belongs_to_channel(channel) {
-                call.cancel();
-            }
-        }
-        found.grpc.close();
-
-        // An idle channel is closed the moment it is released; one with calls closes when its
-        // last one is reclaimed.
-        AkRuntime::settle_channel_of(channel);
-    });
+    let _ = catch_unwind(|| lifecycle::release_channel(channel));
 }
 
 /// Starts a call. `call_ctx` comes back in each of its events.
@@ -255,7 +220,7 @@ pub unsafe extern "C" fn ak_call_start(
         let Some(found) = tables::channels().get(channel) else {
             return ak_status::AK_STATUS_HANDLE_STALE;
         };
-        let Some(runtime) = found.runtime.upgrade() else {
+        let Some(runtime) = tables::runtimes().get(found.runtime) else {
             return ak_status::AK_STATUS_HANDLE_STALE;
         };
         let Some(_pass) = runtime.pass_the_gate() else {
@@ -278,30 +243,25 @@ pub unsafe extern "C" fn ak_call_start(
             return ak_status::AK_STATUS_INVALID_ARG;
         };
 
-        let mut start = CallStartOptions::new(method);
-        start.metadata = metadata;
-        let Ok(grpc_call) = found.grpc.start_call(start) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
+        let services = call::CallServices {
+            host: &runtime.host,
+            ledger: &runtime.ledger,
+            spawner: runtime.spawner(),
         };
-
-        let (send, recv, control) = grpc_call.split();
-        let handle = tables::calls().reserve();
-        let (state, commands) = call::create(
-            HostPtr(call_ctx),
-            handle,
+        match call::start_on(
+            &found,
             channel,
-            &runtime,
-            control,
-            found.max_sends_in_flight,
-            found.delivery_credits,
-        );
-        // Published before the tasks run: a call that ends at once would otherwise reach its
-        // reclamation, find the slot empty, and then be published into it as a dead entry.
-        tables::calls().publish(handle, Arc::clone(&state));
-        call::start(&state, send, recv, commands, runtime.spawner());
-
-        unsafe { *out = handle };
-        ak_status::AK_STATUS_OK
+            &services,
+            method,
+            metadata,
+            HostPtr(call_ctx),
+        ) {
+            Err(status) => status,
+            Ok(handle) => {
+                unsafe { *out = handle };
+                ak_status::AK_STATUS_OK
+            }
+        }
     })
 }
 

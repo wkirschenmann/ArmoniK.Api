@@ -6,8 +6,9 @@
 use std::sync::OnceLock;
 
 use crate::call::CallState;
+use crate::channel::AkChannel;
 use crate::registry::Registry;
-use crate::runtime::{AkChannel, AkRuntime};
+use crate::runtime::AkRuntime;
 
 pub(crate) fn runtimes() -> &'static Registry<AkRuntime> {
     static TABLE: OnceLock<Registry<AkRuntime>> = OnceLock::new();

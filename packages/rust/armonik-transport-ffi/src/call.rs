@@ -8,19 +8,32 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 
-use armonik_transport::grpc::{CallControl, GrpcStatusCode, RecvHalf, RecvResult, SendHalf};
+use armonik_transport::grpc::{
+    CallControl, CallStartOptions, GrpcStatusCode, Metadata, RecvHalf, RecvResult, SendHalf,
+};
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use crate::abi::{ak_buffer, ak_bytes, ak_call_debt, ak_event_kind, ak_handle, ak_status};
 use crate::blob;
+use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
-use crate::runtime::{AkRuntime, Ledger};
-
-/// How many delivered payloads one call may have unconsumed at once.
-pub(crate) const DELIVERY_CREDITS: usize = 1;
+use crate::ledger::Ledger;
+use crate::tables;
 
 /// What the writing side hands the actor.
+/// What a call needs from whoever runs it.
+///
+/// Declared here, by the consumer, and supplied by the runtime: a call needs somewhere to deliver
+/// events, something to charge its bytes against, and threads to run on. It does not need the
+/// object that happens to own those three, and naming one would put this module and the
+/// runtime's in a cycle.
+pub(crate) struct CallServices<'a> {
+    pub(crate) host: &'a Arc<Host>,
+    pub(crate) ledger: &'a Arc<Ledger>,
+    pub(crate) spawner: &'a tokio::runtime::Handle,
+}
+
 pub(crate) enum Command {
     Send(Bytes),
     EndSend,
@@ -93,7 +106,6 @@ pub(crate) struct CallState {
     /// Raised by the half-close, so a send after it is refused rather than dropped and then
     /// acquitted as if it had gone out.
     ended_sending: AtomicBool,
-    runtime: Weak<AkRuntime>,
     handle: ak_handle,
     /// Which channel started it. A channel closing cancels its own calls and no others.
     channel: ak_handle,
@@ -109,20 +121,12 @@ impl CallState {
         }
     }
 
-    pub(crate) fn belongs_to(&self, runtime: &Weak<AkRuntime>) -> bool {
-        Weak::ptr_eq(&self.runtime, runtime)
-    }
-
     pub(crate) fn handle(&self) -> ak_handle {
         self.handle
     }
 
     pub(crate) fn belongs_to_channel(&self, channel: ak_handle) -> bool {
         self.channel == channel
-    }
-
-    pub(crate) fn channel(&self) -> ak_handle {
-        self.channel
     }
 
     /// Asks the call to stop. The request takes effect when the actor observes it, which is why
@@ -377,11 +381,11 @@ fn lend_payload(call: &Arc<CallState>, data: Vec<u8>, returns_credit: bool) -> a
 }
 
 /// Builds the shared state of a call. The tasks start once it is published.
-pub(crate) fn create(
+fn create(
     ctx: HostPtr,
     handle: ak_handle,
     channel: ak_handle,
-    runtime: &Arc<AkRuntime>,
+    services: &CallServices<'_>,
     control: CallControl,
     max_sends_in_flight: u32,
     delivery_credits: usize,
@@ -392,8 +396,8 @@ pub(crate) fn create(
 
     let state = Arc::new(CallState {
         ctx,
-        host: Arc::clone(&runtime.host),
-        ledger: Arc::clone(&runtime.ledger),
+        host: Arc::clone(services.host),
+        ledger: Arc::clone(services.ledger),
         control,
         commands: tx,
         window: SendWindow {
@@ -406,7 +410,6 @@ pub(crate) fn create(
         progress: watch::channel(0).0,
         over: watch::channel(false).0,
         ended_sending: AtomicBool::new(false),
-        runtime: Arc::downgrade(runtime),
         channel,
         handle,
     });
@@ -414,7 +417,7 @@ pub(crate) fn create(
 }
 
 /// Starts the call's tasks.
-pub(crate) fn start(
+fn start(
     state: &Arc<CallState>,
     send: SendHalf,
     recv: RecvHalf,
@@ -613,7 +616,42 @@ async fn reclaim(state: Arc<CallState>) {
             return;
         }
     }
-    if let Some(runtime) = state.runtime.upgrade() {
-        runtime.reclaim_call(state.handle);
-    }
+    crate::lifecycle::call_settled(state.handle, state.channel);
+}
+
+/// Starts a call on `channel` and publishes it, answering the handle the host will name it by.
+///
+/// The ordering here is the point: the call is published before its tasks run, because one that
+/// ends at once would otherwise reach its reclamation, find the slot empty, and then be published
+/// into it as a dead entry.
+pub(crate) fn start_on(
+    channel: &Arc<AkChannel>,
+    channel_handle: ak_handle,
+    services: &CallServices<'_>,
+    method: &str,
+    metadata: Metadata,
+    ctx: HostPtr,
+) -> Result<ak_handle, ak_status> {
+    let mut options = CallStartOptions::new(method);
+    options.metadata = metadata;
+
+    let grpc_call = channel
+        .grpc
+        .start_call(options)
+        .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
+
+    let (send, recv, control) = grpc_call.split();
+    let handle = tables::calls().reserve();
+    let (state, commands) = create(
+        ctx,
+        handle,
+        channel_handle,
+        services,
+        control,
+        channel.max_sends_in_flight,
+        channel.delivery_credits,
+    );
+    tables::calls().publish(handle, Arc::clone(&state));
+    start(&state, send, recv, commands, services.spawner);
+    Ok(handle)
 }
