@@ -143,6 +143,17 @@ pub struct ak_runtime_config {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// How far along a channel's closing is. A handle the runtime no longer knows reads as `NONE`,
+/// which is also what an unopened one reads as: neither names a channel.
+pub enum ak_channel_state {
+    AK_CHANNEL_NONE = 0,
+    AK_CHANNEL_OPEN = 1,
+    AK_CHANNEL_CLOSING = 2,
+    AK_CHANNEL_CLOSED = 3,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 /// What the runtime-wide ceiling is holding.
 ///

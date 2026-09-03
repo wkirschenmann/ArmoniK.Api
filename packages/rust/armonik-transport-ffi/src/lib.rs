@@ -90,6 +90,21 @@ pub unsafe extern "C" fn ak_runtime_create(
 /// Whether a runtime exists. Cleared by a successful destroy, so a fresh generation may follow.
 static RUNTIME_LIVE: AtomicBool = AtomicBool::new(false);
 
+/// How far along a channel's closing is, for a host that wants to watch the drain.
+///
+/// A handle this library no longer knows reads as `AK_CHANNEL_NONE`. A released channel keeps
+/// its handle until the runtime is destroyed, so `CLOSING` and then `CLOSED` are both
+/// observable; what ends `CLOSING` is this library's own bookkeeping - the last call of the
+/// channel being reclaimed - and not anything the host has to do.
+#[no_mangle]
+pub extern "C" fn ak_channel_status(channel: ak_handle) -> ak_channel_state {
+    catch_unwind(|| match tables::channels().get(channel) {
+        Some(found) => found.state(),
+        None => ak_channel_state::AK_CHANNEL_NONE,
+    })
+    .unwrap_or(ak_channel_state::AK_CHANNEL_NONE)
+}
+
 /// What the runtime is doing. This, and no callback, is what permits destroying it.
 #[no_mangle]
 pub extern "C" fn ak_runtime_status(runtime: ak_handle) -> ak_runtime_state {
@@ -193,17 +208,26 @@ pub unsafe extern "C" fn ak_channel_create(
 #[no_mangle]
 pub extern "C" fn ak_channel_release(channel: ak_handle) {
     let _ = catch_unwind(|| {
-        if let Some(found) = tables::channels().remove(channel) {
-            // Latched before the session goes, and in this order: a call that notices the
-            // closed transport takes the same exit, but one parked on a credit only ever
-            // notices its own cancellation.
-            for call in tables::calls().values() {
-                if call.belongs_to_channel(channel) {
-                    call.cancel();
-                }
-            }
-            found.grpc.close();
+        let Some(found) = tables::channels().get(channel) else {
+            return;
+        };
+        if !found.start_closing() {
+            return;
         }
+
+        // Latched before the session goes, and in this order: a call that notices the closed
+        // transport takes the same exit, but one parked on a credit only ever notices its own
+        // cancellation.
+        for call in tables::calls().values() {
+            if call.belongs_to_channel(channel) {
+                call.cancel();
+            }
+        }
+        found.grpc.close();
+
+        // An idle channel is closed the moment it is released; one with calls closes when its
+        // last one is reclaimed.
+        AkRuntime::settle_channel_of(channel);
     });
 }
 
@@ -237,6 +261,11 @@ pub unsafe extern "C" fn ak_call_start(
         let Some(_pass) = runtime.pass_the_gate() else {
             return ak_status::AK_STATUS_INVALID_STATE;
         };
+        // Before the engine is asked: it refuses a closed session too, but as a bad argument,
+        // and a channel that is on its way out is a state and not a malformed request.
+        if found.state() != ak_channel_state::AK_CHANNEL_OPEN {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        }
 
         let (Some(method), Some(metadata)) = (unsafe { options.method.as_slice() }, unsafe {
             options.metadata.as_slice()

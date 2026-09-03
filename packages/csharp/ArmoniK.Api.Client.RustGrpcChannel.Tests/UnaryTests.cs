@@ -364,6 +364,45 @@ public class UnaryTests
                                                                                      deliveryCredits: 0));
 
   /// <summary>
+  ///   The managed dispose state and the engine's own agree, which is what
+  ///   <c>ChannelStateMatchesNative</c> asks: active means open, and a disposed channel's half
+  ///   is closed rather than merely closing.
+  /// </summary>
+  [Test]
+  public async Task TheChannelsTwoHalvesAgreeOnItsState()
+  {
+    // A second channel holds the generation, so the first one's half can be looked at after it
+    // is released rather than vanishing with the runtime.
+    var keepsAlive = NativeRuntimeFactory.Channel(endpoint_);
+    var channel = NativeRuntimeFactory.Channel(endpoint_);
+    Assert.That(channel.NativeState,
+                Is.EqualTo("Open"));
+
+    await Client(channel)
+          .SayAsync(new EchoRequest
+                    {
+                      Text = "state",
+                    })
+          .ResponseAsync.ConfigureAwait(false);
+
+    await channel.DisposeAsync()
+                 .ConfigureAwait(false);
+
+    // Disposing settles this channel's calls first, so the engine has nothing left to drain and
+    // reports closed rather than closing.
+    Assert.That(channel.NativeState,
+                Is.EqualTo("Closed"));
+
+    await keepsAlive.DisposeAsync()
+                    .ConfigureAwait(false);
+
+    // The last release destroyed the generation, and a released channel's handle is reclaimed
+    // with it - so neither half names a channel any more.
+    Assert.That(channel.NativeState,
+                Is.EqualTo("None"));
+  }
+
+  /// <summary>
   ///   A channel is the unit of borrowing: the runtime outlives every lease and is torn down by
   ///   the release that empties the set, whose task completes only once the destroy is done.
   /// </summary>

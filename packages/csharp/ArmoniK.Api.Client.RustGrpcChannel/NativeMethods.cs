@@ -53,6 +53,14 @@ internal static class NativeMethods
     FailedUnquiesced  = 5,
   }
 
+  internal enum AkChannelState
+  {
+    None    = 0,
+    Open    = 1,
+    Closing = 2,
+    Closed  = 3,
+  }
+
   internal enum AkEventKind
   {
     InitialMetadata   = 1,
@@ -178,6 +186,9 @@ internal static class NativeMethods
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern void ak_channel_release(ulong channel);
+
+  [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+  internal static extern AkChannelState ak_channel_status(ulong channel);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   internal static extern AkStatus ak_call_start(ulong channel,

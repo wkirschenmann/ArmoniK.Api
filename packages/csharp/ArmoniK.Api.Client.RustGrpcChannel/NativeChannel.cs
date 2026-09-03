@@ -102,6 +102,17 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   internal ChannelDisposeState DisposeState
     => state_;
 
+  /// <summary>
+  ///   What the engine says of its half, which is the model's <c>channel_state</c>.
+  /// </summary>
+  /// <remarks>
+  ///   Read rather than remembered, so <c>ChannelStateMatchesNative</c> can be checked against
+  ///   the two sides instead of asserted of one.
+  /// </remarks>
+  public string NativeState
+    => NativeMethods.ak_channel_status(handle_)
+                    .ToString();
+
   /// <inheritdoc />
   public override CallInvoker CreateCallInvoker()
     => new NativeCallInvoker(this);

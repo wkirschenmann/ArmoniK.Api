@@ -105,6 +105,15 @@ typedef enum {
  * AK_EVENT_SHUTDOWN_COMPLETE callback says so through its host_debt field. Polling for QUIESCENT
  * before returning what it holds is therefore a deadlock. */
 
+/* How far along a channel's closing is. A handle this library no longer knows reads as NONE,
+ * which is also what an unopened one reads as: neither names a channel. */
+typedef enum {
+    AK_CHANNEL_NONE    = 0,
+    AK_CHANNEL_OPEN    = 1, /* takes calls */
+    AK_CHANNEL_CLOSING = 2, /* released, its calls draining */
+    AK_CHANNEL_CLOSED  = 3, /* and nothing of it is active any more */
+} ak_channel_state;
+
 /* === Events === */
 
 typedef enum {
@@ -242,7 +251,18 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
  * default to 1. */
 ak_status ak_channel_create(ak_handle runtime, ak_bytes_in config_json, ak_handle *out);
 
-/* Frees the channel. Calls under way are cancelled. */
+/* Frees the channel, cancelling its calls first.
+ *
+ * The cancellation is not a courtesy: the channel is closing from this moment and no closing
+ * channel may have an active call, so the latch is what makes the drain this library's business
+ * rather than something the host must provoke. A call parked on a delivery credit is the case
+ * that needs it - it is not watching the transport, so closing the session alone would never
+ * reach it.
+ *
+ * Idempotent, and it does not stale the handle: the channel goes to AK_CHANNEL_CLOSING and then
+ * to AK_CHANNEL_CLOSED on its own, and ak_channel_status is how a host follows that. A closing
+ * channel starts no further call - ak_call_start on one answers AK_STATUS_INVALID_STATE. The
+ * handle is reclaimed with the runtime. */
 void ak_channel_release(ak_handle channel);
 
 /* === Call ===
@@ -253,6 +273,12 @@ void ak_channel_release(ak_handle channel);
  * choose, and abandoning a call is still ak_call_cancel followed by consuming through to the
  * terminal - dropping a payload on the floor keeps the runtime alive.
  */
+
+/* How far along a channel's closing is. Answers NONE for a handle this library does not know.
+ *
+ * What ends CLOSING is this library's own bookkeeping - the last call of the channel being
+ * reclaimed - so a host watching the drain has nothing to do but read. */
+ak_channel_state ak_channel_status(ak_handle channel);
 
 ak_status ak_call_start(ak_handle channel,
                         const ak_call_start_options *options,

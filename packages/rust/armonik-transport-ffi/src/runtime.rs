@@ -1,13 +1,14 @@
 //! The runtime: what owns the Tokio threads, the ledger, and the shutdown chain.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use armonik_transport::grpc::GrpcChannel;
 use tokio::sync::watch;
 
 use crate::abi::{
-    ak_event_kind, ak_handle, ak_host_debt, ak_memory_usage, ak_runtime_state, ak_status,
+    ak_channel_state, ak_event_kind, ak_handle, ak_host_debt, ak_memory_usage, ak_runtime_state,
+    ak_status,
 };
 use crate::call::CallState;
 use crate::host::{Host, HostPtr};
@@ -122,6 +123,8 @@ pub(crate) struct AkChannel {
     pub(crate) handle: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: u32,
+    /// Open, closing, closed - as an `ak_channel_state` discriminant, so the observer is a read.
+    closing: AtomicU8,
 }
 
 impl AkChannel {
@@ -138,7 +141,42 @@ impl AkChannel {
             handle,
             delivery_credits,
             max_sends_in_flight,
+            closing: AtomicU8::new(ak_channel_state::AK_CHANNEL_OPEN as u8),
         }
+    }
+
+    pub(crate) fn state(&self) -> ak_channel_state {
+        match self.closing.load(Ordering::Acquire) {
+            n if n == ak_channel_state::AK_CHANNEL_OPEN as u8 => ak_channel_state::AK_CHANNEL_OPEN,
+            n if n == ak_channel_state::AK_CHANNEL_CLOSING as u8 => {
+                ak_channel_state::AK_CHANNEL_CLOSING
+            }
+            _ => ak_channel_state::AK_CHANNEL_CLOSED,
+        }
+    }
+
+    /// Latches the channel to closing. Answers false if it was already, so a second release
+    /// cancels nothing twice.
+    pub(crate) fn start_closing(&self) -> bool {
+        self.closing
+            .compare_exchange(
+                ak_channel_state::AK_CHANNEL_OPEN as u8,
+                ak_channel_state::AK_CHANNEL_CLOSING as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Closed once nothing of it is active. Only a closing channel finishes closing: an open one
+    /// with no calls is idle, not done.
+    pub(crate) fn finish_closing(&self) {
+        let _ = self.closing.compare_exchange(
+            ak_channel_state::AK_CHANNEL_CLOSING as u8,
+            ak_channel_state::AK_CHANNEL_CLOSED as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
     }
 }
 
@@ -215,7 +253,30 @@ impl AkRuntime {
 
     /// Takes a call's handle back, now that nothing of it is outstanding.
     pub(crate) fn reclaim_call(&self, handle: ak_handle) {
-        tables::calls().remove(handle);
+        let gone = tables::calls().remove(handle);
+        // Removed first, so the count below cannot see the call it is asking about. A closing
+        // channel whose last call has gone has finished closing, and this library is what
+        // decides that - the engine's close is fire-and-forget and says nothing back.
+        if let Some(call) = gone {
+            Self::settle_channel_of(call.channel());
+        }
+    }
+
+    /// Marks a closing channel closed once no call of it is left.
+    pub(crate) fn settle_channel_of(channel: ak_handle) {
+        let Some(found) = tables::channels().get(channel) else {
+            return;
+        };
+        if found.state() != ak_channel_state::AK_CHANNEL_CLOSING {
+            return;
+        }
+        if !tables::calls()
+            .values()
+            .into_iter()
+            .any(|call| call.belongs_to_channel(channel))
+        {
+            found.finish_closing();
+        }
     }
 
     fn own_calls(this: &Weak<Self>) -> Vec<Arc<CallState>> {

@@ -121,6 +121,10 @@ impl CallState {
         self.channel == channel
     }
 
+    pub(crate) fn channel(&self) -> ak_handle {
+        self.channel
+    }
+
     /// Asks the call to stop. The request takes effect when the actor observes it, which is why
     /// callbacks already committed may still arrive after this returns.
     pub(crate) fn cancel(&self) {

@@ -227,7 +227,53 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     );
     assert!(debt.payloads_owed > 0, "{debt:?}");
 
+    // The channel is closing and not closed: its call is still active, which is exactly what
+    // the model refuses to call closed.
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSING
+    );
+
+    // Giving the payloads back is what lets the call settle, and the last call of a closing
+    // channel settling is what closes it. No host action beyond the debt it already owed.
     host.recorder.consume_all();
+    support::Recorder::await_call_reclaimed(call);
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSED
+    );
+
+    host.stop();
+}
+
+#[test]
+fn an_idle_channel_is_closed_the_moment_it_is_released() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel(&server.endpoint);
+
+    assert_eq!(ak_channel_status(channel), ak_channel_state::AK_CHANNEL_OPEN);
+
+    ak_channel_release(channel);
+
+    // Nothing was active, so there was nothing to drain.
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSED
+    );
+
+    // And a closed channel starts nothing further.
+    let (status, call) = try_start_call(channel, ECHO, &blob(&[]));
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(call, AK_HANDLE_NONE, "a refusal leaves *out as it was");
+
+    // A second release changes nothing.
+    ak_channel_release(channel);
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSED
+    );
+
     host.stop();
 }
 
@@ -245,6 +291,25 @@ fn send_one(call: ak_handle, message: &[u8]) {
         ak_status::AK_STATUS_OK
     );
     assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
+}
+
+/// Starts a call and answers what the ABI said, for the paths where a refusal is the point.
+fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_status, ak_handle) {
+    let options = ak_call_start_options {
+        struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
+        method: ak_bytes_in {
+            ptr: method.as_ptr(),
+            len: method.len(),
+        },
+        metadata: ak_bytes_in {
+            ptr: metadata.as_ptr(),
+            len: metadata.len(),
+        },
+    };
+    let mut call = AK_HANDLE_NONE;
+    // SAFETY: the options and the out pointer are live for the call.
+    let status = unsafe { ak_call_start(channel, &options, std::ptr::null_mut(), &mut call) };
+    (status, call)
 }
 
 fn start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> ak_handle {
