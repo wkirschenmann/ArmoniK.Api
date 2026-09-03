@@ -37,25 +37,47 @@
   </ItemGroup>
 
   <!-- The engine this binds to is a Rust cdylib in the same repository, and a binding without it
-       does nothing, so building one builds the other. Cargo's profile directories are named
-       after the .NET configurations, which is why the same lowercased name serves both. -->
+       does nothing, so building one builds the other. Cargo's profile directories are named after
+       the .NET configurations, which is why the same lowercased name serves both. -->
   <PropertyGroup>
     <RustWorkspace>$(MSBuildThisFileDirectory)..\..\rust\</RustWorkspace>
     <RustProfile>$(Configuration.ToLower())</RustProfile>
     <RustProfileFlag Condition="'$(RustProfile)' == 'release'">--release</RustProfileFlag>
+    <!-- The host alone by default: the other architectures need cross toolchains this machine may
+         not have, and a routine build should not spend minutes on engines nobody is about to run.
+         CI and packing pass the whole list. -->
+    <NativeEngineRids Condition="'$(NativeEngineRids)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeEngineRids>
   </PropertyGroup>
 
-  <Target Name="BuildNativeEngine" BeforeTargets="BeforeBuild">
-    <Exec Command="cargo build -p armonik-transport-ffi $(RustProfileFlag)"
+  <ItemGroup>
+    <RustTarget Include="win-x64" Triple="x86_64-pc-windows-msvc" Library="armonik_transport_ffi.dll" />
+    <RustTarget Include="win-x86" Triple="i686-pc-windows-msvc" Library="armonik_transport_ffi.dll" />
+    <RustTarget Include="win-arm64" Triple="aarch64-pc-windows-msvc" Library="armonik_transport_ffi.dll" />
+    <RustTarget Include="linux-x64" Triple="x86_64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" />
+    <RustTarget Include="linux-arm64" Triple="aarch64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" />
+    <RustTarget Include="osx-x64" Triple="x86_64-apple-darwin" Library="libarmonik_transport_ffi.dylib" />
+    <RustTarget Include="osx-arm64" Triple="aarch64-apple-darwin" Library="libarmonik_transport_ffi.dylib" />
+  </ItemGroup>
+
+  <Target Name="BuildNativeEngine" BeforeTargets="BeforeBuild"
+          Outputs="%(RustTarget.Identity)">
+    <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild
+         run this once per architecture rather than once with all of them. -->
+    <PropertyGroup>
+      <RustTargetWanted>$(NativeEngineRids.Contains('%(RustTarget.Identity)'))</RustTargetWanted>
+    </PropertyGroup>
+
+    <Exec Condition="'$(RustTargetWanted)' == 'true'"
+          Command="cargo build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoExitCode" />
     </Exec>
-    <!-- On Windows cargo needs cl.exe and link.exe, which only a Visual Studio environment puts
-         on PATH, so a plain shell fails here rather than in anything a reader would connect to
-         the C toolchain. -->
-    <Error Condition="'$(CargoExitCode)' != '0'"
-           Text="cargo build -p armonik-transport-ffi $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this build needs a Visual Studio environment - run it from a Developer Command Prompt, or after vcvars64.bat." />
+    <!-- On Windows cargo needs cl.exe and link.exe, which only a Visual Studio environment puts on
+         PATH, and a 32-bit engine needs the x64_x86 one rather than the x64 one, so a plain shell
+         fails here rather than in anything a reader would connect to the C toolchain. -->
+    <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(CargoExitCode)' != '0'"
+           Text="cargo build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86." />
   </Target>
 
 </Project>
