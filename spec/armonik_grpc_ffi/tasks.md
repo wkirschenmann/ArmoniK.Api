@@ -199,6 +199,21 @@ Explicit error if native DLL is missing.
 
 **Deliverable**: An existing ArmoniK client test passes with the native CallInvoker (unary, plain HTTP).
 
+**Status**: done.  `ArmoniK.Api.Client` gains nothing, and that is the finding: the generated stubs
+already take a `ChannelBase`, so "injectable" needed no change there and the client keeps no
+knowledge of the native engine - a consumer that wants it references the package, one that does
+not, does not.  What was missing was the other two clauses.  The options mapping is
+`options.Endpoint`, passed to `NativeRuntimeFactory.Channel`, which is the whole of "just endpoint
+for now"; mapping it inside the binding would have meant depending on `ArmoniK.Api.Client` for one
+POCO.  And a missing engine now raises `RustEngineMissingException`, naming the word size, where
+the search looked, and which of the two supply routes was expected to answer - .NET's own message
+names a bare library and no reason.
+
+The test is `ArmoniKClientTests`, against `ArmoniK.Api.Mock` at `GrpcClient__Endpoint`, which is
+the contract `ArmoniK.Api.Client.Test` and the `armonik` crate's tests already run under.  It
+ignores itself when that variable is unset, so a developer who has not started a mock still gets a
+green suite.
+
 ---
 
 ### T1.5: Architectures and runtimes — x86, x64, arm, and .NET Framework

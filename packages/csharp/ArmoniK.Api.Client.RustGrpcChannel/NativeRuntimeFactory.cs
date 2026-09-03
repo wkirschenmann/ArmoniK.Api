@@ -99,7 +99,18 @@ public static class NativeRuntimeFactory
                                             "a window of zero admits no delivery at all");
     }
 
-    var runtime = Lease();
+    NativeRuntime runtime;
+    try
+    {
+      runtime = Lease();
+    }
+    catch (DllNotFoundException absent)
+    {
+      // The first downcall of the process is somewhere in here, so this is where a missing
+      // engine surfaces - and .NET's own message names a bare library and no reason.
+      throw RustEngineMissingException.For(absent);
+    }
+
     try
     {
       return new NativeChannel(runtime,
@@ -117,8 +128,21 @@ public static class NativeRuntimeFactory
   }
 
   /// <summary>What ABI the loaded library speaks. Opening a channel refuses a mismatch.</summary>
+  /// <exception cref="RustEngineMissingException">The native engine could not be loaded.</exception>
   public static int LibraryAbiVersion
-    => NativeMethods.ak_abi_version();
+  {
+    get
+    {
+      try
+      {
+        return NativeMethods.ak_abi_version();
+      }
+      catch (DllNotFoundException absent)
+      {
+        throw RustEngineMissingException.For(absent);
+      }
+    }
+  }
 
   /// <summary>The state the model calls <c>runtime_dispose_state</c>, for tests and assertions.</summary>
   public static string State
