@@ -14,7 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System;
 using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
@@ -24,16 +23,24 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// </summary>
 /// <remarks>
 ///   <para>
-///     The remembering is what makes "look, then wait" safe. The drain finds the ring empty and
-///     only then calls <see cref="WaitAsync" />; a callback publishing in between would find no
-///     waiter, and without the latch its signal would be dropped and the drain would park on an
-///     event that had already arrived.
+///     The remembering is what makes "look at the ring, then wait" safe. The drain finds the ring
+///     empty and only then calls <see cref="WaitAsync" />; a callback publishing in between would
+///     find nobody to wake, and a signal dropped there would park the drain on an event that had
+///     already arrived.
+///   </para>
+///   <para>
+///     One task carries both halves of that: <see cref="Set" /> completes it, and completed is
+///     what "a signal is pending" means, whether or not anyone was waiting when it happened.
+///     <see cref="WaitAsync" /> consumes a pending signal by putting a fresh task in its place -
+///     that exchange is the reset. So the state is one object rather than a waiter and a flag
+///     that have to agree.
 ///   </para>
 ///   <para>
 ///     One signal, not a count: several events published while the drain is busy collapse into
-///     one wake-up, and that is enough because the drain re-reads the ring and takes everything
-///     there. The cost of collapsing is a wake-up that finds nothing, which is why the caller
-///     loops rather than waiting once.
+///     one completion, and that is enough because the drain re-reads the ring and takes
+///     everything there. Collapsing costs a wake-up that finds nothing, and consuming a
+///     completion costs one turn of the caller's loop - which is why the caller loops rather
+///     than waiting once.
 ///   </para>
 ///   <para>
 ///     Continuations are asynchronous because <see cref="Set" /> runs inside the FFI callback, on
@@ -46,52 +53,38 @@ internal sealed class AsyncAutoResetEvent
 {
   private readonly object gate_ = new();
 
-  /// <summary>
-  ///   The one waiter, if there is one.
-  /// </summary>
-  /// <remarks>
-  ///   One field and not a queue: a call has one drain and one only, and it can be inside one
-  ///   await at a time, so a second waiter would be a bug rather than something to serve.
-  /// </remarks>
-  private TaskCompletionSource<bool>? waiter_;
+  private TaskCompletionSource<bool> arrived_ = Pending();
 
-  private bool signalled_;
+  private static TaskCompletionSource<bool> Pending()
+    => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   internal Task WaitAsync()
   {
     lock (gate_)
     {
-      if (signalled_)
+      var arrived = arrived_;
+      if (arrived.Task.IsCompleted)
       {
-        signalled_ = false;
-        return Task.CompletedTask;
+        // Taken, so the next wait blocks again. Returning the completed task rather than
+        // `Task.CompletedTask` keeps the caller on the one it was handed.
+        arrived_ = Pending();
       }
 
-      if (waiter_ is not null)
-      {
-        throw new InvalidOperationException("this signal has one waiter, and it is already waiting");
-      }
-
-      waiter_ = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-      return waiter_.Task;
+      return arrived.Task;
     }
   }
 
   internal void Set()
   {
-    TaskCompletionSource<bool>? released;
+    TaskCompletionSource<bool> arrived;
     lock (gate_)
     {
-      released = waiter_;
-      waiter_  = null;
-      if (released is null)
-      {
-        signalled_ = true;
-      }
+      arrived = arrived_;
     }
 
-    // Outside the lock: the completion is asynchronous, but scheduling it is not, and there is
-    // no reason for a publisher to hold the gate while it happens.
-    released?.TrySetResult(true);
+    // Outside the lock: scheduling the continuation does not need it, and a publisher holding
+    // the gate through it would block the next wait for nothing. A second `Set` on an already
+    // completed task answers false, which is the collapsing above.
+    arrived.TrySetResult(true);
   }
 }
