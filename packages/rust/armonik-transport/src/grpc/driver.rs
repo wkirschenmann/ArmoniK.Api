@@ -12,7 +12,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use http::{Request, StatusCode};
+use http::Request;
 use http_body_util::BodyExt;
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -21,9 +21,7 @@ use super::channel::Inner;
 use super::error::ChannelError;
 use super::frame::Deframer;
 use super::metadata::Metadata;
-use super::status::{
-    cancelled, http_status, speaks_grpc, stated_status, GrpcStatus, GrpcStatusCode,
-};
+use super::status::{of_response_head, stated_status, GrpcStatus};
 
 /// The driving task's half of a call.
 pub(crate) struct Driving {
@@ -67,7 +65,7 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
         control,
     } = driving;
 
-    let status = run(&inner, request, &mut stop, &mut delivery).await;
+    let status = run(inner, request, &mut stop, &mut delivery).await;
     // The call is over the moment its terminal is decided, whichever way it went; the
     // writing side is told before the reading side, so a reader holding the terminal knows
     // the writer is already refusing.
@@ -164,68 +162,43 @@ impl Delivery {
 }
 
 async fn run(
-    inner: &Inner,
+    inner: Arc<Inner>,
     request: Request<RequestBody>,
     stop: &mut Stop,
     delivery: &mut Delivery,
 ) -> GrpcStatus {
     let mut sender = match until_stopped(stop, inner.sender()).await {
-        None | Some(Err(ChannelError::Closed)) => return cancelled(),
-        Some(Err(error)) => return GrpcStatus::new(GrpcStatusCode::Unavailable, error.to_string()),
+        None | Some(Err(ChannelError::Closed)) => return GrpcStatus::cancelled(),
+        Some(Err(error)) => return GrpcStatus::unreachable(error),
         Some(Ok(sender)) => sender,
     };
 
     let response = match until_stopped(stop, sender.send_request(request)).await {
-        None => return cancelled(),
-        Some(Err(error)) => {
-            return GrpcStatus::new(
-                GrpcStatusCode::Unavailable,
-                format!("the request did not reach the peer: {error}"),
-            )
-        }
+        None => return GrpcStatus::cancelled(),
+        Some(Err(error)) => return GrpcStatus::request_lost(error),
         Some(Ok(response)) => response,
     };
 
     let (head, mut body) = response.into_parts();
+    let metadata = match of_response_head(head.status, &head.headers) {
+        Err(status) => return status,
+        Ok(metadata) => metadata,
+    };
 
-    // A peer that states a status in the response head has said how the call ended, and that
-    // answer stands whatever the HTTP status is: a Trailers-Only response is this case, and
-    // so is a gRPC failure served behind an HTTP error.
-    if let Some(status) = stated_status(&head.headers) {
-        return status;
-    }
-    if head.status != StatusCode::OK {
-        return http_status(head.status, &head.headers);
-    }
-    if !speaks_grpc(&head.headers) {
-        return GrpcStatus::new(
-            GrpcStatusCode::Internal,
-            "the peer answered HTTP 200 without a gRPC content type",
-        );
-    }
+    delivery.head(metadata);
 
-    delivery.head(Metadata::from_headers(&head.headers));
-
+    // Nothing below needs the channel, and a streaming call may outlive its release.
     let mut deframer = Deframer::new(inner.max_recv_message_size());
+    drop(inner);
     loop {
         if let Err(status) = deliver_ready(&mut deframer, stop, delivery).await {
             return status;
         }
 
         let frame = match until_stopped(stop, body.frame()).await {
-            None => return cancelled(),
-            Some(None) => {
-                return GrpcStatus::new(
-                    GrpcStatusCode::Internal,
-                    "the peer ended the stream without a grpc-status",
-                )
-            }
-            Some(Some(Err(error))) => {
-                return GrpcStatus::new(
-                    GrpcStatusCode::Unavailable,
-                    format!("the response stream broke: {error}"),
-                )
-            }
+            None => return GrpcStatus::cancelled(),
+            Some(None) => return GrpcStatus::no_status(),
+            Some(Some(Err(error))) => return GrpcStatus::stream_broke(error),
             Some(Some(Ok(frame))) => frame,
         };
 
@@ -242,17 +215,9 @@ async fn run(
         };
 
         if !deframer.is_at_message_boundary() {
-            return GrpcStatus::new(
-                GrpcStatusCode::Internal,
-                "the peer ended the stream in the middle of a message",
-            );
+            return GrpcStatus::ended_mid_message();
         }
-        return stated_status(&trailers).unwrap_or_else(|| {
-            GrpcStatus::new(
-                GrpcStatusCode::Internal,
-                "the peer's trailers carry no grpc-status",
-            )
-        });
+        return stated_status(&trailers).unwrap_or_else(GrpcStatus::no_trailing_status);
     }
 }
 
@@ -268,10 +233,10 @@ async fn deliver_ready(
     loop {
         match deframer.next_message() {
             Ok(None) => return Ok(()),
-            Err(error) => return Err(GrpcStatus::new(error.code(), error.to_string())),
+            Err(error) => return Err(error.status()),
             Ok(Some(message)) => match until_stopped(stop, delivery.message(message)).await {
                 Some(true) => {}
-                _ => return Err(cancelled()),
+                _ => return Err(GrpcStatus::cancelled()),
             },
         }
     }

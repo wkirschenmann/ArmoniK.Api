@@ -9,8 +9,15 @@ use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
 use bytes::Bytes;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
+use snafu::Snafu;
 
 /// Padding is optional on the wire, so both forms decode.
+///
+/// Configured here rather than taken from `tonic`, whose `metadata` module holds the identical
+/// pair: its engines are private, and reaching them through `MetadataValue<Binary>` would mean
+/// holding the base64 text instead of the bytes. This type holds a `-bin` value decoded, which is
+/// what lets the C ABI above hand a host raw bytes with no fallible decode at the boundary. The
+/// duplication is deliberate, and it is why `base64` is a dependency.
 const BINARY_IN: GeneralPurpose = GeneralPurpose::new(
     &alphabet::STANDARD,
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
@@ -31,10 +38,25 @@ pub enum MetadataValue {
     Binary(Bytes),
 }
 
+impl MetadataValue {
+    /// The value as bytes, whichever form it is in. What a consumer that carries values rather
+    /// than reads them wants, and the only place the two forms have to be told apart for it.
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Ascii(text) => text.as_bytes(),
+            Self::Binary(bytes) => bytes,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 /// The metadata of a request, a response head, or a set of trailers.
 pub struct Metadata {
-    entries: Vec<(String, MetadataValue)>,
+    /// Keys as `HeaderName` and not `String`: the name is validated and lowercased once, on the
+    /// way in, and a header map then takes it by clone - a refcount bump for a standard name.
+    /// Holding the text instead meant re-parsing and re-allocating every key on every call that
+    /// carried it, which is exactly what an auth token built once and sent on every call does.
+    entries: Vec<(HeaderName, MetadataValue)>,
 }
 
 impl Metadata {
@@ -56,10 +78,7 @@ impl Metadata {
     /// one key would make `get` depend on which the caller used.
     pub fn append(&mut self, key: &str, value: MetadataValue) -> Result<(), MetadataError> {
         let key = validate_key(key)?;
-        if is_reserved(&key) {
-            return Err(MetadataError::ReservedKey { key });
-        }
-        validate_value(&key, &value)?;
+        validate_value(key.as_str(), &value)?;
         self.entries.push((key, value));
         Ok(())
     }
@@ -85,15 +104,22 @@ impl Metadata {
         self.get_all(key).next()
     }
 
-    pub fn get_all<'a>(&'a self, key: &str) -> impl Iterator<Item = &'a MetadataValue> + 'a {
-        let key = key.to_ascii_lowercase();
+    /// The key is borrowed for the life of the iterator rather than copied: `append` lowercased
+    /// what is stored, so a case-insensitive comparison is the whole of the lookup and there is
+    /// nothing to own.
+    pub fn get_all<'a, 'k>(
+        &'a self,
+        key: &'k str,
+    ) -> impl Iterator<Item = &'a MetadataValue> + use<'a, 'k> {
         self.entries
             .iter()
-            .filter(move |(name, _)| *name == key)
+            .filter(move |(name, _)| name.as_str().eq_ignore_ascii_case(key))
             .map(|(_, value)| value)
     }
 
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &MetadataValue)> {
+    /// `Clone` so a consumer that has to size a buffer before filling it can walk the entries
+    /// twice without asking for a second borrow.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &MetadataValue)> + Clone {
         self.entries
             .iter()
             .map(|(key, value)| (key.as_str(), value))
@@ -127,7 +153,9 @@ impl Metadata {
             if validate_value(key, &value).is_err() {
                 continue;
             }
-            entries.push((key.to_owned(), value));
+            // The name is cloned, not re-parsed: it came out of a header map already validated,
+            // and for a standard name the clone is a refcount bump.
+            entries.push((name.clone(), value));
         }
         Self { entries }
     }
@@ -151,23 +179,29 @@ impl Metadata {
     /// put there itself would not be.
     pub(crate) fn write_into(&self, headers: &mut HeaderMap) -> Result<(), MetadataError> {
         for (key, value) in &self.entries {
-            if is_reserved(key) {
+            if is_reserved(key.as_str()) {
                 continue;
             }
 
-            // Both constructors validate, so neither conversion below can fail on what is
-            // stored; they guard against a third way of building one of these. What can fail is
-            // the map filling up.
-            let name = HeaderName::from_bytes(key.as_bytes())
-                .map_err(|_| MetadataError::InvalidKey { key: key.clone() })?;
+            // The key needs no conversion: it was a `HeaderName` before it was stored, and a
+            // clone of one is a refcount bump. Both constructors validate the value too, so the
+            // conversion below cannot fail on what is stored; it guards against a third way of
+            // building one of these. What can fail is the map filling up.
             let encoded = match value {
-                MetadataValue::Ascii(text) => HeaderValue::from_str(text)
-                    .map_err(|_| MetadataError::InvalidValue { key: key.clone() })?,
-                MetadataValue::Binary(bytes) => HeaderValue::from_str(&BINARY_OUT.encode(bytes))
-                    .map_err(|_| MetadataError::InvalidValue { key: key.clone() })?,
+                MetadataValue::Ascii(text) => {
+                    HeaderValue::from_str(text).map_err(|_| MetadataError::InvalidValue {
+                        key: key.as_str().to_owned(),
+                    })?
+                }
+                MetadataValue::Binary(bytes) => HeaderValue::from_maybe_shared(Bytes::from(
+                    BINARY_OUT.encode(bytes),
+                ))
+                .map_err(|_| MetadataError::InvalidValue {
+                    key: key.as_str().to_owned(),
+                })?,
             };
             headers
-                .try_append(name, encoded)
+                .try_append(key.clone(), encoded)
                 .map_err(|_| MetadataError::TooMany {
                     entries: self.entries.len(),
                 })?;
@@ -187,14 +221,18 @@ fn is_reserved(key: &str) -> bool {
         || matches!(key, "content-type" | "te" | "user-agent")
 }
 
-fn validate_key(key: &str) -> Result<String, MetadataError> {
+/// The key a caller may store under, or why it may not.
+///
+/// The reserved check runs first because a pseudo-header is not a header name at all: asking
+/// `HeaderName` about `:path` would report its spelling as the fault, where what is wrong with
+/// it is whose it is.
+fn validate_key(key: &str) -> Result<HeaderName, MetadataError> {
     let lowered = key.to_ascii_lowercase();
-    // A pseudo-header is not a header name, so it is left for the reserved check to name;
-    // running it through the name check first would report the spelling as the fault.
-    if !lowered.starts_with(':') && HeaderName::from_bytes(lowered.as_bytes()).is_err() {
-        return Err(MetadataError::InvalidKey { key: lowered });
+    if is_reserved(&lowered) {
+        return Err(MetadataError::ReservedKey { key: lowered });
     }
-    Ok(lowered)
+    HeaderName::from_bytes(lowered.as_bytes())
+        .map_err(|_| MetadataError::InvalidKey { key: lowered })
 }
 
 fn validate_value(key: &str, value: &MetadataValue) -> Result<(), MetadataError> {
@@ -215,45 +253,26 @@ fn validate_value(key: &str, value: &MetadataValue) -> Result<(), MetadataError>
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Snafu)]
 #[non_exhaustive]
-/// Why an entry could not be represented as a header.
+/// Why an entry could not be stored, or written out to a header map.
 pub enum MetadataError {
+    #[snafu(display("`{key}` is not a valid metadata key"))]
     InvalidKey { key: String },
+    #[snafu(display("`{key}` is reserved; the channel sets it, not the caller"))]
     ReservedKey { key: String },
+    #[snafu(display(
+        "the value under `{key}` is not printable ASCII, which a key without the `-bin` suffix \
+         requires"
+    ))]
     InvalidValue { key: String },
+    #[snafu(display(
+        "`{key}` and its value disagree on being binary; the `-bin` suffix is what decides it"
+    ))]
     BinaryMismatch { key: String },
+    #[snafu(display("{entries} entries is more than a header map will hold"))]
     TooMany { entries: usize },
 }
-
-impl std::fmt::Display for MetadataError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidKey { key } => write!(f, "`{key}` is not a valid metadata key"),
-            Self::ReservedKey { key } => {
-                write!(
-                    f,
-                    "`{key}` is reserved; the channel sets it, not the caller"
-                )
-            }
-            Self::InvalidValue { key } => write!(
-                f,
-                "the value under `{key}` is not printable ASCII, which a key without the \
-                 `-bin` suffix requires"
-            ),
-            Self::BinaryMismatch { key } => write!(
-                f,
-                "`{key}` and its value disagree on being binary; the `-bin` suffix is what \
-                 decides it"
-            ),
-            Self::TooMany { entries } => {
-                write!(f, "{entries} entries is more than a header map will hold")
-            }
-        }
-    }
-}
-
-impl std::error::Error for MetadataError {}
 
 #[cfg(test)]
 mod tests {

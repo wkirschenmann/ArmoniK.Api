@@ -1,5 +1,6 @@
 //! The channel: one HTTP/2 session, and the calls started on it.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, TE, USER_AGENT};
@@ -7,7 +8,7 @@ use http::{Method, Request, Uri};
 use hyper::client::conn::http2::SendRequest;
 use tokio::sync::{watch, Mutex};
 
-use crate::config::{ConfigError, IncompatibleOptionsSnafu};
+use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
 
 use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
@@ -61,39 +62,29 @@ pub struct GrpcChannel {
 impl GrpcChannel {
     /// Performs no I/O, so a failure here is a configuration that could never have worked
     /// rather than an endpoint that happened to be down.
-    pub fn new(config: GrpcChannelConfig, executor: impl Executor) -> Result<Self, ConfigError> {
+    pub fn new(
+        config: GrpcChannelConfig,
+        executor: impl Executor,
+    ) -> Result<Self, GrpcChannelConfigError> {
         if config.max_sends_in_flight == 0 {
-            return Err(IncompatibleOptionsSnafu {
-                msg: "`max_sends_in_flight` is the number of buffers a call may have out at \
-                      once, so zero would let it send nothing",
-            }
-            .build());
+            return Err(GrpcChannelConfigError::ZeroSendWindow);
         }
 
         if config.max_recv_message_size == 0 {
-            return Err(IncompatibleOptionsSnafu {
-                msg: "`max_recv_message_size` of zero admits only empty messages, and zero \n                      is what a caller means by `no limit`",
-            }
-            .build());
+            return Err(GrpcChannelConfigError::ZeroMaxRecvMessageSize);
         }
 
         let user_agent = match &config.user_agent {
             None => HeaderValue::from_static(DEFAULT_USER_AGENT),
             Some(text) => HeaderValue::from_str(text).map_err(|_| {
-                IncompatibleOptionsSnafu {
-                    msg: format!("`{text}` is not a value a `user-agent` header can carry"),
+                GrpcChannelConfigError::InvalidUserAgent {
+                    value: text.clone(),
                 }
-                .build()
             })?,
         };
 
         let endpoint = config.transport.endpoint.clone();
-        let connector = TransportConnector::new(config.transport).map_err(|error| {
-            IncompatibleOptionsSnafu {
-                msg: error.to_string(),
-            }
-            .build()
-        })?;
+        let connector = TransportConnector::new(config.transport)?;
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -103,7 +94,8 @@ impl GrpcChannel {
                 user_agent,
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
-                connection: Mutex::new(None),
+                connection: Mutex::new(Session::default()),
+                attempts: AtomicU64::new(0),
                 closed: watch::channel(false).0,
             }),
         })
@@ -127,7 +119,8 @@ impl GrpcChannel {
         }
 
         let uri = self.inner.request_uri(&options.method)?;
-        let mut headers = HeaderMap::new();
+        // Room for the four this engine sets, on top of what `reserve_in` adds for the caller's.
+        let mut headers = HeaderMap::with_capacity(4);
         options
             .metadata
             .reserve_in(&mut headers)
@@ -173,7 +166,7 @@ impl GrpcChannel {
         // method has no way to await; the executor that runs the calls runs this too.
         let inner = self.inner.clone();
         self.inner.executor.spawn(Box::pin(async move {
-            inner.connection.lock().await.take();
+            inner.connection.lock().await.sender.take();
         }));
     }
 }
@@ -195,8 +188,19 @@ pub(crate) struct Inner {
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
-    connection: Mutex<Option<SendRequest<RequestBody>>>,
+    connection: Mutex<Session>,
+    /// Dials finished, successes and failures alike. Read before queueing for the lock, so a
+    /// caller can tell whether the attempt that answers it began after it asked.
+    attempts: AtomicU64,
     closed: watch::Sender<bool>,
+}
+
+#[derive(Default)]
+/// The one session a channel has, and why the last attempt at one failed.
+struct Session {
+    sender: Option<SendRequest<RequestBody>>,
+    /// Why the most recent dial failed, if it did. Cleared by one that succeeds.
+    failed: Option<ChannelError>,
 }
 
 impl Inner {
@@ -208,24 +212,57 @@ impl Inner {
     ///
     /// A closed channel opens none: the task `close` spawned to release the session has its
     /// own turn at this lock, and a session stored after it has run is one nothing releases.
+    ///
+    /// One dial answers everyone waiting on it, failures included. Without that, a failure
+    /// stored nothing and the next waiter dialled again from scratch: eight calls queued
+    /// against an endpoint that absorbs packets meant eight sequential `connect_timeout`s,
+    /// the last of them answering after eight minutes, with `close` queued behind the lot.
     pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, ChannelError> {
+        // Read before queueing, so it can be compared with what has finished by the time this
+        // caller holds the lock.
+        let asked_at = self.attempts.load(Ordering::Acquire);
+
         let mut slot = self.connection.lock().await;
         if *self.closed.borrow() {
             return Err(ChannelError::Closed);
         }
 
-        if let Some(sender) = slot.as_ref() {
+        if let Some(sender) = slot.sender.as_ref() {
             if !sender.is_closed() {
                 return Ok(sender.clone());
             }
         }
 
-        let (sender, connection) = crate::http2::open(
+        // A dial finished while this caller queued and it failed: its answer is this caller's
+        // too, because that attempt began after this caller asked. One that entered later
+        // dials afresh, which is what makes this a shared attempt and not a cached error.
+        if self.attempts.load(Ordering::Acquire) > asked_at {
+            if let Some(failed) = slot.failed.clone() {
+                return Err(failed);
+            }
+        }
+
+        let dialled = crate::http2::open(
             &self.connector,
             &self.endpoint,
             HyperExecutor(self.executor.clone()),
         )
-        .await?;
+        .await;
+
+        // Counted after the attempt and before its outcome is acted on, so a waiter reaching
+        // the lock next sees both the count and the failure that goes with it.
+        self.attempts.fetch_add(1, Ordering::AcqRel);
+        let (sender, connection) = match dialled {
+            Ok(session) => {
+                slot.failed = None;
+                session
+            }
+            Err(error) => {
+                let error = ChannelError::from(error);
+                slot.failed = Some(error.clone());
+                return Err(error);
+            }
+        };
 
         // A close that landed while this dial was in flight has already had its turn at the
         // lock; dropping the session here keeps it from outliving the channel.
@@ -240,7 +277,7 @@ impl Inner {
             }
         }));
 
-        *slot = Some(sender.clone());
+        slot.sender = Some(sender.clone());
         Ok(sender)
     }
 
@@ -299,7 +336,8 @@ mod tests {
             user_agent: HeaderValue::from_static("test"),
             max_sends_in_flight: 1,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
-            connection: Mutex::new(None),
+            connection: Mutex::new(Session::default()),
+            attempts: AtomicU64::new(0),
             closed: watch::channel(false).0,
         }
     }

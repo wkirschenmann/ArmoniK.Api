@@ -1,14 +1,14 @@
 //! Layer 1: the network, up to an HTTP/2 session.
 //!
 //! [`TransportConnector`] is a [`tower_service::Service<Uri>`] yielding connected streams; it
-//! knows neither HTTP/2 nor gRPC and is a network dial and nothing more. [`handshake`] turns one
-//! of those streams into a session. What travels on the session is [`crate::grpc`]'s business.
+//! knows neither HTTP/2 nor gRPC and is a network dial and nothing more. [`open`] turns one of
+//! those streams into a session. What travels on the session is [`crate::grpc`]'s business.
 //!
 //! This connector dials plain TCP. Transport security is [`crate::connect`], which hands out a
 //! `tonic` channel instead of a stream.
 
+use std::error::Error;
 use std::future::Future;
-use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -16,6 +16,7 @@ use std::time::Duration;
 use hyper::client::conn::http2::{Connection, SendRequest};
 use hyper::rt::bounds::Http2ClientConnExec;
 use hyper::Uri;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tower_service::Service;
@@ -38,8 +39,11 @@ impl TransportConfig {
         }
     }
 
-    /// The endpoint this connector can reach, or why it cannot.
-    fn target(&self) -> Result<(&str, u16), TransportError> {
+    /// Whether this endpoint is one a connector could dial, or why it is not.
+    ///
+    /// Scheme and host only: the port has a default and the host's shape is the resolver's
+    /// business, not this crate's.
+    fn dialable(&self) -> Result<(), TransportError> {
         match self.endpoint.scheme_str() {
             Some("http") => {}
             Some(other) => {
@@ -55,17 +59,14 @@ impl TransportConfig {
             }
         }
 
-        let host = self.endpoint.host().ok_or_else(|| {
-            TransportError::configuration(format!("the endpoint `{}` names no host", self.endpoint))
-        })?;
+        if self.endpoint.host().is_none() {
+            return Err(TransportError::configuration(format!(
+                "the endpoint `{}` names no host",
+                self.endpoint
+            )));
+        }
 
-        // Brackets delimit an IPv6 literal in an authority and are not part of the address.
-        let host = host
-            .strip_prefix('[')
-            .and_then(|inner| inner.strip_suffix(']'))
-            .unwrap_or(host);
-
-        Ok((host, self.endpoint.port_u16().unwrap_or(80)))
+        Ok(())
     }
 }
 
@@ -74,49 +75,36 @@ pub type TransportConnection = TokioIo<TcpStream>;
 
 #[derive(Clone, Debug)]
 /// The network dial, as a service over the URI to reach.
+///
+/// A shape over `hyper_util`'s own connector rather than a second dialler: resolution, the
+/// per-address attempts and the socket options are its, and it races the address families where
+/// a hand-rolled loop would try them in turn - so one black-holed address cannot consume the
+/// whole budget while a reachable one goes untried. What stays here is the endpoint check this
+/// crate makes before any I/O, and the deadline it puts on the sequence as a whole.
 pub struct TransportConnector {
-    config: TransportConfig,
+    http: HttpConnector,
+    /// Bounds the whole dial. `HttpConnector` bounds each attempt instead, which is not what
+    /// [`TransportConfig::connect_timeout`] promises.
+    connect_timeout: Duration,
 }
 
 impl TransportConnector {
     /// Reads no configuration it cannot use: an endpoint this connector cannot dial is
     /// refused here rather than at the first call.
     pub fn new(config: TransportConfig) -> Result<Self, TransportError> {
-        config.target()?;
-        Ok(Self { config })
-    }
+        config.dialable()?;
 
-    async fn dial(config: TransportConfig) -> Result<TransportConnection, TransportError> {
-        let (host, port) = config.target()?;
+        let mut http = HttpConnector::new();
+        // Nagle batches small writes, which is the opposite of what a request stream wants.
+        http.set_nodelay(true);
+        // Refuses at call time what `dialable` refuses at construction, for a target that did
+        // not come from the configuration.
+        http.enforce_http(true);
 
-        let connect = async {
-            let addresses = tokio::net::lookup_host((host, port))
-                .await
-                .map_err(|error| TransportError::dns(host, port, &error))?;
-
-            let mut last = None;
-            for address in addresses {
-                match TcpStream::connect(address).await {
-                    Ok(stream) => {
-                        // Nagle batches small writes, which is the opposite of what a
-                        // request stream wants.
-                        let _ = stream.set_nodelay(true);
-                        return Ok(TokioIo::new(stream));
-                    }
-                    Err(error) => last = Some(error),
-                }
-            }
-
-            Err(match last {
-                Some(error) => TransportError::tcp(host, port, &error),
-                None => TransportError::dns_empty(host, port),
-            })
-        };
-
-        match tokio::time::timeout(config.connect_timeout, connect).await {
-            Ok(result) => result,
-            Err(_) => Err(TransportError::timeout(host, port, config.connect_timeout)),
-        }
+        Ok(Self {
+            http,
+            connect_timeout: config.connect_timeout,
+        })
     }
 }
 
@@ -174,18 +162,29 @@ impl Service<Uri> for TransportConnector {
     }
 
     fn call(&mut self, target: Uri) -> Self::Future {
-        let mut config = self.config.clone();
-        config.endpoint = target;
-        Box::pin(Self::dial(config))
+        let dialling = self.http.call(target.clone());
+        let deadline = self.connect_timeout;
+
+        Box::pin(async move {
+            match tokio::time::timeout(deadline, dialling).await {
+                Ok(Ok(io)) => Ok(io),
+                Ok(Err(error)) => Err(TransportError::connect(&target, &error)),
+                Err(_) => Err(TransportError::timeout(&target, deadline)),
+            }
+        })
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 /// What stood between the configuration and a connected stream.
+///
+/// `Connect` covers resolution and the connection alike: the dial is `hyper_util`'s, which races
+/// address families rather than walking them, so "the name did not resolve" and "no address
+/// accepted" stop being two outcomes a caller could act on differently. What failed is in the
+/// message; what a caller can do about it is the same either way.
 pub enum TransportErrorKind {
-    DnsResolution,
-    TcpConnect,
+    Connect,
     Http2Handshake,
     Timeout,
     Configuration,
@@ -204,8 +203,8 @@ pub struct TransportError {
 
 impl TransportError {
     /// What kind of failure this is.
-    pub fn kind(&self) -> &TransportErrorKind {
-        &self.kind
+    pub fn kind(&self) -> TransportErrorKind {
+        self.kind
     }
 
     fn configuration(message: String) -> Self {
@@ -215,24 +214,10 @@ impl TransportError {
         }
     }
 
-    fn dns(host: &str, port: u16, error: &io::Error) -> Self {
+    fn connect(endpoint: &Uri, error: &(dyn Error + 'static)) -> Self {
         Self {
-            kind: TransportErrorKind::DnsResolution,
-            message: format!("`{host}:{port}` did not resolve: {error}"),
-        }
-    }
-
-    fn dns_empty(host: &str, port: u16) -> Self {
-        Self {
-            kind: TransportErrorKind::DnsResolution,
-            message: format!("`{host}:{port}` resolved to no address at all"),
-        }
-    }
-
-    fn tcp(host: &str, port: u16, error: &io::Error) -> Self {
-        Self {
-            kind: TransportErrorKind::TcpConnect,
-            message: format!("no address of `{host}:{port}` accepted a connection: {error}"),
+            kind: TransportErrorKind::Connect,
+            message: format!("`{endpoint}` could not be reached: {}", chain(error)),
         }
     }
 
@@ -245,12 +230,28 @@ impl TransportError {
         }
     }
 
-    fn timeout(host: &str, port: u16, after: Duration) -> Self {
+    fn timeout(endpoint: &Uri, after: Duration) -> Self {
         Self {
             kind: TransportErrorKind::Timeout,
-            message: format!("connecting to `{host}:{port}` outlasted {after:?}"),
+            message: format!("connecting to `{endpoint}` outlasted {after:?}"),
         }
     }
+}
+
+/// An error and everything under it, as one line.
+///
+/// The connector's own message names the step and nothing else - "dns error", "tcp connect
+/// error" - so what actually went wrong is in the cause. Rendered here rather than carried, for
+/// the reason [`TransportError`] gives.
+fn chain(error: &(dyn Error + 'static)) -> String {
+    let mut rendered = error.to_string();
+    let mut under = error.source();
+    while let Some(cause) = under {
+        rendered.push_str(": ");
+        rendered.push_str(&cause.to_string());
+        under = cause.source();
+    }
+    rendered
 }
 
 impl std::fmt::Display for TransportError {

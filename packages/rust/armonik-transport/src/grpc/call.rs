@@ -126,12 +126,12 @@ impl RecvHalf {
     /// A call that ends without one - a Trailers-Only response, a connection that never
     /// opened - yields empty metadata rather than an error; the reason is the terminal
     /// status, which [`Self::next_message`] carries.
-    pub async fn recv_initial_metadata(&mut self) -> Result<Metadata, CallError> {
+    pub async fn recv_initial_metadata(&mut self) -> Result<&Metadata, CallError> {
         if let Head::Pending(pending) = &mut self.head {
             self.head = pending.await.map_or(Head::Lost, Head::Ready);
         }
         match &self.head {
-            Head::Ready(metadata) => Ok(metadata.clone()),
+            Head::Ready(metadata) => Ok(metadata),
             _ => Err(CallError::Aborted),
         }
     }

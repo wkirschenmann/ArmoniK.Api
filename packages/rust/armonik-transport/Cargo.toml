@@ -21,7 +21,14 @@ snafu.workspace = true
 tracing.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
 # `tokio` for `TokioIo`, which is what puts a `TcpStream` in the shape hyper reads and writes.
-hyper-util = { workspace = true, features = ["client", "http1", "tokio"] }
+# `client-legacy` for `HttpConnector`, which is the dial: resolution, the per-address loop
+# and the socket options, with the address families raced rather than tried in turn.
+hyper-util = { workspace = true, features = [
+  "client",
+  "client-legacy",
+  "http1",
+  "tokio",
+] }
 http.workspace = true
 # `BodyExt::frame`, to read a response body one frame at a time rather than collecting it.
 http-body-util.workspace = true

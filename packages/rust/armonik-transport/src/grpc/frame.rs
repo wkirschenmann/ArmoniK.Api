@@ -3,10 +3,11 @@
 use std::collections::VecDeque;
 
 use bytes::buf::Chain;
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use snafu::Snafu;
 
 use super::error::CallError;
-use super::status::GrpcStatusCode;
+use super::status::{GrpcStatus, GrpcStatusCode};
 
 /// The flag byte plus the four length bytes that precede every message.
 const HEADER_LEN: usize = 5;
@@ -23,8 +24,8 @@ pub(crate) fn frame(payload: Bytes) -> Result<Chain<Bytes, Bytes>, CallError> {
         .map_err(|_| CallError::MessageTooLong { len: payload.len() })?;
 
     let mut header = BytesMut::with_capacity(HEADER_LEN);
-    header.extend_from_slice(&[UNCOMPRESSED]);
-    header.extend_from_slice(&len.to_be_bytes());
+    header.put_u8(UNCOMPRESSED);
+    header.put_u32(len);
 
     Ok(header.freeze().chain(payload))
 }
@@ -72,8 +73,8 @@ impl Deframer {
 
         match header[0] {
             UNCOMPRESSED => {}
-            1 => return Err(DeframeError::Compressed),
-            flag => return Err(DeframeError::UnknownFlag { flag }),
+            1 => return CompressedSnafu.fail(),
+            flag => return UnknownFlagSnafu { flag }.fail(),
         }
 
         // The length is the peer's to choose. Refusing it here, before a byte of the payload is
@@ -82,20 +83,20 @@ impl Deframer {
         // without the window ever being exceeded.
         let len = u32::from_be_bytes([header[1], header[2], header[3], header[4]]) as usize;
         if len > self.max_message_size {
-            return Err(DeframeError::TooLong {
+            return TooLongSnafu {
                 len,
                 max: self.max_message_size,
-            });
+            }
+            .fail();
         }
         // Reachable only when the maximum above is `usize::MAX`, and then only where `usize` is
         // 32 bits: what follows trusts this sum, which otherwise runs past the end of the type.
         match HEADER_LEN.checked_add(len) {
-            Some(whole) if self.buffered >= whole => {}
-            _ => return Ok(None),
+            // Taken as one span and sliced, rather than walked twice: the fast path is still a
+            // view on the chunk the message arrived in, which is what bounds the copying here.
+            Some(whole) if self.buffered >= whole => Ok(Some(self.take(whole).slice(HEADER_LEN..))),
+            _ => Ok(None),
         }
-
-        self.advance(HEADER_LEN);
-        Ok(Some(self.take(len)))
     }
 
     /// Copies the first `out.len()` bytes without consuming them. The caller has checked there
@@ -112,26 +113,9 @@ impl Deframer {
         }
     }
 
-    /// Drops `count` bytes. The caller has checked there are that many.
-    fn advance(&mut self, mut count: usize) {
-        self.buffered -= count;
-        while count > 0 {
-            let head = self.chunks.front_mut().expect("the bytes were counted");
-            let take = count.min(head.len());
-            head.advance(take);
-            count -= take;
-            if head.is_empty() {
-                self.chunks.pop_front();
-            }
-        }
-    }
-
-    /// Consumes `count` bytes as one message. The caller has checked there are that many.
+    /// Consumes `count` bytes. The caller has checked there are that many, and that `count` is
+    /// at least a header's worth, so there is always a chunk to reach for.
     fn take(&mut self, count: usize) -> Bytes {
-        // An empty message consumes no chunk, and there may be none left to reach for.
-        if count == 0 {
-            return Bytes::new();
-        }
         self.buffered -= count;
 
         let head = self.chunks.front_mut().expect("the bytes were counted");
@@ -157,40 +141,32 @@ impl Deframer {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Snafu)]
 /// What a peer's stream of frames can get wrong.
 pub(crate) enum DeframeError {
+    #[snafu(display(
+        "the peer sent a compressed message, though this channel advertises `identity` alone"
+    ))]
     Compressed,
+    #[snafu(display("a message carried the compression flag {flag}, which gRPC does not define"))]
     UnknownFlag { flag: u8 },
+    #[snafu(display(
+        "the peer announced a message of {len} bytes, past the {max} this channel holds"
+    ))]
     TooLong { len: usize, max: usize },
 }
 
 impl DeframeError {
-    /// The status a call ends with when its peer's framing cannot be read.
-    pub(crate) fn code(&self) -> GrpcStatusCode {
-        match self {
-            Self::TooLong { .. } => GrpcStatusCode::ResourceExhausted,
-            _ => GrpcStatusCode::Internal,
-        }
-    }
-}
-
-impl std::fmt::Display for DeframeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Compressed => f.write_str(
-                "the peer sent a compressed message, though this channel advertises `identity` \
-                 alone",
-            ),
-            Self::UnknownFlag { flag } => write!(
-                f,
-                "a message carried the compression flag {flag}, which gRPC does not define"
-            ),
-            Self::TooLong { len, max } => write!(
-                f,
-                "the peer announced a message of {len} bytes, past the {max} this channel holds"
-            ),
-        }
+    /// The terminal a call ends with when its peer's framing cannot be read.
+    ///
+    /// Stated here, whole: the code and the reason are both this module's, and marrying them
+    /// somewhere else would make two files agree on what a bad frame means.
+    pub(crate) fn status(&self) -> GrpcStatus {
+        let code = match self {
+            Self::TooLong { .. } => GrpcStatusCode::RESOURCE_EXHAUSTED,
+            _ => GrpcStatusCode::INTERNAL,
+        };
+        GrpcStatus::new(code, self.to_string())
     }
 }
 
@@ -309,7 +285,7 @@ mod tests {
             .next_message()
             .expect_err("nine bytes are past a maximum of eight");
         assert_eq!(refused, DeframeError::TooLong { len: 9, max: 8 });
-        assert_eq!(refused.code(), GrpcStatusCode::ResourceExhausted);
+        assert_eq!(refused.status().code, GrpcStatusCode::RESOURCE_EXHAUSTED);
 
         let mut deframer = Deframer::new(8);
         deframer.push(framed(b"12345678"));

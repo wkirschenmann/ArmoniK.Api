@@ -2,7 +2,8 @@
 //!
 //! The engine spawns rather than blocks: a task drives the HTTP/2 session, and one drives each
 //! call. Which runtime they land on is the embedder's decision, which is what this trait leaves
-//! open - the FFI runtime supplies its own.
+//! open. [`TokioExecutor`] is the only implementation here, and what the FFI passes; the trait is
+//! the seam for an embedder whose runtime is not Tokio.
 
 use std::future::Future;
 use std::pin::Pin;

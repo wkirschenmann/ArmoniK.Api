@@ -89,7 +89,7 @@ pub async fn ends_cancelled(recv: &mut RecvHalf, why: &str) {
         .expect("a terminal");
 
     match terminal {
-        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::Cancelled),
+        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::CANCELLED),
         other => panic!("{other:?}"),
     }
 }
@@ -98,7 +98,8 @@ pub async fn read_to_terminal(recv: &mut RecvHalf) -> (Metadata, Vec<Bytes>, Grp
     let head = recv
         .recv_initial_metadata()
         .await
-        .expect("a response head, even an empty one");
+        .expect("a response head, even an empty one")
+        .clone();
 
     let mut messages = Vec::new();
     loop {
