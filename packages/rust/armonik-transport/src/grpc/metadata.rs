@@ -160,7 +160,8 @@ impl Metadata {
         Self { entries }
     }
 
-    /// Room for these entries on top of what `headers` already holds.
+    /// Room for these entries on top of what `headers` already holds, taken by
+    /// [`Self::write_into`] before it writes.
     ///
     /// `HeaderMap` panics rather than growing past its ceiling, and this count is the caller's.
     pub(crate) fn reserve_in(&self, headers: &mut HeaderMap) -> Result<(), MetadataError> {
@@ -178,6 +179,7 @@ impl Metadata {
     /// new request is a reasonable thing to do; failing it over the `content-type` this engine
     /// put there itself would not be.
     pub(crate) fn write_into(&self, headers: &mut HeaderMap) -> Result<(), MetadataError> {
+        self.reserve_in(headers)?;
         for (key, value) in &self.entries {
             if is_reserved(key.as_str()) {
                 continue;

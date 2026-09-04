@@ -122,10 +122,6 @@ impl GrpcChannel {
         let mut headers = engine_headers(&self.inner.user_agent);
         options
             .metadata
-            .reserve_in(&mut headers)
-            .map_err(|source| ChannelError::InvalidMetadata { source })?;
-        options
-            .metadata
             .write_into(&mut headers)
             .map_err(|source| ChannelError::InvalidMetadata { source })?;
 
@@ -365,7 +361,7 @@ mod tests {
             let refused = super::super::Metadata::new().append_ascii(name.as_str(), "mine");
             assert!(
                 refused.is_err(),
-                "`{name}` is set by the channel and a caller may still set it too, so both                  values would travel"
+                "`{name}` is set by the channel and a caller may set it too, so both would travel"
             );
         }
     }

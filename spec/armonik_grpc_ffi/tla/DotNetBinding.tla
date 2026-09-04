@@ -2,7 +2,7 @@
 (***************************************************************************)
 (* Level 2: the .NET binding, refining FfiGrpc.                            *)
 (*                                                                         *)
-(* SPEC UNDER CONVERGENCE - no proofs exist for this module yet.           *)
+(* The level-2 model, proved: see DotNetBindingTheorems and its proofs.           *)
 (*                                                                         *)
 (* What this level proves, once frozen:                                    *)
 (*  1. Spec => L1!Spec - the refinement.  Everything proved at levels 0    *)

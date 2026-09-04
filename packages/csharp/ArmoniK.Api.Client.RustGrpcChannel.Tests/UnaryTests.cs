@@ -424,10 +424,10 @@ public class UnaryTests
                     });
 
 
-    // Still open, because the channel keeping the generation alive has not been released yet;
-    // what happens after that is the caller's business.
-    Assert.That(channel.NativeState,
-                Is.EqualTo("Closed"));
+    // The other channel is still open: one channel's dispose closes its own half and no other,
+    // and it is what holds the generation up so this one's half can still be read.
+    Assert.That(keepsAlive.NativeState,
+                Is.EqualTo("Open"));
   }
 
   /// <summary>
@@ -469,13 +469,18 @@ public class UnaryTests
                                                      Text = "x",
                                                    }));
 
+    // Refused by the channel and not by the engine. The model's own guard on starting a call is
+    // an active channel, so a disposed one answers before any handle is looked up - which is
+    // also what bounds the dispose's wait for its calls to settle. Asserting the engine's
+    // HandleStale here pinned the runtime's teardown under this test's name: it happens only
+    // because this was the last channel, so the generation went with it.
     Assert.Multiple(() =>
                     {
                       Assert.That(thrown!.StatusCode,
-                                  Is.EqualTo(StatusCode.Internal));
+                                  Is.EqualTo(StatusCode.Unavailable));
                       Assert.That(thrown.Status.Detail,
-                                  Does.Contain("HandleStale"),
-                                  "refused for the released handle, not for something else");
+                                  Does.Contain("takes no new calls"),
+                                  "refused for being disposed, not for something else");
                     });
   }
 }

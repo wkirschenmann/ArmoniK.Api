@@ -126,7 +126,9 @@ internal static class Blob
                                     out Metadata trailers)
   {
     message  = string.Empty;
-    trailers = new Metadata();
+    // Overwritten below on every payload carrying a reason, which is every terminal; the shared
+    // empty one stands in for the path where the length prefix itself is unreadable.
+    trailers = Metadata.Empty;
     if (!TryReadChunk(ref payload,
                       out var reason))
     {

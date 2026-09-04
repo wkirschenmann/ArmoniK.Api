@@ -135,31 +135,16 @@ where
         let mut connector = connector.clone();
         std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
         let io = connector.call(endpoint.clone()).await?;
-        handshake(endpoint, executor, io).await
+        hyper::client::conn::http2::Builder::new(executor)
+            .handshake(io)
+            .await
+            .map_err(|error| TransportError::http2_handshake(endpoint, &error))
     };
 
     match tokio::time::timeout(deadline, opening).await {
         Ok(result) => result,
         Err(_) => Err(TransportError::timeout(endpoint, deadline)),
     }
-}
-
-/// Establishes an HTTP/2 session over an already connected stream.
-async fn handshake<E, B>(
-    endpoint: &Uri,
-    executor: E,
-    io: TransportConnection,
-) -> Result<(SendRequest<B>, Connection<TransportConnection, B, E>), TransportError>
-where
-    E: Http2ClientConnExec<B, TransportConnection> + Unpin + Clone,
-    B: hyper::body::Body + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    hyper::client::conn::http2::Builder::new(executor)
-        .handshake(io)
-        .await
-        .map_err(|error| TransportError::http2_handshake(endpoint, &error))
 }
 
 impl Service<Uri> for TransportConnector {

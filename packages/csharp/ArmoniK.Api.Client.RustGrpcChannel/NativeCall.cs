@@ -79,6 +79,20 @@ internal sealed class NativeCall<TResponse> : ICallSink
   private readonly TaskCompletionSource<Status> terminal_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+  /// <summary>Faults the head, and marks the fault observed.</summary>
+  /// <remarks>
+  ///   Nobody is obliged to await the headers, and an unobserved fault is noise rather than news.
+  ///   Marked at the two places a fault is set, rather than by a continuation registered on every
+  ///   call - most of which never fault, and each of which paid a task for the privilege.
+  /// </remarks>
+  private void FailHead(RpcException reason)
+  {
+    if (headers_.TrySetException(reason))
+    {
+      _ = headers_.Task.Exception;
+    }
+  }
+
   private readonly Marshaller<TResponse> marshaller_;
   private readonly NativeRuntime runtime_;
 
@@ -141,10 +155,6 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
     ring_ = new Slot[size];
     mask_ = size - 1;
-
-    // Nobody is obliged to await the headers, and an unobserved fault is noise, not news.
-    _ = headers_.Task.ContinueWith(static answered => _ = answered.Exception,
-                                   TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
 
     self_ = GCHandle.Alloc(this);
   }
@@ -258,6 +268,25 @@ internal sealed class NativeCall<TResponse> : ICallSink
   internal async Task SendUnaryAsync<TRequest>(Marshaller<TRequest> marshaller,
                                                TRequest request)
   {
+    try
+    {
+      await SendingAsync(marshaller,
+                         request)
+        .ConfigureAwait(false);
+    }
+    catch
+    {
+      // The call is over whether or not the engine has said so, and this is what knows it. A
+      // drain left parked on a terminal nobody will provoke is what made the caller compensate
+      // in a `catch` of its own, one layer up from the state it was compensating for.
+      ending_.Cancel();
+      throw;
+    }
+  }
+
+  private async Task SendingAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                            TRequest request)
+  {
     using var lent = new LentBuffer(handle_);
     marshaller.ContextualSerializer(request,
                                     lent);
@@ -358,7 +387,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
           var synthetic = new Status(StatusCode.Internal,
                                      $"the call's terminal could not be read: {thrown.Message}");
           terminal_.TrySetResult(synthetic);
-          headers_.TrySetException(new RpcException(synthetic));
+          FailHead(new RpcException(synthetic));
         }
       }
       finally
@@ -429,12 +458,14 @@ internal sealed class NativeCall<TResponse> : ICallSink
     // to hear, and an empty collection would not say it.
     if (ended.StatusCode == StatusCode.OK)
     {
-      headers_.TrySetResult(new Metadata());
+      // The shared empty one: the engine delivers a head for every call, so this only ever
+      // resolves a head already resolved, and allocating to be dropped is waste.
+      headers_.TrySetResult(Metadata.Empty);
     }
     else
     {
-      headers_.TrySetException(new RpcException(ended,
-                                                trailers));
+      FailHead(new RpcException(ended,
+                                trailers));
     }
   }
 

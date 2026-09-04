@@ -398,9 +398,9 @@ pub extern "C" fn ak_abi_version() -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
     guard_void(|| {
-        if payload.owner.is_null() {
-            return;
-        }
+        // A null owner is a payload the library never lent, which the header makes a no-op, and
+        // `take_payload` answers `None` for one - so nothing is asked twice here.
+        //
         // SAFETY: forwarded from this function's own contract. Dropping is what returns the
         // credit, clears the call's debt and frees the bytes, so no path can do half of it.
         drop(unsafe { call::take_payload(payload.owner) });

@@ -56,6 +56,8 @@ public sealed class NativeCallInvoker : CallInvoker
                                                                                 CallOptions options,
                                                                                 TRequest request)
   {
+    MustCarryNoDeadline(options);
+
     var call = channel_.StartCall(method.FullName,
                                  options.Headers,
                                  method.ResponseMarshaller);
@@ -98,7 +100,8 @@ public sealed class NativeCallInvoker : CallInvoker
     }
     catch
     {
-      call.Cancel();
+      // Awaited and not cancelled: the send ended the call itself, and what is left here is to
+      // let the drain finish handing the library its payloads back before reporting.
       try
       {
         await drained.ConfigureAwait(false);
@@ -171,6 +174,23 @@ public sealed class NativeCallInvoker : CallInvoker
                                                                                                               string? host,
                                                                                                               CallOptions options)
     => throw Unsupported(method.Type);
+
+  /// <summary>Refuses a deadline rather than dropping one.</summary>
+  /// <remarks>
+  ///   The C ABI carries no per-call deadline, so there is nothing to forward: honouring one on
+  ///   this side alone would cancel locally, report the wrong status and never tell the server
+  ///   its work is unwanted. Dropping it silently is the worse of the two, because a caller that
+  ///   set one believes the call is bounded when nothing bounds it. The real thing - local plus
+  ///   <c>grpc-timeout</c> - is T5.1.
+  /// </remarks>
+  private static void MustCarryNoDeadline(in CallOptions options)
+  {
+    if (options.Deadline is { } deadline && deadline != DateTime.MaxValue)
+    {
+      throw new RpcException(new Status(StatusCode.Unimplemented,
+                                        "this invoker carries no deadline: the C ABI has no field for one, so it could be honoured here and never reach the server"));
+    }
+  }
 
   private static RpcException Unsupported(MethodType type)
     => new(new Status(StatusCode.Unimplemented,

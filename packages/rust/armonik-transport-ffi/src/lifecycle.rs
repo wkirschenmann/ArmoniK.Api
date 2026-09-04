@@ -161,11 +161,14 @@ pub(crate) fn call_reached_terminal(channel: ak_handle) {
     settle_channel(channel);
 }
 
-/// Takes a settled call's handle back. The channel is asked again because the call leaving the
-/// table is what a reclamation-shaped reading of `settle_channel` would have waited for.
-pub(crate) fn call_settled(call: ak_handle, channel: ak_handle) {
+/// Takes a settled call's handle back.
+///
+/// It asks nothing of the channel: what a channel's closing turns on is the count of its calls
+/// short of their terminal, which [`call_reached_terminal`] already decremented, and nothing
+/// between there and here changes it. A channel that became closable did so then; one that
+/// latched CLOSING in between was settled by the release that latched it.
+pub(crate) fn call_settled(call: ak_handle) {
     tables::calls().remove(call);
-    settle_channel(channel);
 }
 
 /// Marks a closing channel closed once no call of it is still active.

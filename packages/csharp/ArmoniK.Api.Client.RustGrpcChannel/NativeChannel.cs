@@ -136,6 +136,15 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
                                                       Marshaller<TResponse> marshaller)
     where TResponse : class
   {
+    // The model's guard on starting a call is an active channel, and it is also what bounds the
+    // wait in `DisposeAsync`: without it a caller could keep starting calls into a channel that
+    // is trying to settle them all.
+    if (Volatile.Read(ref disposing_) != 0)
+    {
+      throw new RpcException(new Status(StatusCode.Unavailable,
+                                        "the channel is being disposed and takes no new calls"));
+    }
+
     var call = NativeCall<TResponse>.Start(runtime_,
                                            handle_,
                                            deliveryCredits_,
@@ -205,25 +214,33 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     {
       // Every call of this channel and no other: settled before the native half closes, since a
       // call that still owes something keeps the channel from being reclaimed.
-      // One snapshot for both loops, where two could disagree.
-      var live = live_.ToArray();
-      // Asked to end, not disposed: the engine cancels this channel's calls itself when the
-      // native half is released - the header is emphatic about it, a call parked on a delivery
-      // credit being the case that needs it - so what is left for this side is waking the
-      // managed waiters of each.
-      foreach (var call in live)
+      // Re-read rather than snapshotted once. `Track` publishes a call and only then checks
+      // the latch, so a call that arrived after a snapshot cancels itself but would not be
+      // awaited here - and what this method promises, and what the native release below rests
+      // on, is that it returns with every call of this channel settled. The guard in
+      // `StartCall` is what makes this terminate: no call joins after the latch.
+      while (!live_.IsEmpty)
       {
-        call.Key.Cancel();
-      }
+        // One snapshot per round for both loops, where two could disagree.
+        var live = live_.ToArray();
+        // Asked to end, not disposed: the engine cancels this channel's calls itself when the
+        // native half is released - the header is emphatic about it, a call parked on a delivery
+        // credit being the case that needs it - so what is left for this side is waking the
+        // managed waiters of each.
+        foreach (var call in live)
+        {
+          call.Key.Cancel();
+        }
 
-      try
-      {
-        await Task.WhenAll(live.Select(settling => settling.Value))
-                  .ConfigureAwait(false);
-      }
-      catch
-      {
-        // A call that ended badly still settled, which is all this waits for.
+        try
+        {
+          await Task.WhenAll(live.Select(settling => settling.Value))
+                    .ConfigureAwait(false);
+        }
+        catch
+        {
+          // A call that ended badly still settled, which is all this waits for.
+        }
       }
 
       NativeMethods.ak_channel_release(handle_);
