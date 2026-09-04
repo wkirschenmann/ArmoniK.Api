@@ -143,8 +143,9 @@ impl CleanUri {
 
 ```rust
 pub enum TransportErrorKind {
-    DnsResolution,
-    TcpConnect,
+    // Resolution and connection are one outcome: the dial is `hyper_util`'s `HttpConnector`,
+    // which races address families rather than walking them in turn.
+    Connect,
     TlsHandshake,
     /// The stream was connected and no HTTP/2 session could be established on
     /// it. The module is named for that protocol and owns the handshake, so
