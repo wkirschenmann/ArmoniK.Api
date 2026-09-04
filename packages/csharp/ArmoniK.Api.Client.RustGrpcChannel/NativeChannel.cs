@@ -62,7 +62,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   ///   Keyed by what the dispose needs of them rather than by <c>object</c>: the cast that would
   ///   otherwise stand here could silently do nothing, where this cannot compile without it.
   /// </remarks>
-  private readonly ConcurrentDictionary<IDisposable, Task> live_ = new();
+  private readonly ConcurrentDictionary<ICallSink, Task> live_ = new();
 
   private readonly TaskCompletionSource<bool> disposed_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -135,12 +135,17 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
                                                       Metadata? metadata,
                                                       Marshaller<TResponse> marshaller)
     where TResponse : class
-    => NativeCall<TResponse>.Start(runtime_,
-                                   handle_,
-                                   deliveryCredits_,
-                                   method,
-                                   metadata,
-                                   marshaller);
+  {
+    var call = NativeCall<TResponse>.Start(runtime_,
+                                           handle_,
+                                           deliveryCredits_,
+                                           method,
+                                           metadata,
+                                           marshaller);
+    Track(call,
+          call.Drained);
+    return call;
+  }
 
   /// <summary>
   ///   Records a call as this channel's until it settles.
@@ -148,16 +153,40 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   /// <remarks>
   ///   The task is the call's drain, and its completion is what "settled" means: past the
   ///   terminal, every payload consumed and every buffer given back.
+  ///   <para>
+  ///     Private, and called by <see cref="StartCall" /> before the call is handed to anyone.
+  ///     A caller that registered the call as a later step left a window in which this channel
+  ///     owned a live call it did not know about, so a concurrent dispose released the native
+  ///     half without awaiting that call's drain - which is the one thing the dispose promises
+  ///     not to do.
+  ///   </para>
   /// </remarks>
-  internal void Track(IDisposable call,
-                      Task settled)
+  private void Track(ICallSink call,
+                     Task settled)
   {
     live_[call] = settled;
-    // The discard is typed: TryRemove's out is unannotated in the netstandard2.0 reference
-    // assembly, so an inferred one reads as a null assignment to a non-nullable Task.
-    _ = settled.ContinueWith(_ => live_.TryRemove(call,
-                                                  out Task? _),
+    // The state is passed rather than captured, so the continuation costs no closure; and the
+    // discard is typed, TryRemove's out being unannotated in the netstandard2.0 reference
+    // assembly, where an inferred one reads as a null assignment to a non-nullable Task.
+    _ = settled.ContinueWith(static (_,
+                                     state) =>
+                             {
+                               var (tracked, key) = ((ConcurrentDictionary<ICallSink, Task>, ICallSink))state!;
+                               tracked.TryRemove(key,
+                                                 out Task? _);
+                             },
+                             (live_, call),
                              TaskContinuationOptions.ExecuteSynchronously);
+
+    // Published, and only now asked whether the channel is still taking calls. The check before
+    // the insert cannot stand alone: a dispose that latches in between snapshots `live_` without
+    // this call in it, so nothing would settle it. Re-reading afterwards closes that from the
+    // other side - either the dispose's snapshot holds this call, or its latch preceded this read
+    // and this disposes the call itself.
+    if (Volatile.Read(ref disposing_) != 0)
+    {
+      call.Cancel();
+    }
   }
 
   /// <inheritdoc />
@@ -178,9 +207,13 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
       // call that still owes something keeps the channel from being reclaimed.
       // One snapshot for both loops, where two could disagree.
       var live = live_.ToArray();
+      // Asked to end, not disposed: the engine cancels this channel's calls itself when the
+      // native half is released - the header is emphatic about it, a call parked on a delivery
+      // credit being the case that needs it - so what is left for this side is waking the
+      // managed waiters of each.
       foreach (var call in live)
       {
-        call.Key.Dispose();
+        call.Key.Cancel();
       }
 
       try

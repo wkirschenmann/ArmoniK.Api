@@ -1,0 +1,31 @@
+<Project>
+
+  <!-- The Rust targets the engine is built for, as one table.
+
+       Imported by the binding, which packs one asset per runtime identifier, and by its tests,
+       which pick the one matching the architecture the test host runs as. Two tables keyed
+       differently - by RID on one side, by OS and PlatformTarget on the other - is how an
+       architecture gets added to one and not the other, and neither MSBuild nor the compiler
+       would say so: the omission surfaces as a missing engine at test time, or as a package
+       quietly short a runtime.
+
+       Not under build/, so it is not packed: this is how the two projects here agree, not
+       something a consumer needs. -->
+  <ItemGroup>
+    <RustTarget Include="win-x64" Triple="x86_64-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="x64" />
+    <RustTarget Include="win-x86" Triple="i686-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="x86" />
+    <RustTarget Include="win-arm64" Triple="aarch64-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="ARM64" />
+    <RustTarget Include="linux-x64" Triple="x86_64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="x64" />
+    <RustTarget Include="linux-arm64" Triple="aarch64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="ARM64" />
+    <RustTarget Include="osx-x64" Triple="x86_64-apple-darwin" Library="libarmonik_transport_ffi.dylib" Os="OSX" Arch="x64" />
+    <RustTarget Include="osx-arm64" Triple="aarch64-apple-darwin" Library="libarmonik_transport_ffi.dylib" Os="OSX" Arch="ARM64" />
+  </ItemGroup>
+
+  <!-- Which row this machine's build wants, for a project that needs one rather than all. -->
+  <PropertyGroup>
+    <RustHostOs Condition="$([MSBuild]::IsOSPlatform('Windows'))">Windows</RustHostOs>
+    <RustHostOs Condition="$([MSBuild]::IsOSPlatform('Linux'))">Linux</RustHostOs>
+    <RustHostOs Condition="$([MSBuild]::IsOSPlatform('OSX'))">OSX</RustHostOs>
+  </PropertyGroup>
+
+</Project>

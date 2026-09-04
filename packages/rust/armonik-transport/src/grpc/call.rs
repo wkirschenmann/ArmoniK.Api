@@ -86,6 +86,20 @@ impl SendHalf {
         let framed = frame(message)?;
         let Self { messages, over } = self;
 
+        // The guard first, as the model has it, and then the window: with room, the send is two
+        // reads and a push. The `select!` below registers a waiter on the `over` watch and
+        // deregisters it again - two locks on one of its notify shards - which is the price of
+        // waiting, and there is nothing to wait for until the window is full.
+        if *over.borrow() {
+            return Err(CallError::Ended);
+        }
+
+        let framed = match messages.try_send(framed) {
+            Ok(()) => return Ok(()),
+            Err(mpsc::error::TrySendError::Closed(_)) => return Err(CallError::Ended),
+            Err(mpsc::error::TrySendError::Full(framed)) => framed,
+        };
+
         tokio::select! {
             biased;
             _ = over.wait_for(|over| *over) => Err(CallError::Ended),

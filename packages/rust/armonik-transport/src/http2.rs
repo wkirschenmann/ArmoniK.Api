@@ -27,7 +27,9 @@ use tower_service::Service;
 pub struct TransportConfig {
     /// The endpoint to dial. Only the `http` scheme is accepted.
     pub endpoint: Uri,
-    /// Bounds the whole sequence - resolution and connection - not each step.
+    /// Bounds the whole of [`open`] - resolution, connection and the HTTP/2 handshake - and
+    /// not each step. A peer that completes TCP and then never exchanges settings is the case
+    /// this covers and a per-step deadline does not.
     pub connect_timeout: Duration,
 }
 
@@ -83,8 +85,8 @@ pub type TransportConnection = TokioIo<TcpStream>;
 /// crate makes before any I/O, and the deadline it puts on the sequence as a whole.
 pub struct TransportConnector {
     http: HttpConnector,
-    /// Bounds the whole dial. `HttpConnector` bounds each attempt instead, which is not what
-    /// [`TransportConfig::connect_timeout`] promises.
+    /// Bounds the whole of [`open`], which is where it is applied. `HttpConnector` bounds each
+    /// attempt instead, and the handshake is not an attempt at all.
     connect_timeout: Duration,
 }
 
@@ -128,10 +130,18 @@ where
     B::Data: Send,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    let mut connector = connector.clone();
-    std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
-    let io = connector.call(endpoint.clone()).await?;
-    handshake(endpoint, executor, io).await
+    let deadline = connector.connect_timeout;
+    let opening = async {
+        let mut connector = connector.clone();
+        std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
+        let io = connector.call(endpoint.clone()).await?;
+        handshake(endpoint, executor, io).await
+    };
+
+    match tokio::time::timeout(deadline, opening).await {
+        Ok(result) => result,
+        Err(_) => Err(TransportError::timeout(endpoint, deadline)),
+    }
 }
 
 /// Establishes an HTTP/2 session over an already connected stream.
@@ -161,16 +171,19 @@ impl Service<Uri> for TransportConnector {
         Poll::Ready(Ok(()))
     }
 
+    /// Dials, without a deadline of its own.
+    ///
+    /// [`open`] holds it, being the operation `connect_timeout` is documented over: a deadline
+    /// here would bound the connection and leave the handshake unbounded, which is how a peer
+    /// that accepts TCP and then says nothing could park a call for ever - and, holding the
+    /// channel's session lock, park every other call's dial behind it.
     fn call(&mut self, target: Uri) -> Self::Future {
         let dialling = self.http.call(target.clone());
-        let deadline = self.connect_timeout;
 
         Box::pin(async move {
-            match tokio::time::timeout(deadline, dialling).await {
-                Ok(Ok(io)) => Ok(io),
-                Ok(Err(error)) => Err(TransportError::connect(&target, &error)),
-                Err(_) => Err(TransportError::timeout(&target, deadline)),
-            }
+            dialling
+                .await
+                .map_err(|error| TransportError::connect(&target, &error))
         })
     }
 }

@@ -49,15 +49,7 @@
     <NativeEngineRids Condition="'$(NativeEngineRids)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeEngineRids>
   </PropertyGroup>
 
-  <ItemGroup>
-    <RustTarget Include="win-x64" Triple="x86_64-pc-windows-msvc" Library="armonik_transport_ffi.dll" />
-    <RustTarget Include="win-x86" Triple="i686-pc-windows-msvc" Library="armonik_transport_ffi.dll" />
-    <RustTarget Include="win-arm64" Triple="aarch64-pc-windows-msvc" Library="armonik_transport_ffi.dll" />
-    <RustTarget Include="linux-x64" Triple="x86_64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" />
-    <RustTarget Include="linux-arm64" Triple="aarch64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" />
-    <RustTarget Include="osx-x64" Triple="x86_64-apple-darwin" Library="libarmonik_transport_ffi.dylib" />
-    <RustTarget Include="osx-arm64" Triple="aarch64-apple-darwin" Library="libarmonik_transport_ffi.dylib" />
-  </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)..\RustTargets.props" />
 
   <!-- What the package carries. .NET reads runtimes/[rid]/native itself; the targets file is for
        .NET Framework, which does not. Built in a target rather than declared, because only the

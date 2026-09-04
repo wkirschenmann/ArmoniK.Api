@@ -63,20 +63,18 @@ public sealed class NativeCallInvoker : CallInvoker
 
     var answered = AnswerAsync(call,
                                method.RequestMarshaller,
-                               request,
-                               options.CancellationToken);
-    // The channel owns settling its own calls before it releases its native half, so it has to
-    // know which are still in flight.
-    channel_.Track(call,
-                   answered);
+                               request);
 
+    // The state-passing overload with static lambdas: Roslyn caches all four delegates in
+    // static fields, where capturing `call` allocated a display class and four delegates per
+    // call. And the two accessors are separate, so asking for the status no longer copies the
+    // trailers to throw them away - which `GetStatus` does on every successful call.
     return new AsyncUnaryCall<TResponse>(answered,
-                                         call.ResponseHeadersAsync,
-                                         () => Ended(call)
-                                           .Status,
-                                         () => Ended(call)
-                                           .Trailers,
-                                         call.Dispose);
+                                         static state => ((NativeCall<TResponse>)state).ResponseHeadersAsync,
+                                         static state => EndedStatus((NativeCall<TResponse>)state),
+                                         static state => EndedTrailers((NativeCall<TResponse>)state),
+                                         static state => ((NativeCall<TResponse>)state).Cancel(),
+                                         call);
   }
 
   /// <summary>
@@ -85,17 +83,17 @@ public sealed class NativeCallInvoker : CallInvoker
   /// </summary>
   private static async Task<TResponse> AnswerAsync<TRequest, TResponse>(NativeCall<TResponse> call,
                                                                         Marshaller<TRequest> marshaller,
-                                                                        TRequest request,
-                                                                        CancellationToken token)
+                                                                        TRequest request)
     where TRequest : class
     where TResponse : class
   {
-    var drained = call.RunAsync();
+    // The drain is the call's own and already running; the caller's token reached it through
+    // `CancelWith`, so the send observes it without being handed it again.
+    var drained = call.Drained;
     try
     {
       await call.SendUnaryAsync(marshaller,
-                                request,
-                                token)
+                                request)
                 .ConfigureAwait(false);
     }
     catch
@@ -116,13 +114,26 @@ public sealed class NativeCallInvoker : CallInvoker
     return await drained.ConfigureAwait(false);
   }
 
-  private static (Status Status, Metadata Trailers) Ended<TResponse>(NativeCall<TResponse> call)
+  private static Status EndedStatus<TResponse>(NativeCall<TResponse> call)
     where TResponse : class
   {
-    if (!call.TerminalAsync.IsCompleted)
-    {
-      throw new InvalidOperationException("the call has not ended yet");
-    }
+    MustHaveEnded(call);
+    return call.TerminalAsync.GetAwaiter()
+               .GetResult();
+  }
+
+  /// <summary>
+  ///   The trailing metadata, copied.
+  /// </summary>
+  /// <remarks>
+  ///   Copied because gRPC's contract lets a caller keep what it is handed, and the call's own
+  ///   collection is handed out elsewhere too; the call is finished by the time this runs, so the
+  ///   copy guards a caller mutating it rather than a race.
+  /// </remarks>
+  private static Metadata EndedTrailers<TResponse>(NativeCall<TResponse> call)
+    where TResponse : class
+  {
+    MustHaveEnded(call);
 
     var trailers = new Metadata();
     foreach (var entry in call.Trailers)
@@ -130,8 +141,16 @@ public sealed class NativeCallInvoker : CallInvoker
       trailers.Add(entry);
     }
 
-    return (call.TerminalAsync.GetAwaiter()
-                .GetResult(), trailers);
+    return trailers;
+  }
+
+  private static void MustHaveEnded<TResponse>(NativeCall<TResponse> call)
+    where TResponse : class
+  {
+    if (!call.TerminalAsync.IsCompleted)
+    {
+      throw new InvalidOperationException("the call has not ended yet");
+    }
   }
 
   /// <inheritdoc />

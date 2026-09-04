@@ -119,19 +119,11 @@ impl GrpcChannel {
         }
 
         let uri = self.inner.request_uri(&options.method)?;
-        // Room for the four this engine sets, on top of what `reserve_in` adds for the caller's.
-        let mut headers = HeaderMap::with_capacity(4);
+        let mut headers = engine_headers(&self.inner.user_agent);
         options
             .metadata
             .reserve_in(&mut headers)
             .map_err(|source| ChannelError::InvalidMetadata { source })?;
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
-        headers.insert(TE, HeaderValue::from_static("trailers"));
-        headers.insert(USER_AGENT, self.inner.user_agent.clone());
-        headers.insert(
-            HeaderName::from_static("grpc-accept-encoding"),
-            HeaderValue::from_static(ACCEPTED_ENCODING),
-        );
         options
             .metadata
             .write_into(&mut headers)
@@ -178,6 +170,26 @@ impl std::fmt::Debug for GrpcChannel {
             .field("closed", &*self.inner.closed.borrow())
             .finish()
     }
+}
+
+/// The header fields this engine sets on every request.
+///
+/// Named here, together, because [`super::metadata`] has to refuse the same set to a caller: a
+/// second value for any of them would travel alongside this one rather than replace it, header
+/// fields repeating. The two lists agreeing is what
+/// `every_header_this_engine_sets_is_one_a_caller_may_not_set` checks, so a field added here
+/// cannot silently escape that refusal.
+fn engine_headers(user_agent: &HeaderValue) -> HeaderMap {
+    // Room for these, on top of what `reserve_in` adds for the caller's.
+    let mut headers = HeaderMap::with_capacity(4);
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
+    headers.insert(TE, HeaderValue::from_static("trailers"));
+    headers.insert(USER_AGENT, user_agent.clone());
+    headers.insert(
+        HeaderName::from_static("grpc-accept-encoding"),
+        HeaderValue::from_static(ACCEPTED_ENCODING),
+    );
+    headers
 }
 
 /// What a channel and the tasks it spawned share.
@@ -339,6 +351,22 @@ mod tests {
             connection: Mutex::new(Session::default()),
             attempts: AtomicU64::new(0),
             closed: watch::channel(false).0,
+        }
+    }
+
+    /// The two lists agreeing is the property; neither is derived from the other, because the
+    /// values are not - `user-agent` comes from the configuration - so a test is what ties them.
+    #[test]
+    fn every_header_this_engine_sets_is_one_a_caller_may_not_set() {
+        let engine = engine_headers(&HeaderValue::from_static("test"));
+        assert_eq!(engine.len(), 4, "the set grew or shrank: {engine:?}");
+
+        for name in engine.keys() {
+            let refused = super::super::Metadata::new().append_ascii(name.as_str(), "mine");
+            assert!(
+                refused.is_err(),
+                "`{name}` is set by the channel and a caller may still set it too, so both                  values would travel"
+            );
         }
     }
 

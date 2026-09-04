@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -40,6 +41,9 @@ internal interface ICallSink
   /// </remarks>
   void TerminalReturned();
 
+  /// <summary>Asks the call to end, without waiting for it.</summary>
+  void Cancel();
+
   void Publish(NativeMethods.AkEventKind kind,
                in NativeMethods.AkBytes payload,
                int statusCode);
@@ -60,7 +64,7 @@ internal interface ICallSink
 ///     is not recoverable afterwards.
 ///   </para>
 /// </remarks>
-internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
+internal sealed class NativeCall<TResponse> : ICallSink
   where TResponse : class
 {
   private readonly Slot[] ring_;
@@ -80,9 +84,44 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
 
   private GCHandle self_;
   private ulong handle_;
-  private Metadata trailers_ = new();
+  /// <summary>
+  ///   The trailing metadata. Empty until the terminal decodes it, which is every call that
+  ///   reaches one; the shared empty collection is what stands in for the path where the decode
+  ///   itself throws.
+  /// </summary>
+  private Metadata trailers_ = Metadata.Empty;
+  private Task<TResponse>? drained_;
+
+  /// <summary>
+  ///   Cancelled when this call stops taking work, whichever reason arrives first.
+  /// </summary>
+  /// <remarks>
+  ///   The model names the reasons as one expression (<c>WaitIsHopeless</c>) and says why: the
+  ///   guard on the wait's resolution and the antecedent of the promise that the wait ends are
+  ///   the same causes, so they have to be the same thing. This is that thing. A caller's token,
+  ///   a dispose and the terminal all reach it, and the send's wait for room observes it - where
+  ///   a flag read after the wait returned could only turn a completed wait into a failure, and
+  ///   left a cancelled send parked until the byte ceiling happened to free.
+  /// </remarks>
+  private readonly CancellationTokenSource ending_ = new();
+
+  /// <summary>
+  ///   The size prefix every <c>ak_call_start</c> carries, asked of the layout once.
+  /// </summary>
+  private static readonly uint StartOptionsSize = (uint)Marshal.SizeOf<NativeMethods.AkCallStartOptions>();
+
+  /// <summary>
+  ///   The method name as UTF-8, kept per <see cref="Method{TRequest,TResponse}" />.
+  /// </summary>
+  /// <remarks>
+  ///   A generated stub holds one <c>Method</c> in a static field and every call on it carries the
+  ///   same name, so transcoding it per call was work with a fixed answer. Keyed weakly on the
+  ///   method object, so the table is bounded by what the process keeps alive rather than by how
+  ///   many distinct names it has ever seen.
+  /// </remarks>
+  private static readonly ConditionalWeakTable<string, byte[]> MethodNames = new();
+
   private CancellationTokenRegistration cancellation_;
-  private int cancelled_;
 
   private NativeCall(NativeRuntime runtime,
                      int deliveryCredits,
@@ -113,6 +152,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
   internal Task<Metadata> ResponseHeadersAsync
     => headers_.Task;
 
+  /// <summary>
+  ///   The drain: past the terminal, every payload consumed and every buffer given back.
+  /// </summary>
+  internal Task<TResponse> Drained
+    => drained_ ?? throw new InvalidOperationException("the call was not started");
+
   internal Task<Status> TerminalAsync
     => terminal_.Task;
 
@@ -129,7 +174,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     var call = new NativeCall<TResponse>(runtime,
                                          deliveryCredits,
                                          marshaller);
-    var methodBytes = Encoding.UTF8.GetBytes(method);
+    var methodBytes = MethodNames.GetValue(method,
+                                           static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = Blob.Encode(metadata);
 
     var methodPin = GCHandle.Alloc(methodBytes,
@@ -140,7 +186,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     {
       var options = new NativeMethods.AkCallStartOptions
                     {
-                      StructSize = (uint)Marshal.SizeOf<NativeMethods.AkCallStartOptions>(),
+                      StructSize = StartOptionsSize,
                       Method = Borrow(methodPin,
                                       methodBytes.Length),
                       Metadata = Borrow(metadataPin,
@@ -157,6 +203,16 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
         call.self_.Free();
         throw Failed($"the call could not be started ({status})");
       }
+
+      // Registered now that there is a handle to cancel, and it runs at most once however many
+      // reasons arrive: that is what a token source gives that a flag and an interlocked
+      // exchange were standing in for.
+      call.ending_.Token.Register(call.EndNative);
+
+      // The drain starts here and not at a caller's discretion. It is what gives the library its
+      // payloads back, so a call whose drain never ran is a call that is never reclaimed and a
+      // runtime that never quiesces - not something to leave to whoever holds the call next.
+      call.drained_ = call.RunAsync();
 
       return call;
     }
@@ -200,8 +256,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
 
   /// <summary>Sends one message and half-closes, which is the whole of a unary request.</summary>
   internal async Task SendUnaryAsync<TRequest>(Marshaller<TRequest> marshaller,
-                                               TRequest request,
-                                               CancellationToken token)
+                                               TRequest request)
   {
     using var lent = new LentBuffer(handle_);
     marshaller.ContextualSerializer(request,
@@ -226,15 +281,18 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
         throw Failed($"the message was refused ({status})");
       }
 
-      await runtime_.WaitForRoomAsync(token)
-                    .ConfigureAwait(false);
-
-      // A call cancelled while it waited has nothing left to send, and a wait that cannot see
-      // that is what keeps a channel's dispose queued behind it: the drain has already reached
-      // its terminal, so nothing else would ever complete this send.
-      if (Volatile.Read(ref cancelled_) != 0)
+      try
       {
-        throw Failed("the call was cancelled while it waited for room against the ceiling");
+        await runtime_.WaitForRoomAsync(ending_.Token)
+                      .ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        // The wait ended because the call did, which is a cancellation and reads as one. A flag
+        // checked after the wait returned could only turn a completed wait into a failure, and
+        // left a cancelled send parked until the ceiling happened to free.
+        throw new RpcException(new Status(StatusCode.Cancelled,
+                                          "the call ended while its send waited for room against the ceiling"));
       }
     }
 
@@ -315,6 +373,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
       }
     }
 
+    // The call is over, so anything still waiting on it should stop. `EndNative` asks the engine
+    // nothing, the terminal having arrived.
+    //
+    // The source itself is not disposed: `AsyncUnaryCall.Dispose` reaches `Cancel` after the
+    // answer has been awaited, and a caller is entitled to do that. It holds no timer, so what
+    // disposing would release is the registration below, which is released. Cancelling an
+    // already-cancelled source is the no-op this relies on.
+    ending_.Cancel();
     cancellation_.Dispose();
 
     // Now that every payload is back, whatever the drain could not read is the answer.
@@ -380,25 +446,24 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
     }
   }
 
-  internal void Cancel()
+  /// <inheritdoc />
+  public void Cancel()
+    => ending_.Cancel();
+
+  /// <summary>Tells the engine, unless it has already ended the call itself.</summary>
+  /// <remarks>
+  ///   The check is not a second latch - the token source already answers once - it is what keeps
+  ///   the terminal from provoking a downcall that says nothing: a call past its terminal cancels
+  ///   the source so a waiting send stops, and there is nothing left to ask the engine.
+  /// </remarks>
+  private void EndNative()
   {
-    if (Interlocked.Exchange(ref cancelled_,
-                             1) == 0)
+    if (!terminal_.Task.IsCompleted)
     {
       NativeMethods.ak_call_cancel(handle_);
     }
   }
 
-  /// <summary>
-  ///   Asks for the call to end. It does not wait for it: the drain does, and it is what releases
-  ///   the payloads and the root.
-  /// </summary>
-  /// <remarks>
-  ///   The terminal arrives with no further host action - `CancellationCompletes` in the model -
-  ///   so there is nothing here to hand over and nothing to poll for.
-  /// </remarks>
-  public void Dispose()
-    => Cancel();
 
   private static unsafe ReadOnlySpan<byte> Bytes(in NativeMethods.AkBytes payload)
     => new((void*)payload.Ptr,
