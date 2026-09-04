@@ -68,6 +68,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "armonik-transport-ffi"
+version = "3.29.2-beta-0"
+dependencies = [
+ "armonik-transport",
+ "bytes",
+ "http",
+ "hyper",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+ "tower-service",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
