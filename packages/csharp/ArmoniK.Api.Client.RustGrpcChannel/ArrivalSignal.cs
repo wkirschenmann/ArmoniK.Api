@@ -19,9 +19,17 @@ using System.Threading.Tasks;
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 /// <summary>
-///   Wakes one waiter, and remembers a signal that arrives when nobody is waiting.
+///   Tells one waiter that something arrived, and remembers a signal that arrives first.
 /// </summary>
 /// <remarks>
+///   <para>
+///     One waiter, and that is a precondition rather than a nicety: two would be handed the same
+///     task and both woken by one signal, which an auto-reset event would not do. It is not
+///     called one either, for that reason. What makes the precondition hold is structural - the
+///     only waiter is <c>NativeCall.RunAsync</c>, which is private and started once by
+///     <c>NativeCall.Start</c>, so a call has one drain and the drain is inside one await at a
+///     time.
+///   </para>
 ///   <para>
 ///     The remembering is what makes "look at the ring, then wait" safe. The drain finds the ring
 ///     empty and only then calls <see cref="WaitAsync" />; a callback publishing in between would
@@ -49,7 +57,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///     not return until the application was done with it.
 ///   </para>
 /// </remarks>
-internal sealed class AsyncAutoResetEvent
+internal sealed class ArrivalSignal
 {
   private readonly object gate_ = new();
 

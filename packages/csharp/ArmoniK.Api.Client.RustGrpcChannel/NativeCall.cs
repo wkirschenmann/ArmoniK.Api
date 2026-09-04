@@ -71,7 +71,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
   private readonly int mask_;
   private long head_;
   private long tail_;
-  private readonly AsyncAutoResetEvent arrived_ = new();
+  private readonly ArrivalSignal arrived_ = new();
 
   private readonly TaskCompletionSource<Metadata> headers_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -364,7 +364,16 @@ internal sealed class NativeCall<TResponse> : ICallSink
   ///   Empties the ring to the terminal, and answers the call: the one response of a unary call,
   ///   or the status that says why there is none.
   /// </summary>
-  internal async Task<TResponse> RunAsync()
+  /// <summary>
+  ///   Reads the ring to the terminal, giving every payload back on the way.
+  /// </summary>
+  /// <remarks>
+  ///   Private, and started by <see cref="Start" />: a call has one drain and one only, which is
+  ///   what lets a payload's release order be recoverable and what makes
+  ///   <see cref="ArrivalSignal" />'s single-waiter precondition structural rather than a
+  ///   convention. <see cref="Drained" /> hands out the task it is already running.
+  /// </remarks>
+  private async Task<TResponse> RunAsync()
   {
     TResponse? response = null;
     var seen = 0;
