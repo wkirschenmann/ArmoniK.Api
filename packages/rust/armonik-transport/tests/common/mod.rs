@@ -3,6 +3,9 @@
 //! Hand-rolled rather than generated: this crate has no protos and deliberately no `protoc` in its
 //! build, so the codec moves opaque bytes and the service is one method that sleeps before replying.
 
+// Two test binaries share this, and neither uses all of it.
+#![allow(dead_code)]
+
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -10,11 +13,15 @@ use std::time::Duration;
 
 use armonik_transport::reexports::hyper;
 use armonik_transport::reexports::tonic::body::Body;
-use armonik_transport::reexports::tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use armonik_transport::reexports::tonic::server::NamedService;
 use armonik_transport::reexports::tonic::{Request, Response, Status};
-use bytes::{Buf, BufMut, Bytes};
+use bytes::Bytes;
 use tower_service::Service;
+
+mod codec;
+pub mod echo;
+
+use codec::BytesCodec;
 
 /// The one method the test service answers to.
 pub const METHOD_PATH: &str = "/armonik_transport.test.Slow/Call";
@@ -22,46 +29,6 @@ pub const METHOD_PATH: &str = "/armonik_transport.test.Slow/Call";
 /// What the service answers once it has finished sleeping, so a test can tell a real reply from an
 /// empty one.
 pub const REPLY: &[u8] = b"served";
-
-/// A codec whose wire representation *is* the message: no framing beyond what gRPC already adds.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BytesCodec;
-
-impl Codec for BytesCodec {
-    type Encode = Bytes;
-    type Decode = Bytes;
-    type Encoder = Self;
-    type Decoder = Self;
-
-    fn encoder(&mut self) -> Self::Encoder {
-        *self
-    }
-
-    fn decoder(&mut self) -> Self::Decoder {
-        *self
-    }
-}
-
-impl Encoder for BytesCodec {
-    type Item = Bytes;
-    type Error = Status;
-
-    fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
-        dst.reserve(item.len());
-        dst.put_slice(&item);
-        Ok(())
-    }
-}
-
-impl Decoder for BytesCodec {
-    type Item = Bytes;
-    type Error = Status;
-
-    fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
-        let len = src.remaining();
-        Ok(Some(src.copy_to_bytes(len)))
-    }
-}
 
 /// A service that waits `delay` before answering, whatever it was sent.
 #[derive(Clone)]

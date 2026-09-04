@@ -3,9 +3,14 @@
 //! Configuration parsing, TLS and mTLS: what it takes to turn an endpoint into a connected channel.
 //! Depending on this alone leaves protobuf codegen, and the `protoc` a build script would need, out of
 //! the build.
+//!
+//! Two modules carry the two contracts the design names: [`http2`] dials the network, and [`grpc`]
+//! runs gRPC calls over what it dialled.
 
 mod config;
 mod connect;
+pub mod grpc;
+pub mod http2;
 mod utils;
 
 pub use config::{ClientConfig, ClientConfigArgs, ConfigError};
@@ -21,6 +26,8 @@ pub use utils::ReadEnvError;
 /// A dependent should take these rather than declare its own requirement for the same crates, so it
 /// cannot end up with a `rustls` other than the one the connection was built with.
 pub mod reexports {
+    pub use bytes;
+    pub use http;
     pub use hyper;
     pub use hyper_rustls;
     pub use hyper_util;
