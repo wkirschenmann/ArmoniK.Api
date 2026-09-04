@@ -1,0 +1,54 @@
+// This file is part of the ArmoniK project
+//
+// Copyright (C) ANEO, 2021-2026. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License")
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel;
+
+/// <summary>
+///   The native engine this binding is a binding to could not be loaded.
+/// </summary>
+/// <remarks>
+///   Its own type rather than the framework's <see cref="DllNotFoundException" />, whose message
+///   names a bare library and no reason. A caller reaching this has a deployment to fix, and what
+///   it needs is the word size in play, where the search looked, and which of the two ways of
+///   supplying the engine was expected to answer.
+/// </remarks>
+public sealed class RustEngineMissingException : Exception
+{
+  private RustEngineMissingException(string message,
+                                     Exception inner)
+    : base(message,
+           inner)
+  {
+  }
+
+  internal static RustEngineMissingException For(Exception inner)
+  {
+    var beside = NativeMethods.EngineDirectory;
+    var how = RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework",
+                                                                 StringComparison.Ordinal)
+                ? $"this is .NET Framework, which has no runtime-identifier probing: the package's targets file should have put it in `{beside}`"
+                : "this is .NET, which resolves it by runtime identifier from `runtimes/<rid>/native` in the package";
+
+    return new RustEngineMissingException($"`{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit process. "
+                                          + how
+                                          + $". Base directory: `{AppDomain.CurrentDomain.BaseDirectory}`.",
+                                          inner);
+  }
+}
