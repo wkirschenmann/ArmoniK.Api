@@ -93,6 +93,22 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
   }
 
+  /// <summary>
+  ///   Sends this call has committed and whose WRITE_DONE has not arrived.
+  /// </summary>
+  /// <remarks>
+  ///   The model gives its writer an <c>awaiting_write_done</c> state between the commit and the
+  ///   acquittal, and closes the writer only from <c>idle</c>. This is that state, as a count:
+  ///   dropping WRITE_DONE left the write finished at the commit, which is a step the model does
+  ///   not have and which nothing could check.
+  ///   <para>
+  ///     Charged before the commit and not after it, because the acquittal is emitted from a
+  ///     library thread and can arrive before a downcall has returned. A commit that is refused
+  ///     gives the charge back, there being nothing to acquit.
+  ///   </para>
+  /// </remarks>
+  private int inFlight_;
+
   private readonly Marshaller<TResponse> marshaller_;
   private readonly NativeRuntime runtime_;
 
@@ -238,9 +254,13 @@ internal sealed class NativeCall<TResponse> : ICallSink
                       in NativeMethods.AkBytes payload,
                       int statusCode)
   {
-    // WRITE_DONE settles a send rather than carrying one, and a unary caller never observes it.
+    // WRITE_DONE settles a send rather than carrying one, so it does not ride the ring - which
+    // is sized to the delivery window and must never be tested for fullness. It is counted
+    // instead: the call cannot be handed to a caller as answered while a send it accepted is
+    // still unacquitted, and something has to be able to say so.
     if (kind == NativeMethods.AkEventKind.WriteDone)
     {
+      Interlocked.Decrement(ref inFlight_);
       return;
     }
 
@@ -293,18 +313,24 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
     while (true)
     {
+      // Charged first: the acquittal comes from a library thread and may land before this
+      // downcall has returned, so counting after it could see the decrement first.
+      Interlocked.Increment(ref inFlight_);
       var status = lent.Commit();
       if (status == NativeMethods.AkStatus.Ok)
       {
         break;
       }
 
+      // Refused, so there is nothing to acquit and nothing to wait for.
+      Interlocked.Decrement(ref inFlight_);
+
       // BUDGET_BUSY and nothing else waits here. SLOT_BUSY would mean this call's send window
-      // is full, and the header says its wake-up is the call's next WRITE_DONE - a signal this
-      // ring deliberately drops - so waiting on the byte ceiling would be waiting on the wrong
-      // thing. It is also unreachable: the window is one, the writer is single, and a unary call
-      // sends once, which is what `ManagedWriterNeverObservesSlotBusy` asserts. So it is a bug
-      // here rather than a state to wait out.
+      // is full, and the header says its wake-up is the call's next WRITE_DONE - which this side
+      // counts but does not wait on - so waiting on the byte ceiling would be waiting on the
+      // wrong thing. It is also unreachable: the window is one, the writer is single, and a
+      // unary call sends once, which is what `ManagedWriterNeverObservesSlotBusy` asserts. So it
+      // is a bug here rather than a state to wait out.
       if (status != NativeMethods.AkStatus.BudgetBusy)
       {
         throw Failed($"the message was refused ({status})");
@@ -420,6 +446,19 @@ internal sealed class NativeCall<TResponse> : ICallSink
               : new RpcException(new Status(StatusCode.Internal,
                                             $"the call's events could not be read: {refused.Message}"),
                                  trailers_);
+    }
+
+    // The header promises every WRITE_DONE precedes the terminal, and the model closes a writer
+    // only from idle. This is where that is worth checking: past this point the call is answered
+    // and nobody would look again. A send still in flight here means the engine acquitted late,
+    // which would leave `AwaitingWriteDoneHasOneComing` false and a buffer charged against a
+    // call that is finished.
+    var unacquitted = Volatile.Read(ref inFlight_);
+    if (unacquitted != 0)
+    {
+      throw new RpcException(new Status(StatusCode.Internal,
+                                        $"the call reached its terminal with {unacquitted} send(s) unacquitted"),
+                             trailers_);
     }
 
     var status = await terminal_.Task.ConfigureAwait(false);
