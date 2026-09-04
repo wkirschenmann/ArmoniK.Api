@@ -247,6 +247,49 @@ the packaging carry it, and the first CI job on an arm host will say whether tha
 matrix is 15 tests over three runtimes and two architectures, and `test.yml` runs seven
 combinations of runtime, architecture and operating system.
 
+### Phase 1 closing — the reviews, and what is deliberately left
+
+Phase 1 was reviewed four times over: compliance to the TLA+ model, `/simplify` across the whole
+of `packages/rust` and then once per crate and per dll, a code-quality pass, and compliance to the
+model again. The second model pass is the one that earned its keep. It found two breaks of proved
+level-0 invariants that the first pass and three cleanup passes had all walked past:
+
+- A call cancelled while its reader was parked on a delivery credit dropped the message it was
+  carrying and then forwarded whatever the peer had decided, so a host could be told the call
+  completed while an event of it was thrown away. `CompleteDelivery` forbids it, and once
+  cancellation is latched the model admits one terminal: CANCELLED.
+- A closing channel waited for its last call to be *reclaimed* rather than to reach its terminal,
+  so `SHUTDOWN_COMPLETE` and `GRPC_STOPPED` were observable with a channel still CLOSING - false
+  for `IsRuntimeDrained` and for `ReleasedNoChannels`. The header sentence and a test had locked
+  in the wrong reading; both are corrected with the code.
+
+Two questions the model settled rather than the code:
+
+- `ak_call_start` on a stopped runtime answers `AK_STATUS_INVALID_STATE`, not
+  `AK_STATUS_HANDLE_STALE`. `IsRuntimeDrained` requires every channel closed and
+  `ChannelStateMatchesNative` requires a disposed channel to read closing or closed, so the
+  channel has to stay nameable; staling its handle at the drain made both unrepresentable.
+- The budget wait owes no `RetryRefusedBudget` action. A refused retry changes no variable, so it
+  is stuttering by construction, and `BudgetWaitEndsWhenHopeless` says in its own comment that the
+  wait promises nothing else.
+
+**Deliberately left, and why:**
+
+- arm64 is mapped and packaged but has never been executed. There is no runner here; the first CI
+  job on an arm host is what will say whether the packaging is enough.
+- One x86 test-matrix flake, seen once as 11 failures and never reproduced across fourteen further
+  matrix runs. Two explanations were tested and both fell - neither build parallelism nor
+  `grpc.tools` protodep contention survives a controlled comparison - so it is set aside rather
+  than explained.
+- The two `ArmoniK.Api.Mock` tests skip unless `GrpcClient__Endpoint` names a running mock, so
+  they have never run locally.
+- The happy-eyeballs behaviour that motivated adopting `hyper_util`'s connector has no test:
+  nothing in the suite presents a dual-stack host with one dead address family.
+- Five minor divergences from the second model pass, and the `/simplify` findings not applied.
+  The largest gap is not a divergence but an absence: the model's reader machine
+  (`consumer_phase`, `reader_state`, the `BeginMoveNext` family) has no implementation, because
+  it is phase 2's, so the invariants over it are vacuous today.
+
 ---
 
 ## Phase 2 — Streaming (the 3 other cardinalities)

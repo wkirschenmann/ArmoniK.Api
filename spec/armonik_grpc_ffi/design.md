@@ -227,10 +227,14 @@ pub struct GrpcChannel { /* ... */ }
 impl GrpcChannel {
     /// Creation. Validates the configuration and performs no I/O, so its only
     /// failure is a bad configuration and it cannot block.
+    /// The error is the engine's own and not `ConfigError`, which belongs to the
+    /// environment-driven client: a caller reading a refused window has no reason
+    /// to meet a vocabulary about `GrpcClient__CertPem` and PEM parsing, and it was
+    /// the one edge tying `grpc` to `config`.
     pub fn new(
         config: GrpcChannelConfig,
         executor: impl Executor,
-    ) -> Result<Self, ConfigError>;
+    ) -> Result<Self, GrpcChannelConfigError>;
 
     /// Establishes the connection and reports how it went. Optional: the first
     /// call connects lazily otherwise. This replaces the eager_connect flag,
