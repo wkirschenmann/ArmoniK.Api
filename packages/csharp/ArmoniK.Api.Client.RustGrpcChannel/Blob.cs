@@ -47,8 +47,6 @@ internal static class Blob
 {
   private const string BinarySuffix = "-bin";
 
-  private const char Quotation = '"';
-
   internal static byte[] Encode(Metadata? metadata)
   {
     if (metadata is null || metadata.Count == 0)
@@ -139,9 +137,6 @@ internal static class Blob
     trailers = Decode(payload);
   }
 
-  /// <summary>Reverse solidus, which is JSON's escape character.</summary>
-  private const char Escape = (char)0x5c;
-
   /// <summary>
   ///   The channel config the engine parses, as JSON.
   /// </summary>
@@ -153,22 +148,30 @@ internal static class Blob
   /// </remarks>
   internal static byte[] ChannelConfig(string endpoint,
                                        int deliveryCredits)
-    => Encoding.UTF8.GetBytes("{" + Quote("endpoint") + ":" + Quote(endpoint) + "," + Quote("delivery_credits") + ":" + deliveryCredits.ToString(CultureInfo.InvariantCulture) + "}");
+    => Encoding.UTF8.GetBytes("{"
+                              + Quote("endpoint")
+                              + ":"
+                              + Quote(endpoint)
+                              + ","
+                              + Quote("delivery_credits")
+                              + ":"
+                              + deliveryCredits.ToString(CultureInfo.InvariantCulture)
+                              + "}");
 
   /// <summary>One JSON string, escaped. An endpoint is a URI and may carry either of these.</summary>
   private static string Quote(string value)
   {
-    var quoted = new StringBuilder(value.Length + 2).Append(Quotation);
+    var quoted = new StringBuilder(value.Length + 2).Append('"');
     foreach (var character in value)
     {
-      if (character == Quotation || character == Escape)
+      if (character == '"' || character == '\\')
       {
-        quoted.Append(Escape)
+        quoted.Append('\\')
               .Append(character);
       }
       else if (character < ' ')
       {
-        quoted.Append(Escape)
+        quoted.Append('\\')
               .Append('u')
               .Append(((int)character).ToString("x4",
                                                 CultureInfo.InvariantCulture));
@@ -179,7 +182,7 @@ internal static class Blob
       }
     }
 
-    return quoted.Append(Quotation)
+    return quoted.Append('"')
                  .ToString();
   }
 
@@ -187,6 +190,9 @@ internal static class Blob
                             ref int at,
                             uint value)
   {
+    // `BitConverter` rather than `MemoryMarshal.Write`, which would be the reader's exact
+    // mirror: its second parameter is `ref` on netstandard2.0 and `in` on net8.0, so one call
+    // cannot satisfy both targets below C# 12, and native byte order is what matters here.
     BitConverter.GetBytes(value)
                 .CopyTo(into,
                         at);

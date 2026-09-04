@@ -40,10 +40,7 @@ public sealed class RustEngineMissingException : Exception
 
   internal static RustEngineMissingException For(Exception inner)
   {
-    var beside = Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
-                              IntPtr.Size == 8
-                                ? "x64"
-                                : "x86");
+    var beside = NativeMethods.EngineDirectory;
     var how = RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework",
                                                                  StringComparison.Ordinal)
                 ? $"this is .NET Framework, which has no runtime-identifier probing: the package's targets file should have put it in `{beside}`"

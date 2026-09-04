@@ -25,7 +25,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// </summary>
 /// <remarks>
 ///   The names are the model's own (<c>runtime_dispose_state</c>), so a reader can hold the code
-///   and <c>DotNetBinding.tla</c> side by side.
+///   and <c>DotNetBinding.tla</c> side by side - with one exception, named as such below.
 /// </remarks>
 internal enum RuntimeDisposeState
 {
@@ -36,7 +36,19 @@ internal enum RuntimeDisposeState
   /// <summary>The last lease is gone and the latch is set: no further lease may be taken.</summary>
   ShutdownPending,
   Destroying,
-  Destroyed,
+
+  /// <summary>
+  ///   The destroy was refused or threw, so the generation is still named and no fresh one may
+  ///   follow.
+  /// </summary>
+  /// <remarks>
+  ///   The exception to the naming above: this is not the model's <c>destroyed</c>, which means
+  ///   <c>ak_runtime_destroy</c> returned OK - a success reaches <see cref="Absent" /> instead,
+  ///   because the generation is then gone. A refused destroy has no state in
+  ///   <c>DotNetBinding.tla</c> at all; it is the runtime's own AK_RUNTIME_FAILED_UNQUIESCED
+  ///   territory seen from this side.
+  /// </remarks>
+  DestroyFailed,
 }
 
 /// <summary>
@@ -239,14 +251,18 @@ public static class NativeRuntimeFactory
     TaskCompletionSource<bool> waiting;
     lock (Gate)
     {
-      state_ = RuntimeDisposeState.Destroyed;
       waiting = destroyed_!;
 
+      // One state per outcome: a destroy that failed leaves the generation named, so a later
+      // create is refused rather than starting beside threads that are still up.
       if (failure is null)
       {
         current_ = null;
         state_   = RuntimeDisposeState.Absent;
-        leases_  = 0;
+      }
+      else
+      {
+        state_ = RuntimeDisposeState.DestroyFailed;
       }
     }
 

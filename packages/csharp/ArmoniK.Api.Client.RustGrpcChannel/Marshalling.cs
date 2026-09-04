@@ -155,6 +155,19 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     => new((void*)buffer_.Ptr,
            (int)buffer_.Len);
 
+  /// <summary>Checks that what the marshaller is about to write still fits.</summary>
+  /// <remarks>
+  ///   A check, and never a growth. The buffer is lent for the length the marshaller announced
+  ///   through <see cref="SetPayloadLength" /> - Grpc.Core's protobuf marshaller announces
+  ///   <c>CalculateSize()</c> and then writes exactly that much - so asking past it is a
+  ///   marshaller contradicting itself, and there is nothing sensible to serialize into.
+  ///   <para>
+  ///     Growing instead meant returning the lent buffer half way through serializing and
+  ///     carrying on in managed memory, which leaves a serializing writer holding no buffer at
+  ///     all - a state <c>SerializingWriterHoldsTheBuffer</c> forbids, reachable only by that
+  ///     contradiction.
+  ///   </para>
+  /// </remarks>
   private void Reserve(int sizeHint)
   {
     var wanted = written_ + Math.Max(sizeHint,
@@ -164,18 +177,8 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       return;
     }
 
-    // Only a marshaller that writes past the length it announced reaches this, and the arena
-    // cannot grow, so the message moves to managed memory and Commit lends again for the total.
-    var grown = new byte[Math.Max(wanted,
-                                  Capacity * 2)];
-    (spilled_ is not null
-       ? new ReadOnlySpan<byte>(spilled_,
-                                0,
-                                written_)
-       : Arena.Slice(0,
-                     written_)).CopyTo(grown);
-    Dispose();
-    spilled_ = grown;
+    throw new RpcException(new Status(StatusCode.Internal,
+                                      $"the marshaller announced {Capacity} bytes and then asked to write {wanted}"));
   }
 
   private NativeMethods.AkStatus Take(int length)
@@ -189,7 +192,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         lent_ = true;
         return status;
 
-      case NativeMethods.AkStatus.BudgetBusy or NativeMethods.AkStatus.SlotBusy:
+      // The byte ceiling is a wait, so the message is serialized into managed memory and
+      // `Commit` lends again. SLOT_BUSY is not: its wake-up is this call's next WRITE_DONE, and
+      // `ManagedWriterNeverObservesSlotBusy` says a single writer with a window of one never
+      // reaches it, so it falls through to the refusal below.
+      case NativeMethods.AkStatus.BudgetBusy:
         spilled_ ??= new byte[length];
         return status;
 

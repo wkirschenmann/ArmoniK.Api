@@ -33,6 +33,17 @@ internal static class NativeMethods
 {
   internal const string Library = "armonik_transport_ffi";
 
+  /// <summary>
+  ///   Where a .NET Framework consumer's engine is, which is the layout the package's targets
+  ///   file writes. Read by the diagnostic too, so a change to the layout cannot leave the error
+  ///   message naming a directory nothing looks in.
+  /// </summary>
+  internal static string EngineDirectory
+    => Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
+                    IntPtr.Size == 8
+                      ? "x64"
+                      : "x86");
+
   /// <summary>The version this binding is written against.</summary>
   internal const int AbiVersion = 1;
 
@@ -56,10 +67,7 @@ internal static class NativeMethods
   {
     try
     {
-      var beside = Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
-                                IntPtr.Size == 8
-                                  ? "x64"
-                                  : "x86",
+      var beside = Path.Combine(EngineDirectory,
                                 Library + ".dll");
       if (File.Exists(beside))
       {

@@ -55,8 +55,14 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   private readonly ulong handle_;
   private readonly int deliveryCredits_;
 
-  /// <summary>The calls this channel started that have not settled. Keyed by identity.</summary>
-  private readonly ConcurrentDictionary<object, Task> live_ = new();
+  /// <summary>
+  ///   The calls this channel started that have not settled, keyed by identity.
+  /// </summary>
+  /// <remarks>
+  ///   Keyed by what the dispose needs of them rather than by <c>object</c>: the cast that would
+  ///   otherwise stand here could silently do nothing, where this cannot compile without it.
+  /// </remarks>
+  private readonly ConcurrentDictionary<IDisposable, Task> live_ = new();
 
   private readonly TaskCompletionSource<bool> disposed_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -143,7 +149,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   ///   The task is the call's drain, and its completion is what "settled" means: past the
   ///   terminal, every payload consumed and every buffer given back.
   /// </remarks>
-  internal void Track(object call,
+  internal void Track(IDisposable call,
                       Task settled)
   {
     live_[call] = settled;
@@ -170,14 +176,22 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     {
       // Every call of this channel and no other: settled before the native half closes, since a
       // call that still owes something keeps the channel from being reclaimed.
-      foreach (var call in live_.Keys.ToArray())
+      // One snapshot for both loops, where two could disagree.
+      var live = live_.ToArray();
+      foreach (var call in live)
       {
-        (call as IDisposable)?.Dispose();
+        call.Key.Dispose();
       }
 
-      await Task.WhenAll(live_.Values.ToArray()
-                              .Select(IgnoringFailure))
-                .ConfigureAwait(false);
+      try
+      {
+        await Task.WhenAll(live.Select(settling => settling.Value))
+                  .ConfigureAwait(false);
+      }
+      catch
+      {
+        // A call that ended badly still settled, which is all this waits for.
+      }
 
       NativeMethods.ak_channel_release(handle_);
 
@@ -221,11 +235,4 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   protected override Task ShutdownAsyncCore()
     => DisposeAsync()
       .AsTask();
-
-  /// <summary>A call that ended badly still settled, which is all this waits for.</summary>
-  private static Task IgnoringFailure(Task drain)
-    => drain.ContinueWith(static _ =>
-                          {
-                          },
-                          TaskContinuationOptions.ExecuteSynchronously);
 }

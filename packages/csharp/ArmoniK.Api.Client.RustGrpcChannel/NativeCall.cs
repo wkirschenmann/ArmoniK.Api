@@ -27,6 +27,19 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// <summary>What the trampoline publishes into, without needing to know the response type.</summary>
 internal interface ICallSink
 {
+  /// <summary>
+  ///   The terminal's callback has returned, so nothing native holds this call any more.
+  /// </summary>
+  /// <remarks>
+  ///   Separate from <see cref="Publish" /> and called after it, because that is the order the
+  ///   model states: the root must be live for as long as a callback carrying it is running, so
+  ///   releasing it from inside the terminal's own callback makes
+  ///   <c>RootSurvivesCallbacks</c> momentarily false. Nothing reads it in that window today -
+  ///   the header promises every WRITE_DONE precedes the terminal and the engine enforces it -
+  ///   which is a reason it was harmless, not a reason to keep relying on it.
+  /// </remarks>
+  void TerminalReturned();
+
   void Publish(NativeMethods.AkEventKind kind,
                in NativeMethods.AkBytes payload,
                int statusCode);
@@ -173,10 +186,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
                    head_ + 1);
     arrived_.Set();
 
-    if (kind == NativeMethods.AkEventKind.Status)
+  }
+
+  /// <inheritdoc />
+  public void TerminalReturned()
+  {
+    // The drain keeps its own reference, so this collects nothing.
+    if (self_.IsAllocated)
     {
-      // The last callback of the call, so native use of the root ends here. The drain keeps its
-      // own reference, so this collects nothing.
       self_.Free();
     }
   }
@@ -198,7 +215,13 @@ internal sealed class NativeCall<TResponse> : ICallSink, IDisposable
         break;
       }
 
-      if (status is not (NativeMethods.AkStatus.BudgetBusy or NativeMethods.AkStatus.SlotBusy))
+      // BUDGET_BUSY and nothing else waits here. SLOT_BUSY would mean this call's send window
+      // is full, and the header says its wake-up is the call's next WRITE_DONE - a signal this
+      // ring deliberately drops - so waiting on the byte ceiling would be waiting on the wrong
+      // thing. It is also unreachable: the window is one, the writer is single, and a unary call
+      // sends once, which is what `ManagedWriterNeverObservesSlotBusy` asserts. So it is a bug
+      // here rather than a state to wait out.
+      if (status != NativeMethods.AkStatus.BudgetBusy)
       {
         throw Failed($"the message was refused ({status})");
       }

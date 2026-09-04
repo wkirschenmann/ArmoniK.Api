@@ -76,6 +76,11 @@
     <Error Condition="'@(OtherArchitectureStamp)' != ''"
            Text="this tree was last built as @(OtherArchitectureStamp->'%(Filename)'), not $(PlatformTarget); run `dotnet clean` or build with --no-incremental before switching architecture" />
     <Touch Files="$(ArchitectureStamp)" AlwaysCreate="true" />
+    <!-- Declared as an output, or `dotnet clean` leaves it behind and the advice above is a
+         dead end: Clean removes what the build recorded writing and nothing else. -->
+    <ItemGroup>
+      <FileWrites Include="$(ArchitectureStamp)" />
+    </ItemGroup>
   </Target>
 
   <!-- The engine the binding's own build produced, for the architecture this test host runs as,

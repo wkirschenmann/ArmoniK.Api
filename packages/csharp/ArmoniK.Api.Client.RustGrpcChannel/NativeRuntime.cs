@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,6 +36,15 @@ internal sealed class NativeRuntime
   private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(30);
 
   private static readonly TimeSpan RoomPollInterval = TimeSpan.FromMilliseconds(2);
+
+  /// <summary>
+  ///   How long to wait between reads of the runtime's state once its last event has arrived.
+  /// </summary>
+  /// <remarks>
+  ///   The gap it covers is a few instructions wide, and the state is read before the first wait,
+  ///   so the ordinary teardown never sleeps here at all.
+  /// </remarks>
+  private static readonly TimeSpan QuiescePollInterval = TimeSpan.FromMilliseconds(1);
 
   /// <summary>
   ///   Rooted for the library's lifetime. A delegate marshalled to a function pointer is not kept
@@ -128,31 +138,63 @@ internal sealed class NativeRuntime
   internal async Task RetireAsync()
   {
     NativeMethods.ak_runtime_begin_shutdown(handle_);
-    await ReleasedAsync()
+    await QuiescentAsync()
       .ConfigureAwait(false);
     Destroy();
     FreeRoot();
   }
 
   /// <summary>
-  ///   Waits for the runtime to say it has stopped and owes nothing.
+  ///   Waits for the runtime's last event, and then for the runtime to publish that it has
+  ///   stopped.
   /// </summary>
   /// <remarks>
   ///   Quiescence is reached by giving everything back, not by waiting for it, and each call's
   ///   drain is what does that. This waits only for the runtime's own word on it.
+  ///   <para>
+  ///     Two waits, because the event and the state are two moments and only the second one
+  ///     permits the destroy. The runtime publishes AK_RUNTIME_QUIESCENT after its last callback
+  ///     has returned - a callback runs on the runtime's own thread, so it can never be the thing
+  ///     that reports that thread is finished - and this continuation is queued from inside that
+  ///     callback. Destroying on the event alone therefore races the state it needs, and the
+  ///     loser is refused with AK_STATUS_INVALID_STATE, which the factory latches for the life of
+  ///     the process. The event is the notification; the state is the permission.
+  ///   </para>
   /// </remarks>
-  private async Task ReleasedAsync()
+  private async Task QuiescentAsync()
   {
-    var answered = await Task.WhenAny(released_.Task,
-                                      Task.Delay(ShutdownTimeout))
-                             .ConfigureAwait(false);
-    if (answered != released_.Task)
+    var waited = Stopwatch.StartNew();
+
+    // The deadline is cancelled once it is not needed, so a host that opens and closes channels
+    // in a loop does not leave one rooted timer per generation behind it.
+    using (var deadline = new CancellationTokenSource())
     {
-      throw new InvalidOperationException($"the runtime did not quiesce within {ShutdownTimeout} ({NativeMethods.ak_runtime_status(handle_)})");
+      var answered = await Task.WhenAny(released_.Task,
+                                        Task.Delay(ShutdownTimeout,
+                                                   deadline.Token))
+                               .ConfigureAwait(false);
+      deadline.Cancel();
+
+      if (answered != released_.Task)
+      {
+        throw NotQuiescent();
+      }
     }
 
-    await released_.Task.ConfigureAwait(false);
+    while (NativeMethods.ak_runtime_status(handle_) != NativeMethods.AkRuntimeState.Quiescent)
+    {
+      if (waited.Elapsed >= ShutdownTimeout)
+      {
+        throw NotQuiescent();
+      }
+
+      await Task.Delay(QuiescePollInterval)
+                .ConfigureAwait(false);
+    }
   }
+
+  private InvalidOperationException NotQuiescent()
+    => new($"the runtime did not quiesce within {ShutdownTimeout} ({NativeMethods.ak_runtime_status(handle_)})");
 
   /// <exception cref="InvalidOperationException">
   ///   Destroying is permitted only from quiescence, so a refusal leaves the threads up. Raised
@@ -205,6 +247,14 @@ internal sealed class NativeRuntime
         call.Publish(@event->Kind,
                      @event->Payload,
                      @event->StatusCode);
+
+        // After the publish and not inside it: the root has to outlive every callback that
+        // carries it, and the terminal's is the last one.
+        if (@event->Kind == NativeMethods.AkEventKind.Status)
+        {
+          call.TerminalReturned();
+        }
+
         return;
       }
 
