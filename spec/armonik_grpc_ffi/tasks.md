@@ -143,22 +143,30 @@ the crate already carries:
 - Executor trait
 
 **Deliverable**: Rust integration test: unary call to a local gRPC server (plain HTTP/2).
+**Status**: done.  The crate also gains the `http2` module this task assumed it already had.
 
 ### T1.2: Create `armonik-transport-ffi` — minimal unary ABI
 
 **Prerequisite**: T1.1, T0.2 (FFI spec proved or at least written)
-**Source**: from scratch per the design
+**Source**: from scratch per the design. The crate of that name on `wip/rust-all` is not the
+source: it delegates every gRPC semantic to tonic and exposes a polling ABI, where the design
+calls for an engine that owns its framing under a callback ABI.
 **Commit**: Create `packages/rust/armonik-transport-ffi/`:
-- `ak_runtime_create`, `ak_runtime_status`, `ak_runtime_begin_shutdown`
-- `ak_channel_create` (minimal JSON config: just endpoint)
-- `ak_call_start`, `ak_call_send_message` (zero-copy), `ak_call_end_send`,
-  `ak_call_cancel`, `ak_call_release`, `ak_event_consumed`
-- `ak_abi_version`
-- Events: WRITE_DONE, INITIAL_METADATA, MESSAGE, STATUS, SHUTDOWN_COMPLETE
+- `ak_runtime_create`, `ak_runtime_status`, `ak_runtime_begin_shutdown`, `ak_runtime_destroy`
+- `ak_channel_create` (minimal JSON config: just endpoint), `ak_channel_release`
+- `ak_call_start`, `ak_get_call_buffer`, `ak_call_send_message` (zero-copy),
+  `ak_return_call_buffer`, `ak_call_end_send`, `ak_call_cancel`, `ak_event_consumed`
+- `ak_call_debt_of`, `ak_runtime_memory_usage`, `ak_abi_version`
+- Events: WRITE_DONE, INITIAL_METADATA, MESSAGE, STATUS, SHUTDOWN_COMPLETE,
+  RESOURCES_RELEASED
 - SlotMap registry, owned Tokio runtime, callback with call_ctx
 - One send in flight, one non-consumed event per call
 
+There is no `ak_call_release`: design.md removed it deliberately and says why. This list
+followed the design where the two disagreed.
+
 **Deliverable**: C or Rust FFI test: unary call via the ABI to a local gRPC server.
+**Status**: done.
 
 ### T1.3: Create `ArmoniK.Api.Client.RustGrpcChannel` — .NET unary binding
 
@@ -176,6 +184,12 @@ the crate already carries:
 
 **Deliverable**: .NET E2E test: unary call to a local gRPC server (plain HTTP/2).
 
+**Status**: done.  Four items of the commit list above are stale against design.md, which wins:
+the handles are generational 64-bit tokens the runtime reclaims itself, so no `SafeHandle`; the
+ring is the queue, so no dispatcher; payloads go in a buffer the engine lends out of the call's
+arena, so nothing is pinned; and the delivery ring replaces `Channel<>`, which design.md rules out
+by name (`IAsyncSignal RingSignal; // latched auto-reset, never SemaphoreSlim`).
+
 ### T1.4: Integrate into `ArmoniK.Api.Client` — injectable CallInvoker
 
 **Prerequisite**: T1.3
@@ -184,6 +198,97 @@ Minimal options mapping (just endpoint for now).
 Explicit error if native DLL is missing.
 
 **Deliverable**: An existing ArmoniK client test passes with the native CallInvoker (unary, plain HTTP).
+
+**Status**: done.  `ArmoniK.Api.Client` gains nothing, and that is the finding: the generated stubs
+already take a `ChannelBase`, so "injectable" needed no change there and the client keeps no
+knowledge of the native engine - a consumer that wants it references the package, one that does
+not, does not.  What was missing was the other two clauses.  The options mapping is
+`options.Endpoint`, passed to `NativeRuntimeFactory.Channel`, which is the whole of "just endpoint
+for now"; mapping it inside the binding would have meant depending on `ArmoniK.Api.Client` for one
+POCO.  And a missing engine now raises `RustEngineMissingException`, naming the word size, where
+the search looked, and which of the two supply routes was expected to answer - .NET's own message
+names a bare library and no reason.
+
+The test is `ArmoniKClientTests`, against `ArmoniK.Api.Mock` at `GrpcClient__Endpoint`, which is
+the contract `ArmoniK.Api.Client.Test` and the `armonik` crate's tests already run under.  It
+ignores itself when that variable is unset, so a developer who has not started a mock still gets a
+green suite.
+
+---
+
+### T1.5: Architectures and runtimes — x86, x64, arm, and .NET Framework
+
+**Prerequisite**: T1.4
+**Why it is here and not in the original plan**: phase 1 was written for one architecture and one
+runtime. The requirement is x86, x64 and arm — arm on .NET only, .NET Framework being Windows
+x86/x64 — and the binding must be exercised from .NET Framework 4.7.2, 4.8 and .NET 8.0 client
+processes. That is a scope addition rather than a detail of T1.3, so it gets its own task.
+
+**Commit**:
+- `tests/layout.rs` in pointer widths rather than absolute x64 numbers, and run for i686 as well as
+  x86_64. Done; the receipt is in its own commit.
+- Multi-target cargo builds: `--target` per RID in the binding's build step, which today builds the
+  host architecture alone, plus the cross toolchains for each.
+- `runtimes/<rid>/native` packaging, so .NET resolves the engine with no code of ours; plus the
+  `build/*.targets` and the `NativeMethods` static constructor that .NET Framework needs, having no
+  RID probing. One loading path for every Framework consumer: both architectures are copied beside
+  the application and `IntPtr.Size` picks, AnyCPU and an explicit `PlatformTarget` alike. The loader
+  is a no-op where that folder is absent, which is the .NET case, so it is the same code there.
+- The echo server as its own `net8.0` executable, because Kestrel and Grpc.AspNetCore do not run on
+  .NET Framework, and the tests multi-targeted `net4.7;net4.8;net8.0` dialling it — which is how
+  `ArmoniK.Api.Client.Test` and `ArmoniK.Api.Mock` already work (`test.yml:165-181`).
+- `test.yml` as a matrix over target framework and architecture, with a Rust toolchain in the C# job.
+
+**Deliverable**: the unary E2E test green from a .NET Framework 4.7.2, a 4.8 and a .NET 8.0 process,
+on x86 and x64, with arm64 built and packaged.
+
+**Status**: done, apart from arm64, which has no runner here to build or run on - the mapping and
+the packaging carry it, and the first CI job on an arm host will say whether that is enough. The
+matrix is 15 tests over three runtimes and two architectures, and `test.yml` runs seven
+combinations of runtime, architecture and operating system.
+
+### Phase 1 closing — the reviews, and what is deliberately left
+
+Phase 1 was reviewed four times over: compliance to the TLA+ model, `/simplify` across the whole
+of `packages/rust` and then once per crate and per dll, a code-quality pass, and compliance to the
+model again. The second model pass is the one that earned its keep. It found two breaks of proved
+level-0 invariants that the first pass and three cleanup passes had all walked past:
+
+- A call cancelled while its reader was parked on a delivery credit dropped the message it was
+  carrying and then forwarded whatever the peer had decided, so a host could be told the call
+  completed while an event of it was thrown away. `CompleteDelivery` forbids it, and once
+  cancellation is latched the model admits one terminal: CANCELLED.
+- A closing channel waited for its last call to be *reclaimed* rather than to reach its terminal,
+  so `SHUTDOWN_COMPLETE` and `GRPC_STOPPED` were observable with a channel still CLOSING - false
+  for `IsRuntimeDrained` and for `ReleasedNoChannels`. The header sentence and a test had locked
+  in the wrong reading; both are corrected with the code.
+
+Two questions the model settled rather than the code:
+
+- `ak_call_start` on a stopped runtime answers `AK_STATUS_INVALID_STATE`, not
+  `AK_STATUS_HANDLE_STALE`. `IsRuntimeDrained` requires every channel closed and
+  `ChannelStateMatchesNative` requires a disposed channel to read closing or closed, so the
+  channel has to stay nameable; staling its handle at the drain made both unrepresentable.
+- The budget wait owes no `RetryRefusedBudget` action. A refused retry changes no variable, so it
+  is stuttering by construction, and `BudgetWaitEndsWhenHopeless` says in its own comment that the
+  wait promises nothing else.
+
+**Deliberately left, and why:**
+
+- arm64 is mapped and packaged but has never been executed. There is no runner here; the first CI
+  job on an arm host is what will say whether the packaging is enough.
+- One x86 test-matrix flake, seen once as 11 failures and never reproduced across fourteen further
+  matrix runs. Two explanations were tested and both fell - neither build parallelism nor
+  `grpc.tools` protodep contention survives a controlled comparison - so it is set aside rather
+  than explained.
+- The two `ArmoniK.Api.Mock` tests skip unless `GrpcClient__Endpoint` names a running mock, so
+  they have never run locally.
+- The happy-eyeballs behaviour that motivated adopting `hyper_util`'s connector has no test:
+  nothing in the suite presents a dual-stack host with one dead address family.
+- Five minor divergences from the second model pass, and the `/simplify` findings not applied.
+  The largest gap is not a divergence but an absence: the model's reader machine
+  (`consumer_phase`, `reader_state`, the `BeginMoveNext` family) has no implementation, because
+  it is phase 2's, so the invariants over it are vacuous today.
 
 ---
 

@@ -143,9 +143,14 @@ impl CleanUri {
 
 ```rust
 pub enum TransportErrorKind {
-    DnsResolution,
-    TcpConnect,
+    // Resolution and connection are one outcome: the dial is `hyper_util`'s `HttpConnector`,
+    // which races address families rather than walking them in turn.
+    Connect,
     TlsHandshake,
+    /// The stream was connected and no HTTP/2 session could be established on
+    /// it. The module is named for that protocol and owns the handshake, so
+    /// the failure is named here rather than in the gRPC engine above.
+    Http2Handshake,
     ProxyConnect,
     Timeout,
     Configuration,
@@ -171,6 +176,15 @@ pub struct GrpcChannelConfig {
     pub default_deadline: Option<Duration>,
     pub pool: Option<PoolConfig>,
     pub user_agent: Option<String>,
+    /// The largest message the engine reassembles, refused on the length the
+    /// peer announces. It is what bounds the reassembly buffer: the HTTP/2
+    /// window bounds what is in flight and is released as each frame is
+    /// taken, so a message that never completes would grow that buffer
+    /// without the window ever being exceeded. 4 MiB, as gRPC has it.
+    pub max_recv_message_size: usize,
+    /// How many buffers one call may have out at once before a send waits.
+    /// Default 1.
+    pub max_sends_in_flight: usize,
     // No eager_connect flag: connecting is GrpcChannel::connect().await.
 }
 
@@ -213,16 +227,22 @@ pub struct GrpcChannel { /* ... */ }
 impl GrpcChannel {
     /// Creation. Validates the configuration and performs no I/O, so its only
     /// failure is a bad configuration and it cannot block.
+    /// The error is the engine's own and not `ConfigError`, which belongs to the
+    /// environment-driven client: a caller reading a refused window has no reason
+    /// to meet a vocabulary about `GrpcClient__CertPem` and PEM parsing, and it was
+    /// the one edge tying `grpc` to `config`.
     pub fn new(
         config: GrpcChannelConfig,
         executor: impl Executor,
-    ) -> Result<Self, ConfigError>;
+    ) -> Result<Self, GrpcChannelConfigError>;
 
     /// Establishes the connection and reports how it went. Optional: the first
     /// call connects lazily otherwise. This replaces the eager_connect flag,
     /// which asked a synchronous constructor to start asynchronous work and
-    /// had nowhere to report its failure.
-    pub async fn connect(&self) -> Result<(), TransportError>;
+    /// had nowhere to report its failure. The error is ChannelError rather
+    /// than TransportError because a closed channel opens no connection, and
+    /// that is an outcome of this call rather than of the network.
+    pub async fn connect(&self) -> Result<(), ChannelError>;
 
     /// Starts a gRPC call.
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError>;
@@ -1030,7 +1050,7 @@ int ak_abi_version(void);
 // 1. Frees the native memory (Rust deallocs the buffer)
 // 2. Arms reception of the next event for this call (demand signal)
 // At most DeliveryCredits non-consumed payloads per call (a channel option,
-// default 1) - while the host owes that many, the runtime withholds the next data
+// `delivery_credits` in the channel's config JSON, default 1) - while the host owes that many, the runtime withholds the next data
 // callback; only a terminal may still go out with every credit spent.
 // The payload pointer identifies the allocation to free; the host MUST release
 // in delivery order, so with several credits the oldest outstanding payload is
@@ -1640,9 +1660,11 @@ class CallState
 {
     // The delivery ring is the stream queue: metadata, messages and the
     // terminal all ride it, so there is one buffer per call, not two.
-    // NextPow2(DeliveryCredits + 2): the ABI never leaves more than
-    // DeliveryCredits + 1 payloads outstanding, plus one slot so full and
-    // empty stay distinguishable. It therefore cannot fill.
+    // NextPow2(DeliveryCredits + 1): the ABI never leaves more than
+    // DeliveryCredits + 1 payloads outstanding, and Head and Tail are
+    // monotonic counters rather than wrapped indexes, so occupancy is
+    // Head - Tail and empty is already distinct from full without a slot
+    // spent to tell them apart. It therefore cannot fill.
     Slot[] Ring; int Mask;
     long Head;                     // published by the actor thread
     long Tail;                     // private to the consumer
@@ -3719,19 +3741,30 @@ with its state machines and ownership matrix, the Rust and .NET implementation
 architecture, the formal model and its mapping to the code, and a decision log. Until that
 split happens, read the ABI blocks as normative and the rest as justification.
 
-**The ABI is not yet a contract you can compile against.** What is specified here is the
-shape and the ownership rules; what is missing is everything a second implementer would
-need, and none of it is decided by omission:
+**The header is the contract; two things it needs are still missing.** The header lives at
+`packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`, written by hand and
+committed so an ABI change shows up in review. It settles what this section used to list as
+undecided: `ak_bytes_in` as the borrowed mirror of `ak_bytes`, a `uint32_t struct_size`
+prefix on every options struct (a size the library does not know is refused rather than
+read), `ak_runtime_config` and `ak_call_start_options`, the metadata blob as a
+length-prefixed key/value sequence, and the `AK_EVENT_STATUS` payload as a length-prefixed
+reason followed by the trailing metadata - the code itself is `ak_event.status_code`.
 
-- a real C header that compiles, with `ak_status` enumerated, `ak_runtime_config`,
-  `ak_call_start_options` and the metadata and status payload encodings given as byte
-  layouts rather than described;
-- calling convention, struct alignment and padding rules, and a `size`/`version` prefix on
-  every options struct so the ABI can grow without breaking callers;
+What is still owed:
+
 - an ownership matrix: for each ABI object, who allocates, who frees, and when it stops
-  being legal to touch;
-- conformance tests exercised from Rust, C and C# against the same header, because an ABI
-  that only its author's binding uses is not an ABI.
+  being legal to touch. The header states each rule against its own entry point; nothing
+  gathers them;
+- conformance tests exercised from C and C# against the same header, because an ABI that
+  only its author's binding uses is not an ABI. `tests/layout.rs` pins the sizes and offsets
+  a C compiler produces for the header and checks the declarations and the exports name the
+  same set, which is not the same thing: nothing in this workspace compiles the header.
+
+**What the ABI does not yet implement.** `ak_runtime_memory_usage_detailed` and its
+five-field struct: its three categories need each buffer's position in its lifecycle
+tracked, and it is an observability tool rather than one a retry needs. And no path sets
+`AK_RUNTIME_FAILED_UNQUIESCED`, so the failure model this document describes has no
+implementation - a runtime either reaches quiescence or waits.
 
 **Protocol surface not yet contractualized.** Message and metadata size limits and what a
 violation produces on each side; gRPC compression (`grpc-encoding`,
