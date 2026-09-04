@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 
 use armonik_transport::grpc::{
-    CallControl, CallStartOptions, GrpcStatusCode, Metadata, RecvHalf, RecvResult, SendHalf,
+    CallControl, CallStartOptions, GrpcStatus, Metadata, RecvHalf, RecvResult, SendHalf,
 };
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
@@ -23,7 +23,6 @@ use crate::host::{Host, HostPtr};
 use crate::ledger::Ledger;
 use crate::tables;
 
-/// What the writing side hands the actor.
 /// What a call needs from whoever runs it.
 ///
 /// Declared here, by the consumer, and supplied by the runtime: a call needs somewhere to deliver
@@ -36,45 +35,10 @@ pub(crate) struct CallServices<'a> {
     pub(crate) spawner: &'a tokio::runtime::Handle,
 }
 
+/// What the writing side hands the actor.
 pub(crate) enum Command {
     Send(Bytes),
     EndSend,
-}
-
-/// The buffers a call may have out at once.
-///
-/// A slot is charged when a buffer is lent rather than when its message is committed, because the
-/// allocation is what costs memory; committing moves a buffer from one side of the count to the
-/// other without changing it.
-struct SendWindow {
-    occupied: AtomicU32,
-    max: u32,
-}
-
-impl SendWindow {
-    /// Takes a slot, or reports the window full. This bounded compare-and-swap is the model's
-    /// `HasFreeSendSlot` guard, and a lend linearizes at its success.
-    fn take(&self) -> bool {
-        let mut seen = self.occupied.load(Ordering::Acquire);
-        loop {
-            if seen >= self.max {
-                return false;
-            }
-            match self.occupied.compare_exchange_weak(
-                seen,
-                seen + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return true,
-                Err(current) => seen = current,
-            }
-        }
-    }
-
-    fn release(&self) {
-        self.occupied.fetch_sub(1, Ordering::AcqRel);
-    }
 }
 
 #[derive(Default)]
@@ -86,6 +50,32 @@ struct Debt {
     terminal: AtomicBool,
 }
 
+impl Debt {
+    /// The terminal has gone out and nothing of the call is on the host's stack. What the host
+    /// still holds is a separate question, which [`Debt::settled`] asks.
+    fn quiet(&self) -> bool {
+        self.terminal.load(Ordering::Acquire) && self.callbacks.load(Ordering::Acquire) == 0
+    }
+
+    /// Nothing of the call is outstanding at all: past its terminal, with every payload consumed
+    /// and every buffer given back.
+    fn settled(&self) -> bool {
+        self.quiet()
+            && self.payloads.load(Ordering::Acquire) == 0
+            && self.buffers.load(Ordering::Acquire) == 0
+    }
+
+    /// The same four counters as the host reads them.
+    fn as_abi(&self) -> ak_call_debt {
+        ak_call_debt {
+            payloads_owed: self.payloads.load(Ordering::Acquire),
+            buffers_lent: self.buffers.load(Ordering::Acquire),
+            callbacks_in_flight: self.callbacks.load(Ordering::Acquire),
+            terminal_delivered: self.terminal.load(Ordering::Acquire) as i32,
+        }
+    }
+}
+
 /// Everything a call's two tasks and the downcalls on it share.
 pub(crate) struct CallState {
     ctx: HostPtr,
@@ -93,8 +83,14 @@ pub(crate) struct CallState {
     ledger: Arc<Ledger>,
     control: CallControl,
     commands: mpsc::Sender<Command>,
-    window: SendWindow,
-    credits: Arc<Semaphore>,
+    /// The buffers the call may have out at once. A permit is taken when a buffer is lent rather
+    /// than when its message is committed, because the allocation is what costs memory;
+    /// committing moves a buffer from one side of the count to the other without changing it.
+    /// Taking one is the model's `HasFreeSendSlot` guard, and a lend linearizes at its success.
+    window: Semaphore,
+    /// The payloads the call may have out at once: the delivery window, and the send window's
+    /// mirror. A credit is spent by the deliverer and given back by the payload's destructor.
+    credits: Semaphore,
     debt: Debt,
     /// Set by `ak_call_cancel`, observed by the reader: a call waiting on a delivery credit
     /// has to be able to give up waiting and go to its terminal.
@@ -115,33 +111,20 @@ pub(crate) struct CallState {
 
 impl CallState {
     pub(crate) fn debt(&self) -> ak_call_debt {
-        ak_call_debt {
-            payloads_owed: self.debt.payloads.load(Ordering::Acquire),
-            buffers_lent: self.debt.buffers.load(Ordering::Acquire),
-            callbacks_in_flight: self.debt.callbacks.load(Ordering::Acquire),
-            terminal_delivered: self.debt.terminal.load(Ordering::Acquire) as i32,
-        }
-    }
-
-    pub(crate) fn handle(&self) -> ak_handle {
-        self.handle
+        self.debt.as_abi()
     }
 
     pub(crate) fn belongs_to_channel(&self, channel: ak_handle) -> bool {
         self.channel == channel
     }
 
-    /// Whether the call still has anything to come. A call past its terminal is not active, even
-    /// though it stays in the table until the host gives back what it holds.
-    pub(crate) fn active(&self) -> bool {
-        !self.debt.terminal.load(Ordering::Acquire)
-    }
-
     /// Asks the call to stop. The request takes effect when the actor observes it, which is why
     /// callbacks already committed may still arrive after this returns.
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
-        self.moved_on();
+        // Announced whatever the call's state: `wait_for_cancel` is the one waiter the terminal
+        // does not gate, and a reader parked on a delivery credit is reachable only this way.
+        self.announce();
         self.control.cancel();
     }
 
@@ -169,13 +152,13 @@ impl CallState {
         // Permanent before transient: a request past the ceiling itself will never fit, and
         // saying so before the window is what stops a host retrying forever.
         self.ledger.could_ever_fit(len)?;
-        if !self.window.take() {
+        let Ok(slot) = self.window.try_acquire() else {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);
-        }
-        if let Err(status) = self.ledger.reserve(len) {
-            self.window.release();
-            return Err(status);
-        }
+        };
+        // The slot is only kept once the bytes are there, so a refused reservation leaves the
+        // window as it found it rather than as something to put back.
+        self.ledger.hold_bytes(len)?;
+        slot.forget();
 
         self.debt.buffers.fetch_add(1, Ordering::AcqRel);
 
@@ -208,22 +191,27 @@ impl CallState {
         self.moved_on();
     }
 
+    /// Accounts for a payload the host consumed: the credit it took, the debt it was, and its
+    /// place in the count. The bytes weigh nothing against the ceiling, so none come back.
+    fn payload_returned(&self, returns_credit: bool) {
+        if returns_credit {
+            self.credits.add_permits(1);
+        }
+        self.debt.payloads.fetch_sub(1, Ordering::AcqRel);
+        self.ledger.release();
+        self.moved_on();
+    }
+
     /// Commits a lent buffer as the next message. Its slot stays charged until its WRITE_DONE.
-    ///
-    /// A refusal takes nothing back: the header says the buffer must then go out through
-    /// `ak_return_call_buffer`, so freeing it here would leave the host holding a pointer to
-    /// memory this side had already released.
     pub(crate) fn commit(self: &Arc<Self>, lent: Box<Lent>) -> ak_status {
         if !self.live() || self.cancelled.load(Ordering::Acquire) || self.ended_sending() {
-            let _ = Box::into_raw(lent);
-            return ak_status::AK_STATUS_INVALID_STATE;
+            return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         }
 
         // Reserved before the box is consumed, so a refusal leaves the host holding the very
         // allocation it was lent rather than a copy of its bytes.
         let Ok(slot) = self.commands.try_reserve() else {
-            let _ = Box::into_raw(lent);
-            return ak_status::AK_STATUS_INVALID_STATE;
+            return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         };
         self.handed_over();
         slot.send(Command::Send(Bytes::from(lent.data)));
@@ -235,20 +223,24 @@ impl CallState {
     /// exit for a buffer whose send is refused, and the call is not reclaimed until it happens.
     pub(crate) fn give_back(&self, lent: Box<Lent>) {
         self.took_back(lent.data.len());
-        self.window.release();
+        self.window.add_permits(1);
     }
 
     pub(crate) fn end_send(&self) -> ak_status {
-        if !self.live() || self.ended_sending.swap(true, Ordering::AcqRel) {
+        if !self.live() {
             return ak_status::AK_STATUS_INVALID_STATE;
         }
-        match self.commands.try_send(Command::EndSend) {
-            Ok(()) => ak_status::AK_STATUS_OK,
-            Err(_) => {
-                self.ended_sending.store(false, Ordering::Release);
-                ak_status::AK_STATUS_INVALID_STATE
-            }
+        // The room comes before the latch, as it does for a commit: the queue is sized so this
+        // cannot be what refuses, and reserving first leaves no state observable as ended and
+        // then not.
+        let Ok(slot) = self.commands.try_reserve() else {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        };
+        if self.ended_sending.swap(true, Ordering::AcqRel) {
+            return ak_status::AK_STATUS_INVALID_STATE;
         }
+        slot.send(Command::EndSend);
+        ak_status::AK_STATUS_OK
     }
 
     /// Runs `emit` with this call counted as having a callback on the stack, which is what the
@@ -260,29 +252,27 @@ impl CallState {
         self.moved_on();
     }
 
+    /// Announces a change to whoever waits on this call, once there is anything to conclude.
+    ///
+    /// Silent before the terminal, deliberately: both remaining waiters ask `quiet` or `settled`,
+    /// and each of those requires the terminal, which is stored before the callback count that
+    /// completes them. So a bump for a message in flight could only wake a task to look and go
+    /// back to sleep - and with a delivery window of one, the reader is parked for most of a
+    /// call, so that was three wake-ups per message pair charged to the host's own threads.
     fn moved_on(&self) {
+        if self.debt.terminal.load(Ordering::Acquire) {
+            self.announce();
+        }
+    }
+
+    fn announce(&self) {
         self.progress.send_modify(|version| *version += 1);
     }
 
     /// Resolves once the call has delivered its terminal and none of its callbacks is running.
-    /// What the host still holds is a separate question, which reclamation asks.
     pub(crate) async fn finished(&self) {
         let mut progress = self.progress.subscribe();
-        while !(self.debt.terminal.load(Ordering::Acquire)
-            && self.debt.callbacks.load(Ordering::Acquire) == 0)
-        {
-            if progress.changed().await.is_err() {
-                return;
-            }
-        }
-    }
-
-    fn settled(&self) -> bool {
-        let debt = self.debt();
-        debt.terminal_delivered == 1
-            && debt.payloads_owed == 0
-            && debt.buffers_lent == 0
-            && debt.callbacks_in_flight == 0
+        let _ = progress.wait_for(|_| self.debt.quiet()).await;
     }
 }
 
@@ -307,6 +297,16 @@ impl Lent {
     pub(crate) fn call(&self) -> Option<Arc<CallState>> {
         self.call.upgrade()
     }
+}
+
+/// Answers `status` and leaves the buffer with the host.
+///
+/// Every refusal on the send path goes through here. The header says a refused buffer must still
+/// go out through `ak_return_call_buffer`, so freeing it would leave the host holding a pointer
+/// into memory this side had already released.
+pub(crate) fn keep(lent: Box<Lent>, status: ak_status) -> ak_status {
+    let _ = Box::into_raw(lent);
+    status
 }
 
 /// Takes an allocation back from the host, if the tag says it is the one expected.
@@ -342,7 +342,9 @@ pub(crate) unsafe fn take_lent(owner: *mut c_void) -> Option<Box<Lent>> {
 /// `ak_event_consumed` can do half of it.
 pub(crate) struct Payload {
     tag: u64,
-    data: Vec<u8>,
+    /// The message as it arrived, and not a copy of it: a received message is already a view on
+    /// the buffer the session read into, and the host reads it without owning it.
+    data: Bytes,
     call: Arc<CallState>,
     /// The terminal takes no delivery credit, so it carries none back.
     returns_credit: bool,
@@ -350,12 +352,7 @@ pub(crate) struct Payload {
 
 impl Drop for Payload {
     fn drop(&mut self) {
-        if self.returns_credit {
-            self.call.credits.add_permits(1);
-        }
-        self.call.debt.payloads.fetch_sub(1, Ordering::AcqRel);
-        self.call.ledger.release();
-        self.call.moved_on();
+        self.call.payload_returned(self.returns_credit);
     }
 }
 
@@ -369,7 +366,7 @@ pub(crate) unsafe fn take_payload(owner: *mut c_void) -> Option<Box<Payload>> {
 }
 
 /// Hands `data` to the host as an owned payload, and records the debt that creates.
-fn lend_payload(call: &Arc<CallState>, data: Vec<u8>, returns_credit: bool) -> ak_bytes {
+fn lend_payload(call: &Arc<CallState>, data: Bytes, returns_credit: bool) -> ak_bytes {
     call.debt.payloads.fetch_add(1, Ordering::AcqRel);
     call.ledger.hold();
 
@@ -395,12 +392,12 @@ fn create(
     channel: ak_handle,
     services: &CallServices<'_>,
     control: CallControl,
-    max_sends_in_flight: u32,
+    max_sends_in_flight: usize,
     delivery_credits: usize,
 ) -> (Arc<CallState>, mpsc::Receiver<Command>) {
     // One slot per buffer the window allows: a command is only ever queued for a buffer that
     // took a slot, so the queue cannot be what refuses a commit.
-    let (tx, rx) = mpsc::channel(max_sends_in_flight as usize + 1);
+    let (tx, rx) = mpsc::channel(max_sends_in_flight + 1);
 
     let state = Arc::new(CallState {
         ctx,
@@ -408,11 +405,8 @@ fn create(
         ledger: Arc::clone(services.ledger),
         control,
         commands: tx,
-        window: SendWindow {
-            occupied: AtomicU32::new(0),
-            max: max_sends_in_flight,
-        },
-        credits: Arc::new(Semaphore::new(delivery_credits)),
+        window: Semaphore::new(max_sends_in_flight),
+        credits: Semaphore::new(delivery_credits),
         debt: Debt::default(),
         cancelled: AtomicBool::new(false),
         progress: watch::channel(0).0,
@@ -436,7 +430,6 @@ fn start(
 
     spawner.spawn(writer(Arc::clone(state), send, commands, writer_done));
     spawner.spawn(reader(Arc::clone(state), recv, writer_is_done));
-    spawner.spawn(reclaim(Arc::clone(state)));
 }
 
 /// Acquits each accepted send, in send order, whatever became of it on the wire.
@@ -477,7 +470,7 @@ async fn writer(
                 // The slot and the bytes both go back on emission and not on the callback's
                 // return, so a host woken by WRITE_DONE may ask for a buffer from inside the
                 // callback and find the room its acquittal just freed.
-                state.window.release();
+                state.window.add_permits(1);
                 state.ledger.release_bytes(charged);
                 state.in_callback(|| {
                     state
@@ -500,37 +493,36 @@ async fn writer(
 async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: oneshot::Receiver<()>) {
     // Exactly one INITIAL_METADATA per call, first, synthesized empty when the wire carried
     // none. The synthesized one is not free: it takes a credit like any other.
-    let head = recv.recv_initial_metadata().await.unwrap_or_default();
+    let head = match recv.recv_initial_metadata().await {
+        Ok(metadata) => blob::encode_metadata(metadata),
+        Err(_) => blob::encode_metadata(&Metadata::new()),
+    };
     let delivered_head = deliver(
         &state,
         ak_event_kind::AK_EVENT_INITIAL_METADATA,
-        blob::encode_metadata(&head),
+        Bytes::from(head),
     )
     .await;
 
-    // Cancelled while waiting for a credit: what is not delivered is dropped, and the
-    // terminal is what the host gets instead. Never a bare return - the writer waits on a
-    // flag only the terminal path raises.
+    // A delivery that answers false was cancelled while waiting for a credit, and what it was
+    // carrying is dropped. The terminal is then CANCELLED and not whatever the peer had decided:
+    // the model admits no other terminal once cancellation is latched, and forwarding the
+    // engine's status would tell the host the call completed while an event of it was thrown
+    // away. Never a bare return - the writer waits on a flag only the terminal path raises.
     let status = if !delivered_head {
-        recv.next_message().await.ok().and_then(terminal_of)
+        GrpcStatus::cancelled()
     } else {
         loop {
             match recv.next_message().await {
                 Ok(RecvResult::Message(message)) => {
-                    if !deliver(
-                        &state,
-                        ak_event_kind::AK_EVENT_MESSAGE,
-                        message.data.to_vec(),
-                    )
-                    .await
-                    {
-                        break recv.next_message().await.ok().and_then(terminal_of);
+                    if !deliver(&state, ak_event_kind::AK_EVENT_MESSAGE, message.data).await {
+                        break GrpcStatus::cancelled();
                     }
                 }
-                Ok(RecvResult::End(status)) => break Some(status),
+                Ok(RecvResult::End(status)) => break status,
                 // The engine ends every call it started with a status; this is the call
                 // being abandoned under the reader, which is what CANCELLED means here.
-                Err(_) => break None,
+                Err(_) => break GrpcStatus::cancelled(),
             }
         }
     };
@@ -539,43 +531,52 @@ async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: onesh
     state.over.send_replace(true);
     let _ = writer_is_done.await;
 
-    let (code, message, trailers) = match status {
-        Some(status) => (
-            status.code as i32,
-            status.message,
-            blob::encode_metadata(&status.trailing_metadata),
-        ),
-        None => (
-            GrpcStatusCode::Cancelled as i32,
-            String::from("the call was cancelled"),
-            blob::encode_metadata(&Default::default()),
-        ),
-    };
-
-    let payload = lend_payload(&state, status_payload(&message, &trailers), false);
-    state.debt.callbacks.fetch_add(1, Ordering::AcqRel);
-    state
-        .host
-        .deliver(state.ctx, ak_event_kind::AK_EVENT_STATUS, payload, code);
-    state.debt.terminal.store(true, Ordering::Release);
-    state.debt.callbacks.fetch_sub(1, Ordering::AcqRel);
-    state.moved_on();
-}
-
-fn terminal_of(result: RecvResult) -> Option<armonik_transport::grpc::GrpcStatus> {
-    match result {
-        RecvResult::End(status) => Some(status),
-        RecvResult::Message(_) => None,
+    // Scoped, so nothing holding the host's raw pointers is alive across the wait below: an
+    // `ak_bytes` is not `Send`, and this task is spawned.
+    {
+        let payload = lend_payload(
+            &state,
+            Bytes::from(blob::status_payload(
+                &status.message,
+                &status.trailing_metadata,
+            )),
+            false,
+        );
+        state.in_callback(|| {
+            state.host.deliver(
+                state.ctx,
+                ak_event_kind::AK_EVENT_STATUS,
+                payload,
+                status.code.as_i32(),
+            );
+            // Inside the callback's count and after the delivery: what makes `finished` correct
+            // is that the callback has not returned yet, and what makes the terminal exactly
+            // once is that nothing but this line sets it.
+            state.debt.terminal.store(true, Ordering::Release);
+        });
     }
+
+    // Given up here and not at the end of the task: the reclamation below waits on the host, and
+    // the engine's reading half has nothing left to do once the terminal is out.
+    drop(recv);
+
+    // Before the wait, not after it: the channel's closing turns on this call no longer being
+    // active, which is true now, and a runtime that announced it had stopped with the channel
+    // still CLOSING would be a state the model does not admit.
+    crate::lifecycle::call_reached_terminal(state.channel);
+
+    reclaim(&state).await;
 }
 
-/// The bytes of a terminal payload: the reason, then the trailing metadata.
-fn status_payload(message: &str, trailers: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + message.len() + trailers.len());
-    out.extend_from_slice(&(message.len() as u32).to_ne_bytes());
-    out.extend_from_slice(message.as_bytes());
-    out.extend_from_slice(trailers);
-    out
+/// Waits until nothing of the call is outstanding, and takes its handle back.
+///
+/// Not a downcall, and not a task of its own: every resource a call lends out comes back through
+/// something the runtime already observes, and by here the reader has nothing else to do - it is
+/// the very thing that delivered the terminal this waits behind.
+async fn reclaim(state: &Arc<CallState>) {
+    let mut progress = state.progress.subscribe();
+    let _ = progress.wait_for(|_| state.debt.settled()).await;
+    crate::lifecycle::call_settled(state.handle, state.channel);
 }
 
 /// Takes a delivery credit and hands one event over. `false` when the call was cancelled while
@@ -583,11 +584,10 @@ fn status_payload(message: &str, trailers: &[u8]) -> Vec<u8> {
 ///
 /// Never the terminal: that one goes out with the credits spent, which is what lets a call end
 /// while the host still owes what it has been given.
-async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Vec<u8>) -> bool {
-    let credits = Arc::clone(&state.credits);
+async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes) -> bool {
     let permit = tokio::select! {
         biased;
-        permit = credits.acquire() => permit,
+        permit = state.credits.acquire() => permit,
         () = wait_for_cancel(state) => return false,
     };
     match permit {
@@ -601,30 +601,11 @@ async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Vec<u8>) -> 
     true
 }
 
-async fn wait_for_cancel(state: &Arc<CallState>) {
+async fn wait_for_cancel(state: &CallState) {
     let mut progress = state.progress.subscribe();
-    loop {
-        if state.cancelled.load(Ordering::Acquire) {
-            return;
-        }
-        if progress.changed().await.is_err() {
-            return;
-        }
-    }
-}
-
-/// Reclaims the call once nothing of it is outstanding.
-///
-/// Not a downcall: every resource a call lends out is given back through something the runtime
-/// already observes, so it knows when a terminal call owes nothing and takes the handle back.
-async fn reclaim(state: Arc<CallState>) {
-    let mut progress = state.progress.subscribe();
-    while !state.settled() {
-        if progress.changed().await.is_err() {
-            return;
-        }
-    }
-    crate::lifecycle::call_settled(state.handle, state.channel);
+    let _ = progress
+        .wait_for(|_| state.cancelled.load(Ordering::Acquire))
+        .await;
 }
 
 /// Starts a call on `channel` and publishes it, answering the handle the host will name it by.
@@ -643,23 +624,23 @@ pub(crate) fn start_on(
     let mut options = CallStartOptions::new(method);
     options.metadata = metadata;
 
-    let grpc_call = channel
-        .grpc
-        .start_call(options)
-        .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
+    let grpc_call = channel.grpc.start_call(options).map_err(ak_status::from)?;
 
     let (send, recv, control) = grpc_call.split();
-    let handle = tables::calls().reserve();
-    let (state, commands) = create(
-        ctx,
-        handle,
-        channel_handle,
-        services,
-        control,
-        channel.max_sends_in_flight,
-        channel.delivery_credits,
-    );
-    tables::calls().publish(handle, Arc::clone(&state));
+    // Before the publish, so the channel never counts fewer calls than the table holds.
+    channel.call_started();
+    let (handle, (state, commands)) = tables::calls().insert_with(|handle| {
+        let (state, commands) = create(
+            ctx,
+            handle,
+            channel_handle,
+            services,
+            control,
+            channel.max_sends_in_flight,
+            channel.delivery_credits,
+        );
+        (Arc::clone(&state), (state, commands))
+    });
 
     // Published, and only now asked whether the channel is still open. The check before this
     // cannot stand alone: a release that latches between it and the publish snapshots the call

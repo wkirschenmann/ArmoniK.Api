@@ -22,7 +22,6 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
-armonik-transport = { path = "../armonik-transport" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = ["codegen", "server", "router"] }
 tower-service.workspace = true

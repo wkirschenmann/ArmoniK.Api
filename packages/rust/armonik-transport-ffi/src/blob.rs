@@ -1,4 +1,5 @@
-//! The one length-prefixed key/value encoding this ABI uses for every list of pairs.
+//! The byte formats this ABI defines: one length-prefixed key/value blob, and the terminal
+//! payload built on top of it.
 //!
 //! ```text
 //! u32 count
@@ -19,16 +20,16 @@ use armonik_transport::grpc::{Metadata, MetadataValue, BINARY_SUFFIX};
 use bytes::Bytes;
 
 /// Key and value borrowed straight out of the host's blob, in the order they appeared.
-pub(crate) type Pairs<'a> = Vec<(&'a [u8], &'a [u8])>;
+type Pairs<'a> = Vec<(&'a [u8], &'a [u8])>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Why a blob could not be read.
-pub(crate) enum BlobError {
+enum BlobError {
     Truncated,
 }
 
 /// Reads a blob into borrowed pairs.
-pub(crate) fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
+fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
     // No count prefix at all is a count of zero, not a truncated blob: an empty metadata blob
     // is the ordinary case and a host should not have to write four zero bytes for it.
     if bytes.is_empty() {
@@ -53,18 +54,6 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
     Ok(pairs)
 }
 
-pub(crate) fn encode<'a>(pairs: impl ExactSizeIterator<Item = (&'a [u8], &'a [u8])>) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(&(pairs.len() as u32).to_ne_bytes());
-    for (key, value) in pairs {
-        out.extend_from_slice(&(key.len() as u32).to_ne_bytes());
-        out.extend_from_slice(key);
-        out.extend_from_slice(&(value.len() as u32).to_ne_bytes());
-        out.extend_from_slice(value);
-    }
-    out
-}
-
 /// The metadata a blob describes.
 ///
 /// An entry the engine will not carry is refused rather than dropped: this is a request the host
@@ -84,13 +73,53 @@ pub(crate) fn decode_metadata(bytes: &[u8]) -> Option<Metadata> {
 }
 
 pub(crate) fn encode_metadata(metadata: &Metadata) -> Vec<u8> {
-    encode(metadata.iter().map(|(key, value)| {
-        let value: &[u8] = match value {
-            MetadataValue::Ascii(text) => text.as_bytes(),
-            MetadataValue::Binary(bytes) => bytes,
-        };
-        (key.as_bytes(), value)
-    }))
+    encode(pairs_of(metadata))
+}
+
+/// The bytes of an `AK_EVENT_STATUS` payload: the reason, then the trailing metadata as a blob.
+///
+/// Built in one buffer rather than two and a concatenation, and here rather than in the call:
+/// this module is where the length prefix is written, and the terminal's payload is the one place
+/// a chunk and a blob sit end to end.
+pub(crate) fn status_payload(message: &str, trailers: &Metadata) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + message.len() + encoded_len(pairs_of(trailers)));
+    push_chunk(&mut out, message.as_bytes());
+    encode_into(&mut out, pairs_of(trailers));
+    out
+}
+
+/// A metadata set as the pairs a blob is written from.
+fn pairs_of(metadata: &Metadata) -> impl ExactSizeIterator<Item = (&[u8], &[u8])> + Clone {
+    metadata
+        .iter()
+        .map(|(key, value)| (key.as_bytes(), value.as_bytes()))
+}
+
+fn encode<'a>(pairs: impl ExactSizeIterator<Item = (&'a [u8], &'a [u8])> + Clone) -> Vec<u8> {
+    let mut out = Vec::with_capacity(encoded_len(pairs.clone()));
+    encode_into(&mut out, pairs);
+    out
+}
+
+/// What an encoding of these pairs will take: the count, then two prefixes and two chunks each.
+fn encoded_len<'a>(pairs: impl Iterator<Item = (&'a [u8], &'a [u8])>) -> usize {
+    4 + pairs
+        .map(|(key, value)| 8 + key.len() + value.len())
+        .sum::<usize>()
+}
+
+fn encode_into<'a>(out: &mut Vec<u8>, pairs: impl ExactSizeIterator<Item = (&'a [u8], &'a [u8])>) {
+    out.extend_from_slice(&(pairs.len() as u32).to_ne_bytes());
+    for (key, value) in pairs {
+        push_chunk(out, key);
+        push_chunk(out, value);
+    }
+}
+
+/// One length-prefixed chunk, which is what every field of every format here is made of.
+fn push_chunk(out: &mut Vec<u8>, chunk: &[u8]) {
+    out.extend_from_slice(&(chunk.len() as u32).to_ne_bytes());
+    out.extend_from_slice(chunk);
 }
 
 fn read_u32(cursor: &mut &[u8]) -> Result<u32, BlobError> {
@@ -131,6 +160,13 @@ mod tests {
                 (&b"a"[..], &b"3"[..])
             ]
         );
+    }
+
+    #[test]
+    fn a_blob_is_written_into_exactly_the_room_it_needs() {
+        let written = blob(&[(b"key", b"value"), (b"k", b"")]);
+        assert_eq!(written.len(), 4 + (8 + 3 + 5) + (8 + 1));
+        assert_eq!(written.len(), written.capacity(), "sized, not grown");
     }
 
     #[test]
@@ -180,5 +216,21 @@ mod tests {
         // A reserved key: the request would go out saying something other than it was asked.
         assert_eq!(decode_metadata(&blob(&[(b"content-type", b"x")])), None);
         assert_eq!(decode_metadata(&blob(&[(b"x-plain", &[0xff])])), None);
+    }
+
+    #[test]
+    fn a_terminal_payload_is_its_reason_and_then_its_trailers() {
+        let mut trailers = Metadata::new();
+        trailers
+            .append_ascii("x-trailer", "kept")
+            .expect("a legal entry");
+
+        let payload = status_payload("not now", &trailers);
+        let mut cursor = &payload[..];
+        assert_eq!(read_chunk(&mut cursor).expect("the reason"), b"not now");
+        assert_eq!(
+            decode(cursor).expect("the trailers"),
+            vec![(&b"x-trailer"[..], &b"kept"[..])]
+        );
     }
 }

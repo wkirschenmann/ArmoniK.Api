@@ -38,7 +38,10 @@ typedef enum {
     AK_STATUS_OK                = 0,
     AK_STATUS_HANDLE_STALE      = 1, /* the object is gone; the token names nothing */
     AK_STATUS_SLOT_BUSY         = 2, /* this call's send window is full - backpressure, not an
-                                        error; retry when a WRITE_DONE arrives */
+                                        error; retry when a WRITE_DONE arrives. That acquittal is
+                                        sequenced after the send it settles has left, so it waits
+                                        on the peer opening its flow-control window - the wake-up
+                                        is promised, its timing is not */
     AK_STATUS_INVALID_ARG       = 3, /* a null pointer, or a struct whose size prefix does not
                                         match any known version */
     AK_STATUS_INTERNAL          = 4, /* a fault the ABI cannot attribute */
@@ -159,7 +162,7 @@ typedef struct {
  * parse, allocate what it could have allocated earlier, take a lock the host's own code holds,
  * or run application code. A host that blocks here does not slow itself down; it stops the
  * library, and the guarantees above stop with it. */
-typedef void (*ak_callback)(void *runtime_ctx, void *call_ctx, const ak_event *event);
+typedef void (*ak_callback)(void *runtime_ctx, ak_call_ctx call_ctx, const ak_event *event);
 
 /* === Options ===
  *
@@ -217,6 +220,8 @@ typedef struct {
 
 /* === Runtime lifecycle === */
 
+/* Creates a runtime. One exists at a time: a second create before the first is destroyed is
+ * refused with AK_STATUS_INVALID_STATE. */
 ak_status ak_runtime_create(const ak_runtime_config *config,
                             ak_callback callback,
                             void *runtime_ctx,
@@ -265,6 +270,14 @@ ak_status ak_channel_create(ak_handle runtime, ak_bytes_in config_json, ak_handl
  * handle is reclaimed with the runtime. */
 void ak_channel_release(ak_handle channel);
 
+/* How far along a channel's closing is. Answers NONE for a handle this library does not know.
+ *
+ * What ends CLOSING is this library's own bookkeeping - the last call of the channel reaching
+ * its terminal - so a host watching the drain has nothing to do but read. In particular CLOSED
+ * does not wait for the host to consume what it has been given: a call past its terminal still
+ * owes its payloads, and the channel is closed regardless. */
+ak_channel_state ak_channel_status(ak_handle channel);
+
 /* === Call ===
  *
  * There is no ak_call_release, on purpose. Every resource a call lends out is given back through
@@ -274,15 +287,9 @@ void ak_channel_release(ak_handle channel);
  * terminal - dropping a payload on the floor keeps the runtime alive.
  */
 
-/* How far along a channel's closing is. Answers NONE for a handle this library does not know.
- *
- * What ends CLOSING is this library's own bookkeeping - the last call of the channel being
- * reclaimed - so a host watching the drain has nothing to do but read. */
-ak_channel_state ak_channel_status(ak_handle channel);
-
 ak_status ak_call_start(ak_handle channel,
                         const ak_call_start_options *options,
-                        void *call_ctx,
+                        ak_call_ctx call_ctx,
                         ak_handle *out);
 
 /* Lends a buffer out of the call's arena to serialize into. The exact length is known before the
@@ -292,9 +299,10 @@ ak_status ak_call_start(ak_handle channel,
  * still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
  * counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
  * the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
- * is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the runtime-wide ceiling, and
- * has no single event announcing room: poll ak_runtime_memory_usage. AK_STATUS_MESSAGE_TOO_LARGE
- * is permanent. On every refusal no buffer is lent and *out is untouched. */
+ * is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
+ * runtime-wide ceiling, and has no single event announcing room: poll ak_runtime_memory_usage.
+ * AK_STATUS_MESSAGE_TOO_LARGE is permanent. On every refusal no buffer is lent and *out is
+ * untouched. */
 ak_status ak_get_call_buffer(ak_handle call, size_t len, ak_buffer *out);
 
 /* Commits a lent buffer as the next message. Ownership passes back to this library.

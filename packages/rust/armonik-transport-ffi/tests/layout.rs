@@ -93,13 +93,18 @@ fn the_null_token_is_zero_so_a_zeroed_handle_names_nothing() {
     assert_eq!(size_of::<ak_handle>(), 8);
 }
 
-#[test]
-fn the_header_and_the_library_agree_on_the_version() {
-    let header = std::fs::read_to_string(concat!(
+/// The header, which is the contract these tests check the library against.
+fn header() -> String {
+    std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/include/armonik_transport_ffi.h"
     ))
-    .expect("the header is committed beside the crate");
+    .expect("the header is committed beside the crate")
+}
+
+#[test]
+fn the_header_and_the_library_agree_on_the_version() {
+    let header = header();
 
     let declared = format!("#define AK_ABI_VERSION {AK_ABI_VERSION}");
     assert!(
@@ -110,11 +115,7 @@ fn the_header_and_the_library_agree_on_the_version() {
 
 #[test]
 fn every_entry_point_the_header_declares_is_exported() {
-    let header = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/include/armonik_transport_ffi.h"
-    ))
-    .expect("the header is committed beside the crate");
+    let header = header();
 
     // Taking the address is what proves the symbol exists with that signature; a name in the
     // header and nothing behind it is the failure this catches.
@@ -154,12 +155,15 @@ fn every_entry_point_the_header_declares_is_exported() {
 
     // And the other way round: a declaration the library does not export.
     for line in header.lines() {
-        let Some(rest) = line.strip_prefix("ak_status ak_").or_else(|| {
-            line.strip_prefix("void ak_")
-                .or_else(|| line.strip_prefix("int ak_"))
-                .or_else(|| line.strip_prefix("ak_runtime_state ak_"))
-                .or_else(|| line.strip_prefix("ak_channel_state ak_"))
-        }) else {
+        let Some(rest) = [
+            "ak_status ak_",
+            "void ak_",
+            "int ak_",
+            "ak_runtime_state ak_",
+            "ak_channel_state ak_",
+        ]
+        .iter()
+        .find_map(|returns| line.strip_prefix(returns)) else {
             continue;
         };
         let name = format!("ak_{}", rest.split('(').next().unwrap_or_default());

@@ -9,10 +9,38 @@ mod support;
 use std::sync::{Mutex, MutexGuard};
 
 use std::ffi::c_void;
-use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
 use support::{blob, empty_buffer, Recorder, TestServer, ECHO, FAIL, SLOW};
+
+/// The gRPC status a cancelled call carries, as the wire numbers it.
+const CANCELLED: i32 = 1;
+
+struct Connected {
+    channel: ak_handle,
+    host: Host,
+    /// Last, so it is dropped last.
+    _server: TestServer,
+}
+
+impl Connected {
+    fn with_ceiling(memory_ceiling: u64) -> Self {
+        let server = TestServer::start();
+        let host = Host::with_ceiling(memory_ceiling);
+        let channel = host.channel(&server.endpoint);
+        Self {
+            channel,
+            host,
+            _server: server,
+        }
+    }
+
+    /// Releases the channel and stops the runtime, which is how a test that got that far ends.
+    fn close(&self) {
+        ak_channel_release(self.channel);
+        self.host.stop();
+    }
+}
 
 /// Drives the ABI the way a binding would, and cleans up after itself.
 /// One runtime per process, so the tests take turns at it rather than at a runner flag.
@@ -65,6 +93,16 @@ impl Host {
         }
     }
 
+    /// A runtime and a channel to a live server, in the order they have to be given up.
+    ///
+    /// Field order is drop order, and this one matters: the runtime is destroyed while the
+    /// server still answers, because a server torn down first turns a shutdown into a wait for
+    /// a terminal that never arrives. Eleven tests established that by declaring two locals in
+    /// the right sequence; naming it once is what keeps the twelfth from getting it wrong.
+    fn connected() -> Connected {
+        Connected::with_ceiling(0)
+    }
+
     fn channel(&self, endpoint: &str) -> ak_handle {
         let json = format!(r#"{{"endpoint":"{endpoint}"}}"#);
         let mut channel = AK_HANDLE_NONE;
@@ -92,17 +130,15 @@ impl Host {
     }
 
     fn await_state(&self, wanted: ak_runtime_state) {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            if ak_runtime_status(self.runtime) == wanted {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        panic!(
-            "the runtime is {:?} and not {wanted:?}; it still holds {} events",
-            ak_runtime_status(self.runtime),
-            self.recorder.len()
+        support::poll_until(
+            || ak_runtime_status(self.runtime) == wanted,
+            || {
+                format!(
+                    "the runtime is {:?} and not {wanted:?}; it still holds {} events",
+                    ak_runtime_status(self.runtime),
+                    self.recorder.len()
+                )
+            },
         );
     }
 }
@@ -128,9 +164,8 @@ fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
 
 #[test]
 fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, ECHO, &blob(&[]));
 
     let (first, buffer) = lend(call, 8);
@@ -152,8 +187,7 @@ fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
 
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
@@ -193,9 +227,8 @@ fn a_second_runtime_is_refused_while_the_first_is_alive() {
 
 #[test]
 fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
 
     // The payload stays with the host, so the call's only credit stays spent and its reader
     // parks waiting for one. A reader in that state is not watching the transport, so closing
@@ -209,35 +242,39 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
 
     // The cancellation the release latches is what gets the terminal out. Waiting for it is the
     // assertion: a reader parked on a credit watches nothing but its own cancellation, so
-    // without the latch this would never arrive. The code it carries is whatever the wire had
-    // already settled - here the server's own answer, which raced ahead of the release.
+    // without the latch this would never arrive.
     let seen = host.recorder.await_terminal();
-    assert!(seen.status_code().is_some());
 
-    // And it arrived without the host giving anything back, which is the point.
-    let mut debt = ak_call_debt {
-        payloads_owed: 0,
-        buffers_lent: 0,
-        callbacks_in_flight: 0,
-        terminal_delivered: 0,
-    };
+    // And it says CANCELLED, whatever the server had already answered: the reply was dropped to
+    // honour the cancellation, so a terminal carrying the server's OK would tell the host the
+    // call completed while an event of it was thrown away.
+    assert_eq!(seen.status_code(), Some(CANCELLED));
+
+    // And the channel closes, which is a step of the library's own and not part of delivering
+    // the terminal - the callback records the event before the reader has marked the call past
+    // it - so this waits rather than reading once.
+    support::poll_until(
+        || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_CLOSED,
+        || format!("the channel is {:?}", ak_channel_status(channel)),
+    );
+
+    // Read after it closed, and that order is the assertion: the host still owes the payload it
+    // was given, so CLOSED did not wait on the host. What it waits for is no call of the channel
+    // being active, and a call past its terminal is not - waiting for the reclamation instead
+    // would let a runtime announce it had stopped with a channel still closing.
+    let mut debt = ak_call_debt::default();
     assert_eq!(
         unsafe { ak_call_debt_of(call, &mut debt) },
         ak_status::AK_STATUS_OK
     );
-    assert!(debt.payloads_owed > 0, "{debt:?}");
-
-    // The channel is closing and not closed: its call is still active, which is exactly what
-    // the model refuses to call closed.
-    assert_eq!(
-        ak_channel_status(channel),
-        ak_channel_state::AK_CHANNEL_CLOSING
+    assert!(
+        debt.payloads_owed > 0,
+        "the channel closed with nothing outstanding, so this proves nothing: {debt:?}"
     );
 
-    // Giving the payloads back is what lets the call settle, and the last call of a closing
-    // channel settling is what closes it. No host action beyond the debt it already owed.
+    // The handle still comes back on its own once the debt is paid.
     host.recorder.consume_all();
-    support::Recorder::await_call_reclaimed(call);
+    support::await_call_reclaimed(call);
     assert_eq!(
         ak_channel_status(channel),
         ak_channel_state::AK_CHANNEL_CLOSED
@@ -248,9 +285,8 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
 
 #[test]
 fn an_idle_channel_is_closed_the_moment_it_is_released() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
 
     assert_eq!(
         ak_channel_status(channel),
@@ -316,28 +352,15 @@ fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_stat
 }
 
 fn start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> ak_handle {
-    let options = ak_call_start_options {
-        struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
-        method: ak_bytes_in {
-            ptr: method.as_ptr(),
-            len: method.len(),
-        },
-        metadata: ak_bytes_in {
-            ptr: metadata.as_ptr(),
-            len: metadata.len(),
-        },
-    };
-    let mut call = AK_HANDLE_NONE;
-    let status = unsafe { ak_call_start(channel, &options, std::ptr::null_mut(), &mut call) };
+    let (status, call) = try_start_call(channel, method, metadata);
     assert_eq!(status, ak_status::AK_STATUS_OK);
     call
 }
 
 #[test]
 fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
 
     let call = start_call(channel, ECHO, &blob(&[(b"x-request", b"ping")]));
     send_one(call, b"hello");
@@ -372,22 +395,20 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
     );
 
     // Nothing of the call is outstanding, so the runtime has taken its handle back on its own.
-    support::Recorder::await_call_reclaimed(call);
+    support::await_call_reclaimed(call);
     assert_eq!(
         ak_call_cancel(call),
         ak_status::AK_STATUS_HANDLE_STALE,
         "a reclaimed call names nothing"
     );
 
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
 fn a_refused_method_comes_back_as_its_status_behind_a_synthesized_metadata_event() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
 
     let call = start_call(channel, FAIL, &[]);
     send_one(call, b"x");
@@ -403,15 +424,13 @@ fn a_refused_method_comes_back_as_its_status_behind_a_synthesized_metadata_event
     assert_eq!(seen.status_code(), Some(7), "PERMISSION_DENIED");
     assert_eq!(seen.status_message(), "not for you");
 
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
 fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, SLOW, &[]);
 
     let (status, first) = lend(call, 4);
@@ -438,15 +457,13 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
 
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
 fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, SLOW, &[]);
 
     let (status, buffer) = lend(call, 4);
@@ -460,16 +477,14 @@ fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
     unsafe { ak_return_call_buffer(buffer) };
 
     host.recorder.await_terminal();
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
 fn a_call_reports_what_the_host_owes_it() {
-    let server = TestServer::start();
-    let host = Host::start();
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
     host.recorder.hold_payloads();
-    let channel = host.channel(&server.endpoint);
     let call = start_call(channel, SLOW, &[]);
 
     let mut debt = ak_call_debt::default();
@@ -494,15 +509,13 @@ fn a_call_reports_what_the_host_owes_it() {
     );
 
     host.recorder.consume_all();
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
 fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
-    let server = TestServer::start();
-    let host = Host::with_ceiling(64);
-    let channel = host.channel(&server.endpoint);
+    let fixture = Connected::with_ceiling(64);
+    let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, ECHO, &[]);
 
     // Past the ceiling itself: no return by anyone will ever make room, so the refusal is
@@ -530,8 +543,7 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
 
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
-    ak_channel_release(channel);
-    host.stop();
+    fixture.close();
 }
 
 #[test]
@@ -638,27 +650,22 @@ fn a_token_naming_nothing_is_refused_rather_than_dereferenced() {
 
 #[test]
 fn no_call_starts_on_a_runtime_that_is_stopping() {
-    let server = TestServer::start();
-    let host = Host::start();
-    let channel = host.channel(&server.endpoint);
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
 
     host.stop();
 
-    let options = ak_call_start_options {
-        struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
-        method: ak_bytes_in {
-            ptr: ECHO.as_ptr(),
-            len: ECHO.len(),
-        },
-        metadata: ak_bytes_in {
-            ptr: std::ptr::null(),
-            len: 0,
-        },
-    };
-    let mut call = AK_HANDLE_NONE;
-    let status = unsafe { ak_call_start(channel, &options, std::ptr::null_mut(), &mut call) };
+    let (status, call) = try_start_call(channel, ECHO, &[]);
 
-    assert_eq!(status, ak_status::AK_STATUS_HANDLE_STALE);
+    // A state and not a stale handle: the drain closes the channel without reclaiming its
+    // handle, so the channel is still there to be named and the start gate is what refuses.
+    // Only the destroy stales a handle, which is what the header promises of both.
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSED
+    );
 }
 
 #[test]

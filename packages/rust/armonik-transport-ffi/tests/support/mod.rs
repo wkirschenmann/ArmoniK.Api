@@ -2,12 +2,23 @@
 
 mod server;
 
-pub use server::{TestServer, ECHO, FAIL, SLOW};
+// The engine crate's test server, taken by path rather than copied: both suites have to face the
+// same peer or a change to what it answers has to be made twice. It reaches everything through
+// `armonik_transport::reexports`, so it compiles unchanged here, and neither suite uses all of it.
+#[allow(dead_code)]
+#[path = "../../../armonik-transport/tests/common/codec.rs"]
+mod codec;
+#[allow(dead_code)]
+#[path = "../../../armonik-transport/tests/common/echo.rs"]
+mod echo;
+
+pub use echo::{ECHO, FAIL, SLOW};
+pub use server::TestServer;
 
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
@@ -77,29 +88,27 @@ pub unsafe extern "C" fn on_event(
 }
 
 impl Recorder {
+    /// The events so far. The poison is taken rather than reported: a test that has already
+    /// failed inside a callback must not turn every later read into a second panic.
+    fn seen(&self) -> MutexGuard<'_, Vec<Event>> {
+        self.seen.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn record(&self, event: Event) {
-        self.seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(event);
+        self.seen().push(event);
         self.arrived.notify_all();
     }
 
     pub fn len(&self) -> usize {
-        self.seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len()
+        self.seen().len()
     }
 
     pub fn kinds(&self) -> Vec<ak_event_kind> {
-        kinds(&self.seen.lock().unwrap_or_else(PoisonError::into_inner))
+        kinds(&self.seen())
     }
 
     pub fn shutdown_debt(&self) -> Option<ak_host_debt> {
-        self.seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        self.seen()
             .iter()
             .find(|event| event.kind == ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
             .map(|event| event.host_debt)
@@ -111,22 +120,17 @@ impl Recorder {
     }
 
     fn wait_for(&self, what: &str, ready: impl Fn(&[Event]) -> bool) -> Seen {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
-        while !ready(&seen) {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                // The guard is dropped before the panic: one held across the unwind poisons
-                // the lock, and the next callback would then panic inside an `extern "C"`.
-                let saw = kinds(&seen);
-                drop(seen);
-                panic!("waited for {what}, saw {saw:?}");
-            }
-            let (next, _) = self
-                .arrived
-                .wait_timeout(seen, Duration::from_millis(50).min(left))
-                .unwrap_or_else(PoisonError::into_inner);
-            seen = next;
+        let (seen, waited) = self
+            .arrived
+            .wait_timeout_while(self.seen(), Duration::from_secs(10), |seen| !ready(seen))
+            .unwrap_or_else(PoisonError::into_inner);
+
+        if waited.timed_out() {
+            // The guard is dropped before the panic: one held across the unwind poisons the
+            // lock, and the next callback would then panic inside an `extern "C"`.
+            let saw = kinds(&seen);
+            drop(seen);
+            panic!("waited for {what}, saw {saw:?}");
         }
         Seen(seen.clone())
     }
@@ -152,22 +156,9 @@ impl Recorder {
         self.await_kind("a shutdown", ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
     }
 
-    /// Waits for the runtime to take a call's handle back, which it does on its own once nothing
-    /// of the call is outstanding.
-    pub fn await_call_reclaimed(call: ak_handle) {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            if ak_call_cancel(call) == ak_status::AK_STATUS_HANDLE_STALE {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        panic!("the call was not reclaimed");
-    }
-
     /// Gives every payload back, which is what frees the memory and arms the next event.
     pub fn consume_all(&self) {
-        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut seen = self.seen();
         for event in seen.iter_mut() {
             if event.owner != 0 {
                 // SAFETY: each owner is one this library delivered and this is its only
@@ -195,6 +186,30 @@ impl Drop for Recorder {
 
 fn kinds(seen: &[Event]) -> Vec<ak_event_kind> {
     seen.iter().map(|event| event.kind).collect()
+}
+
+/// Polls `ready` until it holds, or gives up after ten seconds with `diagnose`'s account of why.
+///
+/// A poll and not a wait because neither of the two things asked here is announced: a reclaimed
+/// handle and a runtime's state are both read through the ABI rather than delivered.
+pub fn poll_until(ready: impl Fn() -> bool, diagnose: impl Fn() -> String) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if ready() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("{}", diagnose());
+}
+
+/// Waits for the runtime to take a call's handle back, which it does on its own once nothing of
+/// the call is outstanding.
+pub fn await_call_reclaimed(call: ak_handle) {
+    poll_until(
+        || ak_call_cancel(call) == ak_status::AK_STATUS_HANDLE_STALE,
+        || "the call was not reclaimed".to_owned(),
+    );
 }
 
 /// The events the ABI serializes among themselves. WRITE_DONE is a second domain and the

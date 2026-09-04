@@ -6,10 +6,11 @@ use armonik_transport::grpc::GrpcChannelConfig;
 use armonik_transport::http2::TransportConfig;
 use armonik_transport::reexports::http::Uri;
 use serde::Deserialize;
+use tokio::sync::Semaphore;
 
 /// The two windows the header calls mirrors of each other, and their defaults, together: the
 /// send window bounds the buffers a call may have out, the delivery window the payloads.
-const MAX_SENDS_IN_FLIGHT: u32 = 1;
+const MAX_SENDS_IN_FLIGHT: usize = 1;
 const DELIVERY_CREDITS: usize = 1;
 
 #[derive(Debug, Deserialize)]
@@ -27,7 +28,7 @@ pub(crate) struct ChannelSettings {
     #[serde(default)]
     delivery_credits: Option<usize>,
     #[serde(default)]
-    max_sends_in_flight: Option<u32>,
+    max_sends_in_flight: Option<usize>,
 }
 
 impl ChannelSettings {
@@ -39,25 +40,21 @@ impl ChannelSettings {
 
     /// The send window's mirror of `delivery_credits`: how many buffers a call of this channel
     /// may have out at once, counting those being filled and those awaiting their WRITE_DONE.
-    pub(crate) fn max_sends_in_flight(&self) -> u32 {
+    pub(crate) fn max_sends_in_flight(&self) -> usize {
         self.max_sends_in_flight.unwrap_or(MAX_SENDS_IN_FLIGHT)
     }
 
-    pub(crate) fn into_channel_config(self) -> GrpcChannelConfig {
-        // Read before the endpoint moves out of `self`.
-        let sends = self.max_sends_in_flight();
-        let mut transport = TransportConfig::new(
-            self.endpoint
-                .parse::<Uri>()
-                .expect("the endpoint parsed when the settings were read"),
-        );
+    /// The engine's shape of these settings, with the endpoint `parse` already read.
+    pub(crate) fn into_channel_config(self, endpoint: Uri) -> GrpcChannelConfig {
+        let mut transport = TransportConfig::new(endpoint);
         if let Some(millis) = self.connect_timeout_ms {
             transport.connect_timeout = Duration::from_millis(millis);
         }
 
         let mut config = GrpcChannelConfig::new(transport);
+        // Read before its neighbour moves out of `self`.
+        config.max_sends_in_flight = self.max_sends_in_flight();
         config.user_agent = self.user_agent;
-        config.max_sends_in_flight = sends as usize;
         if let Some(max) = self.max_recv_message_size {
             config.max_recv_message_size = max;
         }
@@ -65,33 +62,40 @@ impl ChannelSettings {
     }
 }
 
-/// Reads the configuration, or refuses it.
-pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
+/// Reads the configuration, or refuses it. The endpoint comes back parsed, so nothing
+/// downstream has to parse it again or answer for it not being a URI.
+pub(crate) fn parse(json: &[u8]) -> Option<(ChannelSettings, Uri)> {
     let settings: ChannelSettings = serde_json::from_slice(json).ok()?;
-    // Parsed here so `into_channel_config` cannot be reached with an endpoint that is not a URI.
-    settings.endpoint.parse::<Uri>().ok()?;
-    // A window of zero admits nothing at all, in either direction, so it is a refusal and not
-    // a default.
-    if settings.delivery_credits == Some(0) || settings.max_sends_in_flight == Some(0) {
+    let endpoint = settings.endpoint.parse::<Uri>().ok()?;
+    // Each window is a semaphore of that many permits: zero admits nothing at all, and a value
+    // past what a semaphore can hold would be a panic rather than a refusal.
+    let admits = |window: Option<usize>| {
+        window.is_none_or(|window| window > 0 && window <= Semaphore::MAX_PERMITS)
+    };
+    if !admits(settings.delivery_credits) || !admits(settings.max_sends_in_flight) {
         return None;
     }
-    Some(settings)
+    Some((settings, endpoint))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn config_of(json: &[u8]) -> GrpcChannelConfig {
+        let (settings, endpoint) = parse(json).expect("valid");
+        settings.into_channel_config(endpoint)
+    }
+
     #[test]
     fn the_endpoint_is_the_only_thing_a_configuration_must_carry() {
-        let settings = parse(br#"{"endpoint":"http://127.0.0.1:5000"}"#).expect("valid");
-        let config = settings.into_channel_config();
+        let config = config_of(br#"{"endpoint":"http://127.0.0.1:5000"}"#);
 
         assert_eq!(
             config.transport.endpoint.to_string(),
             "http://127.0.0.1:5000/"
         );
-        assert_eq!(config.max_sends_in_flight, MAX_SENDS_IN_FLIGHT as usize);
+        assert_eq!(config.max_sends_in_flight, MAX_SENDS_IN_FLIGHT);
     }
 
     #[test]
@@ -111,12 +115,14 @@ mod tests {
         assert_eq!(
             parse(br#"{"endpoint":"http://h:1"}"#)
                 .expect("valid")
+                .0
                 .delivery_credits(),
             DELIVERY_CREDITS
         );
         assert_eq!(
             parse(br#"{"endpoint":"http://h:1","delivery_credits":4}"#)
                 .expect("valid")
+                .0
                 .delivery_credits(),
             4
         );
@@ -128,27 +134,36 @@ mod tests {
         assert_eq!(
             parse(br#"{"endpoint":"http://h:1"}"#)
                 .expect("valid")
+                .0
                 .max_sends_in_flight(),
             MAX_SENDS_IN_FLIGHT
         );
         assert_eq!(
-            parse(br#"{"endpoint":"http://h:1","max_sends_in_flight":3}"#)
-                .expect("valid")
-                .into_channel_config()
-                .max_sends_in_flight,
+            config_of(br#"{"endpoint":"http://h:1","max_sends_in_flight":3}"#).max_sends_in_flight,
             3
         );
         assert!(parse(br#"{"endpoint":"http://h:1","max_sends_in_flight":0}"#).is_none());
     }
 
     #[test]
+    fn a_window_past_what_a_semaphore_holds_is_refused_rather_than_panicked_on() {
+        let past = Semaphore::MAX_PERMITS + 1;
+        assert!(parse(
+            format!(r#"{{"endpoint":"http://h:1","delivery_credits":{past}}}"#).as_bytes()
+        )
+        .is_none());
+        assert!(parse(
+            format!(r#"{{"endpoint":"http://h:1","max_sends_in_flight":{past}}}"#).as_bytes()
+        )
+        .is_none());
+    }
+
+    #[test]
     fn what_the_json_sets_reaches_the_channel() {
-        let config = parse(
+        let config = config_of(
             br#"{"endpoint":"http://h:1","connect_timeout_ms":250,
                  "user_agent":"probe/1","max_recv_message_size":99}"#,
-        )
-        .expect("valid")
-        .into_channel_config();
+        );
 
         assert_eq!(config.transport.connect_timeout, Duration::from_millis(250));
         assert_eq!(config.user_agent.as_deref(), Some("probe/1"));

@@ -1,9 +1,9 @@
 //! The host's side of the boundary: the callback, and the pointers only it understands.
 
 use std::ffi::c_void;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::abi::{ak_bytes, ak_callback, ak_event, ak_event_kind, ak_host_debt};
+use crate::guard_void;
 
 #[derive(Clone, Copy)]
 /// A pointer the host owns and this library only ever hands back.
@@ -39,11 +39,10 @@ impl Host {
     }
 
     /// Invokes the callback, and swallows a panic raised on this side of it: unwinding into C
-    /// is undefined, so it stops here.
+    /// is undefined, so it stops here - the same rule the entry points answer to, and the one
+    /// place it is an upcall rather than a return.
     fn emit(&self, call_ctx: HostPtr, event: &ak_event) {
-        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-            (self.callback)(self.runtime_ctx.0, call_ctx.0, event)
-        }));
+        guard_void(|| unsafe { (self.callback)(self.runtime_ctx.0, call_ctx.0, event) });
     }
 
     /// An event carrying a payload the host must consume. `status_code` is the terminal's, and
@@ -66,25 +65,19 @@ impl Host {
         );
     }
 
-    /// An event with nothing to give back.
+    /// An event of one call with nothing to give back.
     pub(crate) fn signal(&self, call_ctx: HostPtr, kind: ak_event_kind) {
-        self.emit(
-            call_ctx,
-            &ak_event {
-                kind,
-                payload: ak_bytes::none(),
-                status_code: 0,
-                host_debt: ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
-            },
-        );
+        self.deliver(call_ctx, kind, ak_bytes::none(), 0);
     }
 
-    /// The runtime has stopped, and says whether the host still holds anything of it.
-    pub(crate) fn signal_shutdown(&self, debt: ak_host_debt) {
+    /// An event of the runtime itself, which belongs to no call and so carries no call context.
+    ///
+    /// `debt` is what the host still holds; it is meaningful on the shutdown and zero after.
+    pub(crate) fn signal_runtime(&self, kind: ak_event_kind, debt: ak_host_debt) {
         self.emit(
             HostPtr::null(),
             &ak_event {
-                kind: ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE,
+                kind,
                 payload: ak_bytes::none(),
                 status_code: 0,
                 host_debt: debt,

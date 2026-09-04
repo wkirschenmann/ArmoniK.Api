@@ -1,9 +1,11 @@
-//! The C types the ABI is written in.
+//! The C types the ABI is written in, and how the engine's answers are said in them.
 //!
 //! Layouts, not behaviour: what each one means to the host is in the header. Every struct the
 //! host builds carries a `struct_size` it sets to its own `sizeof`.
 
 use std::ffi::c_void;
+
+use armonik_transport::grpc::ChannelError;
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +54,24 @@ pub enum ak_event_kind {
 pub enum ak_host_debt {
     AK_HOST_NOTHING_TO_RETURN = 0,
     AK_HOST_MUST_RETURN = 1,
+}
+
+impl ak_runtime_state {
+    /// The state a stored discriminant names, or `None` if it names none.
+    ///
+    /// Here and not beside the cell that holds one: the numbering is this module's, so a reader
+    /// somewhere else cannot fall behind a renumbering it never saw.
+    pub(crate) fn from_repr(value: i32) -> Option<Self> {
+        [
+            Self::AK_RUNTIME_RUNNING,
+            Self::AK_RUNTIME_GRPC_STOPPING,
+            Self::AK_RUNTIME_GRPC_STOPPED,
+            Self::AK_RUNTIME_QUIESCENT,
+            Self::AK_RUNTIME_FAILED_UNQUIESCED,
+        ]
+        .into_iter()
+        .find(|state| *state as i32 == value)
+    }
 }
 
 /// A slot index and a generation, so a token from a reused slot is refused rather than aliasing
@@ -142,15 +162,28 @@ pub struct ak_runtime_config {
     pub memory_ceiling: u64,
 }
 
-#[repr(C)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-/// How far along a channel's closing is. A handle the runtime no longer knows reads as `NONE`,
-/// which is also what an unopened one reads as: neither names a channel.
+/// How far along a channel's closing is.
 pub enum ak_channel_state {
     AK_CHANNEL_NONE = 0,
     AK_CHANNEL_OPEN = 1,
     AK_CHANNEL_CLOSING = 2,
     AK_CHANNEL_CLOSED = 3,
+}
+
+impl ak_channel_state {
+    /// The state a stored discriminant names, or `None` if it names none.
+    pub(crate) fn from_repr(value: i32) -> Option<Self> {
+        [
+            Self::AK_CHANNEL_NONE,
+            Self::AK_CHANNEL_OPEN,
+            Self::AK_CHANNEL_CLOSING,
+            Self::AK_CHANNEL_CLOSED,
+        ]
+        .into_iter()
+        .find(|state| *state as i32 == value)
+    }
 }
 
 #[repr(C)]
@@ -171,7 +204,7 @@ pub struct ak_call_start_options {
     pub struct_size: u32,
     /// `/Service/Method`, not NUL-terminated.
     pub method: ak_bytes_in,
-    /// The key/value blob [`crate::blob`] describes. May be empty.
+    /// The key/value blob the header's Blobs section describes. May be empty.
     pub metadata: ak_bytes_in,
 }
 
@@ -183,6 +216,22 @@ pub struct ak_call_debt {
     pub buffers_lent: u32,
     pub callbacks_in_flight: u32,
     pub terminal_delivered: i32,
+}
+
+/// Why the engine would not start a call, as a status.
+///
+/// One mapping, beside the vocabulary it maps into: a closed session is a state the caller can
+/// see and act on, and collapsing it into `INVALID_ARG` at each call site read it as a malformed
+/// request instead. Everything else is a request this library will not send, which is what
+/// `INVALID_ARG` says - and `ChannelError` is `#[non_exhaustive]`, so a variant added upstream
+/// lands there rather than forcing a decision here.
+impl From<ChannelError> for ak_status {
+    fn from(error: ChannelError) -> Self {
+        match error {
+            ChannelError::Closed => Self::AK_STATUS_INVALID_STATE,
+            _ => Self::AK_STATUS_INVALID_ARG,
+        }
+    }
 }
 
 pub const AK_ABI_VERSION: i32 = 1;

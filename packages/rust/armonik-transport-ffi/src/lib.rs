@@ -25,16 +25,70 @@ mod tables;
 
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub use abi::*;
 use host::{Host, HostPtr};
-use runtime::AkRuntime;
+use registry::Registry;
+
+/// Runs `body`, answering `fallback` if it panics.
+///
+/// The three shapes below are the whole of "no panic crosses the boundary": an entry point that
+/// answers a status, one that answers something else, and one that answers nothing. A new entry
+/// point picks one rather than spelling the rule again.
+fn guard_with<T>(fallback: T, body: impl FnOnce() -> T) -> T {
+    catch_unwind(AssertUnwindSafe(body)).unwrap_or(fallback)
+}
 
 /// Runs `body`, answering `AK_STATUS_INTERNAL` if it panics.
 fn guard(body: impl FnOnce() -> ak_status) -> ak_status {
-    catch_unwind(AssertUnwindSafe(body)).unwrap_or(ak_status::AK_STATUS_INTERNAL)
+    guard_with(ak_status::AK_STATUS_INTERNAL, body)
+}
+
+/// Runs `body`, which answers nothing, and swallows a panic.
+fn guard_void(body: impl FnOnce()) {
+    let _ = catch_unwind(AssertUnwindSafe(body));
+}
+
+/// Writes what was made into `out` and answers OK, or answers why it was not made.
+///
+/// On a refusal `*out` stays as the host left it, which is what the header promises of every
+/// entry point that answers through one.
+///
+/// # Safety
+///
+/// `out` must be writable for its type.
+unsafe fn hand_over<T>(out: *mut T, made: Result<T, ak_status>) -> ak_status {
+    match made {
+        Err(status) => status,
+        Ok(value) => {
+            // SAFETY: forwarded from this function's own contract.
+            unsafe { *out = value };
+            ak_status::AK_STATUS_OK
+        }
+    }
+}
+
+/// Writes what `read` says about the object `handle` names into `out`.
+///
+/// # Safety
+///
+/// `out` must be null or writable for its type.
+unsafe fn observe<T, V>(
+    table: &Registry<T>,
+    handle: ak_handle,
+    out: *mut V,
+    read: impl FnOnce(&T) -> V,
+) -> ak_status {
+    if out.is_null() {
+        return ak_status::AK_STATUS_INVALID_ARG;
+    }
+    let Some(found) = table.get(handle) else {
+        return ak_status::AK_STATUS_HANDLE_STALE;
+    };
+    // SAFETY: forwarded from this function's own contract.
+    unsafe { *out = read(&found) };
+    ak_status::AK_STATUS_OK
 }
 
 /// Creates a runtime, which is running when this returns.
@@ -59,63 +113,42 @@ pub unsafe extern "C" fn ak_runtime_create(
             return ak_status::AK_STATUS_INVALID_ARG;
         }
 
-        // One generation at a time, which is what the model assumes (L0!SingleRuntime) and what
-        // every promise attached to "the runtime" is stated about. A second one is refused
-        // rather than admitted into a state space nothing was proved over.
-        if RUNTIME_LIVE
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return ak_status::AK_STATUS_INVALID_STATE;
-        }
-
-        match AkRuntime::new(
-            config.worker_threads,
-            config.memory_ceiling,
-            Host::new(callback, runtime_ctx),
-        ) {
-            Err(status) => {
-                RUNTIME_LIVE.store(false, Ordering::Release);
-                status
-            }
-            Ok(runtime) => {
-                let handle = tables::runtimes().reserve();
-                tables::runtimes().publish(handle, runtime);
-                unsafe { *out = handle };
-                ak_status::AK_STATUS_OK
-            }
+        unsafe {
+            hand_over(
+                out,
+                lifecycle::create_runtime(
+                    config.worker_threads,
+                    config.memory_ceiling,
+                    Host::new(callback, runtime_ctx),
+                ),
+            )
         }
     })
 }
 
-/// Whether a runtime exists. Cleared by a successful destroy, so a fresh generation may follow.
-static RUNTIME_LIVE: AtomicBool = AtomicBool::new(false);
-
 /// How far along a channel's closing is, for a host that wants to watch the drain.
-///
-/// A handle this library no longer knows reads as `AK_CHANNEL_NONE`. A released channel keeps
-/// its handle until the runtime is destroyed, so `CLOSING` and then `CLOSED` are both
-/// observable; what ends `CLOSING` is this library's own bookkeeping - the last call of the
-/// channel being reclaimed - and not anything the host has to do.
 #[no_mangle]
 pub extern "C" fn ak_channel_status(channel: ak_handle) -> ak_channel_state {
-    catch_unwind(|| match tables::channels().get(channel) {
-        Some(found) => found.state(),
-        None => ak_channel_state::AK_CHANNEL_NONE,
-    })
-    .unwrap_or(ak_channel_state::AK_CHANNEL_NONE)
+    guard_with(
+        ak_channel_state::AK_CHANNEL_NONE,
+        || match tables::channels().get(channel) {
+            Some(found) => found.state(),
+            None => ak_channel_state::AK_CHANNEL_NONE,
+        },
+    )
 }
 
 /// What the runtime is doing. This, and no callback, is what permits destroying it.
 #[no_mangle]
 pub extern "C" fn ak_runtime_status(runtime: ak_handle) -> ak_runtime_state {
-    catch_unwind(|| match tables::runtimes().get(runtime) {
-        Some(runtime) => runtime.state(),
-        // A token naming nothing names a runtime already destroyed, and destroying is legal
-        // only from quiescence, so that is what it was.
-        None => ak_runtime_state::AK_RUNTIME_QUIESCENT,
+    guard_with(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED, || {
+        match tables::runtimes().get(runtime) {
+            Some(runtime) => runtime.state(),
+            // A token naming nothing names a runtime already destroyed, and destroying is legal
+            // only from quiescence, so that is what it was.
+            None => ak_runtime_state::AK_RUNTIME_QUIESCENT,
+        }
     })
-    .unwrap_or(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED)
 }
 
 /// Closes the start gate and drains. Idempotent.
@@ -124,7 +157,7 @@ pub extern "C" fn ak_runtime_begin_shutdown(runtime: ak_handle) -> ak_status {
     guard(|| match tables::runtimes().get(runtime) {
         None => ak_status::AK_STATUS_HANDLE_STALE,
         Some(runtime) => {
-            runtime.begin_shutdown();
+            lifecycle::begin_shutdown(&runtime);
             ak_status::AK_STATUS_OK
         }
     })
@@ -133,20 +166,7 @@ pub extern "C" fn ak_runtime_begin_shutdown(runtime: ak_handle) -> ak_status {
 /// Frees the runtime. Refused before quiescence, and that is the only reason.
 #[no_mangle]
 pub extern "C" fn ak_runtime_destroy(runtime: ak_handle) -> ak_status {
-    guard(|| {
-        let Some(found) = tables::runtimes().get(runtime) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        if found.state() != ak_runtime_state::AK_RUNTIME_QUIESCENT {
-            return ak_status::AK_STATUS_INVALID_STATE;
-        }
-
-        found.stale_own_handles();
-        found.release_threads();
-        tables::runtimes().remove(runtime);
-        RUNTIME_LIVE.store(false, Ordering::Release);
-        ak_status::AK_STATUS_OK
-    })
+    guard(|| lifecycle::destroy_runtime(runtime))
 }
 
 /// Creates a channel from a config JSON. Performs no I/O, so it fails only on a bad config.
@@ -175,25 +195,15 @@ pub unsafe extern "C" fn ak_channel_create(
             return ak_status::AK_STATUS_INVALID_ARG;
         };
 
-        match channel::create(runtime, found.spawner(), json) {
-            Err(status) => return status,
-            Ok(handle) => unsafe { *out = handle },
-        }
-
-        ak_status::AK_STATUS_OK
+        unsafe { hand_over(out, channel::create(runtime, found.spawner(), json)) }
     })
 }
 
-/// Frees the channel, cancelling its calls first.
-///
-/// The cancellation is not a courtesy: a channel is closing from this moment and the model
-/// admits no closing channel with an active call, so the latch is what makes the drain the
-/// runtime's own business rather than something the host must provoke. A call parked on a
-/// delivery credit is the case that needs it - it is not watching the transport, so closing
-/// the session alone would never reach it.
+/// Frees the channel, cancelling its calls first. The header says why the cancellation is this
+/// library's own business rather than something the host must provoke.
 #[no_mangle]
 pub extern "C" fn ak_channel_release(channel: ak_handle) {
-    let _ = catch_unwind(|| lifecycle::release_channel(channel));
+    guard_void(|| lifecycle::release_channel(channel));
 }
 
 /// Starts a call. `call_ctx` comes back in each of its events.
@@ -243,24 +253,18 @@ pub unsafe extern "C" fn ak_call_start(
             return ak_status::AK_STATUS_INVALID_ARG;
         };
 
-        let services = call::CallServices {
-            host: &runtime.host,
-            ledger: &runtime.ledger,
-            spawner: runtime.spawner(),
-        };
-        match call::start_on(
-            &found,
-            channel,
-            &services,
-            method,
-            metadata,
-            HostPtr(call_ctx),
-        ) {
-            Err(status) => status,
-            Ok(handle) => {
-                unsafe { *out = handle };
-                ak_status::AK_STATUS_OK
-            }
+        unsafe {
+            hand_over(
+                out,
+                call::start_on(
+                    &found,
+                    channel,
+                    &runtime.services(),
+                    method,
+                    metadata,
+                    HostPtr(call_ctx),
+                ),
+            )
         }
     })
 }
@@ -283,14 +287,7 @@ pub unsafe extern "C" fn ak_get_call_buffer(
         let Some(found) = tables::calls().get(call) else {
             return ak_status::AK_STATUS_HANDLE_STALE;
         };
-        match found.lend(len) {
-            Ok(buffer) => {
-                unsafe { *out = buffer };
-                ak_status::AK_STATUS_OK
-            }
-            // On a refusal nothing is lent and `out` stays as the host left it.
-            Err(status) => status,
-        }
+        unsafe { hand_over(out, found.lend(len)) }
     })
 }
 
@@ -306,16 +303,12 @@ pub unsafe extern "C" fn ak_call_send_message(call: ak_handle, buffer: ak_buffer
             return ak_status::AK_STATUS_INVALID_ARG;
         };
         let (Some(owner), Some(found)) = (lent.call(), tables::calls().get(call)) else {
-            // Nothing is committed and nothing is freed: the buffer goes back to the host,
-            // which still has `ak_return_call_buffer` as its exit.
-            let _ = Box::into_raw(lent);
-            return ak_status::AK_STATUS_HANDLE_STALE;
+            return call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE);
         };
         // A buffer determines its call, so a pair that disagrees is a host bug rather than a
         // reason to move some other call's counters.
         if !Arc::ptr_eq(&owner, &found) {
-            let _ = Box::into_raw(lent);
-            return ak_status::AK_STATUS_INVALID_ARG;
+            return call::keep(lent, ak_status::AK_STATUS_INVALID_ARG);
         }
         found.commit(lent)
     })
@@ -331,7 +324,7 @@ pub unsafe extern "C" fn ak_call_send_message(call: ak_handle, buffer: ak_buffer
 /// `buffer` must be one this library lent and the host has not given back.
 #[no_mangle]
 pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
+    guard_void(|| {
         let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
             return;
         };
@@ -340,7 +333,7 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
             // The call is gone, so there are no counters left to move; the bytes still go.
             None => drop(lent),
         }
-    }));
+    });
 }
 
 /// Signals the end of sending. No message follows it.
@@ -371,16 +364,7 @@ pub extern "C" fn ak_call_cancel(call: ak_handle) -> ak_status {
 /// `out` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn ak_call_debt_of(call: ak_handle, out: *mut ak_call_debt) -> ak_status {
-    guard(|| {
-        if out.is_null() {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        }
-        let Some(found) = tables::calls().get(call) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        unsafe { *out = found.debt() };
-        ak_status::AK_STATUS_OK
-    })
+    guard(|| unsafe { observe(tables::calls(), call, out, |found| found.debt()) })
 }
 
 /// What the runtime-wide ceiling is holding. Purely observational.
@@ -393,15 +377,10 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
     runtime: ak_handle,
     out: *mut ak_memory_usage,
 ) -> ak_status {
-    guard(|| {
-        if out.is_null() {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        }
-        let Some(found) = tables::runtimes().get(runtime) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        unsafe { *out = found.ledger.usage() };
-        ak_status::AK_STATUS_OK
+    guard(|| unsafe {
+        observe(tables::runtimes(), runtime, out, |found| {
+            found.ledger().usage()
+        })
     })
 }
 
@@ -418,12 +397,12 @@ pub extern "C" fn ak_abi_version() -> i32 {
 /// `payload` must be one this library delivered and the host has not consumed.
 #[no_mangle]
 pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
+    guard_void(|| {
         if payload.owner.is_null() {
             return;
         }
         // SAFETY: forwarded from this function's own contract. Dropping is what returns the
         // credit, clears the call's debt and frees the bytes, so no path can do half of it.
         drop(unsafe { call::take_payload(payload.owner) });
-    }));
+    });
 }
