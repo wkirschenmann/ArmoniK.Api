@@ -59,32 +59,40 @@ internal static class RawMetadata
       return Array.Empty<byte>();
     }
 
+    // Each entry is read once, and what it yields is kept. Reading one is not free:
+    // `ValueBytes` answers with a defensive copy, so asking a binary entry for its length and
+    // then for its bytes copies the value twice - and sizing from `GetByteCount` walks every key
+    // and text value that the write below then encodes again.
+    //
+    // The ternary stays: `ValueBytes` on a text entry is documented as its ASCII bytes, so
+    // taking it for both would quietly mangle a value that is not ASCII.
+    var chunks = new byte[metadata.Count * 2][];
     var size = 4;
+    var index = 0;
     foreach (var entry in metadata)
     {
-      size += 8 + Encoding.UTF8.GetByteCount(entry.Key) + (entry.IsBinary
-                                                             ? entry.ValueBytes.Length
-                                                             : Encoding.UTF8.GetByteCount(entry.Value));
+      var key = Encoding.UTF8.GetBytes(entry.Key);
+      var value = entry.IsBinary
+                    ? entry.ValueBytes
+                    : Encoding.UTF8.GetBytes(entry.Value);
+      chunks[index++] = key;
+      chunks[index++] = value;
+      size           += 8 + key.Length + value.Length;
     }
 
-    var blob = new byte[size];
+    var raw = new byte[size];
     var at = 0;
-    Write(blob,
+    Write(raw,
           ref at,
           (uint)metadata.Count);
-    foreach (var entry in metadata)
+    foreach (var chunk in chunks)
     {
-      WriteChunk(blob,
+      WriteChunk(raw,
                  ref at,
-                 Encoding.UTF8.GetBytes(entry.Key));
-      WriteChunk(blob,
-                 ref at,
-                 entry.IsBinary
-                   ? entry.ValueBytes
-                   : Encoding.UTF8.GetBytes(entry.Value));
+                 chunk);
     }
 
-    return blob;
+    return raw;
   }
 
   internal static Metadata Decode(ReadOnlySpan<byte> blob)
