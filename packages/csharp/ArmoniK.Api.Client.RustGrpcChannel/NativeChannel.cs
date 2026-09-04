@@ -78,8 +78,11 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     runtime_         = runtime;
     deliveryCredits_ = deliveryCredits;
 
-    var json = Blob.ChannelConfig(endpoint,
-                                  deliveryCredits);
+    var json = new ChannelOptions
+               {
+                 Endpoint        = endpoint,
+                 DeliveryCredits = deliveryCredits,
+               }.Encode();
     var pin = GCHandle.Alloc(json,
                              GCHandleType.Pinned);
     try

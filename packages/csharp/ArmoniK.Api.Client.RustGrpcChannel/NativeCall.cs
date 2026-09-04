@@ -202,7 +202,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
                                          marshaller);
     var methodBytes = MethodNames.GetValue(method,
                                            static name => Encoding.UTF8.GetBytes(name));
-    var metadataBytes = Blob.Encode(metadata);
+    var metadataBytes = RawMetadata.Encode(metadata);
 
     var methodPin = GCHandle.Alloc(methodBytes,
                                    GCHandleType.Pinned);
@@ -393,7 +393,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
         switch (slot.Kind)
         {
           case NativeMethods.AkEventKind.InitialMetadata:
-            headers_.TrySetResult(Blob.Decode(Bytes(slot.Payload)));
+            headers_.TrySetResult(RawMetadata.Decode(Bytes(slot.Payload)));
             break;
 
           case NativeMethods.AkEventKind.Message:
@@ -492,7 +492,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
   /// <summary>Resolves the call from its terminal event.</summary>
   private void Settle(in Slot slot)
   {
-    Blob.DecodeStatus(Bytes(slot.Payload),
+    RawMetadata.DecodeStatus(Bytes(slot.Payload),
                       out var reason,
                       out var trailers);
     trailers_ = trailers;

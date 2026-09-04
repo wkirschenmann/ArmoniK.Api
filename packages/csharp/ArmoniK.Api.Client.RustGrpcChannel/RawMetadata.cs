@@ -24,18 +24,23 @@ using Grpc.Core;
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 /// <summary>
-///   The ABI's key/value encoding: a uint32 count, then that many length-prefixed pairs.
+///   gRPC metadata in the form the C ABI carries it: a uint32 count, then that many
+///   length-prefixed key/value pairs.
 /// </summary>
 /// <remarks>
-///   Native byte order, as the header says, so neither direction chooses an endianness of its own.
-///   Keys may repeat and their order is kept: gRPC metadata is a multi-map, and two entries under
-///   one key must not come out as one.
+///   A flat buffer because the boundary passes a pointer and a length and nothing else. A count
+///   with lengths rather than a map because gRPC metadata is a multi-map: keys may repeat and
+///   their order is kept, so two entries under one key must not come out as one. Native byte
+///   order, as the header says, so neither direction picks an endianness of its own.
 ///   <para>
-///     A key ending in <c>-bin</c> carries raw bytes on both sides of this boundary: the library
-///     hands over the decoded value, not its base64 form.
+///     Whether a value is text or bytes is gRPC's rule and not this format's: a key ending in
+///     <c>-bin</c> carries binary, and <see cref="Metadata" /> derives that from the key. What
+///     this boundary does choose is that a <c>-bin</c> value crosses it decoded rather than as
+///     the base64 it travels as on the wire - the engine converts, so nobody converts twice and
+///     a malformed one is refused before it reaches here.
 ///   </para>
 ///   <para>
-///     Reading is total: a blob that does not parse yields what could be read rather than
+///     Reading is total: a buffer that does not parse yields what could be read rather than
 ///     throwing. Every one of them was written by the library in this process, so a malformed one
 ///     is a bug on the other side of the ABI, and losing an answer that is already in hand would
 ///     be the worse way to report it. Where a length prefix is unreadable the rest is unreachable
@@ -43,7 +48,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///     prefix in every case, never a salvaged remainder.
 ///   </para>
 /// </remarks>
-internal static class Blob
+internal static class RawMetadata
 {
   private const string BinarySuffix = "-bin";
 
@@ -137,55 +142,6 @@ internal static class Blob
 
     message  = Text(reason);
     trailers = Decode(payload);
-  }
-
-  /// <summary>
-  ///   The channel config the engine parses, as JSON.
-  /// </summary>
-  /// <remarks>
-  ///   Here beside the other encoding this ABI asks for, and not in the channel: the header lists
-  ///   more options than these two and refuses one it does not know rather than ignoring it, so
-  ///   the next option added wants one obvious home. Written by hand because a netstandard2.0
-  ///   target would need a package to do it any other way, and the shape is two fields.
-  /// </remarks>
-  internal static byte[] ChannelConfig(string endpoint,
-                                       int deliveryCredits)
-    => Encoding.UTF8.GetBytes("{"
-                              + Quote("endpoint")
-                              + ":"
-                              + Quote(endpoint)
-                              + ","
-                              + Quote("delivery_credits")
-                              + ":"
-                              + deliveryCredits.ToString(CultureInfo.InvariantCulture)
-                              + "}");
-
-  /// <summary>One JSON string, escaped. An endpoint is a URI and may carry either of these.</summary>
-  private static string Quote(string value)
-  {
-    var quoted = new StringBuilder(value.Length + 2).Append('"');
-    foreach (var character in value)
-    {
-      if (character == '"' || character == '\\')
-      {
-        quoted.Append('\\')
-              .Append(character);
-      }
-      else if (character < ' ')
-      {
-        quoted.Append('\\')
-              .Append('u')
-              .Append(((int)character).ToString("x4",
-                                                CultureInfo.InvariantCulture));
-      }
-      else
-      {
-        quoted.Append(character);
-      }
-    }
-
-    return quoted.Append('"')
-                 .ToString();
   }
 
   private static void Write(byte[] into,
