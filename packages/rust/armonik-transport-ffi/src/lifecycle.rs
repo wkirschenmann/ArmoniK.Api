@@ -12,9 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::abi::{
-    ak_channel_state, ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status,
-};
+use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
 use crate::host::Host;
 use crate::runtime::AkRuntime;
 use crate::tables;
@@ -135,16 +133,15 @@ pub(crate) fn release_channel(handle: ak_handle) {
         return;
     }
 
+    // Every call that had joined by the time the latch took: one that had not cannot join now,
+    // and one that is joining has already taken its place, so `start_closing` left the channel
+    // CLOSING rather than CLOSED and this snapshot is taken after the publish that follows.
     for call in tables::calls().values() {
         if call.belongs_to_channel(handle) {
             call.cancel();
         }
     }
     found.grpc.close();
-
-    // An idle channel is closed the moment it is released; one with calls closes when its last
-    // one is reclaimed.
-    settle_channel(handle);
 }
 
 /// A call has reached its terminal, so its channel may have nothing active left.
@@ -156,9 +153,8 @@ pub(crate) fn release_channel(handle: ak_handle) {
 /// what the header promises nor what the model admits of a drained runtime.
 pub(crate) fn call_reached_terminal(channel: ak_handle) {
     if let Some(found) = tables::channels().get(channel) {
-        found.call_ended();
+        found.leave();
     }
-    settle_channel(channel);
 }
 
 /// Takes a settled call's handle back.
@@ -169,25 +165,4 @@ pub(crate) fn call_reached_terminal(channel: ak_handle) {
 /// latched CLOSING in between was settled by the release that latched it.
 pub(crate) fn call_settled(call: ak_handle) {
     tables::calls().remove(call);
-}
-
-/// Marks a closing channel closed once no call of it is still active.
-///
-/// Active and not *reclaimed*, which is the whole of this: a call stays in the table until the
-/// host has given back every payload and buffer, so waiting for it to leave would make CLOSED
-/// wait on the host - the same deadlock the header warns about for QUIESCENT, and the opposite
-/// of what it promises here. A call past its terminal has nothing more to come, which is what
-/// the model means by no longer active.
-fn settle_channel(handle: ak_handle) {
-    let Some(found) = tables::channels().get(handle) else {
-        return;
-    };
-    if found.state() != ak_channel_state::AK_CHANNEL_CLOSING {
-        return;
-    }
-    // Asked of the channel rather than by walking every call in the process: this runs once per
-    // call that settles, so a drain of C calls out of N live cost C scans of N.
-    if !found.has_active_call() {
-        found.finish_closing();
-    }
 }

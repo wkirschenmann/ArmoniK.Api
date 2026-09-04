@@ -14,9 +14,7 @@ use armonik_transport::grpc::{
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
-use crate::abi::{
-    ak_buffer, ak_bytes, ak_call_debt, ak_channel_state, ak_event_kind, ak_handle, ak_status,
-};
+use crate::abi::{ak_buffer, ak_bytes, ak_call_debt, ak_event_kind, ak_handle, ak_status};
 use crate::blob;
 use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
@@ -660,14 +658,24 @@ pub(crate) fn start_on(
     metadata: Metadata,
     ctx: HostPtr,
 ) -> Result<ak_handle, ak_status> {
+    // First, and it can refuse: a channel that is closing takes no new call. Taking the place
+    // before anything is built is what makes the refusal free, and what makes the check
+    // conclusive - the channel cannot close between here and the publish, because closing waits
+    // on this place being given back.
+    channel.join()?;
+
     let mut options = CallStartOptions::new(method);
     options.metadata = metadata;
 
-    let grpc_call = channel.grpc.start_call(options).map_err(ak_status::from)?;
+    let grpc_call = match channel.grpc.start_call(options) {
+        Ok(call) => call,
+        Err(error) => {
+            channel.leave();
+            return Err(ak_status::from(error));
+        }
+    };
 
     let (send, recv, control) = grpc_call.split();
-    // Before the publish, so the channel never counts fewer calls than the table holds.
-    channel.call_started();
     let (handle, (state, commands)) = tables::calls().insert_with(|handle| {
         let (state, commands) = create(
             ctx,
@@ -680,16 +688,6 @@ pub(crate) fn start_on(
         );
         (Arc::clone(&state), (state, commands))
     });
-
-    // Published, and only now asked whether the channel is still open. The check before this
-    // cannot stand alone: a release that latches between it and the publish snapshots the call
-    // table without this call in it, so nothing cancels it and the channel waits on a call it
-    // never saw. Re-reading afterwards closes that window from the other side - either the
-    // release's snapshot contains this call and cancels it, or its latch preceded this read and
-    // this cancels itself. The table's own lock is what orders the two.
-    if channel.state() != ak_channel_state::AK_CHANNEL_OPEN {
-        state.cancel();
-    }
 
     start(&state, send, recv, commands, services.spawner);
     Ok(handle)

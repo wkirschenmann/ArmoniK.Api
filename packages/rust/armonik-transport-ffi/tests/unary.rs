@@ -283,6 +283,47 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     host.stop();
 }
 
+/// A channel that is closing takes no new call.
+///
+/// The refusal is what makes `ak_channel_status` mean something: a call admitted onto a closing
+/// channel would either be cancelled after the fact, or - if the channel had already read its
+/// count as zero - leave the host told CLOSED with events of that call still to come.
+#[test]
+fn a_closing_channel_takes_no_new_call() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    // A call the host holds a payload of keeps the channel from finishing its close, so the
+    // channel is observably CLOSING rather than CLOSED when the second start is attempted.
+    host.recorder.hold_payloads();
+    let first = start_call(channel, ECHO, &blob(&[]));
+    send_one(first, b"hello");
+    host.recorder.await_metadata();
+
+    ak_channel_release(channel);
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSING
+    );
+
+    let (status, refused) = try_start_call(channel, ECHO, &[]);
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(refused, AK_HANDLE_NONE, "nothing was started");
+
+    // And the channel still closes on the call it did admit, with no help from the refusal. The
+    // terminal is awaited first: consuming before it arrives would leave its payload held, and
+    // a call still owing one is a call not reclaimed.
+    host.recorder.await_terminal();
+    host.recorder.consume_all();
+    support::await_call_reclaimed(first);
+    support::poll_until(
+        || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_CLOSED,
+        || format!("the channel is {:?}", ak_channel_status(channel)),
+    );
+
+    host.stop();
+}
+
 #[test]
 fn an_idle_channel_is_closed_the_moment_it_is_released() {
     let fixture = Host::connected();
