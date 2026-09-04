@@ -20,52 +20,17 @@ using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   How far along the shared runtime's teardown is. One generation at a time.
-/// </summary>
-/// <remarks>
-///   The names are the model's own (<c>runtime_dispose_state</c>), so a reader can hold the code
-///   and <c>DotNetBinding.tla</c> side by side - with one exception, named as such below.
-/// </remarks>
 internal enum RuntimeDisposeState
 {
-  /// <summary>No generation is materialized. A fresh one may follow.</summary>
   Absent,
   Active,
 
-  /// <summary>The last lease is gone and the latch is set: no further lease may be taken.</summary>
   ShutdownPending,
   Destroying,
 
-  /// <summary>
-  ///   The destroy was refused or threw, so the generation is still named and no fresh one may
-  ///   follow.
-  /// </summary>
-  /// <remarks>
-  ///   The exception to the naming above: this is not the model's <c>destroyed</c>, which means
-  ///   <c>ak_runtime_destroy</c> returned OK - a success reaches <see cref="Absent" /> instead,
-  ///   because the generation is then gone. A refused destroy has no state in
-  ///   <c>DotNetBinding.tla</c> at all; it is the runtime's own AK_RUNTIME_FAILED_UNQUIESCED
-  ///   territory seen from this side.
-  /// </remarks>
   DestroyFailed,
 }
 
-/// <summary>
-///   The shared runtime, by generation: the first channel materializes it, every later one takes a
-///   lease, and the release that empties the set tears it down.
-/// </summary>
-/// <remarks>
-///   A channel is the unit of borrowing, which is why the count is of channels and not of calls.
-///   The release decides whether it was the last one under the same lock that latches the state to
-///   <see cref="RuntimeDisposeState.ShutdownPending" />, so no lease can be taken between the zero
-///   and the destroy and resurrect a generation on its way out.
-///   <para>
-///     The runtime's own options belong here rather than to a channel: there is one generation for
-///     the process, so its worker threads and its byte ceiling are the process's. They may be set
-///     only while no generation exists.
-///   </para>
-/// </remarks>
 public static class NativeRuntimeFactory
 {
   private static readonly object Gate = new();
@@ -77,10 +42,6 @@ public static class NativeRuntimeFactory
   private static uint workerThreads_;
   private static ulong memoryCeiling_;
 
-  /// <summary>What the next generation is created with.</summary>
-  /// <param name="workerThreads">Zero leaves the choice to the runtime.</param>
-  /// <param name="memoryCeiling">Bytes lent buffers may occupy at once. Zero is no ceiling.</param>
-  /// <exception cref="InvalidOperationException">A generation exists, so these would not apply to it.</exception>
   public static void Configure(uint workerThreads = 0,
                                ulong memoryCeiling = 0)
   {
@@ -96,12 +57,6 @@ public static class NativeRuntimeFactory
     }
   }
 
-  /// <summary>Opens a channel, materializing the shared runtime if this is the first one.</summary>
-  /// <param name="endpoint">Where to dial, as a plain HTTP/2 URI.</param>
-  /// <param name="deliveryCredits">
-  ///   How many payloads of one call of this channel may be outstanding at once. The host is what
-  ///   holds them, so the host is what chooses; each call sizes its queue from it.
-  /// </param>
   public static NativeChannel Channel(string endpoint,
                                       int deliveryCredits = 1)
   {
@@ -118,8 +73,6 @@ public static class NativeRuntimeFactory
     }
     catch (DllNotFoundException absent)
     {
-      // The first downcall of the process is somewhere in here, so this is where a missing
-      // engine surfaces - and .NET's own message names a bare library and no reason.
       throw RustEngineMissingException.For(absent);
     }
 
@@ -131,16 +84,11 @@ public static class NativeRuntimeFactory
     }
     catch
     {
-      // A refused creation is local - a bad endpoint may not take down the generation every
-      // other channel leases - so the lease goes back and the teardown follows only if it was
-      // the last one, exactly as a release would.
       Release();
       throw;
     }
   }
 
-  /// <summary>What ABI the loaded library speaks. Opening a channel refuses a mismatch.</summary>
-  /// <exception cref="RustEngineMissingException">The native engine could not be loaded.</exception>
   public static int LibraryAbiVersion
   {
     get
@@ -156,7 +104,6 @@ public static class NativeRuntimeFactory
     }
   }
 
-  /// <summary>The state the model calls <c>runtime_dispose_state</c>, for tests and assertions.</summary>
   public static string State
   {
     get
@@ -190,8 +137,6 @@ public static class NativeRuntimeFactory
             return current_!;
 
           default:
-            // The generation on its way out cannot take a lease, and the next one does not
-            // exist yet. Waiting for the teardown is what re-arms the factory.
             waiting = destroyed_!.Task;
             break;
         }
@@ -202,10 +147,6 @@ public static class NativeRuntimeFactory
     }
   }
 
-  /// <summary>
-  ///   Gives a lease back. Answers what the caller must still wait for: the last release owes the
-  ///   destroy of the generation it released, and nobody else owes anything.
-  /// </summary>
   internal static (bool WasLast, Task Destroyed) Release()
   {
     NativeRuntime retiring;
@@ -218,7 +159,6 @@ public static class NativeRuntimeFactory
         return (false, Task.CompletedTask);
       }
 
-      // The latch and the decision in one step, under the lock the lease is taken under.
       state_    = RuntimeDisposeState.ShutdownPending;
       retiring  = current_!;
       destroyed = destroyed_!.Task;
@@ -243,8 +183,6 @@ public static class NativeRuntimeFactory
     }
     catch (Exception raised)
     {
-      // Kept and handed to whoever awaits the destroy: a runtime that will not quiesce is not
-      // something to discover from a hung DisposeAsync.
       failure = raised;
     }
 
@@ -253,8 +191,6 @@ public static class NativeRuntimeFactory
     {
       waiting = destroyed_!;
 
-      // One state per outcome: a destroy that failed leaves the generation named, so a later
-      // create is refused rather than starting beside threads that are still up.
       if (failure is null)
       {
         current_ = null;

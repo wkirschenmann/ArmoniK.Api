@@ -24,26 +24,9 @@ using NUnit.Framework;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
-/// <summary>
-///   ArmoniK's own generated client, over this invoker instead of grpc-dotnet's.
-/// </summary>
-/// <remarks>
-///   The echo tests prove the transport against a server that owes it nothing; this proves the
-///   other half - that the stubs ArmoniK actually ships are satisfied by this
-///   <see cref="global::Grpc.Core.CallInvoker" />. Nothing here is echo-specific, and the service
-///   is the real one.
-///   <para>
-///     The server is `ArmoniK.Api.Mock`, which the repository's own harness starts and points at
-///     through `GrpcClient__Endpoint` - the same contract `ArmoniK.Api.Client.Test` and the
-///     `armonik` crate's tests are run under. Without it there is nothing to talk to, so these
-///     are ignored rather than failed: a developer running the suite has not necessarily started
-///     a mock, and a green run must not depend on remembering to.
-///   </para>
-/// </remarks>
 [TestFixture]
 public class ArmoniKClientTests
 {
-  /// <summary>The endpoint the harness published, or nothing.</summary>
   private static string Endpoint
   {
     get
@@ -54,7 +37,6 @@ public class ArmoniKClientTests
         Assert.Ignore("GrpcClient__Endpoint is unset, so no ArmoniK server is running");
       }
 
-      // Plain HTTP/2 only, which is what this engine dials: a TLS endpoint is a different task.
       if (!endpoint!.StartsWith("http://",
                                 StringComparison.OrdinalIgnoreCase))
       {

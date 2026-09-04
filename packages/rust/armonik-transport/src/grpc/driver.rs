@@ -1,13 +1,3 @@
-//! The task that runs a call, from its request to its terminal.
-//!
-//! Separate from `call` because they are two readings of the same thing: `call` is what a caller
-//! holds - halves it writes to and reads from - and this is what the spawned task holds. A reader
-//! asking what can be done with a call has no business in the deframing loop, and one debugging
-//! the loop has no business in the caller's API.
-//!
-//! Its one promise: whatever happens in here, the caller gets exactly one terminal. Every exit
-//! goes through the same `end`.
-
 use std::future::Future;
 use std::sync::Arc;
 
@@ -23,7 +13,6 @@ use super::frame::Deframer;
 use super::metadata::Metadata;
 use super::status::{of_response_head, stated_status, GrpcStatus};
 
-/// The driving task's half of a call.
 pub(crate) struct Driving {
     stop: Stop,
     delivery: Delivery,
@@ -31,11 +20,6 @@ pub(crate) struct Driving {
 }
 
 impl Driving {
-    /// Assembled by `call::create`, which holds the other end of each of these.
-    ///
-    /// A constructor rather than a literal built there: `Stop` and `Delivery` are how this task
-    /// decides to give up and how it hands events over, and neither is any of the caller's
-    /// business.
     pub(crate) fn new(
         over: watch::Receiver<bool>,
         channel_closed: watch::Receiver<bool>,
@@ -57,7 +41,6 @@ impl Driving {
     }
 }
 
-/// Runs the call to its terminal, and delivers that terminal whatever happens.
 pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driving: Driving) {
     let Driving {
         mut stop,
@@ -66,34 +49,21 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
     } = driving;
 
     let status = run(inner, request, &mut stop, &mut delivery).await;
-    // The call is over the moment its terminal is decided, whichever way it went; the
-    // writing side is told before the reading side, so a reader holding the terminal knows
-    // the writer is already refusing.
     control.cancel();
     delivery.end(&mut stop, status).await;
 }
 
-/// What ends a call from this side: the caller cancelled it, or the channel closed.
 struct Stop {
     over: watch::Receiver<bool>,
     channel_closed: watch::Receiver<bool>,
 }
 
 impl Stop {
-    /// Resolves once the channel closes, and not when the call itself ends.
-    ///
-    /// The terminal hand-over needs this one rather than `stopped`: `drive` raises `over` just
-    /// before it, so a wait on the call's own end would abandon every terminal instead of
-    /// delivering it. What must still be able to reap the task is the channel going away.
     async fn channel_closed(&mut self) {
         let _ = self.channel_closed.wait_for(|closed| *closed).await;
     }
 
-    /// Resolves once the call should stop. A sender that is gone counts as stopped: nothing
-    /// is left that could ask for the result.
     async fn stopped(&mut self) {
-        // Destructured because `select!` puts both arms in one scope, where two `&mut self`
-        // methods do not borrow-check as the disjoint fields they are.
         let Self {
             over,
             channel_closed,
@@ -105,7 +75,6 @@ impl Stop {
     }
 }
 
-/// `work`'s result, unless the call stopped first.
 async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Option<T> {
     tokio::select! {
         biased;
@@ -114,7 +83,6 @@ async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Opt
     }
 }
 
-/// Where a call's events go, with the head resolved exactly once.
 struct Delivery {
     head: Option<oneshot::Sender<Metadata>>,
     messages: mpsc::Sender<RecvResult>,
@@ -127,7 +95,6 @@ impl Delivery {
         }
     }
 
-    /// Hands over one message, or reports that nobody is reading any more.
     async fn message(&self, data: Bytes) -> bool {
         self.messages
             .send(RecvResult::Message(OwnedMessage { data }))
@@ -135,23 +102,7 @@ impl Delivery {
             .is_ok()
     }
 
-    /// Hands the terminal over, or gives up if the call is stopped while trying.
-    ///
-    /// The status is already decided - it came from the network - and getting it to the boundary
-    /// is this crate's obligation, not the caller's. But a consumer that holds its half without
-    /// reading would otherwise park this task for ever, and `close` could not reap it: this was
-    /// the one send not guarded, so it was also the one a closing channel could not reach.
-    ///
-    /// Guarded on the channel alone, deliberately. The call's own end is raised immediately
-    /// before this runs, so waiting on that would abandon every terminal.
-    ///
-    /// Untested, and not for want of trying: whether the task was reaped is not observable
-    /// through this crate's API - `close` answers nothing and a spawn returns nothing - and a
-    /// test that reads in order to look relieves the very block it is checking for. The two
-    /// outcomes differ only in whether a consumer that stopped reading later sees the status or
-    /// `Aborted`, which no caller of a closing channel is entitled to rely on either way.
     async fn end(mut self, stop: &mut Stop, status: GrpcStatus) {
-        // A call that never saw a response head still answers the question, with nothing in it.
         self.head(Metadata::new());
         tokio::select! {
             biased;
@@ -187,7 +138,6 @@ async fn run(
 
     delivery.head(metadata);
 
-    // Nothing below needs the channel, and a streaming call may outlive its release.
     let mut deframer = Deframer::new(inner.max_recv_message_size());
     drop(inner);
     loop {
@@ -209,7 +159,6 @@ async fn run(
             }
             Err(frame) => match frame.into_trailers() {
                 Ok(trailers) => trailers,
-                // Neither data nor trailers: a frame kind this engine has no use for.
                 Err(_) => continue,
             },
         };
@@ -221,10 +170,6 @@ async fn run(
     }
 }
 
-/// Hands over every message the deframer already holds.
-///
-/// The error is the terminal to end the call with: either the peer's framing is unreadable,
-/// or nobody is reading any more.
 async fn deliver_ready(
     deframer: &mut Deframer,
     stop: &mut Stop,

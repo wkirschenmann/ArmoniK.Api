@@ -22,7 +22,6 @@ using Grpc.Core;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
-/// <summary>What the tests call: an echo, a refusal, and a method that never answers.</summary>
 public class EchoService : Echo.EchoBase
 {
   public override async Task<EchoReply> Say(EchoRequest request,
@@ -66,7 +65,6 @@ public class EchoService : Echo.EchoBase
     return new EchoReply();
   }
 
-  /// <summary>What the request carried, so a test can see it crossed rather than assume it.</summary>
   private static string Saw(Metadata headers)
   {
     var binary = headers.GetValueBytes("x-trace-bin");

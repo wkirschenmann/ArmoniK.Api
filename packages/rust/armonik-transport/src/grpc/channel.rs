@@ -1,5 +1,3 @@
-//! The channel: one HTTP/2 session, and the calls started on it.
-
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -16,27 +14,18 @@ use super::driver;
 use super::error::ChannelError;
 use super::executor::{Executor, HyperExecutor};
 
-/// What this engine says it is, when the configuration says nothing.
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
 
-/// The only message encoding this engine reads, and the only one it asks for.
 const ACCEPTED_ENCODING: &str = "identity";
 
-/// What gRPC implementations take as the largest message worth receiving unasked.
 const DEFAULT_MAX_RECV_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
-/// How a channel is configured.
 pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
     pub user_agent: Option<String>,
-    /// How many buffers a call may have out at once before a send has to wait.
     pub max_sends_in_flight: usize,
-    /// The largest message this channel reassembles, refused on the length the peer
-    /// announces rather than after the bytes are held. It bounds what one message costs,
-    /// not what the engine holds at once: a message spanning several chunks is held twice
-    /// while it is put together.
     pub max_recv_message_size: usize,
 }
 
@@ -52,16 +41,11 @@ impl GrpcChannelConfig {
 }
 
 #[derive(Clone)]
-/// A gRPC channel: calls, over one HTTP/2 session to one endpoint.
-///
-/// Cloning shares the session rather than opening a second one.
 pub struct GrpcChannel {
     inner: Arc<Inner>,
 }
 
 impl GrpcChannel {
-    /// Performs no I/O, so a failure here is a configuration that could never have worked
-    /// rather than an endpoint that happened to be down.
     pub fn new(
         config: GrpcChannelConfig,
         executor: impl Executor,
@@ -101,18 +85,10 @@ impl GrpcChannel {
         })
     }
 
-    /// Opens the session now, and says how it went.
-    ///
-    /// Optional: a call opens it otherwise and reports a failure to open it as its own
-    /// terminal status. This is for a caller that wants to know before it has a call to lose.
     pub async fn connect(&self) -> Result<(), ChannelError> {
         self.inner.sender().await.map(|_| ())
     }
 
-    /// Starts a call.
-    ///
-    /// Returns as soon as the call exists, which is before it has reached the network: the
-    /// request travels on the task this spawns.
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError> {
         if *self.inner.closed.borrow() {
             return Err(ChannelError::Closed);
@@ -144,14 +120,11 @@ impl GrpcChannel {
         Ok(grpc_call)
     }
 
-    /// Refuses new calls, cancels the ones under way, and lets the session go.
     pub fn close(&self) {
         if self.inner.closed.send_replace(true) {
             return;
         }
 
-        // Releasing the session means taking the lock the calls dial under, which this
-        // method has no way to await; the executor that runs the calls runs this too.
         let inner = self.inner.clone();
         self.inner.executor.spawn(Box::pin(async move {
             inner.connection.lock().await.sender.take();
@@ -168,15 +141,7 @@ impl std::fmt::Debug for GrpcChannel {
     }
 }
 
-/// The header fields this engine sets on every request.
-///
-/// Named here, together, because [`super::metadata`] has to refuse the same set to a caller: a
-/// second value for any of them would travel alongside this one rather than replace it, header
-/// fields repeating. The two lists agreeing is what
-/// `every_header_this_engine_sets_is_one_a_caller_may_not_set` checks, so a field added here
-/// cannot silently escape that refusal.
 fn engine_headers(user_agent: &HeaderValue) -> HeaderMap {
-    // Room for these, on top of what `reserve_in` adds for the caller's.
     let mut headers = HeaderMap::with_capacity(4);
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/grpc"));
     headers.insert(TE, HeaderValue::from_static("trailers"));
@@ -188,7 +153,6 @@ fn engine_headers(user_agent: &HeaderValue) -> HeaderMap {
     headers
 }
 
-/// What a channel and the tasks it spawned share.
 pub(crate) struct Inner {
     endpoint: Uri,
     connector: TransportConnector,
@@ -197,17 +161,13 @@ pub(crate) struct Inner {
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
     connection: Mutex<Session>,
-    /// Dials finished, successes and failures alike. Read before queueing for the lock, so a
-    /// caller can tell whether the attempt that answers it began after it asked.
     attempts: AtomicU64,
     closed: watch::Sender<bool>,
 }
 
 #[derive(Default)]
-/// The one session a channel has, and why the last attempt at one failed.
 struct Session {
     sender: Option<SendRequest<RequestBody>>,
-    /// Why the most recent dial failed, if it did. Cleared by one that succeeds.
     failed: Option<ChannelError>,
 }
 
@@ -216,18 +176,7 @@ impl Inner {
         self.max_recv_message_size
     }
 
-    /// The session, opening one if there is none or the last one is gone.
-    ///
-    /// A closed channel opens none: the task `close` spawned to release the session has its
-    /// own turn at this lock, and a session stored after it has run is one nothing releases.
-    ///
-    /// One dial answers everyone waiting on it, failures included. Without that, a failure
-    /// stored nothing and the next waiter dialled again from scratch: eight calls queued
-    /// against an endpoint that absorbs packets meant eight sequential `connect_timeout`s,
-    /// the last of them answering after eight minutes, with `close` queued behind the lot.
     pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, ChannelError> {
-        // Read before queueing, so it can be compared with what has finished by the time this
-        // caller holds the lock.
         let asked_at = self.attempts.load(Ordering::Acquire);
 
         let mut slot = self.connection.lock().await;
@@ -241,9 +190,6 @@ impl Inner {
             }
         }
 
-        // A dial finished while this caller queued and it failed: its answer is this caller's
-        // too, because that attempt began after this caller asked. One that entered later
-        // dials afresh, which is what makes this a shared attempt and not a cached error.
         if self.attempts.load(Ordering::Acquire) > asked_at {
             if let Some(failed) = slot.failed.clone() {
                 return Err(failed);
@@ -257,8 +203,6 @@ impl Inner {
         )
         .await;
 
-        // Counted after the attempt and before its outcome is acted on, so a waiter reaching
-        // the lock next sees both the count and the failure that goes with it.
         self.attempts.fetch_add(1, Ordering::AcqRel);
         let (sender, connection) = match dialled {
             Ok(session) => {
@@ -272,8 +216,6 @@ impl Inner {
             }
         };
 
-        // A close that landed while this dial was in flight has already had its turn at the
-        // lock; dropping the session here keeps it from outliving the channel.
         if *self.closed.borrow() {
             return Err(ChannelError::Closed);
         }
@@ -289,14 +231,11 @@ impl Inner {
         Ok(sender)
     }
 
-    /// The absolute URI a request for `method` is addressed to.
     fn request_uri(&self, method: &str) -> Result<Uri, ChannelError> {
         let invalid = || ChannelError::InvalidMethod {
             method: method.to_owned(),
         };
 
-        // `/Service/Method` and nothing else: a query or a third segment is not something a
-        // gRPC server has anywhere to read.
         if method.contains(['?', '#']) {
             return Err(invalid());
         }
@@ -350,8 +289,6 @@ mod tests {
         }
     }
 
-    /// The two lists agreeing is the property; neither is derived from the other, because the
-    /// values are not - `user-agent` comes from the configuration - so a test is what ties them.
     #[test]
     fn every_header_this_engine_sets_is_one_a_caller_may_not_set() {
         let engine = engine_headers(&HeaderValue::from_static("test"));

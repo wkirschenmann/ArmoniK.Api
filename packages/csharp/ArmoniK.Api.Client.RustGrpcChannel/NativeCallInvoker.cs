@@ -22,13 +22,6 @@ using Grpc.Core;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   Routes the generated stubs' calls to the native engine.
-/// </summary>
-/// <remarks>
-///   Unary only for now: the three streaming cardinalities throw rather than pretend, so a caller
-///   that reaches one learns it here instead of at the first message that never arrives.
-/// </remarks>
 public sealed class NativeCallInvoker : CallInvoker
 {
   private readonly NativeChannel channel_;
@@ -36,7 +29,6 @@ public sealed class NativeCallInvoker : CallInvoker
   internal NativeCallInvoker(NativeChannel channel)
     => channel_ = channel;
 
-  /// <inheritdoc />
   public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                    string? host,
                                                                    CallOptions options,
@@ -50,7 +42,6 @@ public sealed class NativeCallInvoker : CallInvoker
                .GetResult();
   }
 
-  /// <inheritdoc />
   public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                 string? host,
                                                                                 CallOptions options,
@@ -67,10 +58,6 @@ public sealed class NativeCallInvoker : CallInvoker
                                method.RequestMarshaller,
                                request);
 
-    // The state-passing overload with static lambdas: Roslyn caches all four delegates in
-    // static fields, where capturing `call` allocated a display class and four delegates per
-    // call. And the two accessors are separate, so asking for the status no longer copies the
-    // trailers to throw them away - which `GetStatus` does on every successful call.
     return new AsyncUnaryCall<TResponse>(answered,
                                          static state => ((NativeCall<TResponse>)state).ResponseHeadersAsync,
                                          static state => EndedStatus((NativeCall<TResponse>)state),
@@ -79,18 +66,12 @@ public sealed class NativeCallInvoker : CallInvoker
                                          call);
   }
 
-  /// <summary>
-  ///   Sends, then answers. The drain starts first and is always awaited: it is what gives the
-  ///   library its payloads back, and a call whose payloads never come back is never reclaimed.
-  /// </summary>
   private static async Task<TResponse> AnswerAsync<TRequest, TResponse>(NativeCall<TResponse> call,
                                                                         Marshaller<TRequest> marshaller,
                                                                         TRequest request)
     where TRequest : class
     where TResponse : class
   {
-    // The drain is the call's own and already running; the caller's token reached it through
-    // `CancelWith`, so the send observes it without being handed it again.
     var drained = call.Drained;
     try
     {
@@ -100,15 +81,12 @@ public sealed class NativeCallInvoker : CallInvoker
     }
     catch
     {
-      // Awaited and not cancelled: the send ended the call itself, and what is left here is to
-      // let the drain finish handing the library its payloads back before reporting.
       try
       {
         await drained.ConfigureAwait(false);
       }
       catch
       {
-        // The send's failure is the one worth reporting; the terminal only follows from it.
       }
 
       throw;
@@ -125,14 +103,6 @@ public sealed class NativeCallInvoker : CallInvoker
                .GetResult();
   }
 
-  /// <summary>
-  ///   The trailing metadata, copied.
-  /// </summary>
-  /// <remarks>
-  ///   Copied because gRPC's contract lets a caller keep what it is handed, and the call's own
-  ///   collection is handed out elsewhere too; the call is finished by the time this runs, so the
-  ///   copy guards a caller mutating it rather than a race.
-  /// </remarks>
   private static Metadata EndedTrailers<TResponse>(NativeCall<TResponse> call)
     where TResponse : class
   {
@@ -156,33 +126,22 @@ public sealed class NativeCallInvoker : CallInvoker
     }
   }
 
-  /// <inheritdoc />
   public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                     string? host,
                                                                                                     CallOptions options,
                                                                                                     TRequest request)
     => throw Unsupported(method.Type);
 
-  /// <inheritdoc />
   public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                               string? host,
                                                                                                               CallOptions options)
     => throw Unsupported(method.Type);
 
-  /// <inheritdoc />
   public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                               string? host,
                                                                                                               CallOptions options)
     => throw Unsupported(method.Type);
 
-  /// <summary>Refuses a deadline rather than dropping one.</summary>
-  /// <remarks>
-  ///   The C ABI carries no per-call deadline, so there is nothing to forward: honouring one on
-  ///   this side alone would cancel locally, report the wrong status and never tell the server
-  ///   its work is unwanted. Dropping it silently is the worse of the two, because a caller that
-  ///   set one believes the call is bounded when nothing bounds it. The real thing - local plus
-  ///   <c>grpc-timeout</c> - is T5.1.
-  /// </remarks>
   private static void MustCarryNoDeadline(in CallOptions options)
   {
     if (options.Deadline is { } deadline && deadline != DateTime.MaxValue)

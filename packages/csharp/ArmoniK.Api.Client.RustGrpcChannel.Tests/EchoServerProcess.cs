@@ -22,15 +22,6 @@ using System.Reflection;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
-/// <summary>
-///   The echo server, running as a .NET 8 process these tests dial.
-/// </summary>
-/// <remarks>
-///   Out of process because Kestrel and Grpc.AspNetCore are ASP.NET Core, which does not run on
-///   .NET Framework: a fixture that hosted the server in-process could not load on 4.7.2 at all.
-///   The server chooses its own port and prints it, so nothing here has to reserve one and
-///   concurrent runs do not collide.
-/// </remarks>
 internal sealed class EchoServerProcess : IDisposable
 {
   private const string EndpointPrefix = "ENDPOINT ";
@@ -45,7 +36,6 @@ internal sealed class EchoServerProcess : IDisposable
     Endpoint = endpoint;
   }
 
-  /// <summary>Where it is listening, as a plain HTTP/2 URI.</summary>
   internal string Endpoint { get; }
 
   internal static EchoServerProcess Start()
@@ -80,13 +70,6 @@ internal sealed class EchoServerProcess : IDisposable
     }
   }
 
-  /// <summary>
-  ///   Reads the endpoint line, which the server prints once it is listening.
-  /// </summary>
-  /// <remarks>
-  ///   Waiting for that line is also what makes the server ready: a test that dialled before it
-  ///   would fail on a connection refused rather than on anything it meant to check.
-  /// </remarks>
   private static string ReadEndpoint(Process process)
   {
     var deadline = DateTime.UtcNow + StartTimeout;
@@ -95,8 +78,6 @@ internal sealed class EchoServerProcess : IDisposable
       var line = process.StandardOutput.ReadLine();
       if (line is null)
       {
-        // Its own account of why, or the exit code is all anyone gets: a server that died
-        // before its first line leaves nothing else to go on.
         var complaint = process.StandardError.ReadToEnd()
                                .Trim();
         throw new InvalidOperationException($"the server ended before saying where it listens (exit {process.ExitCode})"
@@ -116,13 +97,6 @@ internal sealed class EchoServerProcess : IDisposable
     throw new TimeoutException($"the server said nothing in {StartTimeout}");
   }
 
-  /// <summary>
-  ///   Where the server was built, as the build recorded it.
-  /// </summary>
-  /// <remarks>
-  ///   These tests run from three framework directories and the server from one, so its path is
-  ///   not derivable from where this assembly happens to be.
-  /// </remarks>
   private static string ServerAssembly()
   {
     var recorded = typeof(EchoServerProcess).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
@@ -154,11 +128,9 @@ internal sealed class EchoServerProcess : IDisposable
     }
     catch (InvalidOperationException)
     {
-      // It ended between the question and the answer, which is the outcome being asked for.
     }
   }
 
-  /// <inheritdoc />
   public void Dispose()
   {
     Kill(process_);

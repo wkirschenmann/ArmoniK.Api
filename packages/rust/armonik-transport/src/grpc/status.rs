@@ -1,7 +1,3 @@
-//! The terminal of a call, and how a response head or a set of trailers is read as one.
-//!
-//! The only place the wire's spelling of a status is understood.
-
 use http::header::{HeaderMap, CONTENT_TYPE};
 use http::StatusCode;
 
@@ -9,24 +5,10 @@ use tonic::Code;
 
 use super::metadata::Metadata;
 
-/// The two trailers a status travels in. Here rather than with the other header names: this
-/// module is the only thing that reads them, and a reader looking for where `grpc-status` is
-/// understood should find the spelling in the same file as the understanding.
 pub(crate) const GRPC_STATUS: &str = "grpc-status";
 pub(crate) const GRPC_MESSAGE: &str = "grpc-message";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-/// The gRPC status codes, as they travel in `grpc-status`.
-///
-/// A wrapper over [`tonic::Code`] rather than a second enumeration of the same closed space.
-/// `tonic` is already a hard dependency of this crate and defines these seventeen codes and their
-/// numbering; writing them out again would be two things to keep in step for one wire vocabulary,
-/// and nothing would notice if they drifted.
-///
-/// What the wrapper adds is what this engine needs and `tonic` does not offer: the spelling gRPC
-/// puts on the wire - `CANCELLED`, not "The operation was cancelled" - and the mapping from an
-/// HTTP status. Shaped like [`http::StatusCode`], which this crate already uses: a newtype with a
-/// named constant per value.
 pub struct GrpcStatusCode(Code);
 
 impl GrpcStatusCode {
@@ -48,27 +30,18 @@ impl GrpcStatusCode {
     pub const DATA_LOSS: Self = Self(Code::DataLoss);
     pub const UNAUTHENTICATED: Self = Self(Code::Unauthenticated);
 
-    /// The code as `tonic` names it, for a caller already speaking that vocabulary.
     pub const fn code(self) -> Code {
         self.0
     }
 
-    /// The number this code travels as, which is also what the C ABI above carries.
     pub const fn as_i32(self) -> i32 {
         self.0 as i32
     }
 
-    /// A value outside the range is `UNKNOWN`: the space is closed, so a code nobody defined
-    /// carries no more than "the call failed and we cannot say how".
     pub const fn from_wire(code: i32) -> Self {
         Self(Code::from_i32(code))
     }
 
-    /// The code a response that never became gRPC maps to. The table is the one in the gRPC
-    /// HTTP/2 specification; anything it does not name is `UNKNOWN`.
-    ///
-    /// Private: a caller of this engine is answered in gRPC codes, which is what
-    /// [`of_response_head`] is for.
     fn from_http_status(status: u16) -> Self {
         match status {
             400 => Self::INTERNAL,
@@ -119,13 +92,9 @@ impl std::fmt::Display for GrpcStatusCode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// How a call ended.
 pub struct GrpcStatus {
-    /// The code the server sent, or the one the failure maps to.
     pub code: GrpcStatusCode,
-    /// The `grpc-message`, percent-decoded. Empty when the call succeeded.
     pub message: String,
-    /// The trailers, minus `grpc-status` and `grpc-message`, which are this status.
     pub trailing_metadata: Metadata,
 }
 
@@ -138,10 +107,6 @@ impl GrpcStatus {
         }
     }
 
-    /// The terminal of a call nobody is waiting for any more, wherever that was decided.
-    ///
-    /// Public because the boundary above this crate ends an abandoned call with it too, and a
-    /// second spelling of the same terminal would be a second thing to keep in step.
     pub fn cancelled() -> Self {
         Self::new(GrpcStatusCode::CANCELLED, "the call was cancelled")
     }
@@ -203,11 +168,6 @@ impl std::fmt::Display for GrpcStatus {
     }
 }
 
-/// What a response head means: the metadata to hand over, or the terminal to end on.
-///
-/// The three readings are ordered, and the order is the substance. A peer that states a status in
-/// the head has said how the call ended, and that answer stands whatever the HTTP status is: a
-/// Trailers-Only response is this case, and so is a gRPC failure served behind an HTTP error.
 pub(crate) fn of_response_head(
     status: StatusCode,
     headers: &HeaderMap,
@@ -224,7 +184,6 @@ pub(crate) fn of_response_head(
     Ok(Metadata::from_headers(headers))
 }
 
-/// The terminal a set of headers or trailers states, if it states one.
 pub(crate) fn stated_status(headers: &HeaderMap) -> Option<GrpcStatus> {
     let raw = headers.get(GRPC_STATUS)?;
 
@@ -261,9 +220,6 @@ fn http_status(status: StatusCode, headers: &HeaderMap) -> GrpcStatus {
     }
 }
 
-/// Whether the content type says the body is gRPC. The subtype after `+` names the message
-/// encoding, which is the caller's business rather than this engine's; media types are
-/// case-insensitive, so the comparison is too.
 fn speaks_grpc(headers: &HeaderMap) -> bool {
     const GRPC: &str = "application/grpc";
 
@@ -282,13 +238,7 @@ fn speaks_grpc(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-/// Percent-decoding for `grpc-message`.
-///
-/// An invalid escape is kept verbatim rather than rejected: this is a human-readable reason for
-/// a failure that has already happened, and refusing to read it would replace the server's
-/// account of the failure with an account of the encoding.
 fn decode_message(raw: &[u8]) -> String {
-    // Nothing to decode is the ordinary case, and it borrows rather than rebuilding.
     if !raw.contains(&b'%') {
         return String::from_utf8_lossy(raw).into_owned();
     }
@@ -313,8 +263,6 @@ fn decode_message(raw: &[u8]) -> String {
             }
         }
     }
-    // The decoded bytes are text in every case but a peer that escaped invalid UTF-8, so the
-    // buffer is taken as it stands rather than copied into a second one.
     String::from_utf8(out)
         .unwrap_or_else(|invalid| String::from_utf8_lossy(invalid.as_bytes()).into_owned())
 }
@@ -348,7 +296,6 @@ mod tests {
     fn a_percent_escape_is_decoded_and_a_broken_one_is_kept() {
         assert_eq!(decode_message(b"plain"), "plain");
         assert_eq!(decode_message(b"a%20b"), "a b");
-        // A truncated or non-hex escape is what the server sent; it is not ours to drop.
         assert_eq!(decode_message(b"100%"), "100%");
         assert_eq!(decode_message(b"a%zzb"), "a%zzb");
     }

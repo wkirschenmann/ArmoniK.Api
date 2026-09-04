@@ -1,9 +1,3 @@
-//! A unary call through the C ABI, against a real gRPC server.
-//!
-//! The test plays the host: it builds the structs the way C would, hands the library a callback,
-//! and gives back everything the ABI says it owes. What it asserts is the event sequence, the
-//! ownership ledger, and that the runtime reaches quiescence by itself.
-
 mod support;
 
 use std::sync::{Mutex, MutexGuard};
@@ -13,13 +7,11 @@ use std::ffi::c_void;
 use armonik_transport_ffi::*;
 use support::{blob, empty_buffer, Recorder, TestServer, ECHO, FAIL, SLOW};
 
-/// The gRPC status a cancelled call carries, as the wire numbers it.
 const CANCELLED: i32 = 1;
 
 struct Connected {
     channel: ak_handle,
     host: Host,
-    /// Last, so it is dropped last.
     _server: TestServer,
 }
 
@@ -35,21 +27,17 @@ impl Connected {
         }
     }
 
-    /// Releases the channel and stops the runtime, which is how a test that got that far ends.
     fn close(&self) {
         ak_channel_release(self.channel);
         self.host.stop();
     }
 }
 
-/// Drives the ABI the way a binding would, and cleans up after itself.
-/// One runtime per process, so the tests take turns at it rather than at a runner flag.
 static ONE_RUNTIME: Mutex<()> = Mutex::new(());
 
 struct Host {
     runtime: ak_handle,
     recorder: Box<Recorder>,
-    /// Held until the runtime is destroyed, which `Drop` does before releasing it.
     _turn: MutexGuard<'static, ()>,
 }
 
@@ -59,8 +47,6 @@ impl Host {
     }
 
     fn with_ceiling(memory_ceiling: u64) -> Self {
-        // A panicking test poisons nothing worth keeping: the runtime it held is destroyed by
-        // its own Drop, so the next test may take its turn.
         let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
         let mut recorder = Box::new(Recorder::default());
         let config = ak_runtime_config {
@@ -70,8 +56,6 @@ impl Host {
         };
         let mut runtime = AK_HANDLE_NONE;
 
-        // SAFETY: the config and the out pointer are live for the call, and the recorder
-        // outlives the runtime because this struct owns both and drops them in that order.
         let status = unsafe {
             ak_runtime_create(
                 &config,
@@ -93,12 +77,6 @@ impl Host {
         }
     }
 
-    /// A runtime and a channel to a live server, in the order they have to be given up.
-    ///
-    /// Field order is drop order, and this one matters: the runtime is destroyed while the
-    /// server still answers, because a server torn down first turns a shutdown into a wait for
-    /// a terminal that never arrives. Eleven tests established that by declaring two locals in
-    /// the right sequence; naming it once is what keeps the twelfth from getting it wrong.
     fn connected() -> Connected {
         Connected::with_ceiling(0)
     }
@@ -120,7 +98,6 @@ impl Host {
         channel
     }
 
-    /// Shuts the runtime down and waits for it to say nothing of it is outstanding.
     fn stop(&self) {
         assert_eq!(
             ak_runtime_begin_shutdown(self.runtime),
@@ -152,7 +129,6 @@ impl Drop for Host {
     }
 }
 
-/// Asks for a buffer, and checks the ABI's promise that a refusal touches nothing.
 fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     let mut buffer = empty_buffer();
     let status = unsafe { ak_get_call_buffer(call, len, &mut buffer) };
@@ -171,15 +147,11 @@ fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
     let (first, buffer) = lend(call, 8);
     assert_eq!(first, ak_status::AK_STATUS_OK);
 
-    // Not SLOT_BUSY: backpressure is for a full window, and a host still filling a buffer has
-    // nothing to wait for. It is refused as a state error, and SLOT_BUSY's wake-up promise is
-    // only true because a host eligible to ask holds nothing.
     let (second, _) = lend(call, 8);
     assert_eq!(second, ak_status::AK_STATUS_INVALID_STATE);
 
     unsafe { ak_return_call_buffer(buffer) };
 
-    // Given back, so the next ask is legal again.
     let (third, third_buffer) = lend(call, 8);
     assert_eq!(third, ak_status::AK_STATUS_OK);
     unsafe { ak_return_call_buffer(third_buffer) };
@@ -201,8 +173,6 @@ fn a_second_runtime_is_refused_while_the_first_is_alive() {
     };
     let mut second = AK_HANDLE_NONE;
 
-    // SAFETY: the config and the out pointer are live for the call, and no callback can run
-    // for a runtime that is never created.
     let status = unsafe {
         ak_runtime_create(
             &config,
@@ -217,7 +187,6 @@ fn a_second_runtime_is_refused_while_the_first_is_alive() {
 
     drop(host);
 
-    // The flag is cleared by the destroy, so a fresh generation may follow.
     let next = Host::start();
     assert_eq!(
         ak_runtime_status(next.runtime),
@@ -230,9 +199,6 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
 
-    // The payload stays with the host, so the call's only credit stays spent and its reader
-    // parks waiting for one. A reader in that state is not watching the transport, so closing
-    // the session cannot be what reaches it.
     host.recorder.hold_payloads();
     let call = start_call(channel, ECHO, &blob(&[]));
     send_one(call, b"hello");
@@ -240,28 +206,15 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
 
     ak_channel_release(channel);
 
-    // The cancellation the release latches is what gets the terminal out. Waiting for it is the
-    // assertion: a reader parked on a credit watches nothing but its own cancellation, so
-    // without the latch this would never arrive.
     let seen = host.recorder.await_terminal();
 
-    // And it says CANCELLED, whatever the server had already answered: the reply was dropped to
-    // honour the cancellation, so a terminal carrying the server's OK would tell the host the
-    // call completed while an event of it was thrown away.
     assert_eq!(seen.status_code(), Some(CANCELLED));
 
-    // And the channel closes, which is a step of the library's own and not part of delivering
-    // the terminal - the callback records the event before the reader has marked the call past
-    // it - so this waits rather than reading once.
     support::poll_until(
         || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_CLOSED,
         || format!("the channel is {:?}", ak_channel_status(channel)),
     );
 
-    // Read after it closed, and that order is the assertion: the host still owes the payload it
-    // was given, so CLOSED did not wait on the host. What it waits for is no call of the channel
-    // being active, and a call past its terminal is not - waiting for the reclamation instead
-    // would let a runtime announce it had stopped with a channel still closing.
     let mut debt = ak_call_debt::default();
     assert_eq!(
         unsafe { ak_call_debt_of(call, &mut debt) },
@@ -272,7 +225,6 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
         "the channel closed with nothing outstanding, so this proves nothing: {debt:?}"
     );
 
-    // The handle still comes back on its own once the debt is paid.
     host.recorder.consume_all();
     support::await_call_reclaimed(call);
     assert_eq!(
@@ -283,18 +235,11 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     host.stop();
 }
 
-/// A channel that is closing takes no new call.
-///
-/// The refusal is what makes `ak_channel_status` mean something: a call admitted onto a closing
-/// channel would either be cancelled after the fact, or - if the channel had already read its
-/// count as zero - leave the host told CLOSED with events of that call still to come.
 #[test]
 fn a_closing_channel_takes_no_new_call() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
 
-    // A call the host holds a payload of keeps the channel from finishing its close, so the
-    // channel is observably CLOSING rather than CLOSED when the second start is attempted.
     host.recorder.hold_payloads();
     let first = start_call(channel, ECHO, &blob(&[]));
     send_one(first, b"hello");
@@ -310,9 +255,6 @@ fn a_closing_channel_takes_no_new_call() {
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
     assert_eq!(refused, AK_HANDLE_NONE, "nothing was started");
 
-    // And the channel still closes on the call it did admit, with no help from the refusal. The
-    // terminal is awaited first: consuming before it arrives would leave its payload held, and
-    // a call still owing one is a call not reclaimed.
     host.recorder.await_terminal();
     host.recorder.consume_all();
     support::await_call_reclaimed(first);
@@ -336,18 +278,15 @@ fn an_idle_channel_is_closed_the_moment_it_is_released() {
 
     ak_channel_release(channel);
 
-    // Nothing was active, so there was nothing to drain.
     assert_eq!(
         ak_channel_status(channel),
         ak_channel_state::AK_CHANNEL_CLOSED
     );
 
-    // And a closed channel starts nothing further.
     let (status, call) = try_start_call(channel, ECHO, &blob(&[]));
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
     assert_eq!(call, AK_HANDLE_NONE, "a refusal leaves *out as it was");
 
-    // A second release changes nothing.
     ak_channel_release(channel);
     assert_eq!(
         ak_channel_status(channel),
@@ -357,13 +296,11 @@ fn an_idle_channel_is_closed_the_moment_it_is_released() {
     host.stop();
 }
 
-/// One unary call: lend a buffer, fill it, commit, half-close.
 fn send_one(call: ak_handle, message: &[u8]) {
     let (status, buffer) = lend(call, message.len());
     assert_eq!(status, ak_status::AK_STATUS_OK);
     assert_eq!(buffer.len, message.len());
 
-    // SAFETY: the library lent exactly `message.len()` writable bytes at `ptr`.
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
 
     assert_eq!(
@@ -373,7 +310,6 @@ fn send_one(call: ak_handle, message: &[u8]) {
     assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
 }
 
-/// Starts a call and answers what the ABI said, for the paths where a refusal is the point.
 fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_status, ak_handle) {
     let options = ak_call_start_options {
         struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
@@ -387,7 +323,6 @@ fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_stat
         },
     };
     let mut call = AK_HANDLE_NONE;
-    // SAFETY: the options and the out pointer are live for the call.
     let status = unsafe { ak_call_start(channel, &options, std::ptr::null_mut(), &mut call) };
     (status, call)
 }
@@ -408,8 +343,6 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
 
     let seen = host.recorder.await_terminal();
 
-    // The order the ABI promises of the data events. WRITE_DONE is a second domain and may
-    // land anywhere among them, so it is counted rather than pinned to a position.
     assert_eq!(
         seen.data_kinds(),
         vec![
@@ -435,7 +368,6 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
         "the request metadata crossed the ABI and its answer came back"
     );
 
-    // Nothing of the call is outstanding, so the runtime has taken its handle back on its own.
     support::await_call_reclaimed(call);
     assert_eq!(
         ak_call_cancel(call),
@@ -477,8 +409,6 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     let (status, first) = lend(call, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
 
-    // Still holding it: a host bug and not backpressure, since no acquittal is coming for a
-    // buffer that was never committed. The two refusals answer different questions.
     assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_INVALID_STATE);
 
     assert_eq!(
@@ -486,11 +416,8 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
         ak_status::AK_STATUS_OK
     );
 
-    // Nothing held now, and the window occupied by an unacquitted send: that is backpressure.
     assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_SLOT_BUSY);
 
-    // What frees the slot is the acquittal, and nothing else: the server never answers, so
-    // no terminal can be what unblocks this.
     host.recorder.await_write_done();
     let (status, second) = lend(call, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
@@ -559,8 +486,6 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
     let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, ECHO, &[]);
 
-    // Past the ceiling itself: no return by anyone will ever make room, so the refusal is
-    // permanent and the host is told not to retry.
     assert_eq!(lend(call, 65).0, ak_status::AK_STATUS_MESSAGE_TOO_LARGE);
 
     let (status, buffer) = lend(call, 40);
@@ -591,8 +516,6 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
 fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid() {
     let server = TestServer::start();
     let host = Host::start();
-    // This host deliberately does not consume, which is what gives the runtime something to
-    // report; with one credit it therefore sees the metadata and no message after it.
     host.recorder.hold_payloads();
     let channel = host.channel(&server.endpoint);
 
@@ -652,7 +575,6 @@ fn a_struct_of_an_unknown_size_is_refused_rather_than_read() {
     let channel = host.channel("http://127.0.0.1:1");
 
     let options = ak_call_start_options {
-        // A caller compiled against a version this library does not know.
         struct_size: 7,
         method: ak_bytes_in {
             ptr: ECHO.as_ptr(),
@@ -685,7 +607,6 @@ fn a_token_naming_nothing_is_refused_rather_than_dereferenced() {
         ak_runtime_begin_shutdown(u64::MAX),
         ak_status::AK_STATUS_HANDLE_STALE
     );
-    // Freeing something that names nothing is a no-op rather than a fault.
     ak_channel_release(u64::MAX);
 }
 
@@ -698,9 +619,6 @@ fn no_call_starts_on_a_runtime_that_is_stopping() {
 
     let (status, call) = try_start_call(channel, ECHO, &[]);
 
-    // A state and not a stale handle: the drain closes the channel without reclaiming its
-    // handle, so the channel is still there to be named and the start gate is what refuses.
-    // Only the destroy stales a handle, which is what the header promises of both.
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
     assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
     assert_eq!(

@@ -26,13 +26,6 @@ using NUnit.Framework;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
-/// <summary>
-///   A unary call from .NET, through the C ABI, to a gRPC server Kestrel serves.
-/// </summary>
-/// <remarks>
-///   The server is grpc-dotnet's, so what these exercise is the binding and the native engine
-///   against an implementation that owes them nothing.
-/// </remarks>
 [TestFixture]
 public class UnaryTests
 {
@@ -47,18 +40,12 @@ public class UnaryTests
     NativeRuntimeFactory.Configure(workerThreads: 2);
   }
 
-  /// <summary>
-  ///   Checked after every test, because a leaked lease would otherwise surface as a hang in
-  ///   some later one: the generation is torn down by the release that empties the set, so a
-  ///   test that disposed its channels leaves the factory with nothing.
-  /// </summary>
   [TearDown]
   public void EveryLeaseWentBack()
   {
     Assert.That(NativeRuntimeFactory.State,
                 Is.EqualTo("Absent"),
                 "the test left no lease behind");
-    // The options are the generation's, so a test that set its own does not leave them here.
     NativeRuntimeFactory.Configure(workerThreads: 2);
   }
 
@@ -72,15 +59,6 @@ public class UnaryTests
   private NativeChannel Channel()
     => NativeRuntimeFactory.Channel(endpoint_);
 
-  /// <summary>
-  ///   The engine beside this host is built for the word size this host runs as.
-  /// </summary>
-  /// <remarks>
-  ///   The build chooses the engine from `PlatformTarget` and the test host's architecture comes
-  ///   from the same place, so a mismatch means one of the two was decided somewhere else. It
-  ///   would otherwise surface as a `BadImageFormatException` from whichever P/Invoke ran first,
-  ///   which says nothing about why.
-  /// </remarks>
   [Test]
   public void TheEngineBesideThisHostMatchesItsWordSize()
   {
@@ -91,7 +69,6 @@ public class UnaryTests
       Assert.Ignore("not a Windows build; the engine is an .so or a .dylib");
     }
 
-    // The COFF machine field, at the offset the PE signature points to.
     using var file = File.OpenRead(engine);
     using var reader = new BinaryReader(file);
     file.Seek(0x3c,
@@ -215,8 +192,6 @@ public class UnaryTests
 
     cancellation.Cancel();
 
-    // Bounded, because the name claims it does not wait for the server - and `Never` would
-    // otherwise let a binding that waits pass, since cancellation ends it there too.
     var answered = Task.WhenAny(call.ResponseAsync,
                                 Task.Delay(TimeSpan.FromSeconds(5)));
     Assert.That(await answered.ConfigureAwait(false),
@@ -295,19 +270,12 @@ public class UnaryTests
                 Is.EqualTo("000102ff"));
   }
 
-  /// <summary>
-  ///   The ceiling bounds lent buffers, so several calls at once contend for it and the refusals
-  ///   are real. Without the wait behind `BUDGET_BUSY` this fails rather than slows down.
-  /// </summary>
   [Test]
   public async Task CallsWaitForRoomUnderAMemoryCeiling()
   {
     var text = new string('x',
                           100_000);
 
-    // The ceiling belongs to the generation, and there is one generation for the process, so
-    // this test owns the factory for its duration - which is also the only moment its options
-    // may be set.
     Assert.That(NativeRuntimeFactory.State,
                 Is.EqualTo("Absent"),
                 "no other channel is open");
@@ -316,8 +284,6 @@ public class UnaryTests
     using var channel = NativeRuntimeFactory.Channel(endpoint_);
     var client = Client(channel);
 
-    // Issued from the pool and not from here: a send holds its buffer only between the lend and
-    // the commit, and both run inline, so calls started one after another never meet.
     var calls = await Task.WhenAll(Enumerable.Range(0,
                                                     16)
                                              .Select(_ => Task.Run(() => client.SayAsync(new EchoRequest
@@ -344,10 +310,6 @@ public class UnaryTests
     }
   }
 
-  /// <summary>
-  ///   The window is a channel option the host chooses, because the host is what holds the
-  ///   payloads. The engine refuses an option it does not know, so a wrong name fails here.
-  /// </summary>
   [Test]
   public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
   {
@@ -370,16 +332,9 @@ public class UnaryTests
     => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
                                                                                      deliveryCredits: 0));
 
-  /// <summary>
-  ///   The managed dispose state and the engine's own agree, which is what
-  ///   <c>ChannelStateMatchesNative</c> asks: active means open, and a disposed channel's half
-  ///   is closed rather than merely closing.
-  /// </summary>
   [Test]
   public async Task TheChannelsTwoHalvesAgreeOnItsState()
   {
-    // A second channel holds the generation, so the first one's half can be looked at after it
-    // is released rather than vanishing with the runtime.
     var keepsAlive = NativeRuntimeFactory.Channel(endpoint_);
     try
     {
@@ -388,8 +343,6 @@ public class UnaryTests
     }
     finally
     {
-      // Whatever the assertions did, the lease goes back: the per-test teardown checks the
-      // factory is empty, and one leak would fail every test after this one.
       await keepsAlive.DisposeAsync()
                       .ConfigureAwait(false);
     }
@@ -413,27 +366,16 @@ public class UnaryTests
 
     Assert.Multiple(() =>
                     {
-                      // Disposing settles this channel's calls first, so the engine has nothing
-                      // left to drain and reports closed rather than closing.
                       Assert.That(channel.NativeState,
                                   Is.EqualTo("Closed"));
-                      // Disposed and not Released: the two release states are what the dispose
-                      // passes through, and by the time its task completes it is past both.
                       Assert.That(channel.DisposeState,
                                   Is.EqualTo("Disposed"));
                     });
 
-
-    // The other channel is still open: one channel's dispose closes its own half and no other,
-    // and it is what holds the generation up so this one's half can still be read.
     Assert.That(keepsAlive.NativeState,
                 Is.EqualTo("Open"));
   }
 
-  /// <summary>
-  ///   A channel is the unit of borrowing: the runtime outlives every lease and is torn down by
-  ///   the release that empties the set, whose task completes only once the destroy is done.
-  /// </summary>
   [Test]
   public async Task TheLastChannelReleasedIsTheOneThatTearsTheRuntimeDown()
   {
@@ -469,11 +411,6 @@ public class UnaryTests
                                                      Text = "x",
                                                    }));
 
-    // Refused by the channel and not by the engine. The model's own guard on starting a call is
-    // an active channel, so a disposed one answers before any handle is looked up - which is
-    // also what bounds the dispose's wait for its calls to settle. Asserting the engine's
-    // HandleStale here pinned the runtime's teardown under this test's name: it happens only
-    // because this was the last channel, so the generation went with it.
     Assert.Multiple(() =>
                     {
                       Assert.That(thrown!.StatusCode,

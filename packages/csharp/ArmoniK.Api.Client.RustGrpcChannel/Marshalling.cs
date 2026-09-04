@@ -22,24 +22,6 @@ using Grpc.Core;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   Where a request message serializes to: the buffer the engine lends for it.
-/// </summary>
-/// <remarks>
-///   The contextual half of a <see cref="Marshaller{T}" /> is the only half a generated stub
-///   implements: its <c>Serializer</c> throws, so this is not an optimisation but the entry point.
-///   <para>
-///     The lend needs the length, and <see cref="SetPayloadLength" /> is where the marshaller
-///     first says it, so that is where it happens. A refusal there cannot wait for room, being a
-///     synchronous callback, so it serializes into managed memory instead and leaves the wait to
-///     the caller: the arena path stays copy-free, and the copy appears only under a ceiling
-///     that is already refusing work.
-///   </para>
-///   <para>
-///     Disposing gives back a buffer that was lent and not handed over. That is the whole of the
-///     host's half of the contract, and it covers a throwing marshaller as well as a refusal.
-///   </para>
-/// </remarks>
 internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, IDisposable
 {
   private readonly ulong call_;
@@ -100,15 +82,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 
   public override void Complete(byte[] payload)
   {
-    // The legacy path never announced a length, so nothing was lent and this is already managed.
     spilled_ = payload;
     written_ = payload.Length;
   }
 
-  /// <summary>
-  ///   Hands the message to the engine. Answers what the ABI answered, so a refusal that only
-  ///   means "not now" stays distinguishable from one that means "never".
-  /// </summary>
   internal NativeMethods.AkStatus Commit()
   {
     if (spilled_ is not null)
@@ -155,19 +132,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     => new((void*)buffer_.Ptr,
            (int)buffer_.Len);
 
-  /// <summary>Checks that what the marshaller is about to write still fits.</summary>
-  /// <remarks>
-  ///   A check, and never a growth. The buffer is lent for the length the marshaller announced
-  ///   through <see cref="SetPayloadLength" /> - Grpc.Core's protobuf marshaller announces
-  ///   <c>CalculateSize()</c> and then writes exactly that much - so asking past it is a
-  ///   marshaller contradicting itself, and there is nothing sensible to serialize into.
-  ///   <para>
-  ///     Growing instead meant returning the lent buffer half way through serializing and
-  ///     carrying on in managed memory, which leaves a serializing writer holding no buffer at
-  ///     all - a state <c>SerializingWriterHoldsTheBuffer</c> forbids, reachable only by that
-  ///     contradiction.
-  ///   </para>
-  /// </remarks>
   private void Reserve(int sizeHint)
   {
     var wanted = written_ + Math.Max(sizeHint,
@@ -192,10 +156,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         lent_ = true;
         return status;
 
-      // The byte ceiling is a wait, so the message is serialized into managed memory and
-      // `Commit` lends again. SLOT_BUSY is not: its wake-up is this call's next WRITE_DONE, and
-      // `ManagedWriterNeverObservesSlotBusy` says a single writer with a window of one never
-      // reaches it, so it falls through to the refusal below.
       case NativeMethods.AkStatus.BudgetBusy:
         spilled_ ??= new byte[length];
         return status;
@@ -209,11 +169,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   }
 }
 
-/// <summary>What a response message deserializes from, in the library's own memory.</summary>
-/// <remarks>
-///   Valid only for the callback that delivered it, which is why nothing here outlives the drain
-///   step that builds it.
-/// </remarks>
 internal sealed class ReceivedMessage : DeserializationContext
 {
   private readonly IntPtr start_;
@@ -244,7 +199,6 @@ internal sealed class ReceivedMessage : DeserializationContext
                               length_).Memory);
 }
 
-/// <summary>A <see cref="Memory{T}" /> over memory the garbage collector does not know about.</summary>
 internal sealed class UnmanagedBlock : MemoryManager<byte>
 {
   private readonly IntPtr start_;

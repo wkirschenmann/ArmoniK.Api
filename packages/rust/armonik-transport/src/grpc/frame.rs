@@ -1,5 +1,3 @@
-//! The gRPC length-prefixed framing: one flag byte, a four-byte length, then the message.
-
 use std::collections::VecDeque;
 
 use bytes::buf::Chain;
@@ -9,16 +7,10 @@ use snafu::Snafu;
 use super::error::CallError;
 use super::status::{GrpcStatus, GrpcStatusCode};
 
-/// The flag byte plus the four length bytes that precede every message.
 const HEADER_LEN: usize = 5;
 
-/// The only compression flag this engine sends or accepts.
 const UNCOMPRESSED: u8 = 0;
 
-/// Frames a message for the wire.
-///
-/// The payload is chained behind its header rather than copied into one buffer, so the caller's
-/// allocation is what goes out - which is what makes a send across the FFI free of a copy.
 pub(crate) fn frame(payload: Bytes) -> Result<Chain<Bytes, Bytes>, CallError> {
     let len = u32::try_from(payload.len())
         .map_err(|_| CallError::MessageTooLong { len: payload.len() })?;
@@ -31,10 +23,6 @@ pub(crate) fn frame(payload: Bytes) -> Result<Chain<Bytes, Bytes>, CallError> {
 }
 
 #[derive(Debug)]
-/// Reassembles messages from the chunks a response body hands over.
-///
-/// Chunks are consumed in place, so a message that fits in one chunk is a view on that chunk
-/// rather than a copy of it. Only a message spanning several is assembled into a buffer.
 pub(crate) struct Deframer {
     chunks: VecDeque<Bytes>,
     buffered: usize,
@@ -58,7 +46,6 @@ impl Deframer {
         self.chunks.push_back(chunk);
     }
 
-    /// Whether everything pushed so far has been read back out as whole messages.
     pub(crate) fn is_at_message_boundary(&self) -> bool {
         self.buffered == 0
     }
@@ -77,10 +64,6 @@ impl Deframer {
             flag => return UnknownFlagSnafu { flag }.fail(),
         }
 
-        // The length is the peer's to choose. Refusing it here, before a byte of the payload is
-        // held, is what bounds this buffer: the HTTP/2 window bounds what is in flight and is
-        // released as each frame is taken, so a message that never completes would grow this one
-        // without the window ever being exceeded.
         let len = u32::from_be_bytes([header[1], header[2], header[3], header[4]]) as usize;
         if len > self.max_message_size {
             return TooLongSnafu {
@@ -89,18 +72,12 @@ impl Deframer {
             }
             .fail();
         }
-        // Reachable only when the maximum above is `usize::MAX`, and then only where `usize` is
-        // 32 bits: what follows trusts this sum, which otherwise runs past the end of the type.
         match HEADER_LEN.checked_add(len) {
-            // Taken as one span and sliced, rather than walked twice: the fast path is still a
-            // view on the chunk the message arrived in, which is what bounds the copying here.
             Some(whole) if self.buffered >= whole => Ok(Some(self.take(whole).slice(HEADER_LEN..))),
             _ => Ok(None),
         }
     }
 
-    /// Copies the first `out.len()` bytes without consuming them. The caller has checked there
-    /// are that many.
     fn peek(&self, out: &mut [u8]) {
         let mut filled = 0;
         for chunk in &self.chunks {
@@ -113,8 +90,6 @@ impl Deframer {
         }
     }
 
-    /// Consumes `count` bytes. The caller has checked there are that many, and that `count` is
-    /// at least a header's worth, so there is always a chunk to reach for.
     fn take(&mut self, count: usize) -> Bytes {
         self.buffered -= count;
 
@@ -142,7 +117,6 @@ impl Deframer {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Snafu)]
-/// What a peer's stream of frames can get wrong.
 pub(crate) enum DeframeError {
     #[snafu(display(
         "the peer sent a compressed message, though this channel advertises `identity` alone"
@@ -157,10 +131,6 @@ pub(crate) enum DeframeError {
 }
 
 impl DeframeError {
-    /// The terminal a call ends with when its peer's framing cannot be read.
-    ///
-    /// Stated here, whole: the code and the reason are both this module's, and marrying them
-    /// somewhere else would make two files agree on what a bad frame means.
     pub(crate) fn status(&self) -> GrpcStatus {
         let code = match self {
             Self::TooLong { .. } => GrpcStatusCode::RESOURCE_EXHAUSTED,
@@ -179,7 +149,6 @@ mod tests {
         chained.copy_to_bytes(chained.remaining())
     }
 
-    /// A deframer that refuses nothing on size, for the tests that are about framing.
     fn unbounded() -> Deframer {
         Deframer::new(usize::MAX)
     }
@@ -209,7 +178,6 @@ mod tests {
             .expect("well-formed")
             .expect("a whole message");
         assert_eq!(&message[..], b"payload");
-        // The same allocation, sliced: the pointer sits inside the chunk that was pushed.
         assert_eq!(
             message.as_ptr() as usize,
             chunk.as_ptr() as usize + HEADER_LEN
@@ -266,8 +234,6 @@ mod tests {
 
     #[test]
     fn a_length_that_cannot_be_reached_waits_rather_than_reaching_past_the_buffer() {
-        // The peer chooses this number. Where `usize` is 32 bits, `HEADER_LEN + len` runs past
-        // its end, and everything that consumes the message trusts that sum.
         let mut deframer = unbounded();
         deframer.push(Bytes::from_static(&[0, 0xff, 0xff, 0xff, 0xff, b'x']));
 
@@ -278,7 +244,6 @@ mod tests {
     #[test]
     fn a_message_past_the_maximum_is_refused_on_its_announced_length() {
         let mut deframer = Deframer::new(8);
-        // Only the header is here: the refusal does not wait for the payload, which is the point.
         deframer.push(Bytes::from_static(&[0, 0, 0, 0, 9]));
 
         let refused = deframer

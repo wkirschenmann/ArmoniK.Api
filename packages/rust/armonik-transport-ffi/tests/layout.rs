@@ -1,20 +1,7 @@
-//! The layouts the header declares, checked against the ones this library compiles to.
-//!
-//! Nothing compiles `include/armonik_transport_ffi.h` in this workspace, so the header and the
-//! Rust types could drift apart with nothing noticing. These are what a C compiler produces for
-//! that header, expressed in pointer widths rather than in the numbers of one target: the ABI
-//! ships for x86, x64 and arm64, and absolute sizes would only ever have described one of them.
-//!
-//! It is not the conformance test the ABI owes - that one compiles the header and links against
-//! the built library - but it catches the failure that costs the most: a field added on one side
-//! and forgotten on the other.
-
 use std::mem::{align_of, offset_of, size_of};
 
 use armonik_transport_ffi::*;
 
-/// A pointer's width here. Every layout below is written in terms of it, so one set of
-/// assertions covers a 32-bit target and a 64-bit one.
 const PTR: usize = size_of::<usize>();
 
 #[test]
@@ -40,9 +27,6 @@ fn an_owned_view_and_a_lent_buffer_have_the_same_shape() {
 
 #[test]
 fn an_event_carries_its_payload_inline() {
-    // The payload is pointer-aligned, so on a 64-bit target the four-byte kind is followed by
-    // four of padding and on a 32-bit one by none. Two four-byte enums then close it, which is
-    // why the total is the same expression either way.
     assert_eq!(size_of::<ak_event>(), 4 * PTR + 8);
     assert_eq!(offset_of!(ak_event, kind), 0);
     assert_eq!(offset_of!(ak_event, payload), PTR);
@@ -88,12 +72,9 @@ fn the_observational_structs_are_plain_integers() {
 #[test]
 fn the_null_token_is_zero_so_a_zeroed_handle_names_nothing() {
     assert_eq!(AK_HANDLE_NONE, 0);
-    // Eight on every target, pointers included: a handle is a generational token and not an
-    // address, which is why nothing here may store one in a pointer-sized field.
     assert_eq!(size_of::<ak_handle>(), 8);
 }
 
-/// The header, which is the contract these tests check the library against.
 fn header() -> String {
     std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -117,8 +98,6 @@ fn the_header_and_the_library_agree_on_the_version() {
 fn every_entry_point_the_header_declares_is_exported() {
     let header = header();
 
-    // Taking the address is what proves the symbol exists with that signature; a name in the
-    // header and nothing behind it is the failure this catches.
     let exported: &[(&str, *const ())] = &[
         ("ak_runtime_create", ak_runtime_create as *const ()),
         ("ak_runtime_status", ak_runtime_status as *const ()),
@@ -153,7 +132,6 @@ fn every_entry_point_the_header_declares_is_exported() {
         );
     }
 
-    // And the other way round: a declaration the library does not export.
     for line in header.lines() {
         let Some(rest) = [
             "ak_status ak_",

@@ -20,49 +20,18 @@ using System.Runtime.InteropServices;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   The `ak_*` entry points, as declared in
-///   `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`.
-/// </summary>
-/// <remarks>
-///   The whole header, declared whether or not this binding calls it yet, so the two can be
-///   diffed against each other. `Cdecl` is spelled out rather than left to the default: it is
-///   what the header says, and on x86 the default would be wrong.
-/// </remarks>
 internal static class NativeMethods
 {
   internal const string Library = "armonik_transport_ffi";
 
-  /// <summary>
-  ///   Where a .NET Framework consumer's engine is, which is the layout the package's targets
-  ///   file writes. Read by the diagnostic too, so a change to the layout cannot leave the error
-  ///   message naming a directory nothing looks in.
-  /// </summary>
   internal static string EngineDirectory
     => Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
                     IntPtr.Size == 8
                       ? "x64"
                       : "x86");
 
-  /// <summary>The version this binding is written against.</summary>
   internal const int AbiVersion = 1;
 
-  /// <summary>
-  ///   Loads the engine for this process's word size, where the framework will not.
-  /// </summary>
-  /// <remarks>
-  ///   .NET resolves a native asset by runtime identifier out of the package, so there is nothing
-  ///   to do there. .NET Framework has no such thing: the package's targets file puts both
-  ///   architectures in `x86` and `x64` beside the application, and this picks one and loads it by
-  ///   full path, after which the runtime's own probe for the bare name finds it already in the
-  ///   process. `IntPtr.Size` is the right question in every case, AnyCPU included, which is why
-  ///   there is one path here and not one per `PlatformTarget`.
-  ///   <para>
-  ///     A static constructor because it must run before the first P/Invoke of this class, and
-  ///     nothing here may throw: a failed one turns every later call into a
-  ///     <see cref="TypeInitializationException" /> naming none of this.
-  ///   </para>
-  /// </remarks>
   static NativeMethods()
   {
     try
@@ -76,8 +45,6 @@ internal static class NativeMethods
     }
     catch
     {
-      // Whatever the reason, the load that matters is the one the first DllImport does, and it
-      // reports its own failure. Guessing here would only hide that one.
     }
   }
 
@@ -129,7 +96,6 @@ internal static class NativeMethods
     MustReturn      = 1,
   }
 
-  /// <summary>Bytes lent to the library for the duration of one downcall.</summary>
   [StructLayout(LayoutKind.Sequential)]
   internal struct AkBytesIn
   {
@@ -137,11 +103,6 @@ internal static class NativeMethods
     internal UIntPtr Len;
   }
 
-  /// <summary>
-  ///   A view owned by this side until <see cref="ak_event_consumed" />. It is <c>Owner</c> and not
-  ///   <c>Ptr</c> that identifies the allocation, and a null <c>Owner</c> - not a zero length - is
-  ///   what says there is nothing to give back.
-  /// </summary>
   [StructLayout(LayoutKind.Sequential)]
   internal struct AkBytes
   {
@@ -150,7 +111,6 @@ internal static class NativeMethods
     internal IntPtr Owner;
   }
 
-  /// <summary>A buffer lent out of a call's arena, given back exactly once.</summary>
   [StructLayout(LayoutKind.Sequential)]
   internal struct AkBuffer
   {
@@ -200,13 +160,6 @@ internal static class NativeMethods
     internal int TerminalDelivered;
   }
 
-  /// <summary>
-  ///   Where every event of a runtime arrives, on one of the library's own threads.
-  /// </summary>
-  /// <remarks>
-  ///   A delegate marshalled to a function pointer is not kept alive by the native side holding
-  ///   that pointer, so whoever passes one has to root it for as long as the runtime may call it.
-  /// </remarks>
   [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
   internal delegate void AkCallback(IntPtr runtimeCtx,
                                     IntPtr callCtx,

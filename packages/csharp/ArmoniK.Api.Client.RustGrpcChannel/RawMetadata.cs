@@ -23,31 +23,6 @@ using Grpc.Core;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   gRPC metadata in the form the C ABI carries it: a uint32 count, then that many
-///   length-prefixed key/value pairs.
-/// </summary>
-/// <remarks>
-///   A flat buffer because the boundary passes a pointer and a length and nothing else. A count
-///   with lengths rather than a map because gRPC metadata is a multi-map: keys may repeat and
-///   their order is kept, so two entries under one key must not come out as one. Native byte
-///   order, as the header says, so neither direction picks an endianness of its own.
-///   <para>
-///     Whether a value is text or bytes is gRPC's rule and not this format's: a key ending in
-///     <c>-bin</c> carries binary, and <see cref="Metadata" /> derives that from the key. What
-///     this boundary does choose is that a <c>-bin</c> value crosses it decoded rather than as
-///     the base64 it travels as on the wire - the engine converts, so nobody converts twice and
-///     a malformed one is refused before it reaches here.
-///   </para>
-///   <para>
-///     Reading is total: a buffer that does not parse yields what could be read rather than
-///     throwing. Every one of them was written by the library in this process, so a malformed one
-///     is a bug on the other side of the ABI, and losing an answer that is already in hand would
-///     be the worse way to report it. Where a length prefix is unreadable the rest is unreachable
-///     too - the next field's offset is exactly what was lost - so "what could be read" is a
-///     prefix in every case, never a salvaged remainder.
-///   </para>
-/// </remarks>
 internal static class RawMetadata
 {
   private const string BinarySuffix = "-bin";
@@ -59,13 +34,6 @@ internal static class RawMetadata
       return Array.Empty<byte>();
     }
 
-    // Each entry is read once, and what it yields is kept. Reading one is not free:
-    // `ValueBytes` answers with a defensive copy, so asking a binary entry for its length and
-    // then for its bytes copies the value twice - and sizing from `GetByteCount` walks every key
-    // and text value that the write below then encodes again.
-    //
-    // The ternary stays: `ValueBytes` on a text entry is documented as its ASCII bytes, so
-    // taking it for both would quietly mangle a value that is not ASCII.
     var chunks = new byte[metadata.Count * 2][];
     var size = 4;
     var index = 0;
@@ -130,17 +98,11 @@ internal static class RawMetadata
     return metadata;
   }
 
-  /// <summary>
-  ///   The terminal's payload: a length-prefixed reason, then the trailing metadata as a blob. The
-  ///   status code itself travels beside it, in the event.
-  /// </summary>
   internal static void DecodeStatus(ReadOnlySpan<byte> payload,
                                     out string message,
                                     out Metadata trailers)
   {
     message  = string.Empty;
-    // Overwritten below on every payload carrying a reason, which is every terminal; the shared
-    // empty one stands in for the path where the length prefix itself is unreadable.
     trailers = Metadata.Empty;
     if (!TryReadChunk(ref payload,
                       out var reason))
@@ -156,9 +118,6 @@ internal static class RawMetadata
                             ref int at,
                             uint value)
   {
-    // `BitConverter` rather than `MemoryMarshal.Write`, which would be the reader's exact
-    // mirror: its second parameter is `ref` on netstandard2.0 and `in` on net8.0, so one call
-    // cannot satisfy both targets below C# 12, and native byte order is what matters here.
     BitConverter.GetBytes(value)
                 .CopyTo(into,
                         at);

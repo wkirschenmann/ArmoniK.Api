@@ -1,9 +1,3 @@
-//! A gRPC service that answers slowly, and a raw client to call it with.
-//!
-//! Hand-rolled rather than generated: this crate has no protos and deliberately no `protoc` in its
-//! build, so the codec moves opaque bytes and the service is one method that sleeps before replying.
-
-// Two test binaries share this, and neither uses all of it.
 #![allow(dead_code)]
 
 use std::future::Future;
@@ -23,14 +17,10 @@ pub mod echo;
 
 use codec::BytesCodec;
 
-/// The one method the test service answers to.
 pub const METHOD_PATH: &str = "/armonik_transport.test.Slow/Call";
 
-/// What the service answers once it has finished sleeping, so a test can tell a real reply from an
-/// empty one.
 pub const REPLY: &[u8] = b"served";
 
-/// A service that waits `delay` before answering, whatever it was sent.
 #[derive(Clone)]
 pub struct SlowService {
     delay: Duration,
@@ -46,8 +36,6 @@ impl NamedService for SlowService {
     const NAME: &'static str = "armonik_transport.test.Slow";
 }
 
-/// The gRPC handler. `tonic::server::UnaryService` is a blanket implementation over a `tower` service
-/// of the right shape rather than a trait to implement, so this is where the handler goes.
 impl Service<Request<Bytes>> for SlowService {
     type Response = Response<Bytes>;
     type Error = Status;
@@ -87,7 +75,6 @@ impl Service<hyper::Request<Body>> for SlowService {
     }
 }
 
-/// Serve `service` on an ephemeral loopback port and return its `http://` endpoint.
 pub async fn serve(service: SlowService) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -107,7 +94,6 @@ pub async fn serve(service: SlowService) -> String {
     format!("http://{address}")
 }
 
-/// Make one unary call over `channel`, returning whatever gRPC says about it.
 pub async fn call(
     channel: armonik_transport::reexports::tonic::transport::Channel,
 ) -> Result<Bytes, Status> {
@@ -117,8 +103,6 @@ pub async fn call(
     .expect("a valid method path");
 
     let mut grpc = armonik_transport::reexports::tonic::client::Grpc::new(channel);
-    // Generated clients always do this first, and `Grpc::unary` does not do it implicitly: skipping it
-    // trips `tower::Buffer`'s "send_item called without first calling poll_reserve" assertion.
     grpc.ready()
         .await
         .map_err(|error| Status::unknown(format!("the channel was not ready: {error}")))?;
@@ -129,11 +113,6 @@ pub async fn call(
     Ok(response.into_inner())
 }
 
-/// Build a [`ClientConfig`] from the string form, applying `set` to the arguments first.
-///
-/// Going through `ClientConfigArgs` keeps the parsing inside what is under test. It is a helper at all
-/// because both structs are `#[non_exhaustive]`: a test outside the crate cannot write either as a
-/// struct expression, and `..Default::default()` is the form that is forbidden.
 #[allow(clippy::field_reassign_with_default)]
 pub fn config(
     endpoint: &str,

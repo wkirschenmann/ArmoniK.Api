@@ -20,15 +20,6 @@ using System.Runtime.InteropServices;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   The native engine this binding is a binding to could not be loaded.
-/// </summary>
-/// <remarks>
-///   Its own type rather than the framework's <see cref="DllNotFoundException" />, whose message
-///   names a bare library and no reason. A caller reaching this has a deployment to fix, and what
-///   it needs is the word size in play, where the search looked, and which of the two ways of
-///   supplying the engine was expected to answer.
-/// </remarks>
 public sealed class RustEngineMissingException : Exception
 {
   private RustEngineMissingException(string message,

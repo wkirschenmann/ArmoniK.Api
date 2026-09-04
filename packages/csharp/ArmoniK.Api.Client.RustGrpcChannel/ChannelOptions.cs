@@ -19,29 +19,12 @@ using System.Text;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   What <c>ak_channel_create</c> is given, as the JSON the engine parses.
-/// </summary>
-/// <remarks>
-///   <para>
-///     The engine refuses an option it does not recognise rather than ignoring it, so a name
-///     misspelled here fails at channel creation instead of being silently dropped. That is the
-///     reason to have a type at all: one place per option, rather than a name that appears once
-///     in a concatenation.
-///   </para>
-///   <para>
-///     Hand-written, and only for as long as it is two options. The engine's options are
-///     declared in Rust and their JSON schema comes from there, so this class is what a generator
-///     replaces - which is why it is a plain carrier with a writer and no behaviour of its own.
-///   </para>
-/// </remarks>
 internal sealed class ChannelOptions
 {
   internal string Endpoint { get; set; } = string.Empty;
 
   internal int DeliveryCredits { get; set; }
 
-  /// <summary>The options as UTF-8 JSON, which is what the ABI takes.</summary>
   internal byte[] Encode()
   {
     var json = new StringBuilder("{");
@@ -63,7 +46,6 @@ internal sealed class ChannelOptions
            .Append(':')
            .Append(value);
 
-  /// <summary>One JSON string, escaped. An endpoint is a URI and may carry either of these.</summary>
   private static string Quoted(string value)
   {
     var quoted = new StringBuilder(value.Length + 2).Append('"');

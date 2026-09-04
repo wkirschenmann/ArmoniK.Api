@@ -1,7 +1,3 @@
-//! Unary calls, over plain HTTP/2, against a real gRPC server.
-//!
-//! The server and the call helpers are in `common::echo`; what is here is what unary means.
-
 mod common;
 
 use armonik_transport::grpc::{
@@ -45,8 +41,6 @@ async fn an_empty_message_is_a_message_and_not_an_absence() {
 
 #[tokio::test]
 async fn a_message_larger_than_one_http2_frame_survives_the_round_trip() {
-    // Well past the 16 KiB default frame size, so the response arrives in several chunks and
-    // the deframer has to put the message back together.
     const SIZE: usize = 256 * 1024;
 
     let (_, messages, status) = call_on(ECHO, Bytes::from(vec![0x5a; SIZE])).await;
@@ -104,8 +98,6 @@ async fn a_method_the_server_refuses_comes_back_as_its_status_and_its_trailers()
         Some(&MetadataValue::Ascii("policy".to_owned()))
     );
     assert!(messages.is_empty());
-    // A refusal is a Trailers-Only response: there is no response head, and the contract is
-    // that this reads as empty metadata rather than as a failure.
     assert!(head.is_empty(), "{head:?}");
 }
 
@@ -118,8 +110,6 @@ async fn a_method_the_server_does_not_have_is_unimplemented() {
     .await;
 
     assert_eq!(status.code, GrpcStatusCode::UNIMPLEMENTED, "{status}");
-    // The server's own words, so this is the gRPC status and not the HTTP 404 mapping, which
-    // happens to produce the same code.
     assert_eq!(status.message, "no such method");
 }
 
@@ -159,9 +149,6 @@ async fn nothing_can_be_sent_once_the_call_has_reached_its_terminal() {
     let server = TestServer::start().await;
     let channel = channel(&server.endpoint);
 
-    // A canned response answers without reading the request, so the writing side is still
-    // open when the terminal lands - which is the state under test. The reading half stays
-    // bound too: dropping it would end the call by itself and prove nothing.
     let (mut send, mut recv, _control) = channel
         .start_call(CallStartOptions::new("/raw/HeadThenError"))
         .expect("the call starts")
@@ -192,9 +179,6 @@ async fn dropping_the_reading_half_ends_the_call() {
 
     drop(recv);
 
-    // Nothing about the server, which is still asleep, is involved: a call nobody will read
-    // is over, and the writing side says so.
-
     assert_eq!(
         send.send_message(Bytes::from_static(b"more")).await,
         Err(CallError::Ended)
@@ -216,7 +200,6 @@ async fn a_cancelled_call_ends_as_cancelled_without_waiting_for_the_server() {
     send.end_send().await.expect("the request half-closes");
 
     control.cancel();
-    // Idempotent: a second cancellation is not a second decision.
     control.cancel();
 
     ends_cancelled(
@@ -269,17 +252,8 @@ async fn an_endpoint_nobody_answers_ends_the_call_rather_than_failing_to_start_i
     assert!(messages.is_empty());
 }
 
-/// One dial answers every caller waiting on it, a failed one included.
-///
-/// Measured rather than counted, because the harm is the wall clock: without this, a waiter that
-/// found no session started its own dial, so N callers against an endpoint that swallows packets
-/// cost N `connect_timeout`s end to end, the last of them answering N budgets late - with
-/// `close`, which needs the same lock, queued behind all of them. A peer that accepts and then
-/// says nothing cannot stand in for it: hyper's HTTP/2 handshake is lazy, so that dial succeeds
-/// and only the session dies.
 #[tokio::test]
 async fn callers_waiting_on_one_dial_share_its_failure() {
-    // TEST-NET-1 (RFC 5737), which must not be routed anywhere: a connect to it hangs.
     const BLACK_HOLE: &str = "http://192.0.2.1:9";
     let budget = std::time::Duration::from_millis(250);
 
@@ -293,8 +267,6 @@ async fn callers_waiting_on_one_dial_share_its_failure() {
     )
     .expect("a plain endpoint and default options");
 
-    // The precondition, and an attempt of its own so the eight below start afresh: if this
-    // address answers on the network the test runs on, there is nothing here to measure.
     let alone = std::time::Instant::now();
     channel
         .connect()
@@ -356,7 +328,6 @@ async fn a_closed_channel_opens_no_session() {
     channel.close();
 
     assert_eq!(channel.connect().await, Err(ChannelError::Closed));
-    // Nothing was dialled, so nothing is left holding a socket the channel will not release.
     assert_eq!(server.connections(), 0);
 }
 
@@ -399,8 +370,6 @@ async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
 async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
     let (_, _, status) = call_on("/raw/StatusBehindError", Bytes::from_static(b"x")).await;
 
-    // A peer that answered in gRPC has said how the call ended; the HTTP status is not a better
-    // account of it than its own.
     assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
     assert_eq!(status.message, "no room left");
 }
@@ -426,9 +395,6 @@ async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
 async fn a_message_past_the_maximum_ends_the_call_rather_than_being_held() {
     let (_, messages, status) = call_on("/raw/TooBig", Bytes::from_static(b"x")).await;
 
-    // Announced at 64 MiB against a 4 MiB default, and only twelve bytes of it ever sent:
-    // the refusal comes off the header, before anything is held.
-
     assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
     assert!(status.message.contains("67108864"), "{status}");
     assert!(messages.is_empty());
@@ -441,7 +407,6 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     let server = TestServer::start().await;
     let payload = Bytes::from(vec![0x27; SIZE]);
 
-    // Five megabytes against the four-megabyte default: the reply is refused on its length.
     let (_, _, status) = unary(
         &channel(&server.endpoint),
         CallStartOptions::new(ECHO),
@@ -450,7 +415,6 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     .await;
     assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
 
-    // The same reply, on a channel that allows it, comes back whole.
     let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
     config.max_recv_message_size = 8 * 1024 * 1024;
@@ -486,6 +450,5 @@ async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
 
     assert_eq!(status.code, GrpcStatusCode::INTERNAL, "{status}");
     assert!(status.message.contains("grpc-status"), "{status}");
-    // What arrived before the stream stopped is still delivered.
     assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
 }

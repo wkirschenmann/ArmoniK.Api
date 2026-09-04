@@ -1,12 +1,3 @@
-//! Layer 1: the network, up to an HTTP/2 session.
-//!
-//! [`TransportConnector`] is a [`tower_service::Service<Uri>`] yielding connected streams; it
-//! knows neither HTTP/2 nor gRPC and is a network dial and nothing more. [`open`] turns one of
-//! those streams into a session. What travels on the session is [`crate::grpc`]'s business.
-//!
-//! This connector dials plain TCP. Transport security is [`crate::connect`], which hands out a
-//! `tonic` channel instead of a stream.
-
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
@@ -23,13 +14,8 @@ use tower_service::Service;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
-/// What it takes to reach an endpoint.
 pub struct TransportConfig {
-    /// The endpoint to dial. Only the `http` scheme is accepted.
     pub endpoint: Uri,
-    /// Bounds the whole of [`open`] - resolution, connection and the HTTP/2 handshake - and
-    /// not each step. A peer that completes TCP and then never exchanges settings is the case
-    /// this covers and a per-step deadline does not.
     pub connect_timeout: Duration,
 }
 
@@ -41,10 +27,6 @@ impl TransportConfig {
         }
     }
 
-    /// Whether this endpoint is one a connector could dial, or why it is not.
-    ///
-    /// Scheme and host only: the port has a default and the host's shape is the resolver's
-    /// business, not this crate's.
     fn dialable(&self) -> Result<(), TransportError> {
         match self.endpoint.scheme_str() {
             Some("http") => {}
@@ -72,35 +54,20 @@ impl TransportConfig {
     }
 }
 
-/// A connected stream, in the shape hyper reads and writes.
 pub type TransportConnection = TokioIo<TcpStream>;
 
 #[derive(Clone, Debug)]
-/// The network dial, as a service over the URI to reach.
-///
-/// A shape over `hyper_util`'s own connector rather than a second dialler: resolution, the
-/// per-address attempts and the socket options are its, and it races the address families where
-/// a hand-rolled loop would try them in turn - so one black-holed address cannot consume the
-/// whole budget while a reachable one goes untried. What stays here is the endpoint check this
-/// crate makes before any I/O, and the deadline it puts on the sequence as a whole.
 pub struct TransportConnector {
     http: HttpConnector,
-    /// Bounds the whole of [`open`], which is where it is applied. `HttpConnector` bounds each
-    /// attempt instead, and the handshake is not an attempt at all.
     connect_timeout: Duration,
 }
 
 impl TransportConnector {
-    /// Reads no configuration it cannot use: an endpoint this connector cannot dial is
-    /// refused here rather than at the first call.
     pub fn new(config: TransportConfig) -> Result<Self, TransportError> {
         config.dialable()?;
 
         let mut http = HttpConnector::new();
-        // Nagle batches small writes, which is the opposite of what a request stream wants.
         http.set_nodelay(true);
-        // Refuses at call time what `dialable` refuses at construction, for a target that did
-        // not come from the configuration.
         http.enforce_http(true);
 
         Ok(Self {
@@ -110,15 +77,6 @@ impl TransportConnector {
     }
 }
 
-/// Dials `endpoint` and establishes an HTTP/2 session on it.
-///
-/// One entry point rather than three steps, because the three are one decision: what a caller
-/// wants is a session, and how a connection is asked for - a `tower` service polled ready and
-/// then called - is this module's business. A caller that performed those steps itself would be
-/// carrying the transport's vocabulary in order to say "connect".
-///
-/// The body and the executor stay parameters even though exactly one of each is ever passed:
-/// naming them concretely would name what travels on the session, which does not belong here.
 pub(crate) async fn open<E, B>(
     connector: &TransportConnector,
     endpoint: &Uri,
@@ -156,12 +114,6 @@ impl Service<Uri> for TransportConnector {
         Poll::Ready(Ok(()))
     }
 
-    /// Dials, without a deadline of its own.
-    ///
-    /// [`open`] holds it, being the operation `connect_timeout` is documented over: a deadline
-    /// here would bound the connection and leave the handshake unbounded, which is how a peer
-    /// that accepts TCP and then says nothing could park a call for ever - and, holding the
-    /// channel's session lock, park every other call's dial behind it.
     fn call(&mut self, target: Uri) -> Self::Future {
         let dialling = self.http.call(target.clone());
 
@@ -175,12 +127,6 @@ impl Service<Uri> for TransportConnector {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-/// What stood between the configuration and a connected stream.
-///
-/// `Connect` covers resolution and the connection alike: the dial is `hyper_util`'s, which races
-/// address families rather than walking them, so "the name did not resolve" and "no address
-/// accepted" stop being two outcomes a caller could act on differently. What failed is in the
-/// message; what a caller can do about it is the same either way.
 pub enum TransportErrorKind {
     Connect,
     Http2Handshake,
@@ -189,18 +135,12 @@ pub enum TransportErrorKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// A dial that did not happen, and why.
-///
-/// The cause chain is rendered rather than carried: an endpoint may hold credentials, and a
-/// structured source would put whatever a dependency chose to say about it in front of a
-/// caller that only needs to know what failed.
 pub struct TransportError {
     kind: TransportErrorKind,
     message: String,
 }
 
 impl TransportError {
-    /// What kind of failure this is.
     pub fn kind(&self) -> TransportErrorKind {
         self.kind
     }
@@ -236,11 +176,6 @@ impl TransportError {
     }
 }
 
-/// An error and everything under it, as one line.
-///
-/// The connector's own message names the step and nothing else - "dns error", "tcp connect
-/// error" - so what actually went wrong is in the cause. Rendered here rather than carried, for
-/// the reason [`TransportError`] gives.
 fn chain(error: &(dyn Error + 'static)) -> String {
     let mut rendered = error.to_string();
     let mut under = error.source();

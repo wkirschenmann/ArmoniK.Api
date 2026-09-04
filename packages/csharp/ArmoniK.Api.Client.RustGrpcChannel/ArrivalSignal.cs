@@ -18,45 +18,6 @@ using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>
-///   Tells one waiter that something arrived, and remembers a signal that arrives first.
-/// </summary>
-/// <remarks>
-///   <para>
-///     One waiter, and that is a precondition rather than a nicety: two would be handed the same
-///     task and both woken by one signal, which an auto-reset event would not do. It is not
-///     called one either, for that reason. What makes the precondition hold is structural - the
-///     only waiter is <c>NativeCall.RunAsync</c>, which is private and started once by
-///     <c>NativeCall.Start</c>, so a call has one drain and the drain is inside one await at a
-///     time.
-///   </para>
-///   <para>
-///     The remembering is what makes "look at the ring, then wait" safe. The drain finds the ring
-///     empty and only then calls <see cref="WaitAsync" />; a callback publishing in between would
-///     find nobody to wake, and a signal dropped there would park the drain on an event that had
-///     already arrived.
-///   </para>
-///   <para>
-///     One task carries both halves of that: <see cref="Set" /> completes it, and completed is
-///     what "a signal is pending" means, whether or not anyone was waiting when it happened.
-///     <see cref="WaitAsync" /> consumes a pending signal by putting a fresh task in its place -
-///     that exchange is the reset. So the state is one object rather than a waiter and a flag
-///     that have to agree.
-///   </para>
-///   <para>
-///     One signal, not a count: several events published while the drain is busy collapse into
-///     one completion, and that is enough because the drain re-reads the ring and takes
-///     everything there. Collapsing costs a wake-up that finds nothing, and consuming a
-///     completion costs one turn of the caller's loop - which is why the caller loops rather
-///     than waiting once.
-///   </para>
-///   <para>
-///     Continuations are asynchronous because <see cref="Set" /> runs inside the FFI callback, on
-///     the engine's own thread. Completing a waiter inline would run the drain's continuation
-///     there - parsing a message, handing it to the application - so the engine's callback could
-///     not return until the application was done with it.
-///   </para>
-/// </remarks>
 internal sealed class ArrivalSignal
 {
   private readonly object gate_ = new();
@@ -73,8 +34,6 @@ internal sealed class ArrivalSignal
       var arrived = arrived_;
       if (arrived.Task.IsCompleted)
       {
-        // Taken, so the next wait blocks again. Returning the completed task rather than
-        // `Task.CompletedTask` keeps the caller on the one it was handed.
         arrived_ = Pending();
       }
 
@@ -90,9 +49,6 @@ internal sealed class ArrivalSignal
       arrived = arrived_;
     }
 
-    // Outside the lock: scheduling the continuation does not need it, and a publisher holding
-    // the gate through it would block the next wait for nothing. A second `Set` on an already
-    // completed task answers false, which is the collapsing above.
     arrived.TrySetResult(true);
   }
 }

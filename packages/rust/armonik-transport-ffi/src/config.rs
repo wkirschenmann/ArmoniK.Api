@@ -1,5 +1,3 @@
-//! The channel configuration, as the host sends it.
-
 use std::time::Duration;
 
 use armonik_transport::grpc::GrpcChannelConfig;
@@ -8,15 +6,11 @@ use armonik_transport::reexports::http::Uri;
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 
-/// The two windows the header calls mirrors of each other, and their defaults, together: the
-/// send window bounds the buffers a call may have out, the delivery window the payloads.
 const MAX_SENDS_IN_FLIGHT: usize = 1;
 const DELIVERY_CREDITS: usize = 1;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// What the JSON says. Unknown fields are refused rather than ignored: an option spelled wrong
-/// and dropped in silence is the failure this configuration path exists to avoid.
 pub(crate) struct ChannelSettings {
     endpoint: String,
     #[serde(default)]
@@ -32,19 +26,14 @@ pub(crate) struct ChannelSettings {
 }
 
 impl ChannelSettings {
-    /// The ABI's delivery window for calls of this channel. The host sizes its own per-call
-    /// queue from it, which is why it is a channel option and not something negotiated later.
     pub(crate) fn delivery_credits(&self) -> usize {
         self.delivery_credits.unwrap_or(DELIVERY_CREDITS)
     }
 
-    /// The send window's mirror of `delivery_credits`: how many buffers a call of this channel
-    /// may have out at once, counting those being filled and those awaiting their WRITE_DONE.
     pub(crate) fn max_sends_in_flight(&self) -> usize {
         self.max_sends_in_flight.unwrap_or(MAX_SENDS_IN_FLIGHT)
     }
 
-    /// The engine's shape of these settings, with the endpoint `parse` already read.
     pub(crate) fn into_channel_config(self, endpoint: Uri) -> GrpcChannelConfig {
         let mut transport = TransportConfig::new(endpoint);
         if let Some(millis) = self.connect_timeout_ms {
@@ -52,7 +41,6 @@ impl ChannelSettings {
         }
 
         let mut config = GrpcChannelConfig::new(transport);
-        // Read before its neighbour moves out of `self`.
         config.max_sends_in_flight = self.max_sends_in_flight();
         config.user_agent = self.user_agent;
         if let Some(max) = self.max_recv_message_size {
@@ -62,13 +50,9 @@ impl ChannelSettings {
     }
 }
 
-/// Reads the configuration, or refuses it. The endpoint comes back parsed, so nothing
-/// downstream has to parse it again or answer for it not being a URI.
 pub(crate) fn parse(json: &[u8]) -> Option<(ChannelSettings, Uri)> {
     let settings: ChannelSettings = serde_json::from_slice(json).ok()?;
     let endpoint = settings.endpoint.parse::<Uri>().ok()?;
-    // Each window is a semaphore of that many permits: zero admits nothing at all, and a value
-    // past what a semaphore can hold would be a panic rather than a refusal.
     let admits = |window: Option<usize>| {
         window.is_none_or(|window| window > 0 && window <= Semaphore::MAX_PERMITS)
     };
