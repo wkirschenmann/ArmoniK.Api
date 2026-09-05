@@ -40,6 +40,7 @@ public static class NativeRuntimeFactory
   private static NativeRuntime? current_;
   private static int leases_;
   private static TaskCompletionSource<bool>? destroyed_;
+  private static Exception? refused_;
   private static uint workerThreads_;
   private static ulong memoryCeiling_;
 
@@ -140,14 +141,30 @@ public static class NativeRuntimeFactory
             leases_++;
             return current_!;
 
+          case RuntimeDisposeState.DestroyFailed:
+            // Absorbing, and honestly so: the engine admits one runtime per process and gives
+            // that claim back only on a destroy that succeeded, so no other can be created here.
+            // Said afresh rather than by re-throwing the task's exception, which would reach a
+            // caller minutes later as though its own call had just timed out.
+            throw new InvalidOperationException("the native runtime did not shut down, and the engine admits one runtime per process, so this one cannot be replaced",
+                                                refused_);
+
           default:
             waiting = destroyed_!.Task;
             break;
         }
       }
 
-      waiting.GetAwaiter()
-             .GetResult();
+      // Waited on for the state to move, not for what it moved to: the outcome is read above on
+      // the next turn, where every caller reads the same thing whether it waited or not.
+      try
+      {
+        waiting.GetAwaiter()
+               .GetResult();
+      }
+      catch
+      {
+      }
     }
   }
 
@@ -158,6 +175,14 @@ public static class NativeRuntimeFactory
 
     lock (Gate)
     {
+      // A lease is given back once. Letting the count go negative would send a second release
+      // down the teardown path with `current_` already null, and the state machine would be
+      // wrong from then on rather than at the call that broke it.
+      if (leases_ <= 0)
+      {
+        throw new InvalidOperationException($"the runtime is {state_} and has no lease to give back");
+      }
+
       if (--leases_ > 0)
       {
         return (false, Task.CompletedTask);
@@ -202,7 +227,8 @@ public static class NativeRuntimeFactory
       }
       else
       {
-        state_ = RuntimeDisposeState.DestroyFailed;
+        state_   = RuntimeDisposeState.DestroyFailed;
+        refused_ = failure;
       }
     }
 
