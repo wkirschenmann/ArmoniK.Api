@@ -92,10 +92,13 @@
   <Target Name="CopyNativeEngineForTests" AfterTargets="CopyFilesToOutputDirectory">
     <!-- The one row of the shared table this host wants, so an architecture is added in one
          place instead of in two lists keyed differently. -->
+    <ItemGroup>
+      <HostRustTarget Include="@(RustTarget->WithMetadataValue('Os', '$(RustHostOs)')->WithMetadataValue('Arch', '$(PlatformTarget)'))" />
+    </ItemGroup>
     <PropertyGroup>
-      <TestEngineTriple>@(RustTarget->WithMetadataValue('Os', '$(RustHostOs)')->WithMetadataValue('Arch', '$(PlatformTarget)')->'%(Triple)')</TestEngineTriple>
-      <TestEngineLibrary>@(RustTarget->WithMetadataValue('Os', '$(RustHostOs)')->WithMetadataValue('Arch', '$(PlatformTarget)')->'%(Library)')</TestEngineLibrary>
-      <BuiltEngineDir>$(MSBuildThisFileDirectory)..\..\rust\target\$(TestEngineTriple)\$(Configuration.ToLower())\</BuiltEngineDir>
+      <TestEngineTriple>@(HostRustTarget->'%(Triple)')</TestEngineTriple>
+      <TestEngineLibrary>@(HostRustTarget->'%(Library)')</TestEngineLibrary>
+      <BuiltEngineDir>$(RustWorkspace)target\$(TestEngineTriple)\$(RustProfile)\</BuiltEngineDir>
     </PropertyGroup>
     <!-- Ahead of the item group, which would otherwise glob a directory named by nothing. -->
     <Error Condition="'$(TestEngineTriple)' == ''"

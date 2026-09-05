@@ -21,6 +21,14 @@
     <RustTarget Include="osx-arm64" Triple="aarch64-apple-darwin" Library="libarmonik_transport_ffi.dylib" Os="OSX" Arch="ARM64" />
   </ItemGroup>
 
+  <!-- Where cargo builds and what it calls the profile. Both projects read a path under it, so
+       naming it here is what keeps them pointing at the same tree. -->
+  <PropertyGroup>
+    <RustWorkspace>$(MSBuildThisFileDirectory)..\rust\</RustWorkspace>
+    <RustProfile>$(Configuration.ToLower())</RustProfile>
+    <RustProfileFlag Condition="'$(RustProfile)' == 'release'">--release</RustProfileFlag>
+  </PropertyGroup>
+
   <!-- Which row this machine's build wants, for a project that needs one rather than all. -->
   <PropertyGroup>
     <RustHostOs Condition="$([MSBuild]::IsOSPlatform('Windows'))">Windows</RustHostOs>

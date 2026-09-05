@@ -40,9 +40,6 @@
        does nothing, so building one builds the other. Cargo's profile directories are named after
        the .NET configurations, which is why the same lowercased name serves both. -->
   <PropertyGroup>
-    <RustWorkspace>$(MSBuildThisFileDirectory)..\..\rust\</RustWorkspace>
-    <RustProfile>$(Configuration.ToLower())</RustProfile>
-    <RustProfileFlag Condition="'$(RustProfile)' == 'release'">--release</RustProfileFlag>
     <!-- The host alone by default: the other architectures need cross toolchains this machine may
          not have, and a routine build should not spend minutes on engines nobody is about to run.
          CI and packing pass the whole list. -->
