@@ -282,8 +282,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
           case NativeMethods.AkEventKind.Message:
             seen++;
-            response = marshaller_.ContextualDeserializer(new ReceivedMessage(slot.Payload.Ptr,
-                                                                              (int)slot.Payload.Len));
+            response = marshaller_.ContextualDeserializer(new ReceivedMessage(slot.Payload));
             break;
 
           case NativeMethods.AkEventKind.Status:

@@ -44,10 +44,13 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
   }
 
   /// <summary>The one place an ABI length is narrowed to what .NET counts with.</summary>
+  internal static int Length(UIntPtr length)
+    => (int)length;
+
   internal static Span<byte> Span(IntPtr start,
                                   UIntPtr length)
     => Span(start,
-            (int)length);
+            Length(length));
 
   internal static unsafe Span<byte> Span(IntPtr start,
                                          int length)

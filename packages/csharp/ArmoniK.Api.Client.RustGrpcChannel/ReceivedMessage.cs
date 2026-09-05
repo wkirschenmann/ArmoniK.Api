@@ -28,11 +28,10 @@ internal sealed class ReceivedMessage : DeserializationContext
   private readonly IntPtr start_;
   private readonly int length_;
 
-  internal ReceivedMessage(IntPtr start,
-                           int length)
+  internal ReceivedMessage(in NativeMethods.AkBytes payload)
   {
-    start_  = start;
-    length_ = length;
+    start_  = payload.Ptr;
+    length_ = UnmanagedMemoryManager.Length(payload.Len);
   }
 
   public override int PayloadLength
