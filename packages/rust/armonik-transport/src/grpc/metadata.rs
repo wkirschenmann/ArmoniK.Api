@@ -172,8 +172,21 @@ fn validate_key(key: &str) -> Result<HeaderName, MetadataError> {
     if is_reserved(&lowered) {
         return Err(MetadataError::ReservedKey { key: lowered });
     }
+    // gRPC's Header-Name is narrower than the HTTP token `HeaderName` accepts: digits, lowercase,
+    // `_`, `-` and `.`, and nothing else. A name outside it goes out and a C-core peer fails the
+    // stream on it, which is a refusal the sender cannot connect to what it sent.
+    if !names_a_header(&lowered) {
+        return Err(MetadataError::InvalidKey { key: lowered });
+    }
     HeaderName::from_bytes(lowered.as_bytes())
         .map_err(|_| MetadataError::InvalidKey { key: lowered })
+}
+
+fn names_a_header(lowered: &str) -> bool {
+    !lowered.is_empty()
+        && lowered.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-' | b'.')
+        })
 }
 
 fn validate_value(key: &str, value: &MetadataValue) -> Result<(), MetadataError> {
@@ -317,6 +330,31 @@ mod tests {
             metadata.reserve_in(&mut headers),
             Err(MetadataError::TooMany { .. })
         ));
+    }
+
+    #[test]
+    fn a_key_outside_what_grpc_names_a_header_is_refused() {
+        // Every one of these is a legal HTTP token, so `HeaderName` takes them; gRPC does not.
+        for key in [
+            "x!y", "x|y", "x~y", "x$y", "x^y", "x'y", "x*y", "x+y", "x&y", "x#y",
+        ] {
+            let mut metadata = Metadata::new();
+            assert!(
+                matches!(
+                    metadata.append_ascii(key, "v"),
+                    Err(MetadataError::InvalidKey { .. })
+                ),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_character_grpc_names_a_header_with_is_taken() {
+        let mut metadata = Metadata::new();
+        metadata
+            .append_ascii("x-0.9_a-z", "v")
+            .expect("digits, lowercase, dot, underscore and dash");
     }
 
     #[test]
