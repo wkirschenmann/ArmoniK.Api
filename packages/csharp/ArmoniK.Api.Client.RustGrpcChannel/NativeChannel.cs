@@ -171,6 +171,18 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
         catch
         {
         }
+
+        // Removed here rather than left to the continuation `Track` registered. A task runs its
+        // continuations in order, on the thread that completed it; when `Track` was preempted
+        // between the add and the ContinueWith, the removal is registered behind this loop's own
+        // await and cannot run while this loop is on that thread - and the loop would spin on a
+        // `live_` nothing can empty. Exact because a key is added once and its task never
+        // changes: what was just awaited is what is being removed.
+        foreach (var entry in live)
+        {
+          live_.TryRemove(entry.Key,
+                          out Task? _);
+        }
       }
 
       NativeMethods.ak_channel_release(handle_);

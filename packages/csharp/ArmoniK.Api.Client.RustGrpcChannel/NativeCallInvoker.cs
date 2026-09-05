@@ -48,6 +48,7 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                 TRequest request)
   {
     MustCarryNoDeadline(options);
+    MustCarryNothingElseUnhonoured(options);
 
     var call = channel_.StartCall(method.FullName,
                                  options.Headers,
@@ -157,6 +158,27 @@ internal sealed class NativeCallInvoker : CallInvoker
     {
       throw new RpcException(new Status(StatusCode.Unimplemented,
                                         "this invoker carries no deadline: the C ABI has no field for one, so it could be honoured here and never reach the server"));
+    }
+  }
+
+  /// <summary>Refuses the call options this invoker cannot act on.</summary>
+  /// <remarks>Refused rather than ignored, which is the whole point: credentials the caller
+  /// attached and this invoker drops are a request that goes out without the identity the caller
+  /// believes it carries, and the answer - Unauthenticated, or worse, served anonymously - names
+  /// the server rather than the binding. Grpc.Core itself refuses call credentials on an insecure
+  /// channel, which is all this engine speaks.</remarks>
+  private static void MustCarryNothingElseUnhonoured(in CallOptions options)
+  {
+    if (options.Credentials is not null)
+    {
+      throw new RpcException(new Status(StatusCode.Unimplemented,
+                                        "this invoker carries no call credentials: the interceptor would never run, and the call would go out without them"));
+    }
+
+    if (options.PropagationToken is not null)
+    {
+      throw new RpcException(new Status(StatusCode.Unimplemented,
+                                        "this invoker carries no propagation token: it holds a parent call's deadline and cancellation, and neither crosses the C ABI"));
     }
   }
 

@@ -347,6 +347,41 @@ public class UnaryTests : RuntimeLeaseFixture
     => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
                                                                                      deliveryCredits: 0));
 
+  /// <summary>Every call of the channel sizes a ring from this, so a window nothing bounds is a
+  /// per-call allocation nothing bounds - and, past 2^30, a shift that reaches zero and spins.
+  /// </summary>
+  [Test]
+  public void AWindowDeeperThanAnyRingIsRefusedBeforeAnythingIsOpened()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
+                                                                                                       NativeRuntimeFactory.MaxDeliveryCredits + 1));
+                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
+                                                                                                       int.MaxValue));
+                       });
+
+  /// <summary>Refused, not dropped: a call that went out without the credentials the caller
+  /// attached fails at the server, or is served anonymously, and neither answer names the
+  /// binding that discarded them.</summary>
+  [Test]
+  public void CallOptionsThisInvokerCannotHonourAreRefusedRatherThanIgnored()
+  {
+    using var channel = Channel();
+    var       client  = Client(channel);
+
+    var credentials = Assert.Throws<RpcException>(() => client.Say(new EchoRequest
+                                                                  {
+                                                                    Text = "identified",
+                                                                  },
+                                                                  new CallOptions(credentials: CallCredentials.FromInterceptor((_,
+                                                                                                                               _) => Task.CompletedTask))));
+
+    Assert.That(credentials!.StatusCode,
+                Is.EqualTo(StatusCode.Unimplemented));
+    Assert.That(credentials.Status.Detail,
+                Does.Contain("call credentials"));
+  }
+
   [Test]
   public async Task TheChannelsTwoHalvesAgreeOnItsState()
   {
