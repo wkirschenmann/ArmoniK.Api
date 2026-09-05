@@ -1,6 +1,7 @@
 use std::convert::Infallible;
+use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 
 use bytes::buf::Chain;
@@ -150,16 +151,32 @@ impl Drop for RecvHalf {
 #[derive(Clone, Debug)]
 pub struct CallControl {
     over: Arc<watch::Sender<bool>>,
+    /// The same news, on a channel the request body can poll.
+    ///
+    /// A `watch` is read, not awaited, so a body parked on its message queue would never learn
+    /// the call ended - and hyper keeps a reference to the HTTP/2 stream for as long as the body
+    /// is unfinished. This is what makes the stream go back.
+    body_over: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
 
 impl CallControl {
     pub fn cancel(&self) {
         self.over.send_replace(true);
+        if let Some(told) = self
+            .body_over
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            let _ = told.send(());
+        }
     }
 }
 
 pub(crate) struct RequestBody {
     messages: mpsc::Receiver<Chain<Bytes, Bytes>>,
+    over: oneshot::Receiver<()>,
+    ended: bool,
 }
 
 impl Body for RequestBody {
@@ -167,10 +184,29 @@ impl Body for RequestBody {
     type Error = Infallible;
 
     fn poll_frame(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        self.messages
+        let this = self.get_mut();
+        if this.ended {
+            return Poll::Ready(None);
+        }
+
+        // The call ending ends the body, not only the send half being dropped. hyper pipes an
+        // unfinished body into the h2 stream and holds a stream reference while it does, so a
+        // call cancelled after the response head left the stream open with no RST_STREAM: the
+        // peer went on producing into a reader that discards every frame, and the stream kept its
+        // place against MAX_CONCURRENT_STREAMS until the send half happened to drop. A caller
+        // that holds one for the life of its client never drops it.
+        //
+        // Either answer ends it: the control fired, or every control is gone, which is the same
+        // news later.
+        if Pin::new(&mut this.over).poll(cx).is_ready() {
+            this.ended = true;
+            return Poll::Ready(None);
+        }
+
+        this.messages
             .poll_recv(cx)
             .map(|message| message.map(|buffer| Ok(Frame::data(buffer))))
     }
@@ -187,9 +223,11 @@ pub(crate) fn create(
     let (recv_tx, recv_rx) = mpsc::channel(1);
     let (terminal_tx, terminal_rx) = oneshot::channel();
     let (over_tx, over_rx) = watch::channel(false);
+    let (body_over_tx, body_over_rx) = oneshot::channel();
 
     let control = CallControl {
         over: Arc::new(over_tx),
+        body_over: Arc::new(Mutex::new(Some(body_over_tx))),
     };
     let call = GrpcCall {
         send: SendHalf {
@@ -218,6 +256,8 @@ pub(crate) fn create(
         call,
         RequestBody {
             messages: message_rx,
+            over: body_over_rx,
+            ended: false,
         },
         driving,
     )
@@ -229,8 +269,10 @@ mod tests {
 
     use super::*;
 
+    /// The queue has room and the send is still refused: it is the call's state that decides,
+    /// not whether the transport happens to be able to take the bytes.
     #[tokio::test]
-    async fn a_call_that_is_over_refuses_a_send_with_its_request_body_still_open() {
+    async fn a_call_that_is_over_refuses_a_send_though_its_queue_has_room() {
         let (call, _body, _driving) = create(4, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
@@ -244,6 +286,31 @@ mod tests {
             send.send_message(Bytes::from_static(b"second")).await,
             Err(CallError::Ended)
         );
+    }
+
+    /// A body parked on its queue is woken by the call ending, with the send half still held.
+    ///
+    /// Held is the case: hyper keeps a reference to the HTTP/2 stream while the body is
+    /// unfinished, so a body that ends only when its sender drops leaves the stream open for as
+    /// long as the caller keeps the send half - and a caller that keeps it for the life of its
+    /// client keeps the stream for the life of its client.
+    #[tokio::test]
+    async fn a_request_body_ends_when_the_call_does_and_not_when_its_sender_drops() {
+        let (call, mut body, _driving) = create(1, watch::channel(false).1);
+        let (_send, _recv, control) = call.split();
+
+        let parked = tokio::spawn(async move {
+            std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await
+        });
+        tokio::task::yield_now().await;
+
+        control.cancel();
+
+        let ended = tokio::time::timeout(Duration::from_secs(5), parked)
+            .await
+            .expect("the call ending wakes the body")
+            .expect("the task did not panic");
+        assert!(ended.is_none(), "and ends it");
     }
 
     #[tokio::test(start_paused = true)]
