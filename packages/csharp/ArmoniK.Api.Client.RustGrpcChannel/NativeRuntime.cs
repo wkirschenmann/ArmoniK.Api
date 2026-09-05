@@ -34,9 +34,6 @@ internal sealed class NativeRuntime
   // alive as the reference kept to it.
   private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
 
-  private readonly TaskCompletionSource<bool> released_ =
-    new(TaskCreationOptions.RunContinuationsAsynchronously);
-
   private GCHandle self_;
   private readonly ulong handle_;
 
@@ -109,23 +106,14 @@ internal sealed class NativeRuntime
     self_.Free();
   }
 
+  /// <summary>Waits for the one fact the header names as the guarantee.</summary>
+  ///
+  /// The runtime signals SHUTDOWN_COMPLETE and RESOURCES_RELEASED on its way here, but it sets
+  /// QUIESCENT after the callback that carries the last of them returns, so an event-fed latch
+  /// would still have to read the state afterwards. Reading it is the whole wait.
   private async Task QuiescentAsync()
   {
     var waited = Stopwatch.StartNew();
-
-    using (var deadline = new CancellationTokenSource())
-    {
-      var answered = await Task.WhenAny(released_.Task,
-                                        Task.Delay(ShutdownTimeout,
-                                                   deadline.Token))
-                               .ConfigureAwait(false);
-      deadline.Cancel();
-
-      if (answered != released_.Task)
-      {
-        throw NotQuiescent();
-      }
-    }
 
     while (NativeMethods.ak_runtime_status(handle_) != NativeMethods.AkRuntimeState.Quiescent)
     {
@@ -187,21 +175,11 @@ internal sealed class NativeRuntime
         return;
       }
 
-      (target as NativeRuntime)?.OnRuntimeEvent(@event->Kind,
-                                                @event->HostDebt);
+      // A runtime-level event carries no payload and nothing here waits on one: the state is
+      // what says the runtime has quiesced, and it is set after this callback returns.
     }
     catch
     {
-    }
-  }
-
-  private void OnRuntimeEvent(NativeMethods.AkEventKind kind,
-                              NativeMethods.AkHostDebt debt)
-  {
-    if (kind == NativeMethods.AkEventKind.ResourcesReleased
-        || (kind == NativeMethods.AkEventKind.ShutdownComplete && debt == NativeMethods.AkHostDebt.NothingToReturn))
-    {
-      released_.TrySetResult(true);
     }
   }
 }
