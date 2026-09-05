@@ -521,7 +521,7 @@ pub(crate) fn start_on(
     };
 
     let (send, recv, control) = grpc_call.split();
-    let (handle, (state, commands)) = tables::calls().insert_with(|handle| {
+    let inserted = tables::calls().insert_with(|handle| {
         let (state, commands) = create(
             ctx,
             handle,
@@ -533,6 +533,13 @@ pub(crate) fn start_on(
         );
         (Arc::clone(&state), (state, commands))
     });
+
+    // The join above counted this call on its channel, so a refusal has to give that back or the
+    // channel never closes again.
+    let Some((handle, (state, commands))) = inserted else {
+        channel.leave();
+        return Err(ak_status::AK_STATUS_INTERNAL);
+    };
 
     start(&state, send, recv, commands, services.spawner);
     Ok(handle)

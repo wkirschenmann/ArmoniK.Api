@@ -6,8 +6,9 @@
  *
  * Two rules run through all of it:
  *
- *   - A handle is a token, not a pointer. It names a slot and a generation, so a downcall on
- *     something the runtime has reclaimed reports AK_STATUS_HANDLE_STALE instead of faulting.
+ *   - A handle is a token, not a pointer. It names one object and is never handed out twice, so
+ *     a downcall on something the runtime has reclaimed reports AK_STATUS_HANDLE_STALE instead of
+ *     faulting - and so does one on an object of another kind.
  *   - Memory crosses in one direction at a time. What the library hands over, the host gives
  *     back exactly once - a payload through ak_event_consumed, a lent buffer through
  *     ak_call_send_message or ak_return_call_buffer - and the runtime cannot finish until it has.

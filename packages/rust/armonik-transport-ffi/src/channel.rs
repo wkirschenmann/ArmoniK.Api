@@ -110,7 +110,7 @@ pub(crate) fn create(
     let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), spawner.clone())
         .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
 
-    Ok(tables::channels()
+    tables::channels()
         .insert_with(|handle| {
             let channel = AkChannel {
                 grpc,
@@ -122,5 +122,6 @@ pub(crate) fn create(
             };
             (Arc::new(channel), ())
         })
-        .0)
+        .map(|(handle, ())| handle)
+        .ok_or(ak_status::AK_STATUS_INTERNAL)
 }

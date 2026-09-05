@@ -441,9 +441,24 @@ a task of its own in phase 5, alongside T5.2.
 
 - The FFI runtime owns a Tokio runtime and hands its handle to the GrpcChannel
 - Every spawned task is registered in a task group (joinable at shutdown)
-- Handles are `uint64_t` tokens validated in an internal registry, implemented
-  as a slot map (index + generation, chained free list for O(1) allocation).
-  A token from a reused slot fails validation instead of aliasing the new one
+- Handles are `uint64_t` tokens validated in an internal registry. Each is drawn from a
+  monotonic counter and never handed out twice, so a token whose object has been reclaimed
+  names nothing rather than aliasing whatever came after it. The three kinds draw from
+  disjoint ranges of the same 64 bits - runtimes below 2^32, channels to 2^63, calls above -
+  so a handle of one kind is absent from the others' tables and the test on the hottest
+  path is the sign bit
+  The August design specified a slot map - index plus per-slot generation, chained free
+  list - chosen for O(1) allocation. That was reversed on 2026-09-05. The generation was
+  never a goal: it is the repair for the aliasing that reusing an index causes, and reusing
+  an index is what bounds the memory of an array addressed by a counter. Three of the
+  defects found reviewing this crate lived in that machinery - a generation that wrapped
+  after 2^32 reuses of one slot, a publish that could land on a freed slot, a free list
+  that could take one index twice. A counter has none of those paths, and the O(1) it gives
+  up is a hash lookup on a path that runs a handful of times per call, against a network
+  round trip. The event path never touches the registry at all: payloads and lent buffers
+  are identified by a tagged owner pointer, so the place where O(1) would have earned its
+  keep was already not using it.
+
 - Received message payloads are **owned**: the host receives an `ak_bytes` that it must
   release. This prepares for future zero-copy (the host will be able to deserialize directly
   from the native buffer before releasing).
@@ -621,7 +636,7 @@ concept, so level 0 has nothing to say about the difference, and level 1 carries
 entirely in its own variables - the only shape the refinement rule allows.
 
 Handles are not part of that count. Destroy invalidates every handle of the runtime at
-once, and the generational tokens make a later use a refusal rather than a fault. The line
+once, and a token is never reissued, so a later use is a refusal rather than a fault. The line
 is between what the runtime owns and what the host might still be touching: a handle names
 runtime state, a payload or a lent buffer is memory under the host's hands. Only the second
 kind can hold destruction back - the alternative, refusing to destroy until every call
@@ -819,7 +834,7 @@ ak_status ak_runtime_begin_shutdown(ak_runtime_handle runtime);
 // Live call and channel handles do NOT block it: destroy invalidates every
 // handle of this runtime atomically, and a later downcall on one returns
 // AK_STATUS_HANDLE_STALE rather than touching freed memory - which is what the
-// generational tokens are for. The distinction is deliberate: a handle names
+// unreissued tokens are for. The distinction is deliberate: a handle names
 // runtime-owned state, so the runtime may reclaim it; a payload or a lent
 // buffer is memory the host may still be reading or writing, so only the host
 // can end it. There is nothing to forget on the handle side - the runtime
@@ -958,7 +973,7 @@ ak_status ak_call_cancel(ak_call_handle call);
 //
 // Two consequences the host must know. The handle goes stale at a moment the
 // host does not choose; a later downcall on it returns AK_STATUS_HANDLE_STALE, which
-// the generational token makes safe rather than faulting. And abandoning a call
+// an unreissued token makes safe rather than faulting. And abandoning a call
 // is still ak_call_cancel, then consume through to the terminal - reclamation
 // waits for what the host holds, so dropping a payload on the floor leaks the
 // arena exactly as it did before.
@@ -1070,11 +1085,11 @@ void ak_event_consumed(ak_bytes payload);
 
 ```c
 // === Handles ===
-// Handles are tokens, not pointers. Each is a slot index plus a generation
-// counter, so a handle from a freed slot is detected and refused with
+// Handles are tokens, not pointers. Each names one object and is never handed
+// out again, so a handle whose object is gone is detected and refused with
 // AK_STATUS_HANDLE_STALE rather than dereferenced - which is what lets a downcall on a
-// reclaimed call report a status instead of faulting, and what closes ABA when
-// a slot is reused. Their layout is opaque and must not be interpreted; only
+// reclaimed call report a status instead of faulting. ABA cannot arise: nothing
+// comes back to a name. Their layout is opaque and must not be interpreted; only
 // the values the ABI hands out are valid, and AK_HANDLE_NONE is the null token.
 // ak_runtime_destroy stales every handle of the runtime at once, including the
 // call handles: no downcall on any of them is accepted afterwards, which is
@@ -2619,9 +2634,8 @@ nineteen FFI variables:
   attempts finer than the call - positions, tickets - is level 2's to introduce if its
   retry model needs one
 
-Deliberately absent: no handle registry (validity is modeled, not indices and
-generations, so the slot map's generation counter is an implementation of handle validity
-rather than a modelled object), no read-credit variable (`ak_event_consumed` frees and arms in one
+Deliberately absent: no handle registry (validity is modeled, not the numbering, so the
+registry's counter is an implementation of handle validity rather than a modelled object), no read-credit variable (`ak_event_consumed` frees and arms in one
 gesture, so credits available + payloads owed = `DeliveryCredits` on a live call and
 one variable suffices), no start gate (derivable from `runtime_state`), no boundary
 message lists (the in-flight gaps are the derived differences between the level-0

@@ -18,7 +18,13 @@ pub(crate) fn create_runtime(
             AkRuntime::relinquish();
             Err(status)
         }
-        Ok(runtime) => Ok(tables::runtimes().insert(runtime)),
+        Ok(runtime) => match tables::runtimes().insert(runtime) {
+            Some(handle) => Ok(handle),
+            None => {
+                AkRuntime::relinquish();
+                Err(ak_status::AK_STATUS_INTERNAL)
+            }
+        },
     }
 }
 
