@@ -37,6 +37,14 @@ impl Claim {
     pub(crate) fn keep(self) {
         std::mem::forget(self);
     }
+
+    /// The claim a caller already holds, as a guard.
+    ///
+    /// Not `take`: `ak_runtime_destroy` is reached through a live runtime, so the claim is held
+    /// and there is nothing to acquire - only something to be sure of giving back.
+    pub(crate) fn held() -> Self {
+        Claim
+    }
 }
 
 impl Drop for Claim {

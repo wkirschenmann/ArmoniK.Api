@@ -38,10 +38,15 @@ pub(crate) fn destroy_runtime(handle: ak_handle) -> ak_status {
         return ak_status::AK_STATUS_HANDLE_STALE;
     }
 
+    // From the remove on, this caller owns the claim, and the guard gives it back however it
+    // leaves. `release_threads` is the one below that can panic - tokio refuses to shut a runtime
+    // down from inside one - and a claim not given back is an `ak_runtime_create` refused for the
+    // life of the process, with the table already drained behind it.
+    let claim = Claim::held();
     tables::calls().drain();
     tables::channels().drain();
     found.release_threads();
-    AkRuntime::relinquish();
+    drop(claim);
     ak_status::AK_STATUS_OK
 }
 
@@ -80,11 +85,15 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
             ak_host_debt::AK_HOST_MUST_RETURN
         };
 
+        // The state before the event that announces it, so a host that reads the status from
+        // inside the callback reads STOPPED. Nothing gates on STOPPED - destroy wants QUIESCENT,
+        // the gate and `start_stopping` want RUNNING - so publishing it early costs nothing.
+        //
         // Two signals, because the host may still hold payloads and buffers when the gRPC side
         // stops: this one says whether it does, and RESOURCES_RELEASED below says it has given
         // them all back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
-        host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
         reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
+        host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
 
         if debt == ak_host_debt::AK_HOST_MUST_RETURN {
             ledger.drained().await;

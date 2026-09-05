@@ -12,7 +12,7 @@ use crate::abi::ak_handle;
 /// Each is sized by how many of that kind a process ever asks for, not by how many are live at
 /// once: a handle is never reused, so the range bounds the total. Runtimes are the narrow one and
 /// still take four billion, which is a hundred and thirty years at one create-and-destroy cycle a
-/// second. Calls take the top half, so the test on the hottest path is the sign bit.
+/// second. Calls take the top half, which is where the most frequent test wants them.
 ///
 /// `AK_HANDLE_NONE` is zero and no range starts there, so the null token is refused by the same
 /// comparison as any other handle from the wrong space.
