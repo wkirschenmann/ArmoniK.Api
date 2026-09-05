@@ -55,8 +55,12 @@ impl ChannelSettings {
 pub(crate) fn parse(json: &[u8]) -> Option<(ChannelSettings, Uri)> {
     let settings: ChannelSettings = serde_json::from_slice(json).ok()?;
     let endpoint = settings.endpoint.parse::<Uri>().ok()?;
+    // Strictly below, because the send window's command queue is built one deeper than the
+    // window and tokio refuses a queue past MAX_PERMITS. One rule for both windows: the delivery
+    // side could take MAX_PERMITS itself, and a second bound differing by one would only make a
+    // reader wonder which of the two was the mistake.
     let admits = |window: Option<usize>| {
-        window.is_none_or(|window| window > 0 && window <= Semaphore::MAX_PERMITS)
+        window.is_none_or(|window| window > 0 && window < Semaphore::MAX_PERMITS)
     };
     if !admits(settings.delivery_credits) || !admits(settings.max_sends_in_flight) {
         return None;
@@ -133,6 +137,22 @@ mod tests {
 
     #[test]
     fn a_window_past_what_a_semaphore_holds_is_refused_rather_than_panicked_on() {
+        // The boundary itself, which is where the queue built one deeper than the window lands
+        // on the value tokio asserts against. One less is the largest that can work.
+        let edge = Semaphore::MAX_PERMITS;
+        assert!(parse(
+            format!(r#"{{"endpoint":"http://h:1","max_sends_in_flight":{edge}}}"#).as_bytes()
+        )
+        .is_none());
+        assert!(parse(
+            format!(
+                r#"{{"endpoint":"http://h:1","max_sends_in_flight":{}}}"#,
+                edge - 1
+            )
+            .as_bytes()
+        )
+        .is_some());
+
         let past = Semaphore::MAX_PERMITS + 1;
         assert!(parse(
             format!(r#"{{"endpoint":"http://h:1","delivery_credits":{past}}}"#).as_bytes()
