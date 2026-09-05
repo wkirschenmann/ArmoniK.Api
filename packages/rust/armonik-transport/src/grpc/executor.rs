@@ -1,38 +1,17 @@
 use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
 
-pub type BoxedTask = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-pub trait Executor: Send + Sync + 'static {
-    fn spawn(&self, future: BoxedTask);
-}
-
+/// A `tokio` handle in the shape hyper wants for its HTTP/2 connection task.
+///
+/// Spawning on the handle rather than on the ambient runtime is the point: the caller names which
+/// runtime drives the engine, and for the C ABI that is a runtime the host never enters.
 #[derive(Clone, Debug)]
-pub struct TokioExecutor {
-    handle: tokio::runtime::Handle,
-}
+pub(crate) struct Spawner(pub(crate) tokio::runtime::Handle);
 
-impl TokioExecutor {
-    pub fn new(handle: tokio::runtime::Handle) -> Self {
-        Self { handle }
-    }
-}
-
-impl Executor for TokioExecutor {
-    fn spawn(&self, future: BoxedTask) {
-        self.handle.spawn(future);
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct HyperExecutor(pub(crate) Arc<dyn Executor>);
-
-impl<F> hyper::rt::Executor<F> for HyperExecutor
+impl<F> hyper::rt::Executor<F> for Spawner
 where
     F: Future<Output = ()> + Send + 'static,
 {
     fn execute(&self, future: F) {
-        self.0.spawn(Box::pin(future));
+        self.0.spawn(future);
     }
 }

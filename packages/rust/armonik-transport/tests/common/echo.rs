@@ -7,8 +7,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use armonik_transport::grpc::{
-    CallStartOptions, GrpcChannel, GrpcChannelConfig, GrpcStatus, GrpcStatusCode, Metadata,
-    RecvHalf, RecvResult, TokioExecutor,
+    CallStartOptions, GrpcChannel, GrpcChannelConfig, GrpcChannelConfigError, GrpcStatus,
+    GrpcStatusCode, Metadata, RecvHalf, RecvResult,
 };
 use armonik_transport::http2::TransportConfig;
 use armonik_transport::reexports::hyper;
@@ -42,11 +42,11 @@ pub fn channel(endpoint: &str) -> GrpcChannel {
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
     config.transport.connect_timeout = Duration::from_secs(5);
 
-    GrpcChannel::new(
-        config,
-        TokioExecutor::new(tokio::runtime::Handle::current()),
-    )
-    .expect("a plain endpoint and default options")
+    channel_with(config).expect("a plain endpoint and default options")
+}
+
+pub fn channel_with(config: GrpcChannelConfig) -> Result<GrpcChannel, GrpcChannelConfigError> {
+    GrpcChannel::new(config, tokio::runtime::Handle::current())
 }
 
 pub async fn unary(

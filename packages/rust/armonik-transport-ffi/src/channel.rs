@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use armonik_transport::grpc::{GrpcChannel, TokioExecutor};
+use armonik_transport::grpc::GrpcChannel;
 
 use crate::abi::{ak_channel_state, ak_handle, ak_status};
 use crate::config;
@@ -107,8 +107,7 @@ pub(crate) fn create(
     let delivery_credits = settings.delivery_credits();
     let max_sends_in_flight = settings.max_sends_in_flight();
 
-    let executor = TokioExecutor::new(spawner.clone());
-    let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), executor)
+    let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), spawner.clone())
         .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
 
     Ok(tables::channels()

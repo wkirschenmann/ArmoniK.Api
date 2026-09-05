@@ -12,7 +12,7 @@ use crate::http2::{TransportConfig, TransportConnector};
 use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
 use super::driver;
 use super::error::ChannelError;
-use super::executor::{Executor, HyperExecutor};
+use super::executor::Spawner;
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
 
@@ -50,7 +50,7 @@ pub struct GrpcChannel {
 impl GrpcChannel {
     pub fn new(
         config: GrpcChannelConfig,
-        executor: impl Executor,
+        spawner: tokio::runtime::Handle,
     ) -> Result<Self, GrpcChannelConfigError> {
         if config.max_sends_in_flight == 0 {
             return Err(GrpcChannelConfigError::ZeroSendWindow);
@@ -76,7 +76,7 @@ impl GrpcChannel {
             inner: Arc::new(Inner {
                 endpoint,
                 connector,
-                executor: Arc::new(executor),
+                spawner,
                 user_agent,
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
@@ -113,11 +113,9 @@ impl GrpcChannel {
         *request.uri_mut() = uri;
         *request.headers_mut() = headers;
 
-        self.inner.executor.spawn(Box::pin(driver::drive(
-            self.inner.clone(),
-            request,
-            driving,
-        )));
+        self.inner
+            .spawner
+            .spawn(driver::drive(self.inner.clone(), request, driving));
 
         Ok(grpc_call)
     }
@@ -128,9 +126,9 @@ impl GrpcChannel {
         }
 
         let inner = self.inner.clone();
-        self.inner.executor.spawn(Box::pin(async move {
+        self.inner.spawner.spawn(async move {
             inner.connection.lock().await.sender.take();
-        }));
+        });
     }
 }
 
@@ -158,7 +156,7 @@ fn engine_headers(user_agent: &HeaderValue) -> HeaderMap {
 pub(crate) struct Inner {
     endpoint: Uri,
     connector: TransportConnector,
-    executor: Arc<dyn Executor>,
+    spawner: tokio::runtime::Handle,
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
@@ -203,7 +201,7 @@ impl Inner {
         let dialled = crate::http2::open(
             &self.connector,
             &self.endpoint,
-            HyperExecutor(self.executor.clone()),
+            Spawner(self.spawner.clone()),
         )
         .await;
 
@@ -225,11 +223,11 @@ impl Inner {
         }
 
         let endpoint = self.endpoint.clone();
-        self.executor.spawn(Box::pin(async move {
+        self.spawner.spawn(async move {
             if let Err(error) = connection.await {
                 tracing::debug!(%endpoint, %error, "the HTTP/2 session ended");
             }
-        }));
+        });
 
         slot.sender = Some(sender.clone());
         Ok(sender)
@@ -281,9 +279,7 @@ mod tests {
                 "http://127.0.0.1:1234",
             )))
             .expect("a plain endpoint"),
-            executor: Arc::new(super::super::executor::TokioExecutor::new(
-                tokio::runtime::Handle::try_current().expect("a runtime"),
-            )),
+            spawner: tokio::runtime::Handle::try_current().expect("a runtime"),
             user_agent: HeaderValue::from_static("test"),
             max_sends_in_flight: 1,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,

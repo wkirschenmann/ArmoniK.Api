@@ -1,8 +1,7 @@
 mod common;
 
 use armonik_transport::grpc::{
-    CallError, CallStartOptions, ChannelError, GrpcChannel, GrpcChannelConfig, GrpcStatusCode,
-    MetadataValue, TokioExecutor,
+    CallError, CallStartOptions, ChannelError, GrpcChannelConfig, GrpcStatusCode, MetadataValue,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use bytes::Bytes;
@@ -261,11 +260,7 @@ async fn callers_waiting_on_one_dial_share_its_failure() {
     transport.connect_timeout = budget;
     let mut config = GrpcChannelConfig::new(transport);
     config.user_agent = Some("test".to_owned());
-    let channel = GrpcChannel::new(
-        config,
-        TokioExecutor::new(tokio::runtime::Handle::current()),
-    )
-    .expect("a plain endpoint and default options");
+    let channel = common::echo::channel_with(config).expect("a plain endpoint and default options");
 
     let alone = std::time::Instant::now();
     channel
@@ -337,11 +332,8 @@ async fn an_https_endpoint_is_refused_rather_than_dialled_in_the_clear() {
         "https://127.0.0.1:443",
     )));
 
-    let error = GrpcChannel::new(
-        config,
-        TokioExecutor::new(tokio::runtime::Handle::current()),
-    )
-    .expect_err("this connector speaks plain HTTP and says so");
+    let error = common::echo::channel_with(config)
+        .expect_err("this connector speaks plain HTTP and says so");
     assert!(error.to_string().contains("https://"), "{error}");
 }
 
@@ -351,11 +343,7 @@ async fn a_send_window_of_nothing_is_refused() {
         GrpcChannelConfig::new(TransportConfig::new(Uri::from_static("http://127.0.0.1:1")));
     config.max_sends_in_flight = 0;
 
-    GrpcChannel::new(
-        config,
-        TokioExecutor::new(tokio::runtime::Handle::current()),
-    )
-    .expect_err("a window of zero would let a call send nothing");
+    common::echo::channel_with(config).expect_err("a window of zero would let a call send nothing");
 }
 
 #[tokio::test]
@@ -418,11 +406,7 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
     config.max_recv_message_size = 8 * 1024 * 1024;
-    let roomy = GrpcChannel::new(
-        config,
-        TokioExecutor::new(tokio::runtime::Handle::current()),
-    )
-    .expect("a plain endpoint");
+    let roomy = common::echo::channel_with(config).expect("a plain endpoint");
 
     let (_, messages, status) = unary(&roomy, CallStartOptions::new(ECHO), payload).await;
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");

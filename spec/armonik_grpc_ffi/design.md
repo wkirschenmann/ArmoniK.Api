@@ -233,7 +233,7 @@ impl GrpcChannel {
     /// the one edge tying `grpc` to `config`.
     pub fn new(
         config: GrpcChannelConfig,
-        executor: impl Executor,
+        spawner: tokio::runtime::Handle,
     ) -> Result<Self, GrpcChannelConfigError>;
 
     /// Establishes the connection and reports how it went. Optional: the first
@@ -356,19 +356,21 @@ send_message + end_send + next_message + status; a server streaming does send_me
 end_send + next_message in a loop). The channel does not need to know it to drive the HTTP/2
 connection.
 
-### Executor trait
+### Which runtime drives the engine
 
-```rust
-pub trait Executor: Send + Sync + 'static {
-    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) -> TaskHandle;
-}
+The channel is handed a `tokio::runtime::Handle` and spawns on it. Naming the runtime rather
+than taking the ambient one is what the C ABI needs: the runtime that drives the engine is one
+the host never enters, and `tokio::spawn` would look for a context the calling thread does not
+have.
 
-/// Handle to a spawned task. Allows cancellation.
-pub struct TaskHandle { /* ... */ }
-impl TaskHandle {
-    pub fn cancel(&self);
-}
-```
+There is no executor trait. The engine is written against `tokio` throughout - `tokio::sync` for
+every channel and semaphore, `tokio::time` for the deadlines, `tokio::net` for the connector -
+so an abstraction over the spawner alone would name a portability the rest of the crate does not
+offer. A task handle for cancellation is not needed either: a task is stopped by its call being
+cancelled or its channel closed, both of which the task itself watches.
+
+The one adapter that remains is `Spawner`, which puts the handle in the shape
+`hyper::rt::Executor` asks for.
 
 ### Consumption by the Rust ArmoniK client
 
@@ -437,7 +439,7 @@ a task of its own in phase 5, alongside T5.2.
 
 ### Principles
 
-- The FFI runtime owns a Tokio runtime and uses it as Executor for the GrpcChannel
+- The FFI runtime owns a Tokio runtime and hands its handle to the GrpcChannel
 - Every spawned task is registered in a task group (joinable at shutdown)
 - Handles are `uint64_t` tokens validated in an internal registry, implemented
   as a slot map (index + generation, chained free list for O(1) allocation).

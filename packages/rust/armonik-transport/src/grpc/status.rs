@@ -218,7 +218,6 @@ mod tests {
         map
     }
 
-
     #[test]
     fn a_percent_escape_is_decoded_and_a_broken_one_is_kept() {
         assert_eq!(decode_message(b"plain"), "plain");
