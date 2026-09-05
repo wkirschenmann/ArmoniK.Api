@@ -17,12 +17,35 @@ pub(crate) struct AkRuntime {
     gate: RwLock<()>,
 }
 
-impl AkRuntime {
-    pub(crate) fn claim() -> bool {
+/// The process-wide claim on being the one runtime.
+///
+/// A guard rather than a pair of calls, because what happens between taking it and having a
+/// runtime to attach it to is not all under this crate's control: `AkRuntime::new` builds a tokio
+/// runtime, and tokio panics rather than answering when the OS refuses a worker thread. A claim
+/// taken by hand would survive that unwind still taken, and no runtime could be created again for
+/// the life of the process.
+pub(crate) struct Claim;
+
+impl Claim {
+    pub(crate) fn take() -> Option<Self> {
         LIVE.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+            .then_some(Claim)
     }
 
+    /// Handed to the runtime that is now in the table; `ak_runtime_destroy` gives it back.
+    pub(crate) fn keep(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        AkRuntime::relinquish();
+    }
+}
+
+impl AkRuntime {
     pub(crate) fn relinquish() {
         LIVE.store(false, Ordering::Release);
     }
@@ -113,5 +136,27 @@ impl AkRuntime {
         if let Some(tokio) = taken {
             tokio.shutdown_timeout(std::time::Duration::from_secs(5));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Nothing else in this crate's unit tests touches `LIVE`, so these run without a lock of
+    /// their own; an integration test would need `ak_runtime_destroy` to give the claim back.
+    #[test]
+    fn a_claim_not_kept_is_given_back_however_the_holder_leaves() {
+        let claim = Claim::take().expect("nothing holds it");
+        assert!(Claim::take().is_none(), "one runtime at a time");
+        drop(claim);
+
+        let again = Claim::take().expect("the drop gave it back");
+        again.keep();
+        assert!(Claim::take().is_none(), "a kept claim is held");
+
+        AkRuntime::relinquish();
+        Claim::take().expect("relinquish gives back what keep held");
+        AkRuntime::relinquish();
     }
 }

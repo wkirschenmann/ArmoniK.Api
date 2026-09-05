@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
 use crate::host::Host;
-use crate::runtime::AkRuntime;
+use crate::runtime::{AkRuntime, Claim};
 use crate::tables;
 
 pub(crate) fn create_runtime(
@@ -10,22 +10,15 @@ pub(crate) fn create_runtime(
     memory_ceiling: u64,
     host: Host,
 ) -> Result<ak_handle, ak_status> {
-    if !AkRuntime::claim() {
-        return Err(ak_status::AK_STATUS_INVALID_STATE);
-    }
-    match AkRuntime::new(worker_threads, memory_ceiling, host) {
-        Err(status) => {
-            AkRuntime::relinquish();
-            Err(status)
-        }
-        Ok(runtime) => match tables::runtimes().insert(runtime) {
-            Some(handle) => Ok(handle),
-            None => {
-                AkRuntime::relinquish();
-                Err(ak_status::AK_STATUS_INTERNAL)
-            }
-        },
-    }
+    let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
+    let runtime = AkRuntime::new(worker_threads, memory_ceiling, host)?;
+    let handle = tables::runtimes()
+        .insert(runtime)
+        .ok_or(ak_status::AK_STATUS_INTERNAL)?;
+
+    // Every exit above drops the claim; from here the runtime in the table owns it.
+    claim.keep();
+    Ok(handle)
 }
 
 pub(crate) fn destroy_runtime(handle: ak_handle) -> ak_status {
@@ -36,10 +29,17 @@ pub(crate) fn destroy_runtime(handle: ak_handle) -> ak_status {
         return ak_status::AK_STATUS_INVALID_STATE;
     }
 
+    // The remove is what picks one caller of two, and it has to come first. QUIESCENT is final, so
+    // the check above stays true for both; a second destroy that reached the drains would take the
+    // calls and channels of whatever runtime was created after the first one finished, and would
+    // relinquish a claim it does not hold.
+    if tables::runtimes().remove(handle).is_none() {
+        return ak_status::AK_STATUS_HANDLE_STALE;
+    }
+
     tables::calls().drain();
     tables::channels().drain();
     found.release_threads();
-    tables::runtimes().remove(handle);
     AkRuntime::relinquish();
     ak_status::AK_STATUS_OK
 }
