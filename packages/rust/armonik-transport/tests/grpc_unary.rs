@@ -436,3 +436,22 @@ async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
     assert!(status.message.contains("grpc-status"), "{status}");
     assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
 }
+
+#[tokio::test]
+async fn a_call_outlives_the_channel_handle_it_was_started_on() {
+    let server = TestServer::start().await;
+
+    // The channel is a temporary: it is dropped at the end of this statement, and the driver is
+    // then the only thing holding the call together. Dropping a handle is not closing a channel.
+    let (mut send, mut recv, _control) = channel(&server.endpoint)
+        .start_call(CallStartOptions::new(ECHO))
+        .expect("the call starts")
+        .split();
+
+    let _ = send.send_message(Bytes::from_static(b"x")).await;
+    let _ = send.end_send().await;
+
+    let (_, messages, status) = read_to_terminal(&mut recv).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages, vec![Bytes::from_static(b"x")]);
+}

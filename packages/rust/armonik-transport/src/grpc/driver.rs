@@ -48,7 +48,10 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
         control,
     } = driving;
 
-    let status = run(inner, request, &mut stop, &mut delivery).await;
+    // Held for the whole call, not released after the head. `Inner` owns the `closed` sender,
+    // and a watch receiver whose senders are all gone answers like one that was told to close - so
+    // a driver that let go of it would read a dropped channel handle as a cancellation.
+    let status = run(&inner, request, &mut stop, &mut delivery).await;
 
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.
@@ -117,7 +120,7 @@ impl Delivery {
 }
 
 async fn run(
-    inner: Arc<Inner>,
+    inner: &Arc<Inner>,
     request: Request<RequestBody>,
     stop: &mut Stop,
     delivery: &mut Delivery,
@@ -143,7 +146,6 @@ async fn run(
     delivery.head(metadata);
 
     let mut deframer = Deframer::new(inner.max_recv_message_size());
-    drop(inner);
     loop {
         if let Err(status) = deliver_ready(&mut deframer, stop, delivery).await {
             return status;
