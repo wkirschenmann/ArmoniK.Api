@@ -92,7 +92,8 @@ impl SendHalf {
 #[derive(Debug)]
 pub struct RecvHalf {
     head: Head,
-    messages: mpsc::Receiver<RecvResult>,
+    messages: mpsc::Receiver<OwnedMessage>,
+    terminal: oneshot::Receiver<GrpcStatus>,
     control: CallControl,
     ended: Option<CallError>,
 }
@@ -119,13 +120,20 @@ impl RecvHalf {
         if let Some(ended) = &self.ended {
             return Err(ended.clone());
         }
-        match self.messages.recv().await {
-            Some(RecvResult::End(status)) => {
+        // The queue first, to its end, and only then the terminal: what the driver put in the
+        // queue before it published the status is still the call's, and a status read early would
+        // drop it.
+        if let Some(message) = self.messages.recv().await {
+            return Ok(RecvResult::Message(message));
+        }
+        match (&mut self.terminal).await {
+            Ok(status) => {
                 self.ended = Some(CallError::Ended);
                 Ok(RecvResult::End(status))
             }
-            Some(message) => Ok(message),
-            None => {
+            // The driver task went away without publishing one, which is not something it does on
+            // any path of its own: it was dropped with the runtime.
+            Err(_) => {
                 self.ended = Some(CallError::Aborted);
                 Err(CallError::Aborted)
             }
@@ -177,6 +185,7 @@ pub(crate) fn create(
     // One, because the reader is what paces the peer: anything deeper reads ahead of a consumer
     // that has not asked, and the message sits in memory this side has not accounted for.
     let (recv_tx, recv_rx) = mpsc::channel(1);
+    let (terminal_tx, terminal_rx) = oneshot::channel();
     let (over_tx, over_rx) = watch::channel(false);
 
     let control = CallControl {
@@ -190,12 +199,20 @@ pub(crate) fn create(
         recv: RecvHalf {
             head: Head::Pending(head_rx),
             messages: recv_rx,
+            terminal: terminal_rx,
             control: control.clone(),
             ended: None,
         },
         control: control.clone(),
     };
-    let driving = Driving::new(over_rx, channel_closed, head_tx, recv_tx, control);
+    let driving = Driving::new(
+        over_rx,
+        channel_closed,
+        head_tx,
+        recv_tx,
+        terminal_tx,
+        control,
+    );
 
     (
         call,
