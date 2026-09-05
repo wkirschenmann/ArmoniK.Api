@@ -411,6 +411,12 @@ target/
 build/
 .venv-doc
 
+# ... except this one, which is not an artifact: it is what a .NET Framework consumer imports to
+# get the engine copied beside its application, and it is packed from the source tree. The
+# directory has to be re-included before the file, or the file is never looked at.
+!packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/build/
+!packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/build/**
+
 
 # TLA files
 **/.tlacache/
