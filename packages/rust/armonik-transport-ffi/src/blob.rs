@@ -1,5 +1,5 @@
 use armonik_transport::grpc::{Metadata, MetadataValue, BINARY_SUFFIX};
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 
 type Pairs<'a> = Vec<(&'a [u8], &'a [u8])>;
 
@@ -86,12 +86,7 @@ fn push_chunk(out: &mut Vec<u8>, chunk: &[u8]) {
 }
 
 fn read_u32(cursor: &mut &[u8]) -> Result<u32, BlobError> {
-    if cursor.len() < 4 {
-        return Err(BlobError::Truncated);
-    }
-    let (head, rest) = cursor.split_at(4);
-    *cursor = rest;
-    Ok(u32::from_ne_bytes([head[0], head[1], head[2], head[3]]))
+    cursor.try_get_u32_ne().map_err(|_| BlobError::Truncated)
 }
 
 fn read_chunk<'a>(cursor: &mut &'a [u8]) -> Result<&'a [u8], BlobError> {

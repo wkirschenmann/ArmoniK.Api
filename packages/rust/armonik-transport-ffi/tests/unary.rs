@@ -49,21 +49,11 @@ impl Host {
     fn with_ceiling(memory_ceiling: u64) -> Self {
         let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
         let mut recorder = Box::new(Recorder::default());
-        let config = ak_runtime_config {
-            struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
-            worker_threads: 2,
+        let (status, runtime) = try_create_runtime(
+            2,
             memory_ceiling,
-        };
-        let mut runtime = AK_HANDLE_NONE;
-
-        let status = unsafe {
-            ak_runtime_create(
-                &config,
-                Some(support::on_event),
-                recorder.as_mut() as *mut Recorder as *mut c_void,
-                &mut runtime,
-            )
-        };
+            recorder.as_mut() as *mut Recorder as *mut c_void,
+        );
         assert_eq!(status, ak_status::AK_STATUS_OK);
         assert_eq!(
             ak_runtime_status(runtime),
@@ -166,21 +156,7 @@ fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
 fn a_second_runtime_is_refused_while_the_first_is_alive() {
     let host = Host::start();
 
-    let config = ak_runtime_config {
-        struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
-        worker_threads: 1,
-        memory_ceiling: 0,
-    };
-    let mut second = AK_HANDLE_NONE;
-
-    let status = unsafe {
-        ak_runtime_create(
-            &config,
-            Some(support::on_event),
-            std::ptr::null_mut(),
-            &mut second,
-        )
-    };
+    let (status, second) = try_create_runtime(1, 0, std::ptr::null_mut());
 
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
     assert_eq!(second, AK_HANDLE_NONE, "a refusal leaves *out as it was");
@@ -215,11 +191,7 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
         || format!("the channel is {:?}", ak_channel_status(channel)),
     );
 
-    let mut debt = ak_call_debt::default();
-    assert_eq!(
-        unsafe { ak_call_debt_of(call, &mut debt) },
-        ak_status::AK_STATUS_OK
-    );
+    let debt = debt_of(call);
     assert!(
         debt.payloads_owed > 0,
         "the channel closed with nothing outstanding, so this proves nothing: {debt:?}"
@@ -308,6 +280,40 @@ fn send_one(call: ak_handle, message: &[u8]) {
         ak_status::AK_STATUS_OK
     );
     assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
+}
+
+fn try_create_runtime(
+    worker_threads: u32,
+    memory_ceiling: u64,
+    runtime_ctx: *mut c_void,
+) -> (ak_status, ak_handle) {
+    let config = ak_runtime_config {
+        struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
+        worker_threads,
+        memory_ceiling,
+    };
+    let mut runtime = AK_HANDLE_NONE;
+    let status =
+        unsafe { ak_runtime_create(&config, Some(support::on_event), runtime_ctx, &mut runtime) };
+    (status, runtime)
+}
+
+fn debt_of(call: ak_handle) -> ak_call_debt {
+    let mut debt = ak_call_debt::default();
+    assert_eq!(
+        unsafe { ak_call_debt_of(call, &mut debt) },
+        ak_status::AK_STATUS_OK
+    );
+    debt
+}
+
+fn memory_usage(runtime: ak_handle) -> ak_memory_usage {
+    let mut usage = ak_memory_usage::default();
+    assert_eq!(
+        unsafe { ak_runtime_memory_usage(runtime, &mut usage) },
+        ak_status::AK_STATUS_OK
+    );
+    usage
 }
 
 fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_status, ak_handle) {
@@ -455,12 +461,8 @@ fn a_call_reports_what_the_host_owes_it() {
     host.recorder.hold_payloads();
     let call = start_call(channel, SLOW, &[]);
 
-    let mut debt = ak_call_debt::default();
     let (_, buffer) = lend(call, 8);
-    assert_eq!(
-        unsafe { ak_call_debt_of(call, &mut debt) },
-        ak_status::AK_STATUS_OK
-    );
+    let debt = debt_of(call);
     assert_eq!(debt.buffers_lent, 1);
     assert_eq!(debt.terminal_delivered, 0);
 
@@ -468,7 +470,7 @@ fn a_call_reports_what_the_host_owes_it() {
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
 
-    unsafe { ak_call_debt_of(call, &mut debt) };
+    let debt = debt_of(call);
     assert_eq!(debt.buffers_lent, 0);
     assert_eq!(debt.terminal_delivered, 1);
     assert!(
@@ -490,11 +492,7 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
 
     let (status, buffer) = lend(call, 40);
     assert_eq!(status, ak_status::AK_STATUS_OK);
-    let mut usage = ak_memory_usage::default();
-    assert_eq!(
-        unsafe { ak_runtime_memory_usage(host.runtime, &mut usage) },
-        ak_status::AK_STATUS_OK
-    );
+    let usage = memory_usage(host.runtime);
     assert_eq!(
         usage,
         ak_memory_usage {
@@ -504,7 +502,7 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
     );
 
     unsafe { ak_return_call_buffer(buffer) };
-    unsafe { ak_runtime_memory_usage(host.runtime, &mut usage) };
+    let usage = memory_usage(host.runtime);
     assert_eq!(usage.bytes_used, 0);
 
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
