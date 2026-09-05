@@ -108,11 +108,28 @@ impl CallState {
         if self.debt.buffers.load(Ordering::Acquire) > 0 {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
+        // The gRPC length prefix is four bytes, so a longer message has nowhere to go. Refused
+        // here rather than at the send, where the engine's refusal is swallowed behind a WRITE_DONE
+        // and the host is told a message it never sent has left.
+        if u32::try_from(len).is_err() {
+            return Err(ak_status::AK_STATUS_MESSAGE_TOO_LARGE);
+        }
         self.ledger.could_ever_fit(len)?;
         let Ok(slot) = self.window.try_acquire() else {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);
         };
         self.ledger.hold_bytes(len)?;
+
+        // The arena before anything is spent: a refusal that left the ledger charged, the permit
+        // forgotten and the debt raised would be a call that never settles and a runtime that never
+        // reaches QUIESCENT, so `ak_runtime_destroy` would be refused for the life of the process.
+        let data = match arena(len) {
+            Ok(data) => data,
+            Err(status) => {
+                self.ledger.release_bytes(len);
+                return Err(status);
+            }
+        };
 
         // Forgotten, not dropped: the permit is spent for as long as the host holds the buffer, and
         // it is the WRITE_DONE that gives it back once the message has left.
@@ -123,7 +140,7 @@ impl CallState {
         let mut lent = Box::new(Lent {
             tag: LENT_TAG,
             call: Arc::downgrade(self),
-            data: arena(len)?,
+            data,
         });
         let ptr = lent.data.as_mut_ptr();
         Ok(ak_buffer {

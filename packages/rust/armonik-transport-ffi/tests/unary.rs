@@ -440,6 +440,33 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
 }
 
 #[test]
+fn a_length_no_frame_can_carry_is_refused_and_charges_nothing() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    let call = start_call(channel, SLOW, &[]);
+
+    // Past the four-byte gRPC length prefix, and past what any allocator would answer.
+    assert_eq!(
+        lend(call, usize::MAX).0,
+        ak_status::AK_STATUS_MESSAGE_TOO_LARGE
+    );
+
+    // A refusal that charged the ledger or spent the window permit would leave the call unable to
+    // settle and the runtime unable to quiesce, so the failure would arrive as a destroy that never
+    // succeeds rather than as the refusal it is.
+    assert_eq!(memory_usage(host.runtime).bytes_used, 0);
+    assert_eq!(debt_of(call).buffers_lent, 0);
+
+    let (status, buffer) = lend(call, 8);
+    assert_eq!(status, ak_status::AK_STATUS_OK, "the window is intact");
+    unsafe { ak_return_call_buffer(buffer) };
+
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    host.recorder.await_terminal();
+    fixture.close();
+}
+
+#[test]
 fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
