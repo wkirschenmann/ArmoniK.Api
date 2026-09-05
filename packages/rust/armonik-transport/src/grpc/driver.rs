@@ -49,6 +49,9 @@ pub(crate) async fn drive(inner: Arc<Inner>, request: Request<RequestBody>, driv
     } = driving;
 
     let status = run(inner, request, &mut stop, &mut delivery).await;
+
+    // Before the terminal, not after: a send admitted between the two would be queued for a driver
+    // that has stopped, and the caller would be told it was sent.
     control.cancel();
     delivery.end(&mut stop, status).await;
 }
@@ -75,6 +78,7 @@ impl Stop {
     }
 }
 
+/// The work, unless the call or its channel is already over - which wins when both are ready.
 async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Option<T> {
     tokio::select! {
         biased;

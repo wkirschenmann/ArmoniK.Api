@@ -75,6 +75,8 @@ impl SendHalf {
             Err(mpsc::error::TrySendError::Full(framed)) => framed,
         };
 
+        // Biased, so a call that ended while this send waited for room answers `Ended` rather than
+        // queueing into a channel the driver has stopped reading.
         tokio::select! {
             biased;
             _ = over.wait_for(|over| *over) => Err(CallError::Ended),
@@ -172,6 +174,8 @@ pub(crate) fn create(
 ) -> (GrpcCall, RequestBody, Driving) {
     let (message_tx, message_rx) = mpsc::channel(send_window);
     let (head_tx, head_rx) = oneshot::channel();
+    // One, because the reader is what paces the peer: anything deeper reads ahead of a consumer
+    // that has not asked, and the message sits in memory this side has not accounted for.
     let (recv_tx, recv_rx) = mpsc::channel(1);
     let (over_tx, over_rx) = watch::channel(false);
 

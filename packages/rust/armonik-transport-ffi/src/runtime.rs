@@ -90,11 +90,16 @@ impl AkRuntime {
             .is_ok()
     }
 
+    /// A pass that lasts as long as the caller holds it, which is what makes the shutdown below
+    /// wait rather than race: the state is read under the read lock, so a shutdown that has not
+    /// taken the write lock yet cannot have changed it.
     pub(crate) fn pass_the_gate(&self) -> Option<RwLockReadGuard<'_, ()>> {
         let pass = self.gate.read().unwrap_or_else(PoisonError::into_inner);
         (self.state() == ak_runtime_state::AK_RUNTIME_RUNNING).then_some(pass)
     }
 
+    /// Taken and dropped for the wait alone: once this returns, every pass handed out before the
+    /// state changed has been given back.
     pub(crate) fn close_the_gate(&self) {
         drop(self.gate.write().unwrap_or_else(PoisonError::into_inner));
     }

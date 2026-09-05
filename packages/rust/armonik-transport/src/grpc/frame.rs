@@ -7,8 +7,10 @@ use snafu::Snafu;
 use super::error::CallError;
 use super::status::{GrpcStatus, GrpcStatusCode};
 
+/// The gRPC message header: one flag byte, then a four-byte big-endian length.
 const HEADER_LEN: usize = 5;
 
+/// The flag value gRPC gives a message no `grpc-encoding` applies to.
 const UNCOMPRESSED: u8 = 0;
 
 pub(crate) fn frame(payload: Bytes) -> Result<Chain<Bytes, Bytes>, CallError> {

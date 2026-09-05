@@ -63,6 +63,8 @@ impl<T> Registry<T> {
 
         let index = match held.free.pop() {
             Some(index) => {
+                // Never zero: that generation is what `AK_HANDLE_NONE` carries, so a wrap onto it
+                // would make a live handle indistinguishable from no handle at all.
                 held.slots[index].generation = held.slots[index].generation.wrapping_add(1).max(1);
                 index
             }

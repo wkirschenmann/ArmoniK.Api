@@ -7,6 +7,7 @@ use std::ffi::c_void;
 use armonik_transport_ffi::*;
 use support::{blob, empty_buffer, Recorder, TestServer, ECHO, FAIL, SLOW};
 
+/// gRPC's code, which is what the ABI carries in `status_code`.
 const CANCELLED: i32 = 1;
 
 struct Connected {
@@ -349,6 +350,8 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
 
     let seen = host.recorder.await_terminal();
 
+    // The order the header promises for every call, head first and terminal last, which is what
+    // lets a host size its ring and know when it is done without inspecting what it holds.
     assert_eq!(
         seen.data_kinds(),
         vec![
@@ -399,6 +402,8 @@ fn a_refused_method_comes_back_as_its_status_behind_a_synthesized_metadata_event
         ak_event_kind::AK_EVENT_INITIAL_METADATA
     );
     assert!(seen.initial_metadata().is_empty());
+    // Every data event is given back through `ak_event_consumed`, empty ones included: a payload
+    // without an owner would be one the host cannot return and the runtime would wait for.
     assert!(seen.first_data_event_was_owned(), "empty is not unowned");
     assert_eq!(seen.status_code(), Some(7), "PERMISSION_DENIED");
     assert_eq!(seen.status_message(), "not for you");

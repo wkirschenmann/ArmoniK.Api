@@ -103,6 +103,8 @@ impl CallState {
         if !self.accepts_work() {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
+        // One buffer at a time per call, whatever the send window admits: the host names a buffer
+        // by its pointer, so two out at once would be two the ABI cannot tell apart.
         if self.debt.buffers.load(Ordering::Acquire) > 0 {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
@@ -111,6 +113,9 @@ impl CallState {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);
         };
         self.ledger.hold_bytes(len)?;
+
+        // Forgotten, not dropped: the permit is spent for as long as the host holds the buffer, and
+        // it is the WRITE_DONE that gives it back once the message has left.
         slot.forget();
 
         self.debt.buffers.fetch_add(1, Ordering::AcqRel);
@@ -204,6 +209,9 @@ impl CallState {
     }
 }
 
+// Written into the boxes the host is given a pointer to, and checked before either is read back:
+// what comes back over the ABI is whatever the host passed, and the tag is all that tells a buffer
+// from a payload, or either from a pointer this library never handed out.
 const LENT_TAG: u64 = 0x414b_5f4c_454e_5400;
 const PAYLOAD_TAG: u64 = 0x414b_5f50_4159_4c00;
 
@@ -359,6 +367,8 @@ async fn writer(
                 if let Some(half) = send.as_mut() {
                     let _ = half.send_message(bytes).await;
                 }
+                // Given back inside the callback, so a host that lends again on WRITE_DONE finds the
+                // room the message it just sent freed rather than a refusal it cannot explain.
                 state.in_callback(|| {
                     state.window.add_permits(1);
                     state.ledger.release_bytes(charged);
@@ -420,6 +430,7 @@ async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: onesh
                 &status.message,
                 &status.trailing_metadata,
             )),
+            // The terminal was never charged a delivery credit, so consuming it returns none.
             false,
         );
         state.in_callback(|| {
@@ -452,6 +463,8 @@ async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes) -> bo
         permit = state.credits.acquire() => permit,
         () = wait_for_cancel(state) => return false,
     };
+    // Forgotten like the send window's: the credit is spent until the host consumes the payload,
+    // and `ak_event_consumed` is what gives it back.
     match permit {
         Ok(permit) => permit.forget(),
         Err(_) => return false,

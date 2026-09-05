@@ -16,6 +16,8 @@ use super::executor::{Executor, HyperExecutor};
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
 
+/// Advertised as the only encoding because this engine decompresses nothing: a peer that reads
+/// `grpc-accept-encoding` then sends what can be read rather than a body that cannot.
 const ACCEPTED_ENCODING: &str = "identity";
 
 const DEFAULT_MAX_RECV_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
@@ -177,6 +179,8 @@ impl Inner {
     }
 
     pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, ChannelError> {
+        // Read before the lock, compared after: whoever held it may have dialled and failed while
+        // this caller waited, and the failure is theirs to report rather than a second dial's.
         let asked_at = self.attempts.load(Ordering::Acquire);
 
         let mut slot = self.connection.lock().await;

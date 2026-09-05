@@ -6,6 +6,8 @@ use armonik_transport::reexports::http::Uri;
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 
+// What a configuration that names neither gets. One each, because the header promises a host that
+// asks for nothing a channel it can drive without ever holding two of anything.
 const MAX_SENDS_IN_FLIGHT: usize = 1;
 const DELIVERY_CREDITS: usize = 1;
 

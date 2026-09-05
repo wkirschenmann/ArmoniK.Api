@@ -1,3 +1,9 @@
+//! The C ABI's types, as Rust sees them.
+//!
+//! Every discriminant, field order and size here is `include/armonik_transport_ffi.h`. Nothing in
+//! this file may be changed without changing that header and `ak_abi_version` with it: a binding
+//! built against the old header would keep loading, and read the wrong bytes.
+
 use std::ffi::c_void;
 
 use armonik_transport::grpc::ChannelError;

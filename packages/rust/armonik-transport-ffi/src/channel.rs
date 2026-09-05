@@ -33,6 +33,9 @@ impl AkChannel {
         parts(self.state.load(Ordering::Acquire)).0
     }
 
+    /// Compare-and-swap rather than a load and an add, because the state and the count share the
+    /// word: a channel that begins closing between the two takes no further call, which is what
+    /// lets `start_closing` decide on the count it just read.
     pub(crate) fn join(&self) -> Result<(), ak_status> {
         let mut seen = self.state.load(Ordering::Acquire);
         loop {

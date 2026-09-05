@@ -73,6 +73,9 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
             ak_host_debt::AK_HOST_MUST_RETURN
         };
 
+        // Two signals, because the host may still hold payloads and buffers when the gRPC side
+        // stops: this one says whether it does, and RESOURCES_RELEASED below says it has given
+        // them all back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
         host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
         reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
 

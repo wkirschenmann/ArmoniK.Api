@@ -10,6 +10,8 @@ const BINARY_IN: GeneralPurpose = GeneralPurpose::new(
     &alphabet::STANDARD,
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
+/// gRPC writes binary metadata unpadded and asks receivers to accept it either way, which is why
+/// only this half sets `with_encode_padding(false)`.
 const BINARY_OUT: GeneralPurpose = GeneralPurpose::new(
     &alphabet::STANDARD,
     GeneralPurposeConfig::new()
