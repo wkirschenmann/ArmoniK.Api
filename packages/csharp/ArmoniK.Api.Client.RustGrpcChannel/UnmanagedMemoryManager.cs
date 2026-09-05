@@ -44,8 +44,13 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
   }
 
   /// <summary>The one place an ABI length is narrowed to what .NET counts with.</summary>
+  ///
+  /// Checked, because the ABI counts in `size_t` and a span counts in `int`. A length past what a
+  /// span addresses is not a length this side can hold, and truncating it lands either on a
+  /// negative one - which `Span` refuses with nothing to say about why - or on a smaller positive
+  /// one, which is a short read of a payload nobody notices is short.
   internal static int Length(UIntPtr length)
-    => (int)length;
+    => checked((int)length);
 
   internal static Span<byte> Span(IntPtr start,
                                   UIntPtr length)
