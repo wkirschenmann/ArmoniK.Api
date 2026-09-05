@@ -23,10 +23,17 @@ using Grpc.Core;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
+/// <summary>A view of one delivered payload, for as long as the deserializer is running.</summary>
+///
+/// The bytes belong to the engine until `ak_event_consumed`, which the reader calls once the
+/// deserializer has returned. Nothing here copies them, so what a deserializer keeps a reference
+/// to it must have copied itself - which is what protobuf's parser does with every field it reads.
 internal sealed class ReceivedMessage : DeserializationContext
 {
   private readonly IntPtr start_;
   private readonly int length_;
+
+  private UnmanagedMemoryManager? view_;
 
   internal ReceivedMessage(in NativeMethods.AkBytes payload)
   {
@@ -39,6 +46,11 @@ internal sealed class ReceivedMessage : DeserializationContext
 
   public override byte[] PayloadAsNewBuffer()
   {
+    if (length_ == 0)
+    {
+      return Array.Empty<byte>();
+    }
+
     var bytes = new byte[length_];
     Marshal.Copy(start_,
                  bytes,
@@ -48,6 +60,17 @@ internal sealed class ReceivedMessage : DeserializationContext
   }
 
   public override ReadOnlySequence<byte> PayloadAsReadOnlySequence()
-    => new(new UnmanagedMemoryManager(start_,
-                                      length_).Memory);
+  {
+    if (length_ == 0)
+    {
+      return ReadOnlySequence<byte>.Empty;
+    }
+
+    // Kept, because a deserializer may ask more than once and the manager is the only thing this
+    // allocates. It is not disposed: the memory is the engine's, `Dispose` has nothing to do, and
+    // `DeserializationContext` gives the caller no moment at which to say so.
+    view_ ??= new UnmanagedMemoryManager(start_,
+                                         length_);
+    return new ReadOnlySequence<byte>(view_.Memory);
+  }
 }
