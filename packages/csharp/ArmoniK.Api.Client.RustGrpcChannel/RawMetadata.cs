@@ -15,8 +15,9 @@
 // limitations under the License.
 
 using System;
+using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Text;
 
 using Grpc.Core;
@@ -34,18 +35,26 @@ internal static class RawMetadata
       return Array.Empty<byte>();
     }
 
-    var chunks = new byte[metadata.Count * 2][];
+    // Sized, then written. Text is measured and later encoded straight into the answer, which
+    // walks it twice and allocates nothing; a binary value is taken once and kept, because
+    // `ValueBytes` answers with a fresh copy every time it is asked and asking twice would copy
+    // the value twice. Metadata is almost always text, and then this allocates once.
+    List<byte[]>? binaries = null;
     var size = 4;
-    var index = 0;
     foreach (var entry in metadata)
     {
-      var key = Encoding.UTF8.GetBytes(entry.Key);
-      var value = entry.IsBinary
-                    ? entry.ValueBytes
-                    : Encoding.UTF8.GetBytes(entry.Value);
-      chunks[index++] = key;
-      chunks[index++] = value;
-      size           += 8 + key.Length + value.Length;
+      size += 8 + Encoding.UTF8.GetByteCount(entry.Key);
+
+      if (entry.IsBinary)
+      {
+        var bytes = entry.ValueBytes;
+        (binaries ??= new List<byte[]>()).Add(bytes);
+        size += bytes.Length;
+      }
+      else
+      {
+        size += Encoding.UTF8.GetByteCount(entry.Value);
+      }
     }
 
     var raw = new byte[size];
@@ -53,11 +62,26 @@ internal static class RawMetadata
     Write(raw,
           ref at,
           (uint)metadata.Count);
-    foreach (var chunk in chunks)
+
+    var taken = 0;
+    foreach (var entry in metadata)
     {
-      WriteChunk(raw,
-                 ref at,
-                 chunk);
+      WriteText(raw,
+                ref at,
+                entry.Key);
+
+      if (entry.IsBinary)
+      {
+        WriteChunk(raw,
+                   ref at,
+                   binaries![taken++]);
+      }
+      else
+      {
+        WriteText(raw,
+                  ref at,
+                  entry.Value);
+      }
     }
 
     return raw;
@@ -114,14 +138,47 @@ internal static class RawMetadata
     trailers = Decode(payload);
   }
 
+  // Native order, which is what the header says these integers are in and what the engine
+  // writes. This blob crosses a process boundary and not a wire, so both sides read what the
+  // machine they share writes - fixing it to one endianness would make them disagree on the
+  // machine that has the other. `BitConverter.GetBytes` would say the same thing and allocate
+  // four bytes to say it, once per length written.
   private static void Write(byte[] into,
                             ref int at,
                             uint value)
   {
-    BitConverter.GetBytes(value)
-                .CopyTo(into,
-                        at);
+    var head = new Span<byte>(into,
+                              at,
+                              4);
+    if (BitConverter.IsLittleEndian)
+    {
+      BinaryPrimitives.WriteUInt32LittleEndian(head,
+                                               value);
+    }
+    else
+    {
+      BinaryPrimitives.WriteUInt32BigEndian(head,
+                                            value);
+    }
+
     at += 4;
+  }
+
+  private static void WriteText(byte[] into,
+                                ref int at,
+                                string value)
+  {
+    // Encoded over the four bytes its length will occupy, because the length is what the encoder
+    // answers and reserving it first would mean counting the value a third time.
+    var length = Encoding.UTF8.GetBytes(value,
+                                        0,
+                                        value.Length,
+                                        into,
+                                        at + 4);
+    Write(into,
+          ref at,
+          (uint)length);
+    at += length;
   }
 
   private static void WriteChunk(byte[] into,
@@ -138,7 +195,9 @@ internal static class RawMetadata
 
   private static uint Read(ref ReadOnlySpan<byte> from)
   {
-    var value = MemoryMarshal.Read<uint>(from);
+    var value = BitConverter.IsLittleEndian
+                  ? BinaryPrimitives.ReadUInt32LittleEndian(from)
+                  : BinaryPrimitives.ReadUInt32BigEndian(from);
     from = from.Slice(4);
     return value;
   }
