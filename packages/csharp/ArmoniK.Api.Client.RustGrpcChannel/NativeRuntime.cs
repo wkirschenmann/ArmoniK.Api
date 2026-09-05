@@ -159,20 +159,19 @@ internal sealed class NativeRuntime
       return;
     }
 
+    var taken = false;
     try
     {
       if (target is ICallSink call)
       {
-        call.Publish(@event->Kind,
-                     @event->Payload,
-                     @event->StatusCode);
+        taken = call.Publish(@event->Kind,
+                             @event->Payload,
+                             @event->StatusCode);
 
         if (@event->Kind == NativeMethods.AkEventKind.Status)
         {
           call.TerminalReturned();
         }
-
-        return;
       }
 
       // A runtime-level event carries no payload and nothing here waits on one: the state is
@@ -180,6 +179,17 @@ internal sealed class NativeRuntime
     }
     catch
     {
+    }
+    finally
+    {
+      // Anything the ring did not take is given back here: a root that no longer names a sink, a
+      // publish that threw before storing, an event of the runtime itself. What is owed and never
+      // returned is what the shutdown then waits for, forever. A payload the ring did take is the
+      // reader's to return, and returning it twice would free it under the reader.
+      if (!taken)
+      {
+        NativeMethods.ak_event_consumed(@event->Payload);
+      }
     }
   }
 }

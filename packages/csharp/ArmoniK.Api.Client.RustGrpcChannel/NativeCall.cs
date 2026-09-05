@@ -31,7 +31,8 @@ internal interface ICallSink
 
   void Cancel();
 
-  void Publish(NativeMethods.AkEventKind kind,
+  /// <summary>Answers whether returning the payload is now the consumer's obligation.</summary>
+  bool Publish(NativeMethods.AkEventKind kind,
                in NativeMethods.AkBytes payload,
                int statusCode);
 }
@@ -62,6 +63,10 @@ internal sealed class NativeCall<TResponse> : ICallSink
   }
 
   private int inFlight_;
+
+  private int holding_;
+
+  private readonly ArrivalSignal handedBack_ = new();
 
   private readonly Marshaller<TResponse> marshaller_;
   private readonly NativeRuntime runtime_;
@@ -166,24 +171,26 @@ internal sealed class NativeCall<TResponse> : ICallSink
     return call;
   }
 
-  public void Publish(NativeMethods.AkEventKind kind,
+  public bool Publish(NativeMethods.AkEventKind kind,
                       in NativeMethods.AkBytes payload,
                       int statusCode)
   {
     if (kind == NativeMethods.AkEventKind.WriteDone)
     {
       Interlocked.Decrement(ref inFlight_);
-      return;
+      return false;
     }
 
     var at = (int)(head_ & mask_);
     ring_[at].Payload = payload;
     ring_[at].Kind    = kind;
     ring_[at].Status  = statusCode;
+
+    // From this write the slot is the reader's, and so is giving the payload back.
     Volatile.Write(ref head_,
                    head_ + 1);
     arrived_.Set();
-
+    return true;
   }
 
   public void TerminalReturned()
@@ -214,6 +221,25 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
   private async Task SendingAsync<TRequest>(Marshaller<TRequest> marshaller,
                                             TRequest request)
+  {
+    Interlocked.Increment(ref holding_);
+    try
+    {
+      await HoldingABufferAsync(marshaller,
+                                request)
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      if (Interlocked.Decrement(ref holding_) == 0)
+      {
+        handedBack_.Set();
+      }
+    }
+  }
+
+  private async Task HoldingABufferAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                                   TRequest request)
   {
     using var lent = new LentBuffer(handle_);
     marshaller.ContextualSerializer(request,
@@ -264,6 +290,26 @@ internal sealed class NativeCall<TResponse> : ICallSink
   }
 
   private async Task<TResponse> RunAsync()
+  {
+    try
+    {
+      return await ReadAsync()
+               .ConfigureAwait(false);
+    }
+    finally
+    {
+      // A call that still holds a buffer is not settled, whatever its terminal says. The channel's
+      // drain waits on this task, so completing it early would let `ak_channel_release` and then
+      // the runtime's shutdown run while the engine is still owed what the serializer has.
+      while (Volatile.Read(ref holding_) != 0)
+      {
+        await handedBack_.WaitAsync()
+                         .ConfigureAwait(false);
+      }
+    }
+  }
+
+  private async Task<TResponse> ReadAsync()
   {
     TResponse? response = null;
     var seen = 0;
