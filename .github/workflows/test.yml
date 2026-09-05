@@ -357,6 +357,25 @@ jobs:
           path: ${{ matrix.projects }}/TestResults/test-results.trx
           reporter: dotnet-trx
 
+  # The engine ships for 32-bit, where a size_t is four bytes and every length bound is a
+  # different bound: the gRPC prefix admits twice what an allocation can hold, the deframer's
+  # header-plus-body can fail to fit an address. The matrix above runs on the host's width alone,
+  # so this is the only place those branches execute.
+  test-rust-32-bit:
+    name: Test the Rust engine on i686
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install the Rust target
+        run: rustup target add i686-pc-windows-msvc
+
+      - name: Test
+        working-directory: packages/rust
+        run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi
+
   # The binding ships netstandard2.0 and net8.0 and loads a native engine of one architecture, so
   # what has to be exercised is the pairing: three client runtimes against two architectures. Its
   # own job rather than a row in the matrix above, because it needs a Rust toolchain and an
