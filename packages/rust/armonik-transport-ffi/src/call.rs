@@ -69,7 +69,9 @@ pub(crate) struct CallState {
     over: watch::Sender<bool>,
     ended_sending: AtomicBool,
     handle: ak_handle,
-    channel: ak_handle,
+    // The channel itself, not its name: leaving it is not optional, and a name would make it
+    // conditional on a lookup whose failure the reader has no answer for.
+    channel: Arc<AkChannel>,
 }
 
 impl CallState {
@@ -77,8 +79,8 @@ impl CallState {
         self.debt.as_abi()
     }
 
-    pub(crate) fn belongs_to_channel(&self, channel: ak_handle) -> bool {
-        self.channel == channel
+    pub(crate) fn belongs_to_channel(&self, channel: &Arc<AkChannel>) -> bool {
+        Arc::ptr_eq(&self.channel, channel)
     }
 
     pub(crate) fn cancel(&self) {
@@ -312,7 +314,7 @@ fn lend_payload(call: &Arc<CallState>, data: Bytes, returns_credit: bool) -> ak_
 fn create(
     ctx: HostPtr,
     handle: ak_handle,
-    channel: ak_handle,
+    channel: Arc<AkChannel>,
     services: &CallServices<'_>,
     control: CallControl,
     max_sends_in_flight: usize,
@@ -459,7 +461,10 @@ async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: onesh
             );
             state.debt.terminal.store(true, Ordering::Release);
 
-            crate::lifecycle::call_reached_terminal(state.channel);
+            // Inside the callback, so the call has left its channel before it can report
+            // itself quiet - which is what `begin_shutdown` waits on for every call before the
+            // runtime is quiescent.
+            state.channel.leave();
         });
     }
 
@@ -501,7 +506,6 @@ async fn wait_for_cancel(state: &CallState) {
 
 pub(crate) fn start_on(
     channel: &Arc<AkChannel>,
-    channel_handle: ak_handle,
     services: &CallServices<'_>,
     method: &str,
     metadata: Metadata,
@@ -525,7 +529,7 @@ pub(crate) fn start_on(
         let (state, commands) = create(
             ctx,
             handle,
-            channel_handle,
+            Arc::clone(channel),
             services,
             control,
             channel.max_sends_in_flight,

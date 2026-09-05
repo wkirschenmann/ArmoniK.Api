@@ -12,7 +12,6 @@ const STATE_SHIFT: u32 = 32;
 pub(crate) struct AkChannel {
     pub(crate) grpc: GrpcChannel,
     pub(crate) runtime: ak_handle,
-    pub(crate) handle: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: usize,
     state: AtomicU64,
@@ -111,17 +110,12 @@ pub(crate) fn create(
         .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
 
     tables::channels()
-        .insert_with(|handle| {
-            let channel = AkChannel {
-                grpc,
-                runtime,
-                handle,
-                delivery_credits,
-                max_sends_in_flight,
-                state: AtomicU64::new(word(ak_channel_state::AK_CHANNEL_OPEN, 0)),
-            };
-            (Arc::new(channel), ())
-        })
-        .map(|(handle, ())| handle)
+        .insert(Arc::new(AkChannel {
+            grpc,
+            runtime,
+            delivery_credits,
+            max_sends_in_flight,
+            state: AtomicU64::new(word(ak_channel_state::AK_CHANNEL_OPEN, 0)),
+        }))
         .ok_or(ak_status::AK_STATUS_INTERNAL)
 }

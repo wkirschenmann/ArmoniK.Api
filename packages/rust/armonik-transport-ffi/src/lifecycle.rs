@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
+use crate::channel::AkChannel;
 use crate::host::Host;
 use crate::runtime::{AkRuntime, Claim};
 use crate::tables;
@@ -63,7 +64,7 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
         reached(AkRuntime::close_the_gate);
 
         for channel in tables::channels().values() {
-            release_channel(channel.handle);
+            close_channel(&channel);
         }
         let calls = tables::calls().values();
         for call in &calls {
@@ -97,25 +98,22 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
 }
 
 pub(crate) fn release_channel(handle: ak_handle) {
-    let Some(found) = tables::channels().get(handle) else {
-        return;
-    };
-    if !found.start_closing() {
+    if let Some(found) = tables::channels().get(handle) {
+        close_channel(&found);
+    }
+}
+
+fn close_channel(channel: &Arc<AkChannel>) {
+    if !channel.start_closing() {
         return;
     }
 
     for call in tables::calls().values() {
-        if call.belongs_to_channel(handle) {
+        if call.belongs_to_channel(channel) {
             call.cancel();
         }
     }
-    found.grpc.close();
-}
-
-pub(crate) fn call_reached_terminal(channel: ak_handle) {
-    if let Some(found) = tables::channels().get(channel) {
-        found.leave();
-    }
+    channel.grpc.close();
 }
 
 pub(crate) fn call_settled(call: ak_handle) {

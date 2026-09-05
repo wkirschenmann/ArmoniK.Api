@@ -214,7 +214,6 @@ pub unsafe extern "C" fn ak_call_start(
                 out,
                 call::start_on(
                     &found,
-                    channel,
                     &runtime.services(),
                     method,
                     metadata,
