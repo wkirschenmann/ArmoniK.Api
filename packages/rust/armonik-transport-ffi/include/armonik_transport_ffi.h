@@ -38,10 +38,11 @@ typedef enum {
     AK_STATUS_OK                = 0,
     AK_STATUS_HANDLE_STALE      = 1, /* the object is gone; the token names nothing */
     AK_STATUS_SLOT_BUSY         = 2, /* this call's send window is full - backpressure, not an
-                                        error; retry when a WRITE_DONE arrives. That acquittal is
-                                        sequenced after the send it settles has left, so it waits
-                                        on the peer opening its flow-control window - the wake-up
-                                        is promised, its timing is not */
+                                        error; retry when a WRITE_DONE arrives. That acquittal
+                                        says this library has taken the message and the host's
+                                        buffer is free; it says nothing about the peer, and does
+                                        not wait on one - the wake-up is promised, its timing is
+                                        not */
     AK_STATUS_INVALID_ARG       = 3, /* a null pointer, or a struct whose size prefix does not
                                         match any known version */
     AK_STATUS_INTERNAL          = 4, /* a fault the ABI cannot attribute */
