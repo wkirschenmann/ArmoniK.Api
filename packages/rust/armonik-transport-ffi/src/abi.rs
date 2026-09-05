@@ -189,6 +189,20 @@ impl From<ChannelError> for ak_status {
 
 pub const AK_ABI_VERSION: i32 = 1;
 
-pub(crate) fn known_size<T>(struct_size: u32) -> bool {
-    struct_size as usize == std::mem::size_of::<T>()
+/// Reads an options struct, once its size prefix says the host built it with these fields.
+///
+/// The prefix first, and only then the rest. The header promises a struct of an unknown size is
+/// "refused rather than read", and a host built against a smaller definition of one is the case
+/// that promise exists for: copying `size_of::<T>()` bytes out of it before looking would read
+/// past the end of the caller's object.
+///
+/// `struct_size` at offset zero is what `tests/layout.rs` pins, which is what makes the cast to
+/// `u32` sound for any version of any of these structs.
+///
+/// # Safety
+///
+/// `at` must be non-null, aligned for `T`, and readable for a leading `u32`.
+pub(crate) unsafe fn read_versioned<T: Copy>(at: *const T) -> Option<T> {
+    let struct_size = unsafe { at.cast::<u32>().read() };
+    (struct_size as usize == std::mem::size_of::<T>()).then(|| unsafe { at.read() })
 }

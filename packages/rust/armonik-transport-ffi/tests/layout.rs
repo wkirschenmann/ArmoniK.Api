@@ -1,3 +1,4 @@
+use std::ffi::c_void;
 use std::mem::{align_of, offset_of, size_of};
 
 use armonik_transport_ffi::*;
@@ -92,6 +93,47 @@ fn the_header_and_the_library_agree_on_the_version() {
         header.contains(&declared),
         "the header does not say {declared}"
     );
+}
+
+/// Each entry point coerced to the signature the header declares for it, written out here so a
+/// parameter that changes type or moves is a compile error rather than nothing at all.
+///
+/// The list below only ever compared names: every function was cast to `*const ()`, which erases
+/// exactly what a host binds against.
+#[test]
+fn every_entry_point_has_the_signature_the_header_declares() {
+    let _: unsafe extern "C" fn(
+        *const ak_runtime_config,
+        Option<ak_callback>,
+        *mut c_void,
+        *mut ak_handle,
+    ) -> ak_status = ak_runtime_create;
+    let _: extern "C" fn(ak_handle) -> ak_runtime_state = ak_runtime_status;
+    let _: extern "C" fn(ak_handle) -> ak_status = ak_runtime_begin_shutdown;
+    let _: extern "C" fn(ak_handle) -> ak_status = ak_runtime_destroy;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_memory_usage) -> ak_status =
+        ak_runtime_memory_usage;
+
+    let _: unsafe extern "C" fn(ak_handle, ak_bytes_in, *mut ak_handle) -> ak_status =
+        ak_channel_create;
+    let _: extern "C" fn(ak_handle) = ak_channel_release;
+    let _: extern "C" fn(ak_handle) -> ak_channel_state = ak_channel_status;
+
+    let _: unsafe extern "C" fn(
+        ak_handle,
+        *const ak_call_start_options,
+        *mut c_void,
+        *mut ak_handle,
+    ) -> ak_status = ak_call_start;
+    let _: unsafe extern "C" fn(ak_handle, usize, *mut ak_buffer) -> ak_status = ak_get_call_buffer;
+    let _: unsafe extern "C" fn(ak_handle, ak_buffer) -> ak_status = ak_call_send_message;
+    let _: unsafe extern "C" fn(ak_buffer) = ak_return_call_buffer;
+    let _: extern "C" fn(ak_handle) -> ak_status = ak_call_end_send;
+    let _: extern "C" fn(ak_handle) -> ak_status = ak_call_cancel;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_call_debt) -> ak_status = ak_call_debt_of;
+
+    let _: extern "C" fn() -> i32 = ak_abi_version;
+    let _: unsafe extern "C" fn(ak_bytes) = ak_event_consumed;
 }
 
 #[test]

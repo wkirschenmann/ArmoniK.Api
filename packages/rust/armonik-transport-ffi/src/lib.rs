@@ -79,10 +79,9 @@ pub unsafe extern "C" fn ak_runtime_create(
         let (Some(callback), false, false) = (callback, config.is_null(), out.is_null()) else {
             return ak_status::AK_STATUS_INVALID_ARG;
         };
-        let config = unsafe { *config };
-        if !known_size::<ak_runtime_config>(config.struct_size) {
+        let Some(config) = (unsafe { read_versioned(config) }) else {
             return ak_status::AK_STATUS_INVALID_ARG;
-        }
+        };
 
         unsafe {
             hand_over(
@@ -182,10 +181,9 @@ pub unsafe extern "C" fn ak_call_start(
         if options.is_null() || out.is_null() {
             return ak_status::AK_STATUS_INVALID_ARG;
         }
-        let options = unsafe { *options };
-        if !known_size::<ak_call_start_options>(options.struct_size) {
+        let Some(options) = (unsafe { read_versioned(options) }) else {
             return ak_status::AK_STATUS_INVALID_ARG;
-        }
+        };
 
         let Some(found) = tables::channels().get(channel) else {
             return ak_status::AK_STATUS_HANDLE_STALE;
