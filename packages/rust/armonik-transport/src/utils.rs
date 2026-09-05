@@ -3,6 +3,14 @@
 
 use snafu::Snafu;
 
+/// An error and its causes, rendered into one line.
+pub(crate) fn chain(error: &(dyn std::error::Error + 'static), separator: &str) -> String {
+    snafu::ChainCompat::new(error)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
 pub(crate) fn read_env(name: &str) -> Result<String, ReadEnvError> {
     match std::env::var(name) {
         Ok(value) => Ok(value),

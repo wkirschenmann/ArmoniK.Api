@@ -552,14 +552,7 @@ mod tests {
     /// Every message in the chain, joined. snafu keeps the detail in the source, so asserting on the
     /// outermost `Display` alone would pass whatever the cause turned out to be.
     fn chain(error: &ConfigError) -> String {
-        let mut rendered = error.to_string();
-        let mut source = std::error::Error::source(error);
-        while let Some(cause) = source {
-            rendered.push_str(" | ");
-            rendered.push_str(&cause.to_string());
-            source = cause.source();
-        }
-        rendered
+        crate::utils::chain(error, " | ")
     }
 
     #[test]

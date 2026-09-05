@@ -244,14 +244,7 @@ mod tests {
 
     /// Every message in the chain, joined: the option name is in the cause, not the outermost message.
     fn chain(error: &ConnectionError) -> String {
-        let mut rendered = error.to_string();
-        let mut source = std::error::Error::source(error);
-        while let Some(cause) = source {
-            rendered.push_str(" | ");
-            rendered.push_str(&cause.to_string());
-            source = cause.source();
-        }
-        rendered
+        crate::utils::chain(error, " | ")
     }
 
     #[test]

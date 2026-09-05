@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -9,8 +8,11 @@ use hyper::rt::bounds::Http2ClientConnExec;
 use hyper::Uri;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioIo;
+use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
+
+use crate::utils::chain;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -31,23 +33,29 @@ impl TransportConfig {
         match self.endpoint.scheme_str() {
             Some("http") => {}
             Some(other) => {
-                return Err(TransportError::configuration(format!(
-                    "`{other}://` is not a scheme this connector dials; it speaks plain HTTP"
-                )))
+                return ConfigurationSnafu {
+                    message: format!(
+                        "`{other}://` is not a scheme this connector dials; it speaks plain HTTP"
+                    ),
+                }
+                .fail()
             }
             None => {
-                return Err(TransportError::configuration(format!(
-                    "the endpoint `{}` names no scheme; it has to be an `http://` URI",
-                    self.endpoint
-                )))
+                return ConfigurationSnafu {
+                    message: format!(
+                        "the endpoint `{}` names no scheme; it has to be an `http://` URI",
+                        self.endpoint
+                    ),
+                }
+                .fail()
             }
         }
 
         if self.endpoint.host().is_none() {
-            return Err(TransportError::configuration(format!(
-                "the endpoint `{}` names no host",
-                self.endpoint
-            )));
+            return ConfigurationSnafu {
+                message: format!("the endpoint `{}` names no host", self.endpoint),
+            }
+            .fail();
         }
 
         Ok(())
@@ -96,12 +104,22 @@ where
         hyper::client::conn::http2::Builder::new(executor)
             .handshake(io)
             .await
-            .map_err(|error| TransportError::http2_handshake(endpoint, &error))
+            .map_err(|error| {
+                Http2HandshakeSnafu {
+                    endpoint: endpoint.clone(),
+                    cause: error.to_string(),
+                }
+                .build()
+            })
     };
 
     match tokio::time::timeout(deadline, opening).await {
         Ok(result) => result,
-        Err(_) => Err(TransportError::timeout(endpoint, deadline)),
+        Err(_) => TimeoutSnafu {
+            endpoint: endpoint.clone(),
+            after: deadline,
+        }
+        .fail(),
     }
 }
 
@@ -118,9 +136,13 @@ impl Service<Uri> for TransportConnector {
         let dialling = self.http.call(target.clone());
 
         Box::pin(async move {
-            dialling
-                .await
-                .map_err(|error| TransportError::connect(&target, &error))
+            dialling.await.map_err(|error| {
+                ConnectSnafu {
+                    endpoint: target.clone(),
+                    cause: chain(&error, ": "),
+                }
+                .build()
+            })
         })
     }
 }
@@ -134,63 +156,27 @@ pub enum TransportErrorKind {
     Configuration,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransportError {
-    kind: TransportErrorKind,
-    message: String,
+#[derive(Clone, Debug, Eq, PartialEq, Snafu)]
+#[snafu(visibility(pub(crate)))]
+#[non_exhaustive]
+pub enum TransportError {
+    #[snafu(display("{message}"))]
+    Configuration { message: String },
+    #[snafu(display("`{endpoint}` could not be reached: {cause}"))]
+    Connect { endpoint: Uri, cause: String },
+    #[snafu(display("`{endpoint}` accepted a connection but not an HTTP/2 session: {cause}"))]
+    Http2Handshake { endpoint: Uri, cause: String },
+    #[snafu(display("connecting to `{endpoint}` outlasted {after:?}"))]
+    Timeout { endpoint: Uri, after: Duration },
 }
 
 impl TransportError {
     pub fn kind(&self) -> TransportErrorKind {
-        self.kind
-    }
-
-    fn configuration(message: String) -> Self {
-        Self {
-            kind: TransportErrorKind::Configuration,
-            message,
-        }
-    }
-
-    fn connect(endpoint: &Uri, error: &(dyn Error + 'static)) -> Self {
-        Self {
-            kind: TransportErrorKind::Connect,
-            message: format!("`{endpoint}` could not be reached: {}", chain(error)),
-        }
-    }
-
-    fn http2_handshake(endpoint: &Uri, error: &dyn std::error::Error) -> Self {
-        Self {
-            kind: TransportErrorKind::Http2Handshake,
-            message: format!(
-                "`{endpoint}` accepted a connection but not an HTTP/2 session: {error}"
-            ),
-        }
-    }
-
-    fn timeout(endpoint: &Uri, after: Duration) -> Self {
-        Self {
-            kind: TransportErrorKind::Timeout,
-            message: format!("connecting to `{endpoint}` outlasted {after:?}"),
+        match self {
+            Self::Configuration { .. } => TransportErrorKind::Configuration,
+            Self::Connect { .. } => TransportErrorKind::Connect,
+            Self::Http2Handshake { .. } => TransportErrorKind::Http2Handshake,
+            Self::Timeout { .. } => TransportErrorKind::Timeout,
         }
     }
 }
-
-fn chain(error: &(dyn Error + 'static)) -> String {
-    let mut rendered = error.to_string();
-    let mut under = error.source();
-    while let Some(cause) = under {
-        rendered.push_str(": ");
-        rendered.push_str(&cause.to_string());
-        under = cause.source();
-    }
-    rendered
-}
-
-impl std::fmt::Display for TransportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for TransportError {}
