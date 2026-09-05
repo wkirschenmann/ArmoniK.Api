@@ -8,86 +8,18 @@ use super::metadata::Metadata;
 pub(crate) const GRPC_STATUS: &str = "grpc-status";
 pub(crate) const GRPC_MESSAGE: &str = "grpc-message";
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct GrpcStatusCode(Code);
+/// The code a gRPC status carries. `tonic::Code` is that set, and redeclaring it here would only
+/// be a second spelling of the same seventeen values.
+pub type GrpcStatusCode = Code;
 
-impl GrpcStatusCode {
-    pub const OK: Self = Self(Code::Ok);
-    pub const CANCELLED: Self = Self(Code::Cancelled);
-    pub const UNKNOWN: Self = Self(Code::Unknown);
-    pub const INVALID_ARGUMENT: Self = Self(Code::InvalidArgument);
-    pub const DEADLINE_EXCEEDED: Self = Self(Code::DeadlineExceeded);
-    pub const NOT_FOUND: Self = Self(Code::NotFound);
-    pub const ALREADY_EXISTS: Self = Self(Code::AlreadyExists);
-    pub const PERMISSION_DENIED: Self = Self(Code::PermissionDenied);
-    pub const RESOURCE_EXHAUSTED: Self = Self(Code::ResourceExhausted);
-    pub const FAILED_PRECONDITION: Self = Self(Code::FailedPrecondition);
-    pub const ABORTED: Self = Self(Code::Aborted);
-    pub const OUT_OF_RANGE: Self = Self(Code::OutOfRange);
-    pub const UNIMPLEMENTED: Self = Self(Code::Unimplemented);
-    pub const INTERNAL: Self = Self(Code::Internal);
-    pub const UNAVAILABLE: Self = Self(Code::Unavailable);
-    pub const DATA_LOSS: Self = Self(Code::DataLoss);
-    pub const UNAUTHENTICATED: Self = Self(Code::Unauthenticated);
-
-    pub const fn code(self) -> Code {
-        self.0
-    }
-
-    pub const fn as_i32(self) -> i32 {
-        self.0 as i32
-    }
-
-    pub const fn from_wire(code: i32) -> Self {
-        Self(Code::from_i32(code))
-    }
-
-    fn from_http_status(status: u16) -> Self {
-        match status {
-            400 => Self::INTERNAL,
-            401 => Self::UNAUTHENTICATED,
-            403 => Self::PERMISSION_DENIED,
-            404 => Self::UNIMPLEMENTED,
-            429 | 502 | 503 | 504 => Self::UNAVAILABLE,
-            _ => Self::UNKNOWN,
-        }
-    }
-}
-
-impl From<Code> for GrpcStatusCode {
-    fn from(code: Code) -> Self {
-        Self(code)
-    }
-}
-
-impl From<GrpcStatusCode> for Code {
-    fn from(code: GrpcStatusCode) -> Self {
-        code.0
-    }
-}
-
-impl std::fmt::Display for GrpcStatusCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self.0 {
-            Code::Ok => "OK",
-            Code::Cancelled => "CANCELLED",
-            Code::Unknown => "UNKNOWN",
-            Code::InvalidArgument => "INVALID_ARGUMENT",
-            Code::DeadlineExceeded => "DEADLINE_EXCEEDED",
-            Code::NotFound => "NOT_FOUND",
-            Code::AlreadyExists => "ALREADY_EXISTS",
-            Code::PermissionDenied => "PERMISSION_DENIED",
-            Code::ResourceExhausted => "RESOURCE_EXHAUSTED",
-            Code::FailedPrecondition => "FAILED_PRECONDITION",
-            Code::Aborted => "ABORTED",
-            Code::OutOfRange => "OUT_OF_RANGE",
-            Code::Unimplemented => "UNIMPLEMENTED",
-            Code::Internal => "INTERNAL",
-            Code::Unavailable => "UNAVAILABLE",
-            Code::DataLoss => "DATA_LOSS",
-            Code::Unauthenticated => "UNAUTHENTICATED",
-        };
-        f.write_str(name)
+fn from_http_status(status: u16) -> GrpcStatusCode {
+    match status {
+        400 => Code::Internal,
+        401 => Code::Unauthenticated,
+        403 => Code::PermissionDenied,
+        404 => Code::Unimplemented,
+        429 | 502 | 503 | 504 => Code::Unavailable,
+        _ => Code::Unknown,
     }
 }
 
@@ -108,51 +40,51 @@ impl GrpcStatus {
     }
 
     pub fn cancelled() -> Self {
-        Self::new(GrpcStatusCode::CANCELLED, "the call was cancelled")
+        Self::new(GrpcStatusCode::Cancelled, "the call was cancelled")
     }
 
     pub(crate) fn unreachable(error: impl std::fmt::Display) -> Self {
-        Self::new(GrpcStatusCode::UNAVAILABLE, error.to_string())
+        Self::new(GrpcStatusCode::Unavailable, error.to_string())
     }
 
     pub(crate) fn request_lost(error: impl std::fmt::Display) -> Self {
         Self::new(
-            GrpcStatusCode::UNAVAILABLE,
+            GrpcStatusCode::Unavailable,
             format!("the request did not reach the peer: {error}"),
         )
     }
 
     pub(crate) fn stream_broke(error: impl std::fmt::Display) -> Self {
         Self::new(
-            GrpcStatusCode::UNAVAILABLE,
+            GrpcStatusCode::Unavailable,
             format!("the response stream broke: {error}"),
         )
     }
 
     pub(crate) fn not_grpc() -> Self {
         Self::new(
-            GrpcStatusCode::INTERNAL,
+            GrpcStatusCode::Internal,
             "the peer answered HTTP 200 without a gRPC content type",
         )
     }
 
     pub(crate) fn no_status() -> Self {
         Self::new(
-            GrpcStatusCode::INTERNAL,
+            GrpcStatusCode::Internal,
             "the peer ended the stream without a grpc-status",
         )
     }
 
     pub(crate) fn no_trailing_status() -> Self {
         Self::new(
-            GrpcStatusCode::INTERNAL,
+            GrpcStatusCode::Internal,
             "the peer's trailers carry no grpc-status",
         )
     }
 
     pub(crate) fn ended_mid_message() -> Self {
         Self::new(
-            GrpcStatusCode::INTERNAL,
+            GrpcStatusCode::Internal,
             "the peer ended the stream in the middle of a message",
         )
     }
@@ -160,10 +92,12 @@ impl GrpcStatus {
 
 impl std::fmt::Display for GrpcStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Debug, not Display: tonic's Display for a code is a sentence, and what a reader of a
+        // status wants first is the name.
         if self.message.is_empty() {
-            write!(f, "{}", self.code)
+            write!(f, "{:?}", self.code)
         } else {
-            write!(f, "{}: {}", self.code, self.message)
+            write!(f, "{:?}: {}", self.code, self.message)
         }
     }
 }
@@ -194,13 +128,13 @@ pub(crate) fn stated_status(headers: &HeaderMap) -> Option<GrpcStatus> {
 
     let Some(code) = code else {
         return Some(GrpcStatus::new(
-            GrpcStatusCode::INTERNAL,
+            GrpcStatusCode::Internal,
             "the peer's grpc-status is not a number",
         ));
     };
 
     Some(GrpcStatus {
-        code: GrpcStatusCode::from_wire(code),
+        code: Code::from_i32(code),
         message: headers
             .get(GRPC_MESSAGE)
             .map(|value| decode_message(value.as_bytes()))
@@ -211,7 +145,7 @@ pub(crate) fn stated_status(headers: &HeaderMap) -> Option<GrpcStatus> {
 
 fn http_status(status: StatusCode, headers: &HeaderMap) -> GrpcStatus {
     GrpcStatus {
-        code: GrpcStatusCode::from_http_status(status.as_u16()),
+        code: from_http_status(status.as_u16()),
         message: format!(
             "the peer answered HTTP {} rather than gRPC",
             status.as_u16()
@@ -284,13 +218,6 @@ mod tests {
         map
     }
 
-    #[test]
-    fn a_code_outside_the_defined_range_reads_as_unknown() {
-        assert_eq!(GrpcStatusCode::from_wire(14), GrpcStatusCode::UNAVAILABLE);
-        assert_eq!(GrpcStatusCode::from_wire(2), GrpcStatusCode::UNKNOWN);
-        assert_eq!(GrpcStatusCode::from_wire(99), GrpcStatusCode::UNKNOWN);
-        assert_eq!(GrpcStatusCode::from_wire(-1), GrpcStatusCode::UNKNOWN);
-    }
 
     #[test]
     fn a_percent_escape_is_decoded_and_a_broken_one_is_kept() {
@@ -314,7 +241,7 @@ mod tests {
         ]))
         .expect("these trailers state a status");
 
-        assert_eq!(status.code, GrpcStatusCode::FAILED_PRECONDITION);
+        assert_eq!(status.code, GrpcStatusCode::FailedPrecondition);
         assert_eq!(status.message, "not now");
         assert_eq!(status.trailing_metadata.len(), 1);
     }
@@ -331,14 +258,14 @@ mod tests {
             stated_status(&headers(&[("grpc-status", "not a number")]))
                 .expect("the header is there")
                 .code,
-            GrpcStatusCode::INTERNAL
+            GrpcStatusCode::Internal
         );
     }
 
     #[test]
     fn a_status_without_a_message_is_still_a_status() {
         let status = stated_status(&headers(&[("grpc-status", "0")])).expect("a status");
-        assert_eq!(status.code, GrpcStatusCode::OK);
+        assert_eq!(status.code, GrpcStatusCode::Ok);
         assert!(status.message.is_empty());
     }
 
@@ -367,15 +294,15 @@ mod tests {
     fn an_http_failure_maps_to_the_code_grpc_gives_it() {
         assert_eq!(
             http_status(StatusCode::NOT_FOUND, &HeaderMap::new()).code,
-            GrpcStatusCode::UNIMPLEMENTED
+            GrpcStatusCode::Unimplemented
         );
         assert_eq!(
             http_status(StatusCode::SERVICE_UNAVAILABLE, &HeaderMap::new()).code,
-            GrpcStatusCode::UNAVAILABLE
+            GrpcStatusCode::Unavailable
         );
         assert_eq!(
             http_status(StatusCode::IM_A_TEAPOT, &HeaderMap::new()).code,
-            GrpcStatusCode::UNKNOWN
+            GrpcStatusCode::Unknown
         );
     }
 }

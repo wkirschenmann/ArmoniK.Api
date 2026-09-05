@@ -22,7 +22,7 @@ async fn a_unary_call_reaches_a_grpc_server_and_comes_back() {
 
     let (head, messages, status) = unary(&channel, options, Bytes::from_static(b"hello")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(messages, vec![Bytes::from_static(b"hello")]);
     assert_eq!(
         head.get("x-echoed"),
@@ -35,7 +35,7 @@ async fn a_unary_call_reaches_a_grpc_server_and_comes_back() {
 async fn an_empty_message_is_a_message_and_not_an_absence() {
     let (_, messages, status) = call_on(ECHO, Bytes::new()).await;
 
-    assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(messages, vec![Bytes::new()]);
 }
 
@@ -45,7 +45,7 @@ async fn a_message_larger_than_one_http2_frame_survives_the_round_trip() {
 
     let (_, messages, status) = call_on(ECHO, Bytes::from(vec![0x5a; SIZE])).await;
 
-    assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].len(), SIZE);
     assert!(messages[0].iter().all(|byte| *byte == 0x5a));
@@ -64,7 +64,7 @@ async fn a_binary_metadata_entry_crosses_the_wire_as_bytes() {
 
     let (head, _, status) = unary(&channel, options, Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(
         head.get("x-echoed-bin"),
         Some(&MetadataValue::Binary(Bytes::from_static(&[0, 1, 2, 0xff])))
@@ -75,7 +75,7 @@ async fn a_binary_metadata_entry_crosses_the_wire_as_bytes() {
 async fn the_request_carries_the_headers_grpc_asks_for() {
     let (_, messages, status) = call_on("/raw/EchoHeaders", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     let seen = String::from_utf8(messages.concat().to_vec()).expect("the headers as text");
     for expected in [
         "content-type=application/grpc",
@@ -91,7 +91,7 @@ async fn the_request_carries_the_headers_grpc_asks_for() {
 async fn a_method_the_server_refuses_comes_back_as_its_status_and_its_trailers() {
     let (head, messages, status) = call_on(FAIL, Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::PERMISSION_DENIED);
+    assert_eq!(status.code, GrpcStatusCode::PermissionDenied);
     assert_eq!(status.message, "not for you");
     assert_eq!(
         status.trailing_metadata.get("x-reason"),
@@ -109,7 +109,7 @@ async fn a_method_the_server_does_not_have_is_unimplemented() {
     )
     .await;
 
-    assert_eq!(status.code, GrpcStatusCode::UNIMPLEMENTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Unimplemented, "{status}");
     assert_eq!(status.message, "no such method");
 }
 
@@ -133,7 +133,7 @@ async fn calls_on_one_channel_share_one_session() {
 
     for call in running {
         let (_, messages, status) = call.await.expect("the call ran to its end");
-        assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+        assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
         assert_eq!(messages, vec![Bytes::from_static(b"concurrent")]);
     }
 
@@ -155,7 +155,7 @@ async fn nothing_can_be_sent_once_the_call_has_reached_its_terminal() {
         .split();
 
     let (_, _, status) = read_to_terminal(&mut recv).await;
-    assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
 
     assert_eq!(
         send.send_message(Bytes::from_static(b"too late")).await,
@@ -248,7 +248,7 @@ async fn an_endpoint_nobody_answers_ends_the_call_rather_than_failing_to_start_i
     )
     .await;
 
-    assert_eq!(status.code, GrpcStatusCode::UNAVAILABLE, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
     assert!(messages.is_empty());
 }
 
@@ -362,7 +362,7 @@ async fn a_send_window_of_nothing_is_refused() {
 async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
     let (_, _, status) = call_on("/raw/NotFound", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::UNIMPLEMENTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Unimplemented, "{status}");
     assert!(status.message.contains("HTTP 404"), "{status}");
 }
 
@@ -370,7 +370,7 @@ async fn an_http_error_page_is_reported_as_the_code_grpc_gives_it() {
 async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
     let (_, _, status) = call_on("/raw/StatusBehindError", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
     assert_eq!(status.message, "no room left");
 }
 
@@ -378,7 +378,7 @@ async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
 async fn a_two_hundred_that_is_not_grpc_is_an_internal_failure() {
     let (_, _, status) = call_on("/raw/NotGrpc", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::INTERNAL, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("content type"), "{status}");
 }
 
@@ -386,7 +386,7 @@ async fn a_two_hundred_that_is_not_grpc_is_an_internal_failure() {
 async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
     let (_, messages, status) = call_on("/raw/Compressed", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::INTERNAL, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("compressed"), "{status}");
     assert!(messages.is_empty());
 }
@@ -395,7 +395,7 @@ async fn a_compressed_message_ends_the_call_rather_than_being_read_as_bytes() {
 async fn a_message_past_the_maximum_ends_the_call_rather_than_being_held() {
     let (_, messages, status) = call_on("/raw/TooBig", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
     assert!(status.message.contains("67108864"), "{status}");
     assert!(messages.is_empty());
 }
@@ -413,7 +413,7 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
         payload.clone(),
     )
     .await;
-    assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
 
     let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
@@ -425,7 +425,7 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     .expect("a plain endpoint");
 
     let (_, messages, status) = unary(&roomy, CallStartOptions::new(ECHO), payload).await;
-    assert_eq!(status.code, GrpcStatusCode::OK, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].len(), SIZE);
     assert!(messages[0].iter().all(|byte| *byte == 0x27));
@@ -435,7 +435,7 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
 async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
     let (head, messages, status) = call_on("/raw/HeadThenError", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::RESOURCE_EXHAUSTED, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
     assert_eq!(status.message, "no room left");
     assert_eq!(messages, vec![Bytes::from_static(b"partial")]);
     assert_eq!(
@@ -448,7 +448,7 @@ async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
 async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
     let (_, messages, status) = call_on("/raw/NoTrailers", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::INTERNAL, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
     assert!(status.message.contains("grpc-status"), "{status}");
     assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
 }

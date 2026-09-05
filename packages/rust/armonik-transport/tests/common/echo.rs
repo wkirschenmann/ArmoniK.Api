@@ -82,7 +82,7 @@ pub async fn ends_cancelled(recv: &mut RecvHalf, why: &str) {
         .expect("a terminal");
 
     match terminal {
-        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::CANCELLED),
+        RecvResult::End(status) => assert_eq!(status.code, GrpcStatusCode::Cancelled),
         other => panic!("{other:?}"),
     }
 }

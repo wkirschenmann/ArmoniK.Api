@@ -135,8 +135,8 @@ pub(crate) enum DeframeError {
 impl DeframeError {
     pub(crate) fn status(&self) -> GrpcStatus {
         let code = match self {
-            Self::TooLong { .. } => GrpcStatusCode::RESOURCE_EXHAUSTED,
-            _ => GrpcStatusCode::INTERNAL,
+            Self::TooLong { .. } => GrpcStatusCode::ResourceExhausted,
+            _ => GrpcStatusCode::Internal,
         };
         GrpcStatus::new(code, self.to_string())
     }
@@ -252,7 +252,7 @@ mod tests {
             .next_message()
             .expect_err("nine bytes are past a maximum of eight");
         assert_eq!(refused, DeframeError::TooLong { len: 9, max: 8 });
-        assert_eq!(refused.status().code, GrpcStatusCode::RESOURCE_EXHAUSTED);
+        assert_eq!(refused.status().code, GrpcStatusCode::ResourceExhausted);
 
         let mut deframer = Deframer::new(8);
         deframer.push(framed(b"12345678"));

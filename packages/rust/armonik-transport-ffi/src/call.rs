@@ -455,7 +455,7 @@ async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: onesh
                 state.ctx,
                 ak_event_kind::AK_EVENT_STATUS,
                 payload,
-                status.code.as_i32(),
+                status.code as i32,
             );
             state.debt.terminal.store(true, Ordering::Release);
 
