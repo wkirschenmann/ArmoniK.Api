@@ -57,7 +57,7 @@ humantime.workspace = true
 serial_test.workspace = true
 # Only to round-trip `ClientConfigArgs` in the test that pins the `serde` feature.
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "time"] }
 # The integration tests serve a gRPC service to call, which the regular build never does; these features
 # union with the `channel`/`codegen` above for test builds only.
 tonic = { workspace = true, features = ["server", "router"] }

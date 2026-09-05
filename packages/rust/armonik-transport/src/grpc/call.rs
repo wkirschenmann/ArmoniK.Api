@@ -225,7 +225,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_send_waiting_on_a_full_window_is_refused_when_the_call_ends() {
         let (call, _body, _driving) = create(1, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(resolved, Err(CallError::Ended));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_send_window_holds_the_next_message_until_the_last_is_taken() {
         let (call, mut body, _driving) = create(1, watch::channel(false).1);
         let (mut send, _recv, _control) = call.split();

@@ -28,6 +28,15 @@ pub const ECHO: &str = "/armonik_transport.test.Echo/Echo";
 pub const FAIL: &str = "/armonik_transport.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
 
+/// A listener on an ephemeral loopback port, and the endpoint that reaches it.
+pub async fn loopback() -> (tokio::net::TcpListener, String) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the test server");
+    let address = listener.local_addr().expect("the test server's address");
+    (listener, format!("http://{address}"))
+}
+
 pub fn channel(endpoint: &str) -> GrpcChannel {
     let uri = Uri::try_from(endpoint).expect("the test server's endpoint");
     let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
@@ -195,20 +204,21 @@ impl Body for Canned {
     }
 }
 
-pub fn grpc_message(flag: u8, payload: &[u8]) -> Bytes {
-    let mut framed = Vec::with_capacity(5 + payload.len());
-    framed.push(flag);
-    framed.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-    framed.extend_from_slice(payload);
-    Bytes::from(framed)
+fn framed(flag: u8, declared: u32, payload: &[u8]) -> Bytes {
+    let mut message = Vec::with_capacity(5 + payload.len());
+    message.push(flag);
+    message.extend_from_slice(&declared.to_be_bytes());
+    message.extend_from_slice(payload);
+    Bytes::from(message)
 }
 
+pub fn grpc_message(flag: u8, payload: &[u8]) -> Bytes {
+    framed(flag, payload.len() as u32, payload)
+}
+
+/// A length the payload does not honour, which is what a receiver's limit is checked against.
 pub fn announced_message(declared: u32, payload: &[u8]) -> Bytes {
-    let mut framed = Vec::with_capacity(5 + payload.len());
-    framed.push(0);
-    framed.extend_from_slice(&declared.to_be_bytes());
-    framed.extend_from_slice(payload);
-    Bytes::from(framed)
+    framed(0, declared, payload)
 }
 
 pub fn trailers(pairs: &[(&'static str, &'static str)]) -> Frame<Bytes> {
@@ -302,10 +312,7 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn start() -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind the test server");
-        let address = listener.local_addr().expect("the test server's address");
+        let (listener, endpoint) = loopback().await;
         let connections = Arc::new(AtomicUsize::new(0));
 
         let accepted = connections.clone();
@@ -324,7 +331,7 @@ impl TestServer {
         });
 
         Self {
-            endpoint: format!("http://{address}"),
+            endpoint,
             connections,
         }
     }
@@ -335,10 +342,7 @@ impl TestServer {
 }
 
 pub async fn closed_port() -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind to find a free port");
-    let address = listener.local_addr().expect("the port that just closed");
+    let (listener, endpoint) = loopback().await;
     drop(listener);
-    format!("http://{address}")
+    endpoint
 }
