@@ -253,10 +253,12 @@ pub unsafe extern "C" fn ak_call_send_message(call: ak_handle, buffer: ak_buffer
         let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
             return ak_status::AK_STATUS_INVALID_ARG;
         };
-        let (Some(owner), Some(found)) = (lent.call(), tables::calls().get(call)) else {
+        let Some(found) = tables::calls().get(call) else {
             return call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE);
         };
-        if !Arc::ptr_eq(&owner, &found) {
+        // The buffer names its own call, so a handle that names another one is the host's
+        // mistake and not this library's to resolve.
+        if !Arc::ptr_eq(lent.call(), &found) {
             return call::keep(lent, ak_status::AK_STATUS_INVALID_ARG);
         }
         found.commit(lent)
@@ -272,10 +274,7 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
         let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
             return;
         };
-        match lent.call() {
-            Some(call) => call.give_back(lent),
-            None => drop(lent),
-        }
+        Arc::clone(lent.call()).give_back(lent);
     });
 }
 

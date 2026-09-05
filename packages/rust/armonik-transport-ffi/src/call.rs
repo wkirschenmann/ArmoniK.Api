@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use armonik_transport::grpc::{
     CallControl, CallStartOptions, GrpcStatus, Metadata, RecvHalf, RecvResult, SendHalf,
@@ -36,13 +36,16 @@ struct Debt {
 
 impl Debt {
     fn quiet(&self) -> bool {
-        self.terminal.load(Ordering::Acquire) && self.callbacks.load(Ordering::Acquire) == 0
+        // `terminal` and `buffers` are the two halves of the race `lend` closes: sequentially
+        // consistent here and there, so of the two threads writing one and reading the other,
+        // one sees the other's write.
+        self.terminal.load(Ordering::SeqCst) && self.callbacks.load(Ordering::Acquire) == 0
     }
 
     fn settled(&self) -> bool {
         self.quiet()
             && self.payloads.load(Ordering::Acquire) == 0
-            && self.buffers.load(Ordering::Acquire) == 0
+            && self.buffers.load(Ordering::SeqCst) == 0
     }
 
     fn as_abi(&self) -> ak_call_debt {
@@ -101,13 +104,45 @@ impl CallState {
         !*self.over.borrow()
     }
 
+    /// Claims the call's one buffer, then decides whether to fill it.
+    ///
+    /// The claim comes first because it is what `settled` reads. A lend that took its bytes and
+    /// raised the debt afterwards is a lend the reader cannot see: it settles the call, releases
+    /// the handle, and the buffer that arrives after it is charged to a ledger nothing will
+    /// release - a runtime that never reaches QUIESCENT and an `ak_runtime_destroy` refused for
+    /// the life of the process.
+    ///
+    /// One buffer at a time per call, whatever the send window admits, is the same claim: the
+    /// header's SLOT_BUSY wake-up is the call's next WRITE_DONE, and it only says anything
+    /// because a host eligible to ask holds nothing.
     pub(crate) fn lend(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
-        if !self.accepts_work() {
+        if self
+            .debt
+            .buffers
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
-        // One buffer at a time per call, whatever the send window admits: the host names a buffer
-        // by its pointer, so two out at once would be two the ABI cannot tell apart.
-        if self.debt.buffers.load(Ordering::Acquire) > 0 {
+
+        // Claimed, then read, against a reader that publishes the terminal and then reads the
+        // claim. Both in the sequentially consistent order, so the two cannot pass each other:
+        // either the reader sees this claim and does not settle, or this sees the terminal.
+        let lent = if self.debt.terminal.load(Ordering::SeqCst) {
+            Err(ak_status::AK_STATUS_INVALID_STATE)
+        } else {
+            self.fill(len)
+        };
+
+        if lent.is_err() {
+            self.debt.buffers.store(0, Ordering::SeqCst);
+            self.moved_on();
+        }
+        lent
+    }
+
+    fn fill(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
+        if !self.accepts_work() {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
         // The gRPC length prefix is four bytes, so a longer message has nowhere to go. Refused
@@ -122,9 +157,8 @@ impl CallState {
         };
         self.ledger.hold_bytes(len)?;
 
-        // The arena before anything is spent: a refusal that left the ledger charged, the permit
-        // forgotten and the debt raised would be a call that never settles and a runtime that never
-        // reaches QUIESCENT, so `ak_runtime_destroy` would be refused for the life of the process.
+        // The arena before the permit is spent: a refusal that left the ledger charged and the
+        // permit forgotten would be a send window that never opens again.
         let data = match arena(len) {
             Ok(data) => data,
             Err(status) => {
@@ -137,11 +171,9 @@ impl CallState {
         // it is the WRITE_DONE that gives it back once the message has left.
         slot.forget();
 
-        self.debt.buffers.fetch_add(1, Ordering::AcqRel);
-
         let mut lent = Box::new(Lent {
             tag: LENT_TAG,
-            call: Arc::downgrade(self),
+            call: Arc::clone(self),
             data,
         });
         let ptr = lent.data.as_mut_ptr();
@@ -172,7 +204,7 @@ impl CallState {
         self.moved_on();
     }
 
-    pub(crate) fn commit(self: &Arc<Self>, lent: Box<Lent>) -> ak_status {
+    pub(crate) fn commit(&self, lent: Box<Lent>) -> ak_status {
         if !self.accepts_work() || self.ended_sending() {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         }
@@ -234,16 +266,21 @@ impl CallState {
 const LENT_TAG: u64 = 0x414b_5f4c_454e_5400;
 const PAYLOAD_TAG: u64 = 0x414b_5f50_4159_4c00;
 
+/// A buffer the host is filling.
+///
+/// It owns its call, as `Payload` does. The bytes are charged to the runtime's ledger until the
+/// buffer comes back, and only the call can take that charge off; a weak reference that failed to
+/// upgrade would be a charge no one is left to release.
 #[repr(C)]
 pub(crate) struct Lent {
     tag: u64,
-    call: Weak<CallState>,
+    call: Arc<CallState>,
     data: Vec<u8>,
 }
 
 impl Lent {
-    pub(crate) fn call(&self) -> Option<Arc<CallState>> {
-        self.call.upgrade()
+    pub(crate) fn call(&self) -> &Arc<CallState> {
+        &self.call
     }
 }
 
