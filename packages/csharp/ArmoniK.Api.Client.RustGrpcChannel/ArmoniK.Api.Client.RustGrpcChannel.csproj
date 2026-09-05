@@ -30,6 +30,10 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
     <!-- IAsyncDisposable and ValueTask: a channel's disposal is asynchronous because the last
          one released awaits the runtime's destroy, and neither type is in netstandard2.0. -->

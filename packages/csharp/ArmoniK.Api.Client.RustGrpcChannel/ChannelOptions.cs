@@ -14,62 +14,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Globalization;
-using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+[JsonSerializable(typeof(ChannelOptions))]
+internal partial class ChannelOptionsJsonContext : JsonSerializerContext
+{
+}
+
 internal sealed class ChannelOptions
 {
-  internal string Endpoint { get; set; } = string.Empty;
+  public string Endpoint { get; set; } = string.Empty;
 
-  internal int DeliveryCredits { get; set; }
+  public int DeliveryCredits { get; set; }
 
   internal byte[] Encode()
-  {
-    var json = new StringBuilder("{");
-    Member(json,
-           "endpoint",
-           Quoted(Endpoint));
-    json.Append(',');
-    Member(json,
-           "delivery_credits",
-           DeliveryCredits.ToString(CultureInfo.InvariantCulture));
-    return Encoding.UTF8.GetBytes(json.Append('}')
-                                      .ToString());
-  }
-
-  private static void Member(StringBuilder json,
-                             string name,
-                             string value)
-    => json.Append(Quoted(name))
-           .Append(':')
-           .Append(value);
-
-  private static string Quoted(string value)
-  {
-    var quoted = new StringBuilder(value.Length + 2).Append('"');
-    foreach (var character in value)
-    {
-      if (character == '"' || character == '\\')
-      {
-        quoted.Append('\\')
-              .Append(character);
-      }
-      else if (character < ' ')
-      {
-        quoted.Append('\\')
-              .Append('u')
-              .Append(((int)character).ToString("x4",
-                                                CultureInfo.InvariantCulture));
-      }
-      else
-      {
-        quoted.Append(character);
-      }
-    }
-
-    return quoted.Append('"')
-                 .ToString();
-  }
+    => JsonSerializer.SerializeToUtf8Bytes(this,
+                                           ChannelOptionsJsonContext.Default.ChannelOptions);
 }
