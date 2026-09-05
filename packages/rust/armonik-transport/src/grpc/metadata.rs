@@ -6,9 +6,16 @@ use bytes::Bytes;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
 use snafu::Snafu;
 
+/// Padding either way, and the bits past the last byte ignored.
+///
+/// Both because the reading end is where gRPC asks for tolerance. A final symbol carrying bits
+/// no byte holds is what an encoder that does not mask them produces; C-core, Go and Java all
+/// hand the value over, and refusing it here means the header vanishes rather than arriving.
 const BINARY_IN: GeneralPurpose = GeneralPurpose::new(
     &alphabet::STANDARD,
-    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    GeneralPurposeConfig::new()
+        .with_decode_padding_mode(DecodePaddingMode::Indifferent)
+        .with_decode_allow_trailing_bits(true),
 );
 /// gRPC writes binary metadata unpadded and asks receivers to accept it either way, which is why
 /// only this half sets `with_encode_padding(false)`.
@@ -102,6 +109,15 @@ impl Metadata {
         for (name, raw) in headers {
             let key = name.as_str();
             if key == status::GRPC_STATUS || key == status::GRPC_MESSAGE {
+                continue;
+            }
+            // The same alphabet `append` admits, so every key in a `Metadata` is one gRPC names
+            // a header whichever end it came from. `HeaderName` takes the whole HTTP token, so a
+            // peer or a proxy in front of it can answer with `x!y`, and what reads this cannot:
+            // the .NET binding's `Metadata.Add` refuses that key, and a response the peer sent
+            // with OK becomes an error blaming the binding. Dropped rather than refused, as an
+            // undecodable value is: a header this type cannot carry is not the call's failure.
+            if !names_a_header(key) {
                 continue;
             }
             let value = if key.ends_with(BINARY_SUFFIX) {
@@ -230,6 +246,20 @@ pub enum MetadataError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_binary_value_whose_last_symbol_carries_spare_bits_is_read_not_dropped() {
+        // `AAEC/x` is [0, 1, 2, 0xff] from an encoder that left the four bits past the last byte
+        // set. Every other gRPC stack delivers it.
+        let mut headers = HeaderMap::new();
+        headers.insert("trace-bin", HeaderValue::from_static("AAEC/x"));
+
+        let metadata = Metadata::from_headers(&headers);
+        assert_eq!(
+            metadata.get("trace-bin"),
+            Some(&MetadataValue::Binary(Bytes::from_static(&[0, 1, 2, 0xff])))
+        );
+    }
 
     #[test]
     fn a_binary_value_survives_the_round_trip_through_headers() {
@@ -409,6 +439,12 @@ mod tests {
             "x-tabbed",
             HeaderValue::from_bytes(b"one	two").expect("http allows this"),
         );
+        // A legal HTTP token that gRPC does not name a header, which is what a proxy that
+        // stamps its own headers can put on a response.
+        headers.insert(
+            HeaderName::from_bytes(b"x!y").expect("http allows this"),
+            HeaderValue::from_static("dropped"),
+        );
         headers.insert("x-other", HeaderValue::from_static("kept"));
 
         let metadata = Metadata::from_headers(&headers);
@@ -416,6 +452,7 @@ mod tests {
         assert!(metadata.get("broken-bin").is_none());
         assert!(metadata.get("x-accented").is_none());
         assert!(metadata.get("x-tabbed").is_none());
+        assert!(metadata.get("x!y").is_none());
 
         let mut request = HeaderMap::new();
         metadata
