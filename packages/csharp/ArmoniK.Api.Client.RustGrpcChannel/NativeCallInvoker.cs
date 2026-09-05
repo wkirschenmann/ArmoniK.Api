@@ -79,6 +79,13 @@ internal sealed class NativeCallInvoker : CallInvoker
                                 request)
                 .ConfigureAwait(false);
     }
+    catch (CallEnded)
+    {
+      // The engine refused the send because the call had already ended, so the send is not what
+      // went wrong and its status would say nothing. What ended it is the terminal, and a caller
+      // who cancelled has to read `Cancelled` here rather than a fault of the binding.
+      return await drained.ConfigureAwait(false);
+    }
     catch
     {
       // Awaited so the call settles before this returns, and its failure dropped: what the caller

@@ -154,6 +154,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         spilled_ ??= new byte[length];
         return status;
 
+      case NativeMethods.AkStatus.InvalidState:
+      case NativeMethods.AkStatus.HandleStale:
+        throw new CallEnded(status);
+
       default:
         throw new RpcException(new Status(status == NativeMethods.AkStatus.MessageTooLarge
                                             ? StatusCode.ResourceExhausted

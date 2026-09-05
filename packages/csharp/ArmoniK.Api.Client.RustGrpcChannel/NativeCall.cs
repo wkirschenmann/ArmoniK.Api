@@ -221,14 +221,20 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
     while (true)
     {
-      Interlocked.Increment(ref inFlight_);
+      // Counted once the engine has taken it, so a refusal leaves nothing to acquit. The WRITE_DONE
+      // may land before this returns and drive the count below zero; the terminal is sequenced
+      // after it, so what the check below reads is the sum either way.
       var status = lent.Commit();
       if (status == NativeMethods.AkStatus.Ok)
       {
+        Interlocked.Increment(ref inFlight_);
         break;
       }
 
-      Interlocked.Decrement(ref inFlight_);
+      if (status is NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale)
+      {
+        throw new CallEnded(status);
+      }
 
       if (status != NativeMethods.AkStatus.BudgetBusy)
       {

@@ -220,6 +220,28 @@ public class UnaryTests : RuntimeLeaseFixture
   }
 
   [Test]
+  public void ACallCancelledBeforeItIsSentEndsCancelledAndNotInternal()
+  {
+    using var channel = Channel();
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+
+    // Cancelled before the marshaller has asked for a buffer, so the engine refuses the send
+    // itself. What the caller must read is the call's terminal, which is what grpc-dotnet and
+    // Grpc.Core both answer here, and not a fault of the binding.
+    using var call = Client(channel)
+      .SayAsync(new EchoRequest
+                {
+                  Text = "x",
+                },
+                cancellationToken: cancellation.Token);
+
+    var thrown = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseAsync.ConfigureAwait(false));
+    Assert.That(thrown!.StatusCode,
+                Is.EqualTo(StatusCode.Cancelled));
+  }
+
+  [Test]
   public async Task SeveralCallsShareOneChannel()
   {
     using var channel = Channel();
