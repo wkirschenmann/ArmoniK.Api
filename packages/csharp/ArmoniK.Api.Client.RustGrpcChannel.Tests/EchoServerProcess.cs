@@ -73,9 +73,18 @@ internal sealed class EchoServerProcess : IDisposable
   private static string ReadEndpoint(Process process)
   {
     var deadline = DateTime.UtcNow + StartTimeout;
-    while (DateTime.UtcNow < deadline)
+    while (true)
     {
-      var line = process.StandardOutput.ReadLine();
+      // Bounded, because `ReadLine` is not: a server that starts and says nothing would otherwise
+      // hold the fixture for as long as it lives, and the timeout below could never be reached.
+      var reading = process.StandardOutput.ReadLineAsync();
+      var left = deadline - DateTime.UtcNow;
+      if (left <= TimeSpan.Zero || !reading.Wait(left))
+      {
+        throw new TimeoutException($"the server said nothing in {StartTimeout}");
+      }
+
+      var line = reading.Result;
       if (line is null)
       {
         var complaint = process.StandardError.ReadToEnd()
@@ -93,8 +102,6 @@ internal sealed class EchoServerProcess : IDisposable
                    .Trim();
       }
     }
-
-    throw new TimeoutException($"the server said nothing in {StartTimeout}");
   }
 
   private static string ServerAssembly()

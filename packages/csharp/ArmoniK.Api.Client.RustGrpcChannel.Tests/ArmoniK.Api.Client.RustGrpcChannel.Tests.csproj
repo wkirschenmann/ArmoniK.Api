@@ -12,6 +12,9 @@
          right, but only by accident. -->
     <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
+    <!-- The same key as the binding, because a strong-named assembly names its friends by key. -->
+    <SignAssembly>True</SignAssembly>
+    <AssemblyOriginatorKeyFile>../kp.snk</AssemblyOriginatorKeyFile>
 
   </PropertyGroup>
 

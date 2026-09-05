@@ -22,7 +22,7 @@ using Grpc.Core;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-public sealed class NativeCallInvoker : CallInvoker
+internal sealed class NativeCallInvoker : CallInvoker
 {
   private readonly NativeChannel channel_;
 

@@ -80,12 +80,11 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     }
   }
 
-  public string DisposeState
-    => state_.ToString();
+  internal ChannelDisposeState DisposeState
+    => state_;
 
-  public string NativeState
-    => NativeMethods.ak_channel_status(handle_)
-                    .ToString();
+  internal NativeMethods.AkChannelState NativeState
+    => NativeMethods.ak_channel_status(handle_);
 
   public override CallInvoker CreateCallInvoker()
     => new NativeCallInvoker(this);

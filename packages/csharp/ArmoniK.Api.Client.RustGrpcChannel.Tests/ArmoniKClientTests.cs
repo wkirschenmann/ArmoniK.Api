@@ -17,6 +17,7 @@
 using System;
 using System.Threading.Tasks;
 
+using ArmoniK.Api.Client.Options;
 using ArmoniK.Api.gRPC.V1;
 using ArmoniK.Api.gRPC.V1.Results;
 
@@ -25,16 +26,18 @@ using NUnit.Framework;
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 [TestFixture]
-public class ArmoniKClientTests
+public class ArmoniKClientTests : RuntimeLeaseFixture
 {
+  private const string EndpointVariable = GrpcClient.SettingSection + "__" + nameof(GrpcClient.Endpoint);
+
   private static string Endpoint
   {
     get
     {
-      var endpoint = Environment.GetEnvironmentVariable("GrpcClient__Endpoint");
+      var endpoint = Environment.GetEnvironmentVariable(EndpointVariable);
       if (string.IsNullOrEmpty(endpoint))
       {
-        Assert.Ignore("GrpcClient__Endpoint is unset, so no ArmoniK server is running");
+        Assert.Ignore($"{EndpointVariable} is unset, so no ArmoniK server is running");
       }
 
       if (!endpoint!.StartsWith("http://",
@@ -46,12 +49,6 @@ public class ArmoniKClientTests
       return endpoint!;
     }
   }
-
-  [TearDown]
-  public void EveryLeaseWentBack()
-    => Assert.That(NativeRuntimeFactory.State,
-                   Is.EqualTo("Absent"),
-                   "the test left no lease behind");
 
   [Test]
   public void AGeneratedArmoniKStubAnswersOverThisInvoker()

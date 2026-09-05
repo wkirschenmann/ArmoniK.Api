@@ -89,7 +89,7 @@ public static class NativeRuntimeFactory
     }
   }
 
-  public static int LibraryAbiVersion
+  internal static int LibraryAbiVersion
   {
     get
     {
@@ -104,13 +104,13 @@ public static class NativeRuntimeFactory
     }
   }
 
-  public static string State
+  internal static RuntimeDisposeState State
   {
     get
     {
       lock (Gate)
       {
-        return state_.ToString();
+        return state_;
       }
     }
   }

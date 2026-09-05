@@ -27,7 +27,7 @@ using NUnit.Framework;
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 [TestFixture]
-public class UnaryTests
+public class UnaryTests : RuntimeLeaseFixture
 {
   private EchoServerProcess? server_;
   private string endpoint_ = string.Empty;
@@ -40,14 +40,9 @@ public class UnaryTests
     NativeRuntimeFactory.Configure(workerThreads: 2);
   }
 
-  [TearDown]
-  public void EveryLeaseWentBack()
-  {
-    Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo("Absent"),
-                "the test left no lease behind");
-    NativeRuntimeFactory.Configure(workerThreads: 2);
-  }
+  /// <summary>One test asks for a memory ceiling, and every other one runs without.</summary>
+  protected override void ArmTheNextTest()
+    => NativeRuntimeFactory.Configure(workerThreads: 2);
 
   [OneTimeTearDown]
   public void StopServer()
@@ -59,11 +54,29 @@ public class UnaryTests
   private NativeChannel Channel()
     => NativeRuntimeFactory.Channel(endpoint_);
 
+  /// <summary>Every reply, and every call disposed even if one of them throws.</summary>
+  private static async Task<EchoReply[]> RepliesOf(AsyncUnaryCall<EchoReply>[] calls)
+  {
+    try
+    {
+      return await Task.WhenAll(Array.ConvertAll(calls,
+                                                 call => call.ResponseAsync))
+                       .ConfigureAwait(false);
+    }
+    finally
+    {
+      foreach (var call in calls)
+      {
+        call.Dispose();
+      }
+    }
+  }
+
   [Test]
   public void TheEngineBesideThisHostMatchesItsWordSize()
   {
     var engine = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                              "armonik_transport_ffi.dll");
+                              NativeMethods.Library + ".dll");
     if (!File.Exists(engine))
     {
       Assert.Ignore("not a Windows build; the engine is an .so or a .dylib");
@@ -218,20 +231,8 @@ public class UnaryTests
                                      });
     }
 
-    EchoReply[] replies;
-    try
-    {
-      replies = await Task.WhenAll(Array.ConvertAll(calls,
-                                                    call => call.ResponseAsync))
-                          .ConfigureAwait(false);
-    }
-    finally
-    {
-      foreach (var call in calls)
-      {
-        call.Dispose();
-      }
-    }
+    var replies = await RepliesOf(calls)
+                    .ConfigureAwait(false);
 
     for (var index = 0; index < replies.Length; index++)
     {
@@ -277,11 +278,11 @@ public class UnaryTests
                           100_000);
 
     Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo("Absent"),
+                Is.EqualTo(RuntimeDisposeState.Absent),
                 "no other channel is open");
     NativeRuntimeFactory.Configure(workerThreads: 2,
                                    memoryCeiling: 128 * 1024);
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = Channel();
     var client = Client(channel);
 
     var calls = await Task.WhenAll(Enumerable.Range(0,
@@ -292,22 +293,11 @@ public class UnaryTests
                                                                                          }))))
                           .ConfigureAwait(false);
 
-    try
-    {
-      var replies = await Task.WhenAll(Array.ConvertAll(calls,
-                                                        call => call.ResponseAsync))
-                              .ConfigureAwait(false);
+    var replies = await RepliesOf(calls)
+                    .ConfigureAwait(false);
 
-      Assert.That(replies,
-                  Has.All.Matches<EchoReply>(reply => reply.Text == text));
-    }
-    finally
-    {
-      foreach (var call in calls)
-      {
-        call.Dispose();
-      }
-    }
+    Assert.That(replies,
+                Has.All.Matches<EchoReply>(reply => reply.Text == text));
   }
 
   [Test]
@@ -335,7 +325,7 @@ public class UnaryTests
   [Test]
   public async Task TheChannelsTwoHalvesAgreeOnItsState()
   {
-    var keepsAlive = NativeRuntimeFactory.Channel(endpoint_);
+    var keepsAlive = Channel();
     try
     {
       await TheTwoHalves(keepsAlive)
@@ -350,9 +340,9 @@ public class UnaryTests
 
   private async Task TheTwoHalves(NativeChannel keepsAlive)
   {
-    var channel = NativeRuntimeFactory.Channel(endpoint_);
+    var channel = Channel();
     Assert.That(channel.NativeState,
-                Is.EqualTo("Open"));
+                Is.EqualTo(NativeMethods.AkChannelState.Open));
 
     await Client(channel)
           .SayAsync(new EchoRequest
@@ -367,35 +357,35 @@ public class UnaryTests
     Assert.Multiple(() =>
                     {
                       Assert.That(channel.NativeState,
-                                  Is.EqualTo("Closed"));
+                                  Is.EqualTo(NativeMethods.AkChannelState.Closed));
                       Assert.That(channel.DisposeState,
-                                  Is.EqualTo("Disposed"));
+                                  Is.EqualTo(ChannelDisposeState.Disposed));
                     });
 
     Assert.That(keepsAlive.NativeState,
-                Is.EqualTo("Open"));
+                Is.EqualTo(NativeMethods.AkChannelState.Open));
   }
 
   [Test]
   public async Task TheLastChannelReleasedIsTheOneThatTearsTheRuntimeDown()
   {
-    var first = NativeRuntimeFactory.Channel(endpoint_);
-    var second = NativeRuntimeFactory.Channel(endpoint_);
+    var first = Channel();
+    var second = Channel();
 
     Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo("Active"),
+                Is.EqualTo(RuntimeDisposeState.Active),
                 "one generation, two leases");
 
     await first.DisposeAsync()
                .ConfigureAwait(false);
     Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo("Active"),
+                Is.EqualTo(RuntimeDisposeState.Active),
                 "a lease is still out, so nothing may shut down");
 
     await second.DisposeAsync()
                 .ConfigureAwait(false);
     Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo("Absent"),
+                Is.EqualTo(RuntimeDisposeState.Absent),
                 "the last release awaited the destroy before its task completed");
   }
 
