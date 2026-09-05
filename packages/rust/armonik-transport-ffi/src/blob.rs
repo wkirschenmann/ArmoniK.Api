@@ -6,6 +6,7 @@ type Pairs<'a> = Vec<(&'a [u8], &'a [u8])>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BlobError {
     Truncated,
+    Trailing,
 }
 
 fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
@@ -25,6 +26,14 @@ fn decode(bytes: &[u8]) -> Result<Pairs<'_>, BlobError> {
         let key = read_chunk(&mut cursor)?;
         let value = read_chunk(&mut cursor)?;
         pairs.push((key, value));
+    }
+
+    // The format the header states has no room after the last pair, so bytes there mean the count
+    // and the pairs disagree - a host that wrote three and said two. Accepting it would start the
+    // call with two of the three entries and answer AK_STATUS_OK, which is a failure reported as
+    // a success.
+    if !cursor.is_empty() {
+        return Err(BlobError::Trailing);
     }
     Ok(pairs)
 }
@@ -140,6 +149,16 @@ mod tests {
             decode(&written).expect("well-formed"),
             vec![(&b""[..], &b""[..]), (&b"k"[..], &b""[..])]
         );
+    }
+
+    #[test]
+    fn a_count_that_undercounts_its_pairs_is_refused_rather_than_trimmed() {
+        // Three pairs written, two announced: what a host with an off-by-one produces. Read as
+        // two, the call would go out with a third of its metadata missing and OK returned.
+        let mut written = blob(&[(b"a", b"1"), (b"b", b"2"), (b"c", b"3")]);
+        written[..4].copy_from_slice(&2u32.to_ne_bytes());
+
+        assert_eq!(decode(&written), Err(BlobError::Trailing));
     }
 
     #[test]

@@ -65,6 +65,12 @@ pub(crate) fn parse(json: &[u8]) -> Option<(ChannelSettings, Uri)> {
     if !admits(settings.delivery_credits) || !admits(settings.max_sends_in_flight) {
         return None;
     }
+    // No upper bound: the deframer compares it against a `usize` it never adds to, so the largest
+    // one a target can name is a channel that refuses nothing. Zero is the one that means
+    // something, and it means no message can ever be received.
+    if settings.max_recv_message_size == Some(0) {
+        return None;
+    }
     Some((settings, endpoint))
 }
 
@@ -75,6 +81,14 @@ mod tests {
     fn config_of(json: &[u8]) -> GrpcChannelConfig {
         let (settings, endpoint) = parse(json).expect("valid");
         settings.into_channel_config(endpoint)
+    }
+
+    #[test]
+    fn a_channel_that_could_receive_no_message_is_refused() {
+        // Every other size is a channel that refuses some messages; zero refuses all of them,
+        // which is a configuration with no use and a call that can only ever fail.
+        assert!(parse(br#"{"endpoint":"http://h:1","max_recv_message_size":0}"#).is_none());
+        assert!(parse(br#"{"endpoint":"http://h:1","max_recv_message_size":1}"#).is_some());
     }
 
     #[test]

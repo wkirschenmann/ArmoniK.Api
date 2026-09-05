@@ -199,10 +199,16 @@ pub const AK_ABI_VERSION: i32 = 1;
 /// `struct_size` at offset zero is what `tests/layout.rs` pins, which is what makes the cast to
 /// `u32` sound for any version of any of these structs.
 ///
+/// Both reads are unaligned. Alignment is the caller's `T`, not this one: a host built against a
+/// version without the `u64` passes a pointer aligned to four, and asking it for eight would be
+/// asking it to know a definition it does not have. These are plain data, so an unaligned read is
+/// a copy either way.
+///
 /// # Safety
 ///
-/// `at` must be non-null, aligned for `T`, and readable for a leading `u32`.
+/// `at` must be non-null and readable for four bytes; and, when those four say
+/// `size_of::<T>()`, readable for `size_of::<T>()`.
 pub(crate) unsafe fn read_versioned<T: Copy>(at: *const T) -> Option<T> {
-    let struct_size = unsafe { at.cast::<u32>().read() };
-    (struct_size as usize == std::mem::size_of::<T>()).then(|| unsafe { at.read() })
+    let struct_size = unsafe { at.cast::<u32>().read_unaligned() };
+    (struct_size as usize == std::mem::size_of::<T>()).then(|| unsafe { at.read_unaligned() })
 }
