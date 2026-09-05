@@ -81,6 +81,8 @@ internal sealed class NativeCallInvoker : CallInvoker
     }
     catch
     {
+      // Awaited so the call settles before this returns, and its failure dropped: what the caller
+      // has to see is the send that failed, not the cancellation it caused.
       try
       {
         await drained.ConfigureAwait(false);

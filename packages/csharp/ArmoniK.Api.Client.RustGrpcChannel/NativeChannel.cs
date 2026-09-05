@@ -34,6 +34,7 @@ internal enum ChannelDisposeState
   Disposed,
 }
 
+/// <summary>A gRPC channel served by the native engine.</summary>
 public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
 {
   private readonly NativeRuntime runtime_;
@@ -86,6 +87,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
   internal NativeMethods.AkChannelState NativeState
     => NativeMethods.ak_channel_status(handle_);
 
+  /// <summary>The invoker a generated client calls through.</summary>
   public override CallInvoker CreateCallInvoker()
     => new NativeCallInvoker(this);
 
@@ -125,12 +127,16 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
                              (live_, call),
                              TaskContinuationOptions.ExecuteSynchronously);
 
+    // Read again, because `StartCall`'s read and this line straddle the start: a disposal that
+    // began between them drained a `live_` this call was not in yet.
     if (Volatile.Read(ref disposing_) != 0)
     {
       call.Cancel();
     }
   }
 
+  /// <summary>Cancels what is still running, gives the lease back, and waits for the engine to
+  /// be destroyed if this was the last channel.</summary>
   public async ValueTask DisposeAsync()
   {
     if (Interlocked.Exchange(ref disposing_,
@@ -189,12 +195,15 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     }
   }
 
+  /// <summary><see cref="DisposeAsync" />, awaited. It blocks until the engine has let go, so
+  /// prefer the asynchronous one wherever there is a choice.</summary>
   public void Dispose()
     => DisposeAsync()
       .AsTask()
       .GetAwaiter()
       .GetResult();
 
+  /// <summary><see cref="ChannelBase" />'s shutdown, which is this channel's disposal.</summary>
   protected override Task ShutdownAsyncCore()
     => DisposeAsync()
       .AsTask();

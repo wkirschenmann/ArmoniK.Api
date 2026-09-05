@@ -31,6 +31,7 @@ internal enum RuntimeDisposeState
   DestroyFailed,
 }
 
+/// <summary>The one native runtime a process may hold, and the channels leased from it.</summary>
 public static class NativeRuntimeFactory
 {
   private static readonly object Gate = new();
@@ -42,6 +43,7 @@ public static class NativeRuntimeFactory
   private static uint workerThreads_;
   private static ulong memoryCeiling_;
 
+  /// <summary>Sets what the next runtime is created with. Refused while one exists.</summary>
   public static void Configure(uint workerThreads = 0,
                                ulong memoryCeiling = 0)
   {
@@ -57,6 +59,8 @@ public static class NativeRuntimeFactory
     }
   }
 
+  /// <summary>Opens a channel and takes a lease on the runtime, creating it if there is none.
+  /// Disposing the channel gives the lease back.</summary>
   public static NativeChannel Channel(string endpoint,
                                       int deliveryCredits = 1)
   {

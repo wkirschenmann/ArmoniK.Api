@@ -30,6 +30,8 @@ internal sealed class NativeRuntime
 
   private static readonly TimeSpan QuiescePollInterval = TimeSpan.FromMilliseconds(1);
 
+  // The engine holds this pointer for as long as the runtime lives, and a delegate is only as
+  // alive as the reference kept to it.
   private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
 
   private readonly TaskCompletionSource<bool> released_ =
@@ -101,6 +103,9 @@ internal sealed class NativeRuntime
     await QuiescentAsync()
       .ConfigureAwait(false);
     Destroy();
+
+    // Only once both have answered. A runtime that refused to be destroyed still holds this
+    // pointer, and freeing the root would hand its next callback whatever the slot is reused for.
     self_.Free();
   }
 

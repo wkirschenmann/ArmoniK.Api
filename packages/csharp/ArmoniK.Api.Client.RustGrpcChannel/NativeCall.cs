@@ -55,6 +55,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
   {
     if (headers_.TrySetException(reason))
     {
+      // Read so it counts as observed: a caller that only awaits the response never reads the
+      // head, and an unobserved exception is raised again from the finalizer thread.
       _ = headers_.Task.Exception;
     }
   }
@@ -186,6 +188,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
   public void TerminalReturned()
   {
+    // `Free` clears the handle, so this reads false the second time. What it guards is not a
+    // wasted call: a freed slot is handed out again, and freeing it twice frees someone else.
     if (self_.IsAllocated)
     {
       self_.Free();
@@ -243,6 +247,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
       }
     }
 
+    // The two the engine answers for a call that is already over, which the sender cannot rule
+    // out and which the terminal reports anyway.
     var closed = NativeMethods.ak_call_end_send(handle_);
     if (closed is not (NativeMethods.AkStatus.Ok or NativeMethods.AkStatus.HandleStale
                                                  or NativeMethods.AkStatus.InvalidState))

@@ -89,6 +89,9 @@ public class UnaryTests : RuntimeLeaseFixture
     file.Seek(reader.ReadUInt32() + 4,
               SeekOrigin.Begin);
 
+    // The Machine field of the PE COFF header, two bytes past the PE signature: 0x8664 is x64 and
+    // 0x014c is x86. A mismatch here is the engine of the wrong architecture beside this host, and
+    // it would otherwise surface as a DllNotFoundException that names nothing.
     var machine = reader.ReadUInt16();
     Assert.That(machine,
                 Is.EqualTo(IntPtr.Size == 8

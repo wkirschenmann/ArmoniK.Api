@@ -20,6 +20,8 @@ using System.Runtime.InteropServices;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
+/// <summary>The native engine could not be loaded. The message says where it was looked for and
+/// how this framework resolves it.</summary>
 public sealed class RustEngineMissingException : Exception
 {
   private RustEngineMissingException(string message,
