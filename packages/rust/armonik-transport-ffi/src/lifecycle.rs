@@ -114,6 +114,9 @@ fn close_channel(channel: &Arc<AkChannel>) {
         }
     }
     channel.grpc.close();
+    // The calls counted above may have all left while this ran, and there may have been none:
+    // either way nothing else is coming to finish the close.
+    channel.finish_closing();
 }
 
 pub(crate) fn call_settled(call: ak_handle) {
