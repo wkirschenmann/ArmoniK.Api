@@ -16,8 +16,6 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -48,7 +46,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   private int disposing_;
-  private ChannelDisposeState state_ = ChannelDisposeState.Active;
+  private volatile ChannelDisposeState state_ = ChannelDisposeState.Active;
 
   internal NativeChannel(NativeRuntime runtime,
                          string endpoint,
@@ -63,27 +61,22 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
                  Endpoint        = endpoint,
                  DeliveryCredits = deliveryCredits,
                }.Encode();
-    var pin = GCHandle.Alloc(json,
-                             GCHandleType.Pinned);
-    try
-    {
-      var config = new NativeMethods.AkBytesIn
-                   {
-                     Ptr = pin.AddrOfPinnedObject(),
-                     Len = (UIntPtr)json.Length,
-                   };
 
-      var status = NativeMethods.ak_channel_create(runtime.Handle,
-                                                   config,
-                                                   out handle_);
-      if (status != NativeMethods.AkStatus.Ok)
-      {
-        throw new InvalidOperationException($"`{endpoint}` was refused ({status})");
-      }
-    }
-    finally
+    unsafe
     {
-      pin.Free();
+      fixed (byte* pinned = json)
+      {
+        var config = NativeMethods.AkBytesIn.Borrow(pinned,
+                                                    json.Length);
+
+        var status = NativeMethods.ak_channel_create(runtime.Handle,
+                                                     config,
+                                                     out handle_);
+        if (status != NativeMethods.AkStatus.Ok)
+        {
+          throw new InvalidOperationException($"`{endpoint}` was refused ({status})");
+        }
+      }
     }
   }
 
@@ -154,15 +147,20 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     {
       while (!live_.IsEmpty)
       {
+        // One snapshot, because `Keys` and `Values` are two of them and a call may leave between.
         var live = live_.ToArray();
-        foreach (var call in live)
+        var settling = new Task[live.Length];
+        for (var index = 0; index < live.Length; index++)
         {
-          call.Key.Cancel();
+          live[index]
+            .Key.Cancel();
+          settling[index] = live[index]
+            .Value;
         }
 
         try
         {
-          await Task.WhenAll(live.Select(settling => settling.Value))
+          await Task.WhenAll(settling)
                     .ConfigureAwait(false);
         }
         catch
