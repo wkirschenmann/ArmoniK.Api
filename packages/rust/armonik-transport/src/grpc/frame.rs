@@ -74,10 +74,22 @@ impl Deframer {
             }
             .fail();
         }
-        match HEADER_LEN.checked_add(len) {
-            Some(whole) if self.buffered >= whole => Ok(Some(self.take(whole).slice(HEADER_LEN..))),
-            _ => Ok(None),
+        // Two answers that were one: a message not yet buffered is waited for, but one whose
+        // header and body together do not fit an address cannot be produced as a `Bytes` on this
+        // target at all, so waiting for it is waiting for what cannot arrive. Reachable only where
+        // `usize` is 32 bits and no limit is set - which is a target this crate ships for.
+        let Some(whole) = HEADER_LEN.checked_add(len) else {
+            return TooLongSnafu {
+                len,
+                max: self.max_message_size,
+            }
+            .fail();
+        };
+
+        if self.buffered < whole {
+            return Ok(None);
         }
+        Ok(Some(self.take(whole).slice(HEADER_LEN..)))
     }
 
     fn peek(&self, out: &mut [u8]) {
@@ -236,11 +248,26 @@ mod tests {
 
     #[test]
     fn a_length_that_cannot_be_reached_waits_rather_than_reaching_past_the_buffer() {
+        // Two gigabytes, which is a length this target can address and has not received. A length
+        // it cannot address is the test below, and is a refusal rather than a wait.
         let mut deframer = unbounded();
-        deframer.push(Bytes::from_static(&[0, 0xff, 0xff, 0xff, 0xff, b'x']));
+        deframer.push(Bytes::from_static(&[0, 0x7f, 0xff, 0xff, 0xff, b'x']));
 
         assert_eq!(deframer.next_message(), Ok(None));
         assert!(!deframer.is_at_message_boundary());
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn a_length_no_address_can_hold_is_refused_rather_than_waited_for() {
+        // Only reachable here: on a 64-bit target a `u32` length plus five bytes always fits.
+        let mut deframer = unbounded();
+        deframer.push(Bytes::from_static(&[0, 0xff, 0xff, 0xff, 0xff, b'x']));
+
+        assert!(matches!(
+            deframer.next_message(),
+            Err(DeframeError::TooLong { .. })
+        ));
     }
 
     #[test]
