@@ -39,7 +39,10 @@ public sealed class RustEngineMissingException : Exception
                 ? $"this is .NET Framework, which has no runtime-identifier probing: the package's targets file should have put it in `{beside}`"
                 : "this is .NET, which resolves it by runtime identifier from `runtimes/<rid>/native` in the package";
 
-    return new RustEngineMissingException($"`{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit process. "
+    // The architecture as well as the width, because they are what disagree in the case this
+    // message exists for: `EngineDirectory` picks x64 or x86 by pointer width alone, so an Arm64
+    // process is told it looked in `x64` and can see for itself why nothing was there.
+    return new RustEngineMissingException($"`{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit {RuntimeInformation.ProcessArchitecture} process. "
                                           + how
                                           + $". Base directory: `{AppDomain.CurrentDomain.BaseDirectory}`.",
                                           inner);
