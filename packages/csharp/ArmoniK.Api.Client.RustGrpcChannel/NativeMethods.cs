@@ -101,6 +101,18 @@ internal static class NativeMethods
   {
     internal IntPtr Ptr;
     internal UIntPtr Len;
+
+    /// <summary>A view of a pinned array. An empty one points nowhere, which is what `fixed`
+    /// yields for an empty array and what the ABI reads for a zero length.</summary>
+    internal static unsafe AkBytesIn Borrow(byte* pinned,
+                                            int length)
+      => new()
+         {
+           Ptr = length == 0
+                   ? IntPtr.Zero
+                   : (IntPtr)pinned,
+           Len = (UIntPtr)length,
+         };
   }
 
   [StructLayout(LayoutKind.Sequential)]

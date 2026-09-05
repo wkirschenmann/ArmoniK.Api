@@ -122,42 +122,46 @@ internal sealed class NativeCall<TResponse> : ICallSink
                                            static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = RawMetadata.Encode(metadata);
 
-    var methodPin = GCHandle.Alloc(methodBytes,
-                                   GCHandleType.Pinned);
-    var metadataPin = GCHandle.Alloc(metadataBytes,
-                                     GCHandleType.Pinned);
-    try
+    // The engine copies both before it answers, so the pin lasts exactly the call.
+    unsafe
     {
-      var options = new NativeMethods.AkCallStartOptions
-                    {
-                      StructSize = StartOptionsSize,
-                      Method = Borrow(methodPin,
-                                      methodBytes.Length),
-                      Metadata = Borrow(metadataPin,
-                                        metadataBytes.Length),
-                    };
-
-      var status = NativeMethods.ak_call_start(channel,
-                                               ref options,
-                                               GCHandle.ToIntPtr(call.self_),
-                                               out call.handle_);
-      if (status != NativeMethods.AkStatus.Ok)
+      fixed (byte* methodPinned = methodBytes)
+      fixed (byte* metadataPinned = metadataBytes)
       {
-        call.self_.Free();
-        throw Failed($"the call could not be started ({status})");
+        var options = new NativeMethods.AkCallStartOptions
+                      {
+                        StructSize = StartOptionsSize,
+                        Method = NativeMethods.AkBytesIn.Borrow(methodPinned,
+                                                                methodBytes.Length),
+                        Metadata = NativeMethods.AkBytesIn.Borrow(metadataPinned,
+                                                                  metadataBytes.Length),
+                      };
+
+        var status = NativeMethods.ak_call_start(channel,
+                                                 ref options,
+                                                 GCHandle.ToIntPtr(call.self_),
+                                                 out call.handle_);
+        if (status != NativeMethods.AkStatus.Ok)
+        {
+          call.self_.Free();
+
+          // A channel that has begun closing, or a handle whose generation is spent, is the
+          // channel going away under a call that raced its disposal. That is the same answer
+          // `NativeChannel.StartCall` gives when it sees the disposal first.
+          throw new RpcException(new Status(status is NativeMethods.AkStatus.InvalidState
+                                                   or NativeMethods.AkStatus.HandleStale
+                                              ? StatusCode.Unavailable
+                                              : StatusCode.Internal,
+                                            $"the call could not be started ({status})"));
+        }
       }
-
-      call.ending_.Token.Register(call.EndNative);
-
-      call.drained_ = call.RunAsync();
-
-      return call;
     }
-    finally
-    {
-      methodPin.Free();
-      metadataPin.Free();
-    }
+
+    call.ending_.Token.Register(call.EndNative);
+
+    call.drained_ = call.RunAsync();
+
+    return call;
   }
 
   public void Publish(NativeMethods.AkEventKind kind,
@@ -383,19 +387,9 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
   }
 
-  private static unsafe ReadOnlySpan<byte> Bytes(in NativeMethods.AkBytes payload)
-    => new((void*)payload.Ptr,
-           (int)payload.Len);
-
-  private static NativeMethods.AkBytesIn Borrow(GCHandle pinned,
-                                                int length)
-    => new()
-       {
-         Ptr = length == 0
-                 ? IntPtr.Zero
-                 : pinned.AddrOfPinnedObject(),
-         Len = (UIntPtr)length,
-       };
+  private static ReadOnlySpan<byte> Bytes(in NativeMethods.AkBytes payload)
+    => UnmanagedMemoryManager.Span(payload.Ptr,
+                                   payload.Len);
 
   private static RpcException Failed(string reason)
     => new(new Status(StatusCode.Internal,

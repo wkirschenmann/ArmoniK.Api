@@ -1,22 +1,22 @@
 // This file is part of the ArmoniK project
-// 
+//
 // Copyright (C) ANEO, 2021-2026. All rights reserved.
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License")
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 using System;
 using System.Buffers;
-using System.Runtime.InteropServices;
 
 using Grpc.Core;
 
@@ -26,7 +26,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 {
   private readonly ulong call_;
   private NativeMethods.AkBuffer buffer_;
-  private UnmanagedBlock? block_;
+  private UnmanagedMemoryManager? block_;
   private byte[]? spilled_;
   private int written_;
   private bool lent_;
@@ -48,27 +48,16 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   public Memory<byte> GetMemory(int sizeHint = 0)
   {
     Reserve(sizeHint);
-    if (spilled_ is not null)
-    {
-      return new Memory<byte>(spilled_,
-                              written_,
-                              spilled_.Length - written_);
-    }
-
-    block_ ??= new UnmanagedBlock(buffer_.Ptr,
-                                  (int)buffer_.Len);
-    return block_.Memory.Slice(written_);
+    return spilled_ is not null
+             ? new Memory<byte>(spilled_,
+                                written_,
+                                spilled_.Length - written_)
+             : Block.Memory.Slice(written_);
   }
 
   public Span<byte> GetSpan(int sizeHint = 0)
-  {
-    Reserve(sizeHint);
-    return spilled_ is not null
-             ? new Span<byte>(spilled_,
-                              written_,
-                              spilled_.Length - written_)
-             : Arena.Slice(written_);
-  }
+    => GetMemory(sizeHint)
+      .Span;
 
   public override void SetPayloadLength(int payloadLength)
     => Take(payloadLength);
@@ -114,8 +103,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 
   public void Dispose()
   {
-    ((IDisposable?)block_)?.Dispose();
-    block_ = null;
+    ReleaseBlock();
     if (!lent_)
     {
       return;
@@ -126,11 +114,15 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   }
 
   private int Capacity
-    => spilled_?.Length ?? (int)buffer_.Len;
+    => spilled_?.Length ?? Arena.Length;
 
-  private unsafe Span<byte> Arena
-    => new((void*)buffer_.Ptr,
-           (int)buffer_.Len);
+  private Span<byte> Arena
+    => UnmanagedMemoryManager.Span(buffer_.Ptr,
+                                   buffer_.Len);
+
+  private UnmanagedMemoryManager Block
+    => block_ ??= new UnmanagedMemoryManager(buffer_.Ptr,
+                                             Capacity);
 
   private void Reserve(int sizeHint)
   {
@@ -153,6 +145,8 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     switch (status)
     {
       case NativeMethods.AkStatus.Ok:
+        // The manager names the buffer that has just been replaced.
+        ReleaseBlock();
         lent_ = true;
         return status;
 
@@ -167,62 +161,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
                                           $"no buffer to serialize into ({status})"));
     }
   }
-}
 
-internal sealed class ReceivedMessage : DeserializationContext
-{
-  private readonly IntPtr start_;
-  private readonly int length_;
-
-  internal ReceivedMessage(IntPtr start,
-                           int length)
+  private void ReleaseBlock()
   {
-    start_  = start;
-    length_ = length;
-  }
-
-  public override int PayloadLength
-    => length_;
-
-  public override byte[] PayloadAsNewBuffer()
-  {
-    var bytes = new byte[length_];
-    Marshal.Copy(start_,
-                 bytes,
-                 0,
-                 length_);
-    return bytes;
-  }
-
-  public override ReadOnlySequence<byte> PayloadAsReadOnlySequence()
-    => new(new UnmanagedBlock(start_,
-                              length_).Memory);
-}
-
-internal sealed class UnmanagedBlock : MemoryManager<byte>
-{
-  private readonly IntPtr start_;
-  private readonly int length_;
-
-  internal UnmanagedBlock(IntPtr start,
-                          int length)
-  {
-    start_  = start;
-    length_ = length;
-  }
-
-  public override unsafe Span<byte> GetSpan()
-    => new((void*)start_,
-           length_);
-
-  public override unsafe MemoryHandle Pin(int elementIndex = 0)
-    => new((byte*)start_ + elementIndex);
-
-  public override void Unpin()
-  {
-  }
-
-  protected override void Dispose(bool disposing)
-  {
+    ((IDisposable?)block_)?.Dispose();
+    block_ = null;
   }
 }

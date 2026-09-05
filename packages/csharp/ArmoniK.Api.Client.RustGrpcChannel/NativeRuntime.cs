@@ -81,7 +81,6 @@ internal sealed class NativeRuntime
   {
     while (true)
     {
-      token.ThrowIfCancellationRequested();
       await Task.Delay(RoomPollInterval,
                        token)
                 .ConfigureAwait(false);
@@ -102,7 +101,7 @@ internal sealed class NativeRuntime
     await QuiescentAsync()
       .ConfigureAwait(false);
     Destroy();
-    FreeRoot();
+    self_.Free();
   }
 
   private async Task QuiescentAsync()
@@ -144,14 +143,6 @@ internal sealed class NativeRuntime
     if (status != NativeMethods.AkStatus.Ok)
     {
       throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");
-    }
-  }
-
-  private void FreeRoot()
-  {
-    if (self_.IsAllocated)
-    {
-      self_.Free();
     }
   }
 
