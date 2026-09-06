@@ -39,13 +39,15 @@ pub(crate) fn destroy_runtime(handle: ak_handle) -> ak_status {
     }
 
     // From the remove on, this caller owns the claim, and the guard gives it back however it
-    // leaves. `release_threads` is the one below that can panic - tokio refuses to shut a runtime
-    // down from inside one - and a claim not given back is an `ak_runtime_create` refused for the
-    // life of the process, with the table already drained behind it.
+    // leaves.
+    //
+    // Nothing here shuts tokio down: the teardown thread did, and QUIESCENT above is that thread
+    // having finished. So this is a reap and three removals - it cannot panic, and it does not
+    // hold the host for the length of a shutdown.
     let claim = Claim::held();
     tables::calls().drain();
     tables::channels().drain();
-    found.release_threads();
+    found.join_teardown();
     drop(claim);
     ak_status::AK_STATUS_OK
 }
@@ -95,14 +97,17 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
         reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
         host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
 
-        if debt == ak_host_debt::AK_HOST_MUST_RETURN {
+        let owed = debt == ak_host_debt::AK_HOST_MUST_RETURN;
+        if owed {
             ledger.drained().await;
-            host.signal_runtime(
-                ak_event_kind::AK_EVENT_RESOURCES_RELEASED,
-                ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
-            );
         }
-        reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_QUIESCENT));
+
+        // The rest is a thread's, not a task's. It emits RESOURCES_RELEASED and then shuts tokio
+        // down, and QUIESCENT is that thread having finished - so the host reads it when there is
+        // nothing left rather than when this task got here.
+        if let Some(runtime) = weak.upgrade() {
+            runtime.tear_down(owed);
+        }
     });
 }
 

@@ -25,6 +25,8 @@ pub struct Event {
     pub status_code: i32,
     pub host_debt: ak_host_debt,
     pub had_owner: bool,
+    /// The name of the thread this callback ran on, which is what says where it came from.
+    pub on_thread: Option<String>,
     owner: usize,
 }
 
@@ -56,6 +58,7 @@ pub unsafe extern "C" fn on_event(
         status_code: event.status_code,
         host_debt: event.host_debt,
         had_owner: !owner.is_null(),
+        on_thread: std::thread::current().name().map(str::to_owned),
         owner: if holding { owner as usize } else { 0 },
     });
 
@@ -87,6 +90,15 @@ impl Recorder {
             .iter()
             .find(|event| event.kind == ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
             .map(|event| event.host_debt)
+    }
+
+    /// The last event of a kind, for a test that asks where one came from.
+    pub fn last_of(&self, kind: ak_event_kind) -> Option<Event> {
+        self.seen()
+            .iter()
+            .rev()
+            .find(|event| event.kind == kind)
+            .cloned()
     }
 
     pub fn hold_payloads(&self) {

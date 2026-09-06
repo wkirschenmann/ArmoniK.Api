@@ -622,6 +622,22 @@ fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid(
 
     host.recorder.consume_all();
     host.await_state(ak_runtime_state::AK_RUNTIME_QUIESCENT);
+
+    // Quiescence is a thread having gone, not a task having reached a line: the last event is
+    // emitted by a thread of its own, which then shuts tokio down and finishes, and the status
+    // answers QUIESCENT by asking whether that thread has finished. Stored by a task, it said
+    // only that a worker had got to the line that stored it - with every other worker still
+    // running, and `ak_runtime_destroy` still to shut them down on the host's own thread. The
+    // name is what pins it: no tokio worker is called this.
+    assert_eq!(
+        host.recorder
+            .last_of(ak_event_kind::AK_EVENT_RESOURCES_RELEASED)
+            .expect("the second event went out")
+            .on_thread
+            .as_deref(),
+        Some("armonik-teardown")
+    );
+
     assert!(
         host.recorder
             .kinds()

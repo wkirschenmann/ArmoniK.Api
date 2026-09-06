@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 
-use crate::abi::{ak_runtime_state, ak_status};
+use crate::abi::{ak_event_kind, ak_host_debt, ak_runtime_state, ak_status};
 use crate::call::CallServices;
 use crate::host::Host;
 use crate::ledger::Ledger;
@@ -15,6 +15,11 @@ pub(crate) struct AkRuntime {
     ledger: Arc<Ledger>,
     state: AtomicI32,
     gate: RwLock<()>,
+    /// The thread that finishes the shutdown, once there is one.
+    ///
+    /// Not a tokio task: it emits the last event and then shuts tokio down, which tokio refuses
+    /// from inside itself. Its having finished is what QUIESCENT means - see `state`.
+    teardown: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 /// The process-wide claim on being the one runtime.
@@ -78,6 +83,7 @@ impl AkRuntime {
             ledger: Arc::new(Ledger::new(memory_ceiling)),
             state: AtomicI32::new(ak_runtime_state::AK_RUNTIME_RUNNING as i32),
             gate: RwLock::new(()),
+            teardown: Mutex::new(None),
         }))
     }
 
@@ -101,9 +107,27 @@ impl AkRuntime {
         }
     }
 
+    /// What the host reads from `ak_runtime_status`.
+    ///
+    /// QUIESCENT is not stored anywhere: it is the teardown thread having finished. Stored, it
+    /// would say "a task reached this line" while every worker was still running and the last
+    /// event was still on its way out; asked of the thread, it says the last event has been
+    /// delivered, its callback has returned, and no thread of this runtime is left.
     pub(crate) fn state(&self) -> ak_runtime_state {
-        ak_runtime_state::from_repr(self.state.load(Ordering::Acquire))
-            .unwrap_or(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED)
+        let stored = ak_runtime_state::from_repr(self.state.load(Ordering::Acquire))
+            .unwrap_or(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED);
+        if stored != ak_runtime_state::AK_RUNTIME_GRPC_STOPPED {
+            return stored;
+        }
+        match self
+            .teardown
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
+            Some(thread) if thread.is_finished() => ak_runtime_state::AK_RUNTIME_QUIESCENT,
+            _ => stored,
+        }
     }
 
     pub(crate) fn set_state(&self, state: ak_runtime_state) {
@@ -135,7 +159,36 @@ impl AkRuntime {
         drop(self.gate.write().unwrap_or_else(PoisonError::into_inner));
     }
 
-    pub(crate) fn release_threads(&self) {
+    /// Hands the rest of the shutdown to a thread of its own.
+    ///
+    /// Everything after this happens outside tokio: the last event goes out, and then tokio is
+    /// shut down, which it refuses from inside itself. What the thread finishing means is that
+    /// there is nothing left of this runtime, which is what `state` reports as QUIESCENT - so
+    /// putting the shutdown here rather than in a task is what makes that word true.
+    pub(crate) fn tear_down(self: &Arc<Self>, owed: bool) {
+        let runtime = Arc::clone(self);
+        let thread = std::thread::Builder::new()
+            .name("armonik-teardown".to_owned())
+            .spawn(move || {
+                if owed {
+                    runtime.host.signal_runtime(
+                        ak_event_kind::AK_EVENT_RESOURCES_RELEASED,
+                        ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
+                    );
+                }
+                runtime.release_threads();
+            });
+
+        // A runtime that cannot have a thread stays STOPPED, which refuses `ak_runtime_destroy`
+        // and says so: `AK_RUNTIME_QUIESCENT` would promise the host it may unload a library
+        // whose workers are still running.
+        if let Ok(thread) = thread {
+            *self.teardown.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+        }
+    }
+
+    /// Waits for every worker to stop, which only a thread outside tokio may do.
+    fn release_threads(&self) {
         let taken = self
             .tokio
             .lock()
@@ -143,6 +196,18 @@ impl AkRuntime {
             .take();
         if let Some(tokio) = taken {
             tokio.shutdown_timeout(std::time::Duration::from_secs(5));
+        }
+    }
+
+    /// Reaps the teardown thread, which quiescence says has finished.
+    pub(crate) fn join_teardown(&self) {
+        let taken = self
+            .teardown
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(thread) = taken {
+            let _ = thread.join();
         }
     }
 }
