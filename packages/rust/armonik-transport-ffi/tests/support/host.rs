@@ -76,11 +76,19 @@ impl Host {
     }
 
     pub fn channel(&self, endpoint: &str) -> ak_handle {
-        let json = format!(r#"{{"endpoint":"{endpoint}"}}"#);
+        self.channel_with(endpoint, "{}")
+    }
+
+    /// A channel on `endpoint`, configured by `json`, which names options and never the endpoint.
+    pub fn channel_with(&self, endpoint: &str, json: &str) -> ak_handle {
         let mut channel = AK_HANDLE_NONE;
         let status = unsafe {
             ak_channel_create(
                 self.runtime,
+                ak_bytes_in {
+                    ptr: endpoint.as_ptr(),
+                    len: endpoint.len(),
+                },
                 ak_bytes_in {
                     ptr: json.as_ptr(),
                     len: json.len(),
@@ -88,7 +96,7 @@ impl Host {
                 &mut channel,
             )
         };
-        assert_eq!(status, ak_status::AK_STATUS_OK, "{json}");
+        assert_eq!(status, ak_status::AK_STATUS_OK, "{endpoint} {json}");
         channel
     }
 

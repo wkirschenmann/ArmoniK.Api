@@ -112,9 +112,14 @@ impl AkChannel {
 pub(crate) fn create(
     runtime: ak_handle,
     spawner: &tokio::runtime::Handle,
+    endpoint: &[u8],
     json: &[u8],
 ) -> Result<ak_handle, ak_status> {
-    let (settings, endpoint) = config::parse(json).ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
+    let endpoint = std::str::from_utf8(endpoint)
+        .ok()
+        .and_then(|endpoint| endpoint.parse().ok())
+        .ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
+    let settings = config::parse(json).ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
     let delivery_credits = settings.delivery_credits();
     let max_sends_in_flight = settings.max_sends_in_flight();
 

@@ -532,11 +532,16 @@ fn nothing_starts_on_a_runtime_that_has_begun_stopping() {
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
     assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
 
-    let json = br#"{"endpoint":"http://127.0.0.1:1"}"#;
+    let endpoint = b"http://127.0.0.1:1";
+    let json = b"{}";
     let mut opened = AK_HANDLE_NONE;
     let status = unsafe {
         ak_channel_create(
             host.runtime,
+            ak_bytes_in {
+                ptr: endpoint.as_ptr(),
+                len: endpoint.len(),
+            },
             ak_bytes_in {
                 ptr: json.as_ptr(),
                 len: json.len(),

@@ -8,6 +8,7 @@ mod config_utils;
 mod connect;
 pub mod grpc;
 pub mod http2;
+pub mod options;
 mod utils;
 
 pub use config::{ClientConfig, ClientConfigArgs, ConfigError};

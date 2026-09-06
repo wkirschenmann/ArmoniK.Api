@@ -263,21 +263,27 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
 
 /* === Channel === */
 
-/* Creates a channel from a config JSON. Synchronous and performs no I/O: no name is resolved and
- * no socket opened until the channel's first call. A bad config is AK_STATUS_INVALID_ARG, and so
- * is a null out or a null config with a non-zero length; a runtime handle that names nothing is
- * AK_STATUS_HANDLE_STALE, and one that is shutting down is AK_STATUS_INVALID_STATE.
+/* Creates a channel on an endpoint, configured by a JSON document. Synchronous and performs no
+ * I/O: no name is resolved and no socket opened until the channel's first call. A bad endpoint or
+ * a bad document is AK_STATUS_INVALID_ARG, and so is a null out or a null slice with a non-zero
+ * length; a runtime handle that names nothing is AK_STATUS_HANDLE_STALE, and one that is shutting
+ * down is AK_STATUS_INVALID_STATE.
  *
- * The JSON carries at least {"endpoint": "http://host:port"}, and optionally
- * connect_timeout_ms, user_agent, max_recv_message_size, delivery_credits and
- * max_sends_in_flight. An option spelled wrong is refused, not ignored.
+ * The endpoint is its own argument, as UTF-8 - "http://host:port". It is the one value a channel
+ * cannot be created without, so it is not an option that happens to be mandatory: every option of
+ * the document has a default, and `{}` is a valid configuration.
  *
- * The last two are the two windows, and they mirror each other. delivery_credits bounds the
- * payloads of one call outstanding at once, and the host chooses it because the host is what
- * has to hold them; max_sends_in_flight bounds the buffers one call may have out, counting
- * those being filled and those awaiting their WRITE_DONE. Zero is refused for either; both
- * default to 1. */
-ak_status ak_channel_create(ak_handle runtime, ak_bytes_in config_json, ak_handle *out);
+ * The document is structured and typed, and a JSON schema states it: objects nest, a number is a
+ * number and not a string spelled like one, and an option spelled wrong is refused rather than
+ * ignored. It carries UserAgent, MaxReceiveMessageSize, DeliveryCredits, MaxSendsInFlight, and
+ * a Transport object holding ConnectTimeout in seconds.
+ *
+ * The two windows mirror each other. DeliveryCredits bounds the payloads of one call outstanding
+ * at once, and the host chooses it because the host is what has to hold them; MaxSendsInFlight
+ * bounds the buffers one call may have out, counting those being filled and those awaiting their
+ * WRITE_DONE. Both default to 1, and the schema states the range either may take. */
+ak_status ak_channel_create(ak_handle runtime, ak_bytes_in endpoint, ak_bytes_in config_json,
+                            ak_handle *out);
 
 /* Frees the channel, cancelling its calls first.
  *

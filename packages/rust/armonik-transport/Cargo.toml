@@ -72,6 +72,12 @@ secrecy.workspace = true
 humantime.workspace = true
 serde_json = { workspace = true, optional = true }
 
+# The schema is what the options type exists to produce, so an example prints it - and it only
+# builds where `schemars` does.
+[[example]]
+name = "schema"
+required-features = ["schema"]
+
 [dev-dependencies]
 # The boolean options are read straight from the environment, so testing which spellings they accept
 # means setting variables: process-global state, hence one test at a time.

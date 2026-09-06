@@ -301,7 +301,7 @@ fn every_entry_point_has_the_signature_the_header_declares() {
     let _: unsafe extern "C" fn(ak_handle, *mut ak_memory_usage) -> ak_status =
         ak_runtime_memory_usage;
 
-    let _: unsafe extern "C" fn(ak_handle, ak_bytes_in, *mut ak_handle) -> ak_status =
+    let _: unsafe extern "C" fn(ak_handle, ak_bytes_in, ak_bytes_in, *mut ak_handle) -> ak_status =
         ak_channel_create;
     let _: extern "C" fn(ak_handle) = ak_channel_release;
     let _: extern "C" fn(ak_handle) -> ak_channel_state = ak_channel_status;
@@ -376,6 +376,103 @@ fn every_entry_point_the_header_declares_is_exported() {
 ///
 /// `ak_callback` is spared because the typedef writes it as `(*ak_callback)(`, so the name is
 /// followed by `)`, and the types are spared because none of them is ever called.
+/// Every entry point's parameter list, as the header spells it, against what the coercions above
+/// bind to.
+///
+/// `every_entry_point_has_the_signature_the_header_declares` compares a Rust function to a
+/// signature written in this file, which catches the Rust drifting. Nothing caught the *header*
+/// drifting, and the header is what a C host compiles against: a declaration promising three
+/// parameters where the library exports four is a call that corrupts the stack, and it would have
+/// passed every test here. So the list is read out of the header and compared to the same
+/// signatures the coercions pin, which closes the loop between the three.
+#[test]
+fn every_entry_point_takes_the_parameters_the_header_declares() {
+    let header = header();
+
+    let declared: &[(&str, &[&str])] = &[
+        (
+            "ak_runtime_create",
+            &[
+                "const ak_runtime_config *",
+                "ak_callback",
+                "void *",
+                "ak_handle *",
+            ],
+        ),
+        ("ak_runtime_status", &["ak_handle"]),
+        ("ak_runtime_begin_shutdown", &["ak_handle"]),
+        ("ak_runtime_destroy", &["ak_handle"]),
+        (
+            "ak_runtime_memory_usage",
+            &["ak_handle", "ak_memory_usage *"],
+        ),
+        (
+            "ak_channel_create",
+            &["ak_handle", "ak_bytes_in", "ak_bytes_in", "ak_handle *"],
+        ),
+        ("ak_channel_release", &["ak_handle"]),
+        ("ak_channel_status", &["ak_handle"]),
+        (
+            "ak_call_start",
+            &[
+                "ak_handle",
+                "const ak_call_start_options *",
+                // The header's own name for the host's opaque pointer, which is what a reader of
+                // the header sees; `typedef void *ak_call_ctx` is what makes it the same type.
+                "ak_call_ctx",
+                "ak_handle *",
+            ],
+        ),
+        (
+            "ak_get_call_buffer",
+            &["ak_handle", "size_t", "ak_buffer *"],
+        ),
+        ("ak_call_send_message", &["ak_handle", "ak_buffer"]),
+        ("ak_return_call_buffer", &["ak_buffer"]),
+        ("ak_call_end_send", &["ak_handle"]),
+        ("ak_call_cancel", &["ak_handle"]),
+        ("ak_call_debt_of", &["ak_handle", "ak_call_debt *"]),
+        ("ak_abi_version", &[]),
+        ("ak_event_consumed", &["ak_bytes"]),
+    ];
+
+    for (name, parameters) in declared {
+        let read = header_parameters(&header, name)
+            .unwrap_or_else(|| panic!("the header declares no `{name}`"));
+        assert_eq!(&read, parameters, "`{name}`");
+    }
+}
+
+/// The parameter types `name` is declared with, each stripped of the parameter's own name.
+///
+/// `void` alone is no parameter at all, which is how C spells an empty list.
+fn header_parameters(header: &str, name: &str) -> Option<Vec<String>> {
+    let text = without_comments(header);
+    let at = text.find(&format!("{name}("))?;
+    let opened = at + name.len() + 1;
+    let closed = opened + text[opened..].find(')')?;
+
+    let inside = text[opened..closed].trim();
+    if inside.is_empty() || inside == "void" {
+        return Some(Vec::new());
+    }
+
+    Some(inside.split(',').map(without_the_parameters_name).collect())
+}
+
+/// A parameter's type: what is left once its own name is taken off the end.
+fn without_the_parameters_name(parameter: &str) -> String {
+    let parameter = parameter.trim();
+    let ends_at = parameter
+        .rfind(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .map_or(0, |at| at + 1);
+
+    parameter[..ends_at]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn header_declarations(header: &str) -> Vec<String> {
     let text = without_comments(header);
     let bytes = text.as_bytes();

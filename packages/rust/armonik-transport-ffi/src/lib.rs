@@ -154,6 +154,7 @@ pub extern "C" fn ak_runtime_destroy(runtime: ak_handle) -> ak_status {
 #[no_mangle]
 pub unsafe extern "C" fn ak_channel_create(
     runtime: ak_handle,
+    endpoint: ak_bytes_in,
     config_json: ak_bytes_in,
     out: *mut ak_handle,
 ) -> ak_status {
@@ -164,8 +165,10 @@ pub unsafe extern "C" fn ak_channel_create(
             let _pass = found
                 .pass_the_gate()
                 .ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
+            let endpoint =
+                unsafe { endpoint.as_slice() }.ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
             let json = unsafe { config_json.as_slice() }.ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
-            channel::create(runtime, found.spawner(), json)
+            channel::create(runtime, found.spawner(), endpoint, json)
         })
     })
 }

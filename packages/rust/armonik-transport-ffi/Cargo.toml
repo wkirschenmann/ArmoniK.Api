@@ -15,7 +15,9 @@ name = "armonik_transport_ffi"
 
 [dependencies]
 # By path: this crate is never published, and the two move together.
-armonik-transport = { path = "../armonik-transport" }
+# `serde` for the options type the channel document is read into: the vocabulary is declared
+# once, beside the engine that honours it, and this crate reads rather than restates it.
+armonik-transport = { path = "../armonik-transport", features = ["serde"] }
 bytes.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

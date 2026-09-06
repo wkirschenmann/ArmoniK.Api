@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -57,20 +58,26 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
     runtime_         = runtime;
     deliveryCredits_ = deliveryCredits;
 
+    // The endpoint is its own argument and never an option: it is the one value a channel cannot
+    // be created without, so every option of the document has a default and `{}` would do.
+    var named = Encoding.UTF8.GetBytes(endpoint);
     var json = new ChannelOptions
                {
-                 Endpoint        = endpoint,
                  DeliveryCredits = deliveryCredits,
                }.Encode();
 
     unsafe
     {
+      fixed (byte* pinnedEndpoint = named)
       fixed (byte* pinned = json)
       {
+        var where = NativeMethods.AkBytesIn.Borrow(pinnedEndpoint,
+                                                   named.Length);
         var config = NativeMethods.AkBytesIn.Borrow(pinned,
                                                     json.Length);
 
         var status = NativeMethods.ak_channel_create(runtime.Handle,
+                                                     where,
                                                      config,
                                                      out handle_);
         if (status != NativeMethods.AkStatus.Ok)

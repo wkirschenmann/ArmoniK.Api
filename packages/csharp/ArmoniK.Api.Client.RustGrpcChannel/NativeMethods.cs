@@ -198,7 +198,8 @@ internal static class NativeMethods
                                                           out AkMemoryUsage outUsage);
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-  internal static extern AkStatus ak_channel_create(ulong runtime,
+  internal static extern AkStatus ak_channel_create(ulong     runtime,
+                                                    AkBytesIn endpoint,
                                                     AkBytesIn configJson,
                                                     out ulong outChannel);
 
