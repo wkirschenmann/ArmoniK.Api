@@ -20,6 +20,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Google.Protobuf;
+
 using Grpc.Core;
 
 using NUnit.Framework;
@@ -340,6 +342,91 @@ public class UnaryTests : RuntimeLeaseFixture
 
     Assert.That(reply.Text,
                 Is.EqualTo("deep"));
+  }
+
+  /// <summary>The real method, with marshallers of the test's choosing.</summary>
+  private static Method<TRequest, TResponse> Say<TRequest, TResponse>(Marshaller<TRequest>  request,
+                                                                      Marshaller<TResponse> response)
+    => new(MethodType.Unary,
+           "armonik.transport.ffi.test.Echo",
+           "Say",
+           request,
+           response);
+
+  private static Marshaller<EchoRequest> Serializing(Action<EchoRequest, SerializationContext> write)
+    => new(write,
+           context => EchoRequest.Parser.ParseFrom(context.PayloadAsNewBuffer()));
+
+  private static readonly Marshaller<EchoReply> ReplyMarshaller = Marshallers.Create<EchoReply>(message => message.ToByteArray(),
+                                                                                                EchoReply.Parser.ParseFrom);
+
+  /// <summary>Each of these is an error path that must still give the engine back everything it
+  /// lent, or the runtime never quiesces - which the fixture's own teardown assertion catches.
+  /// </summary>
+  [Test]
+  public void AMarshallerThatMisbehavesStillReturnsWhatTheEngineLent()
+  {
+    using var channel = Channel();
+    var       invoker = channel.CreateCallInvoker();
+
+    // Announces more than it writes: the engine lends a buffer of that size and would send the
+    // arena's leftovers as message bytes.
+    var short_ = Assert.Throws<RpcException>(() => invoker.BlockingUnaryCall(Say(Serializing((_,
+                                                                                              context) =>
+                                                                                             {
+                                                                                               context.SetPayloadLength(64);
+                                                                                               context.GetBufferWriter()
+                                                                                                      .Advance(8);
+                                                                                               context.Complete();
+                                                                                             }),
+                                                                                 ReplyMarshaller),
+                                                                             null,
+                                                                             new CallOptions(),
+                                                                             new EchoRequest()));
+    Assert.That(short_!.Status.Detail,
+                Does.Contain("announced 64 bytes and wrote 8"));
+
+    // Throws with a buffer lent.
+    Assert.Throws<InvalidOperationException>(() => invoker.BlockingUnaryCall(Say(Serializing((_,
+                                                                                             context) =>
+                                                                                            {
+                                                                                              context.SetPayloadLength(16);
+                                                                                              throw new InvalidOperationException("the serializer gave up");
+                                                                                            }),
+                                                                                ReplyMarshaller),
+                                                                            null,
+                                                                            new CallOptions(),
+                                                                            new EchoRequest()));
+
+    // Announces a length no message can be.
+    Assert.Throws<ArgumentOutOfRangeException>(() => invoker.BlockingUnaryCall(Say(Serializing((_,
+                                                                                               context) => context.SetPayloadLength(-1)),
+                                                                                  ReplyMarshaller),
+                                                                              null,
+                                                                              new CallOptions(),
+                                                                              new EchoRequest()));
+  }
+
+  /// <summary>A deserializer that throws owes the engine the payload it was handed.</summary>
+  [Test]
+  public void ADeserializerThatThrowsStillConsumesItsPayload()
+  {
+    using var channel = Channel();
+    var       invoker = channel.CreateCallInvoker();
+
+    var refused = Assert.Throws<RpcException>(() => invoker.BlockingUnaryCall(Say(Marshallers.Create<EchoRequest>(message => message.ToByteArray(),
+                                                                                                                 EchoRequest.Parser.ParseFrom),
+                                                                                 Marshallers.Create<EchoReply>(message => message.ToByteArray(),
+                                                                                                               _ => throw new InvalidOperationException("the deserializer gave up"))),
+                                                                             null,
+                                                                             new CallOptions(),
+                                                                             new EchoRequest
+                                                                             {
+                                                                               Text = "read me",
+                                                                             }));
+
+    Assert.That(refused!.Status.Detail,
+                Does.Contain("the deserializer gave up"));
   }
 
   [Test]

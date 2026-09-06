@@ -200,8 +200,9 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
   public void TerminalReturned()
   {
-    // `Free` clears the handle, so this reads false the second time. What it guards is not a
-    // wasted call: a freed slot is handed out again, and freeing it twice frees someone else.
+    // `Free` clears the handle, so this reads false the second time. What it guards is the
+    // throw: `GCHandle.Free` on a slot already freed raises rather than freeing another's, and
+    // the terminal is delivered once per call, so nothing should reach this twice anyway.
     if (self_.IsAllocated)
     {
       self_.Free();

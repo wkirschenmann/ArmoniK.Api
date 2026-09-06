@@ -60,17 +60,46 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       .Span;
 
   public override void SetPayloadLength(int payloadLength)
-    => Take(payloadLength);
+  {
+    if (payloadLength < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(payloadLength),
+                                            payloadLength,
+                                            "a message is not a negative number of bytes");
+    }
+
+    Take(payloadLength);
+  }
 
   public override IBufferWriter<byte> GetBufferWriter()
     => this;
 
+  /// <summary>Ends the serialization, and checks the announced length was written.</summary>
+  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract - the
+  /// engine lends a buffer of exactly that size and sends exactly that many bytes - so a
+  /// serializer that announces more than it writes ships whatever the arena held as message
+  /// bytes. Refused here, where it can still be told apart from a transport failure.</remarks>
   public override void Complete()
   {
+    if (lent_ && written_ != Capacity)
+    {
+      throw new RpcException(new Status(StatusCode.Internal,
+                                        $"the serializer announced {Capacity} bytes and wrote {written_}"));
+    }
   }
 
+  /// <summary>Ends the serialization with a payload of its own.</summary>
+  /// <remarks>The array replaces whatever was announced, buffer included: `Commit` asks for one
+  /// of the array's size and copies into it. Giving back the buffer first, because the engine
+  /// lends one at a time and the second ask would be refused as a host bug - which reads as a
+  /// call that ended, and the caller would see Cancelled for a marshaller's choice.</remarks>
   public override void Complete(byte[] payload)
   {
+    if (lent_)
+    {
+      GiveBack();
+    }
+
     spilled_ = payload;
     written_ = payload.Length;
   }
@@ -101,16 +130,21 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     return status;
   }
 
+  private void GiveBack()
+  {
+    ReleaseBlock();
+    NativeMethods.ak_return_call_buffer(buffer_);
+    buffer_ = default;
+    lent_   = false;
+  }
+
   public void Dispose()
   {
     ReleaseBlock();
-    if (!lent_)
+    if (lent_)
     {
-      return;
+      GiveBack();
     }
-
-    lent_ = false;
-    NativeMethods.ak_return_call_buffer(buffer_);
   }
 
   private int Capacity
