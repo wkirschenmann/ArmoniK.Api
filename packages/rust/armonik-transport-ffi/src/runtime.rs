@@ -109,10 +109,10 @@ impl AkRuntime {
 
     /// What the host reads from `ak_runtime_status`.
     ///
-    /// QUIESCENT is not stored anywhere: it is the teardown thread having finished. Stored, it
-    /// would say "a task reached this line" while every worker was still running and the last
-    /// event was still on its way out; asked of the thread, it says the last event has been
-    /// delivered, its callback has returned, and no thread of this runtime is left.
+    /// QUIESCENT is not stored anywhere: it is the teardown thread having finished. Asked of the
+    /// thread, it says the last event has been delivered, its callback has returned, and no
+    /// thread of this runtime is left - which is what the header promises a host that reads it
+    /// before unloading the library.
     pub(crate) fn state(&self) -> ak_runtime_state {
         let stored = ak_runtime_state::from_repr(self.state.load(Ordering::Acquire))
             .unwrap_or(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED);

@@ -91,10 +91,10 @@ async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Opt
 /// The three things a call hands its reader, each on its own channel.
 ///
 /// The terminal has one of its own because it is the only one that must arrive. Sharing the
-/// message queue meant waiting for room in it, and the wait had to be bounded by something: a
-/// channel closing while one message sat unread took the terminal with it, and a call the peer
-/// answered OK reached its reader as `Aborted` - through the FFI, a host reading `Cancelled` for
-/// a call it had the response to, and retrying what it must not repeat.
+/// message queue would mean waiting for room in it, and that wait would need a bound: a channel
+/// closing while one message sits unread would take the terminal with it, and a call the peer
+/// answered OK would reach its reader as `Aborted` - through the FFI, a host reading `Cancelled`
+/// for a call it has the response to, and retrying what it must not repeat.
 struct Delivery {
     head: Option<oneshot::Sender<Metadata>>,
     messages: mpsc::Sender<OwnedMessage>,
@@ -208,9 +208,9 @@ mod tests {
 
     /// The queue is full, the channel is closed, and the peer's status still reaches the reader.
     ///
-    /// Both halves matter: the message the driver had already queued, and the terminal behind it.
-    /// Sharing one queue meant the terminal waited for room, and the only thing that could end
-    /// that wait was the channel closing - which discarded a status the peer had given.
+    /// Both halves matter: the message the driver has already queued, and the terminal behind it.
+    /// On one queue the terminal would wait for room, and the only thing able to end that wait is
+    /// the channel closing - which discards a status the peer has given.
     #[tokio::test]
     async fn a_status_the_peer_gave_outlives_the_channel_that_carried_it() {
         let (closed, closed_rx) = watch::channel(false);

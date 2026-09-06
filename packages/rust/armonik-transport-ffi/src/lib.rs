@@ -45,6 +45,14 @@ unsafe fn hand_over<T>(out: *mut T, made: Result<T, ak_status>) -> ak_status {
     }
 }
 
+/// Looks a handle up and writes what it answers, leaving `*out` untouched on any refusal.
+///
+/// The shape every entry point with an out parameter keeps: a null out is INVALID_ARG, a handle
+/// this table does not hold is HANDLE_STALE, and the reader's own refusal is whatever it says.
+/// `ak_call_start` is the one that does not use it - it reads its options before the lookup, so
+/// folding it would change which status wins when the options are null and the channel is stale
+/// too, and the two are different codes to the host.
+///
 /// # Safety
 ///
 /// `out` must be null or writable for its type.
@@ -52,7 +60,7 @@ unsafe fn observe<T, V>(
     table: &Registry<T>,
     handle: ak_handle,
     out: *mut V,
-    read: impl FnOnce(&T) -> V,
+    read: impl FnOnce(&Arc<T>) -> Result<V, ak_status>,
 ) -> ak_status {
     if out.is_null() {
         return ak_status::AK_STATUS_INVALID_ARG;
@@ -60,8 +68,13 @@ unsafe fn observe<T, V>(
     let Some(found) = table.get(handle) else {
         return ak_status::AK_STATUS_HANDLE_STALE;
     };
-    unsafe { *out = read(&found) };
-    ak_status::AK_STATUS_OK
+    match read(&found) {
+        Err(status) => status,
+        Ok(value) => {
+            unsafe { *out = value };
+            ak_status::AK_STATUS_OK
+        }
+    }
 }
 
 /// # Safety
@@ -145,20 +158,15 @@ pub unsafe extern "C" fn ak_channel_create(
     out: *mut ak_handle,
 ) -> ak_status {
     guard(|| {
-        if out.is_null() {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        }
-        let Some(found) = tables::runtimes().get(runtime) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        let Some(_pass) = found.pass_the_gate() else {
-            return ak_status::AK_STATUS_INVALID_STATE;
-        };
-        let Some(json) = (unsafe { config_json.as_slice() }) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
-
-        unsafe { hand_over(out, channel::create(runtime, found.spawner(), json)) }
+        observe(tables::runtimes(), runtime, out, |found| {
+            // Held across the create, so a shutdown that closed the gate cannot miss the channel
+            // this is about to insert.
+            let _pass = found
+                .pass_the_gate()
+                .ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
+            let json = unsafe { config_json.as_slice() }.ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
+            channel::create(runtime, found.spawner(), json)
+        })
     })
 }
 
@@ -233,15 +241,7 @@ pub unsafe extern "C" fn ak_get_call_buffer(
     len: usize,
     out: *mut ak_buffer,
 ) -> ak_status {
-    guard(|| {
-        if out.is_null() {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        }
-        let Some(found) = tables::calls().get(call) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        unsafe { hand_over(out, found.lend(len)) }
-    })
+    guard(|| unsafe { observe(tables::calls(), call, out, |found| found.lend(len)) })
 }
 
 /// # Safety
@@ -302,7 +302,7 @@ pub extern "C" fn ak_call_cancel(call: ak_handle) -> ak_status {
 /// `out` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn ak_call_debt_of(call: ak_handle, out: *mut ak_call_debt) -> ak_status {
-    guard(|| unsafe { observe(tables::calls(), call, out, |found| found.debt()) })
+    guard(|| unsafe { observe(tables::calls(), call, out, |found| Ok(found.debt())) })
 }
 
 /// # Safety
@@ -315,7 +315,7 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 ) -> ak_status {
     guard(|| unsafe {
         observe(tables::runtimes(), runtime, out, |found| {
-            found.ledger().usage()
+            Ok(found.ledger().usage())
         })
     })
 }

@@ -275,7 +275,7 @@ fn the_header_and_the_library_agree_on_the_version() {
     let header = header();
 
     // The whole line, not a substring of it: `AK_ABI_VERSION 1` is a prefix of
-    // `AK_ABI_VERSION 10`, so a bump on one side alone would have gone unread.
+    // `AK_ABI_VERSION 10`, and a substring test reads a bump on one side alone as agreement.
     let declared = format!("#define AK_ABI_VERSION {AK_ABI_VERSION}");
     assert!(
         header.lines().any(|line| line.trim() == declared),

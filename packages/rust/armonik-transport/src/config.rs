@@ -676,8 +676,8 @@ mod tests {
         );
     }
 
-    /// An override that cannot be parsed used to be reported as a bad endpoint, which is the one
-    /// value the caller had got right.
+    /// An override that cannot be parsed names itself, not the endpoint - which is the one value
+    /// the caller got right.
     #[test]
     fn an_override_that_cannot_be_parsed_names_the_override() {
         let error = ClientConfig::from_config_args(ClientConfigArgs {

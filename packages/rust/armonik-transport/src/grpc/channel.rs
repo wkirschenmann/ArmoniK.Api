@@ -168,12 +168,12 @@ struct Session {
     sender: Option<SendRequest<RequestBody>>,
     /// The dial in flight, if one is, and how its outcome reaches whoever waits for it.
     ///
-    /// A dial opens the channel's connection, so it is the channel's and not the first caller's.
-    /// Running it inside that caller's future made it theirs: a call cancelled while it dialled -
-    /// its deadline, `ak_call_cancel`, its channel closing - dropped the future and took the dial
-    /// with it, and the callers queued behind the lock started again from nothing. Under a stream
-    /// of calls whose deadline is shorter than a dial, none of them ever completes one, though a
-    /// single call left alone would.
+    /// A dial opens the channel's connection, so it belongs to the channel and not to whichever
+    /// call reached it first. Run inside that call's future it would be the call's: cancelling
+    /// the call - a deadline, `ak_call_cancel`, its channel closing - would drop the future and
+    /// the dial with it, and the calls queued behind the lock would start again from nothing.
+    /// Under a stream of calls whose deadline is shorter than a dial, none of them would ever
+    /// complete one, though a single call left alone would.
     dialling: Option<broadcast::Sender<Result<SendRequest<RequestBody>, ChannelError>>>,
 }
 

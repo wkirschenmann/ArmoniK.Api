@@ -34,7 +34,7 @@ public class UnmanagedMemoryManagerTests
                                      Is.EqualTo(int.MaxValue));
                        });
 
-  /// <summary>One past what a span addresses, which is where truncation used to begin.</summary>
+  /// <summary>One past what a span addresses, which is where a narrowing truncates.</summary>
   [Test]
   public void ALengthPastWhatASpanHoldsIsRefused()
     => Assert.Throws<OverflowException>(() => UnmanagedMemoryManager.Length((UIntPtr)((ulong)int.MaxValue + 1)));

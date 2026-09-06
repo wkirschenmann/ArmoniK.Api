@@ -625,10 +625,8 @@ fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid(
 
     // Quiescence is a thread having gone, not a task having reached a line: the last event is
     // emitted by a thread of its own, which then shuts tokio down and finishes, and the status
-    // answers QUIESCENT by asking whether that thread has finished. Stored by a task, it said
-    // only that a worker had got to the line that stored it - with every other worker still
-    // running, and `ak_runtime_destroy` still to shut them down on the host's own thread. The
-    // name is what pins it: no tokio worker is called this.
+    // answers QUIESCENT by asking whether that thread has finished. The name is what pins it -
+    // no tokio worker is called this.
     assert_eq!(
         host.recorder
             .last_of(ak_event_kind::AK_EVENT_RESOURCES_RELEASED)
@@ -738,10 +736,9 @@ fn a_state_is_asked_of_a_handle_this_library_knows_or_it_is_none() {
 
 /// The start gate, read while the runtime is still stopping rather than after it stopped.
 ///
-/// `begin_shutdown` stores GRPC_STOPPING before it spawns anything, so this is deterministic; and
-/// it is the only moment the gate is what refuses. Waiting for QUIESCENT first, as this test used
-/// to, closes the channel and hands the refusal to the transport instead - the gate could then be
-/// deleted and nothing would notice.
+/// `begin_shutdown` stores GRPC_STOPPING before it spawns anything, so this is deterministic, and
+/// it is the only moment the gate is what refuses: waiting for QUIESCENT first closes the channel
+/// and hands the refusal to the transport, which would hold with the gate deleted.
 #[test]
 fn nothing_starts_on_a_runtime_that_has_begun_stopping() {
     let fixture = Host::connected();
