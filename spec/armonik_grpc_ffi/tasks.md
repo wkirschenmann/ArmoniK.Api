@@ -443,11 +443,11 @@ lines nothing would call. Each of those tasks brings its unit, its entry in the 
 property generation puts on the C# type, so the option surface grows a feature at a time and is
 never wider than what works.
 
-What this task settles for all of them, being the first: how a nested unit is declared, how it is
-read strictly from JSON and leniently from the text sources, and what answers the question T3.1
-left open - serde attributes are fixed on the type, so the lenient readers cannot simply be
-attached to fields that must also deserialize strictly. Names come from the mechanism, field name
-and `rename_all = "PascalCase"`, and nowhere from a per-field rename.
+What this task settles for all of them, being the first: how a nested unit is declared, how its
+constraints are stated so the schema carries them, and how its flat name falls out of its nesting
+path. The reading is strict and only strict - the text sources never cross the FFI, so the
+question T3.1 left open does not arise here. Names come from the mechanism, field name and
+`rename_all = "PascalCase"`, and nowhere from a per-field rename.
 
 **Deliverable**: the FFI crate's hand-written settings type is gone, the engine's options travel
 as structured JSON, and `grep -c rename` on the unit answers 1, the container attribute.
@@ -493,7 +493,12 @@ makes the JSON strict: the type in the schema is the type the reader enforces.
   `"type": "integer", "format": "int32", "minimum": 1`, the generated class checks it, and the
   transport refuses by option name regardless - one constraint, stated where a reader looks and
   enforced where it matters.
-- **The schema is the generator every input.** Nothing is passed beside it: the type and its
+- **Every constraint that can be said in the schema is said there.** `minimum` and `maximum` for
+  a range, `pattern` for a shape, `enum` for a closed set, `minLength` for what may not be empty.
+  A constraint written in the schema reaches the generated class, the generated documentation and
+  any other consumer of the vocabulary at once; one written only in the transport reaches none of
+  them and is discovered at run time.
+- **The schema is the generator's every input.** Nothing is passed beside it: the type and its
   format give the C# type, `minimum` gives the check, `description` gives the XML doc, `$defs`
   and `$ref` give the nested classes, and a property absent from `required` is an optional one.
   A generator that needed a second input would be a second place for the vocabulary to live.
@@ -541,6 +546,20 @@ fails the build.
 **Commit**: bind `IConfiguration` - appsettings, environment, command line - onto the generated
 type, in .NET's own precedence order, and serialize the whole of it. No option is read on the
 Rust side of the FFI boundary.
+
+**The flat name of an option is its nesting path, joined by `__`.** .NET's configuration already
+maps that separator onto a section, which the repository relies on today with
+`GrpcClient__Endpoint`, so a nested unit costs nothing to reach:
+`GrpcClient__Transport__ConnectTimeout` binds to `Transport.ConnectTimeout` with no code of ours.
+The Rust side derives the same name from the same path rather than declaring a prefix per
+embedding - two embeddings of one unit have two paths by construction, which is what declaring
+them was for.
+
+**And this is what dissolves the strict-versus-lenient question on this path.** The text sources
+never reach Rust across the FFI: .NET binds them into the typed object and serializes structured
+JSON, so the FFI deserialization is strict and only strict. The lenient readers serve the crate's
+own Rust consumers, which hold a config rather than a document. The question returns only if the
+Rust side takes the same layering, which is the item left for later.
 
 **Deliverable**: a test setting the same option in two layers and asserting .NET's order decides;
 a test that an option set only in the environment reaches the engine.
@@ -892,6 +911,7 @@ T1.1 alone, so it can run early.
   parallelizable with each other and none of them with it.
 - **T6.6** (packaging) can start as soon as T4.1, since what it packages is the engine
 - **T6.2** (deadline) stands on T1.1 alone and can run at any point
-- **Phase 7 waits, though its prerequisites are met.** T7.1 needs T1.1 and T2.3 and both are
-  done, so it could start now. It does not: phases 3 to 6 may still move the surface it would
-  adapt to, and adapting twice costs more than waiting once.
+- **Phase 7 comes after 3, 4, 5 and 6.** T7.1's declared prerequisites, T1.1 and T2.3, are met,
+  so it could start at any time; it does not, by decision. Adapting the Rust client to a surface
+  those phases are still moving would mean adapting it twice, and a client that could not offer
+  TLS would be adapted before it was useful - the engine speaks in the clear until T4.1.
