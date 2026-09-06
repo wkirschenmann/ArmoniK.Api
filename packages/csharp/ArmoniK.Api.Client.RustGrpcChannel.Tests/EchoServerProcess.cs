@@ -19,6 +19,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
@@ -58,10 +59,28 @@ internal sealed class EchoServerProcess : IDisposable
       throw new InvalidOperationException($"`dotnet {assembly}` did not start");
     }
 
+    // Drained from the start, and kept, so a chatty startup cannot fill the pipe while nothing
+    // reads it - the server would then block on its own stderr, say nothing on stdout, and the
+    // whole start budget would go to a deadlock reported as "the server said nothing".
+    var complaints = new StringBuilder();
+    process.ErrorDataReceived += (_,
+                                  line) =>
+                                 {
+                                   if (line.Data is not null)
+                                   {
+                                     lock (complaints)
+                                     {
+                                       complaints.AppendLine(line.Data);
+                                     }
+                                   }
+                                 };
+    process.BeginErrorReadLine();
+
     try
     {
       return new EchoServerProcess(process,
-                                   ReadEndpoint(process));
+                                   ReadEndpoint(process,
+                                                complaints));
     }
     catch
     {
@@ -70,7 +89,8 @@ internal sealed class EchoServerProcess : IDisposable
     }
   }
 
-  private static string ReadEndpoint(Process process)
+  private static string ReadEndpoint(Process       process,
+                                     StringBuilder complaints)
   {
     var deadline = DateTime.UtcNow + StartTimeout;
     while (true)
@@ -87,8 +107,13 @@ internal sealed class EchoServerProcess : IDisposable
       var line = reading.Result;
       if (line is null)
       {
-        var complaint = process.StandardError.ReadToEnd()
-                               .Trim();
+        string complaint;
+        lock (complaints)
+        {
+          complaint = complaints.ToString()
+                                .Trim();
+        }
+
         throw new InvalidOperationException($"the server ended before saying where it listens (exit {process.ExitCode})"
                                             + (complaint.Length == 0
                                                  ? string.Empty

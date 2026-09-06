@@ -437,12 +437,28 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
   }
 
+  /// <summary>Ends this call when the caller's token is cancelled.</summary>
+  /// <remarks>Registered on <c>ending_</c> rather than on the token directly, so it is set up
+  /// before the call is started and cannot race the reader disposing it: a call the engine ends
+  /// at once - a channel released underneath it - reaches its terminal and disposes
+  /// <c>cancellation_</c> while the invoker is still on its way here, and the registration would
+  /// then outlive the call for as long as the caller's token source does. A token already
+  /// cancelled cancels immediately, which is what a caller passing one expects.</remarks>
   internal void CancelWith(CancellationToken token)
   {
-    if (token.CanBeCanceled)
+    if (!token.CanBeCanceled)
     {
-      cancellation_ = token.Register(Cancel);
+      return;
     }
+
+    var registration = token.Register(Cancel);
+    if (ending_.IsCancellationRequested)
+    {
+      registration.Dispose();
+      return;
+    }
+
+    cancellation_ = registration;
   }
 
   public void Cancel()

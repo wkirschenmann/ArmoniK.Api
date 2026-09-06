@@ -222,10 +222,16 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
         || format!("the channel is {:?}", ak_channel_status(channel)),
     );
 
-    let debt = debt_of(call);
-    assert!(
-        debt.payloads_owed > 0,
-        "the channel closed with nothing outstanding, so this proves nothing: {debt:?}"
+    // No MESSAGE, because the credit the metadata took never came back: that is the call being
+    // parked in `deliver`, which is the case this test exists for. `payloads_owed > 0` would say
+    // nothing - `hold_payloads` is on, so the terminal's own payload is owed whatever happened.
+    assert_eq!(
+        seen.data_kinds(),
+        vec![
+            ak_event_kind::AK_EVENT_INITIAL_METADATA,
+            ak_event_kind::AK_EVENT_STATUS
+        ],
+        "the reader was parked on a credit, so no message was delivered"
     );
 
     host.recorder.consume_all();
@@ -249,9 +255,15 @@ fn a_closing_channel_takes_no_new_call() {
     host.recorder.await_metadata();
 
     ak_channel_release(channel);
-    assert_eq!(
-        ak_channel_status(channel),
-        ak_channel_state::AK_CHANNEL_CLOSING
+    // Either, because the call may reach its terminal between the release and this read, and
+    // this test is about what a released channel refuses, not about how far its drain has got.
+    assert!(
+        matches!(
+            ak_channel_status(channel),
+            ak_channel_state::AK_CHANNEL_CLOSING | ak_channel_state::AK_CHANNEL_CLOSED
+        ),
+        "the channel is {:?}",
+        ak_channel_status(channel)
     );
 
     let (status, refused) = try_start_call(channel, ECHO, &[]);
@@ -708,17 +720,51 @@ fn a_state_is_asked_of_a_handle_this_library_knows_or_it_is_none() {
     );
 }
 
+/// The start gate, read while the runtime is still stopping rather than after it stopped.
+///
+/// `begin_shutdown` stores GRPC_STOPPING before it spawns anything, so this is deterministic; and
+/// it is the only moment the gate is what refuses. Waiting for QUIESCENT first, as this test used
+/// to, closes the channel and hands the refusal to the transport instead - the gate could then be
+/// deleted and nothing would notice.
 #[test]
-fn no_call_starts_on_a_runtime_that_is_stopping() {
+fn nothing_starts_on_a_runtime_that_has_begun_stopping() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    assert_eq!(
+        ak_runtime_begin_shutdown(host.runtime),
+        ak_status::AK_STATUS_OK
+    );
+
+    let (status, call) = try_start_call(channel, ECHO, &[]);
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
+
+    let json = br#"{"endpoint":"http://127.0.0.1:1"}"#;
+    let mut opened = AK_HANDLE_NONE;
+    let status = unsafe {
+        ak_channel_create(
+            host.runtime,
+            ak_bytes_in {
+                ptr: json.as_ptr(),
+                len: json.len(),
+            },
+            &mut opened,
+        )
+    };
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(opened, AK_HANDLE_NONE, "and no channel either");
+
+    host.await_state(ak_runtime_state::AK_RUNTIME_QUIESCENT);
+}
+
+#[test]
+fn a_channel_released_before_the_runtime_stops_is_closed_by_the_time_it_does() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
 
     host.stop();
 
-    let (status, call) = try_start_call(channel, ECHO, &[]);
-
-    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
-    assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
     assert_eq!(
         ak_channel_status(channel),
         ak_channel_state::AK_CHANNEL_CLOSED
