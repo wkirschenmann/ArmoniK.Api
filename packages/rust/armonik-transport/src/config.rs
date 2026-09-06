@@ -12,10 +12,17 @@ pub struct ClientConfig {
     pub endpoint: Uri,
     /// Allow unsafe connections to the endpoint (without SSL), defaults to false
     pub allow_unsafe_connection: bool,
-    /// TLS identity of the client: key + cert
-    pub identity: Option<(CertificateDer<'static>, PrivateKeyDer<'static>)>,
-    /// CA certificate to authenticate the server
-    pub cacert: Option<CertificateDer<'static>>,
+    /// TLS identity of the client: the chain from `GrpcClient__CertPem`, then its key
+    ///
+    /// A chain and not one certificate, because a PEM file holds what the server needs to build a
+    /// path: the leaf, then the intermediates that sign it. Sending the leaf alone fails against
+    /// any server that does not already hold them.
+    pub identity: Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>,
+    /// CA certificates to authenticate the server, from `GrpcClient__CaCert`
+    ///
+    /// Every certificate in the file, because a bundle during a root rotation holds two, and
+    /// taking the first would refuse the half of the fleet signed by the other.
+    pub cacert: Vec<CertificateDer<'static>>,
     /// Override the endpoint name during SSL verification
     pub override_target: Option<Uri>,
     /// Timeout for establishing a connection to the server, defaults to 60s
@@ -93,7 +100,7 @@ pub struct ClientConfigArgs {
     /// Override the endpoint name during SSL verification
     #[cfg_attr(feature = "serde", serde(default))]
     pub override_target_name: String,
-    /// Timeout for establishing a connection to the server, defaults to no timeout
+    /// Timeout for establishing a connection to the server, defaults to 60s
     #[cfg_attr(feature = "serde", serde(default))]
     pub connect_timeout: String,
     /// Timeout for each request, defaults to no timeout
@@ -167,9 +174,11 @@ impl ClientConfig {
         Self::from_config_args(ClientConfigArgs::from_env()?)
     }
     pub fn from_config_args(args: ClientConfigArgs) -> Result<Self, ConfigError> {
+        // The endpoint is not in the span, and neither are the two PEM paths' contents: an
+        // endpoint may carry `user:password@`, which is refused below - but the span is built
+        // before that check, so it would record what the check exists to keep out.
         let _span = tracing::debug_span!(
             "ClientConfig",
-            args.endpoint,
             args.cert_pem,
             args.key_pem,
             args.ca_cert,
@@ -211,12 +220,25 @@ impl ClientConfig {
         } = args;
 
         // Read CAcert file
-        let cacert = if !cacert_path.is_empty() {
-            let cacert_pem = std::fs::read_to_string(cacert_path.clone())
-                .context(IoSnafu { path: cacert_path })?;
-            Some(CertificateDer::from_pem_slice(cacert_pem.as_bytes()).context(TlsSnafu {})?)
+        let cacert = if cacert_path.is_empty() {
+            Vec::new()
         } else {
-            None
+            // As bytes, like the key below: a PEM file is base64 in ASCII armour, but nothing
+            // says the text around it is UTF-8, and a preamble byte that is not would otherwise
+            // surface as "could not read file".
+            let cacert_pem =
+                std::fs::read(cacert_path.clone()).context(IoSnafu { path: &cacert_path })?;
+            let cacert = CertificateDer::pem_slice_iter(&cacert_pem)
+                .collect::<Result<Vec<_>, _>>()
+                .context(TlsSnafu {})?;
+            if cacert.is_empty() {
+                return HoldsNoCertificateSnafu {
+                    name: "GrpcClient__CaCert",
+                    path: cacert_path,
+                }
+                .fail();
+            }
+            cacert
         };
 
         // Read client cert and key files
@@ -224,21 +246,48 @@ impl ClientConfig {
             ("", "") => None,
             ("", _) | (_, "") => return IncompatibleOptionsSnafu{msg: format!("`GrpcClient__CertPem={cert_path}` and `GrpcClient__KeyPem={key_path}` must be either both empty or both set")}.fail(),
             (cert_path, key_path) => {
-                let cert_pem =
-                    std::fs::read_to_string(cert_path).context(IoSnafu { path: cert_path })?;
+                let cert_pem = std::fs::read(cert_path).context(IoSnafu { path: cert_path })?;
                 let key_pem = std::fs::read(key_path).context(IoSnafu { path: key_path })?;
-                let cert = CertificateDer::from_pem_slice(cert_pem.as_bytes()).context(TlsSnafu {})?;
+                let chain = CertificateDer::pem_slice_iter(&cert_pem)
+                    .collect::<Result<Vec<_>, _>>()
+                    .context(TlsSnafu {})?;
+                if chain.is_empty() {
+                    return HoldsNoCertificateSnafu {
+                        name: "GrpcClient__CertPem",
+                        path: cert_path.to_owned(),
+                    }
+                    .fail();
+                }
                 let key = PrivateKeyDer::from_pem_slice(key_pem.as_slice()).context(TlsSnafu{})?;
 
-                Some((cert, key))
+                Some((chain, key))
             }
         };
 
-        let endpoint = Uri::try_from(endpoint.clone()).context(UriSnafu { uri: endpoint })?;
+        // Before it is parsed, so nothing below splits a string that still holds a password:
+        // HTTP/2 forbids userinfo in `:authority`, this crate's own connector refuses such an
+        // endpoint, and an error message is not where a caller should learn it was there.
+        if endpoint.contains('@') {
+            return CarriesUserinfoSnafu {
+                name: "GrpcClient__Endpoint",
+            }
+            .fail();
+        }
+
+        let endpoint = Uri::try_from(endpoint.clone()).context(UriSnafu {
+            uri: endpoint.clone(),
+        })?;
 
         let override_target = if override_target_name.is_empty() {
             None
         } else {
+            if override_target_name.contains('@') {
+                return CarriesUserinfoSnafu {
+                    name: "GrpcClient__OverrideTargetName",
+                }
+                .fail();
+            }
+
             let authority;
             let path_and_query;
 
@@ -252,9 +301,19 @@ impl ClientConfig {
                     ..
                 } = Uri::try_from(override_target_name.clone())
                     .context(UriSnafu {
-                        uri: endpoint.to_string(),
+                        uri: override_target_name.clone(),
                     })?
                     .into_parts();
+            }
+
+            // An override with no authority overrides nothing: the name to verify against comes
+            // from the endpoint, and the caller who set this would never be told it had no
+            // effect.
+            if authority.is_none() {
+                return NamesNoAuthoritySnafu {
+                    value: override_target_name,
+                }
+                .fail();
             }
 
             let mut uri = hyper::http::uri::Builder::new();
@@ -281,6 +340,7 @@ impl ClientConfig {
                 connect_timeout
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__ConnectTimeout",
                         value: connect_timeout,
                     })?
                     .into(),
@@ -293,7 +353,10 @@ impl ClientConfig {
             Some(
                 timeout
                     .parse::<humantime::Duration>()
-                    .context(InvalidDurationSnafu { value: timeout })?
+                    .context(InvalidDurationSnafu {
+                        name: "GrpcClient__Timeout",
+                        value: timeout,
+                    })?
                     .into(),
             )
         };
@@ -315,6 +378,7 @@ impl ClientConfig {
             let duration: Duration = parts[1]
                 .parse::<humantime::Duration>()
                 .context(InvalidDurationSnafu {
+                    name: "GrpcClient__RateLimit",
                     value: rate_limit.clone(),
                 })?
                 .into();
@@ -339,6 +403,7 @@ impl ClientConfig {
                 tcp_keepalive
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__TcpKeepalive",
                         value: tcp_keepalive,
                     })?
                     .into(),
@@ -352,6 +417,7 @@ impl ClientConfig {
                 tcp_keepalive_interval
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__TcpKeepaliveInterval",
                         value: tcp_keepalive_interval,
                     })?
                     .into(),
@@ -365,6 +431,7 @@ impl ClientConfig {
                 tcp_keepalive_retries
                     .parse::<u32>()
                     .context(InvalidIntegerSnafu {
+                        name: "GrpcClient__TcpKeepaliveRetries",
                         value: tcp_keepalive_retries,
                     })?,
             )
@@ -377,6 +444,7 @@ impl ClientConfig {
                 http2_keep_alive_interval
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__Http2KeepAliveInterval",
                         value: http2_keep_alive_interval,
                     })?
                     .into(),
@@ -390,6 +458,7 @@ impl ClientConfig {
                 http2_keep_alive_timeout
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__Http2KeepAliveTimeout",
                         value: http2_keep_alive_timeout,
                     })?
                     .into(),
@@ -403,6 +472,7 @@ impl ClientConfig {
                 http2_max_header_list_size
                     .parse::<u32>()
                     .context(InvalidIntegerSnafu {
+                        name: "GrpcClient__Http2MaxHeaderListSize",
                         value: http2_max_header_list_size,
                     })?,
             )
@@ -435,14 +505,6 @@ impl ClientConfig {
             http2_max_header_list_size,
             user_agent,
         })
-    }
-}
-
-impl TryFrom<&ClientConfig> for tonic::transport::Endpoint {
-    type Error = ConfigError;
-
-    fn try_from(value: &ClientConfig) -> Result<Self, Self::Error> {
-        Ok(Self::from(value.endpoint.clone()))
     }
 }
 
@@ -502,9 +564,12 @@ pub enum ConfigError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
-    #[snafu(display("`GrpcClient__ConnectTimeout={value}` is not a valid duration (e.g. `30s` or `1m`) [{location}]"))]
+    #[snafu(display(
+        "`{name}={value}` is not a valid duration (e.g. `30s` or `1m`) [{location}]"
+    ))]
     #[non_exhaustive]
     InvalidDuration {
+        name: &'static str,
         source: humantime::DurationError,
         value: String,
         #[snafu(implicit)]
@@ -518,9 +583,32 @@ pub enum ConfigError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
-    #[snafu(display("`{value}` is not a valid integer [{location}]"))]
+    #[snafu(display("`{name}={path}` holds no certificate [{location}]"))]
+    #[non_exhaustive]
+    HoldsNoCertificate {
+        name: &'static str,
+        path: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("`{name}` carries `user:password@`, which HTTP/2 forbids in `:authority` and which this client would put in its errors and on the wire [{location}]"))]
+    #[non_exhaustive]
+    CarriesUserinfo {
+        name: &'static str,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("`GrpcClient__OverrideTargetName={value}` names no authority, so it would override nothing [{location}]"))]
+    #[non_exhaustive]
+    NamesNoAuthority {
+        value: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("`{name}={value}` is not a valid integer [{location}]"))]
     #[non_exhaustive]
     InvalidInteger {
+        name: &'static str,
         source: std::num::ParseIntError,
         value: String,
         #[snafu(implicit)]
@@ -551,14 +639,55 @@ mod tests {
     /// Every message in the chain, joined. snafu keeps the detail in the source, so asserting on the
     /// outermost `Display` alone would pass whatever the cause turned out to be.
     fn chain(error: &ConfigError) -> String {
-        let mut rendered = error.to_string();
-        let mut source = std::error::Error::source(error);
-        while let Some(cause) = source {
-            rendered.push_str(" | ");
-            rendered.push_str(&cause.to_string());
-            source = cause.source();
-        }
-        rendered
+        crate::utils::chain(error, " | ")
+    }
+
+    /// The password never reaches a message, a span, or the wire.
+    ///
+    /// Refused rather than scrubbed: HTTP/2 forbids userinfo in `:authority`, so an endpoint
+    /// carrying one is a configuration that cannot work, and telling the caller that is more use
+    /// than dialling something they did not ask for.
+    #[test]
+    fn an_endpoint_that_carries_a_password_is_refused_and_the_password_is_not_repeated() {
+        let error = ClientConfig::from_config_args(ClientConfigArgs {
+            endpoint: String::from("https://alice:s3cret@host:5001"),
+            ..args()
+        })
+        .expect_err("userinfo is not dialable");
+
+        let said = chain(&error);
+        assert!(said.contains("GrpcClient__Endpoint"), "{said}");
+        assert!(!said.contains("s3cret"), "the message repeats it: {said}");
+        assert!(!said.contains("alice"), "the message repeats it: {said}");
+    }
+
+    #[test]
+    fn an_override_that_names_no_authority_is_refused_rather_than_ignored() {
+        let error = ClientConfig::from_config_args(ClientConfigArgs {
+            override_target_name: String::from("/other"),
+            ..args()
+        })
+        .expect_err("a path overrides no name");
+
+        assert!(
+            matches!(error, ConfigError::NamesNoAuthority { .. }),
+            "{error:?}"
+        );
+    }
+
+    /// An override that cannot be parsed names itself, not the endpoint - which is the one value
+    /// the caller got right.
+    #[test]
+    fn an_override_that_cannot_be_parsed_names_the_override() {
+        let error = ClientConfig::from_config_args(ClientConfigArgs {
+            override_target_name: String::from("not a uri at all"),
+            ..args()
+        })
+        .expect_err("a space is not a uri");
+
+        let said = chain(&error);
+        assert!(said.contains("not a uri at all"), "{said}");
+        assert!(!said.contains("localhost:5001"), "{said}");
     }
 
     #[test]
@@ -567,7 +696,7 @@ mod tests {
 
         assert_eq!(config.endpoint.to_string(), "http://localhost:5001/");
         assert!(config.identity.is_none());
-        assert!(config.cacert.is_none());
+        assert!(config.cacert.is_empty());
         assert_eq!(config.override_target, None);
         assert_eq!(config.rate_limit, None);
     }
@@ -609,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn a_duration_that_cannot_be_parsed_names_the_value() {
+    fn a_duration_that_cannot_be_parsed_names_the_variable_and_the_value() {
         let error = ClientConfig::from_config_args(ClientConfigArgs {
             tcp_keepalive: String::from("soon"),
             ..args()
@@ -620,7 +749,13 @@ mod tests {
             matches!(error, ConfigError::InvalidDuration { .. }),
             "{error:?}"
         );
-        assert!(chain(&error).contains("soon"), "{}", chain(&error));
+        // The variable, because a dozen of them are durations and the value alone leaves the
+        // reader to guess which one they mistyped.
+        assert!(
+            chain(&error).contains("GrpcClient__TcpKeepalive=soon"),
+            "{}",
+            chain(&error)
+        );
     }
 
     #[test]

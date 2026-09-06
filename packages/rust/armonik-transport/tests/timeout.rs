@@ -7,7 +7,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{call, config, serve, SlowService};
+use common::slow::{call, config, serve, SlowService};
 
 #[tokio::test]
 async fn a_request_timeout_ends_a_call_the_server_is_too_slow_to_answer() {
@@ -49,7 +49,7 @@ async fn no_timeout_lets_a_slow_call_finish() {
         .expect("connecting should succeed");
 
     let answer = call(channel).await.expect("the call should complete");
-    assert_eq!(answer.as_ref(), common::REPLY);
+    assert_eq!(answer.as_ref(), common::slow::REPLY);
 }
 
 #[tokio::test]
@@ -69,7 +69,7 @@ async fn a_rate_limit_is_accepted_and_still_lets_calls_through() {
             .await
             .expect("the call should complete")
             .as_ref(),
-        common::REPLY
+        common::slow::REPLY
     );
 }
 
