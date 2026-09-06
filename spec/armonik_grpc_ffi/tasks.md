@@ -290,10 +290,9 @@ Two questions the model settled rather than the code:
 - The happy-eyeballs behaviour that motivated adopting `hyper_util`'s connector has no test:
   nothing in the suite presents a dual-stack host with one dead address family.
 - Five minor divergences from the second model pass. The largest gap is not a divergence but an
-  absence: the model's reader machine (`consumer_phase`, `reader_state`, the `BeginMoveNext`
-  family) has no implementation, because it is phase 2's, so the invariants over it are vacuous
-  today. That is T2.2's starting point rather than a debt - the machine is specified and proved,
-  and `design.md` carries the `MoveNext` it asks for.
+  absence at the time: the model's reader machine (`consumer_phase`, `reader_state`, the
+  `BeginMoveNext` family) had no implementation, so the invariants over it were vacuous. T2.2
+  implemented it and they are not.
 
 ---
 
@@ -306,6 +305,13 @@ Two questions the model settled rather than the code:
 .NET side: AsyncClientStreamingCall with write stream.
 
 **Deliverable**: .NET E2E test: client streaming.
+**Status**: done.  The engine and the ABI already carried several sends - `send_message` waits
+for room, and the ABI acquits each message with its own WRITE_DONE - and nothing exercised it,
+both echo servers being unary only.  What the binding had to learn is that **a write completes
+at its WRITE_DONE and not at its commit**, which is what makes a window of one enough for a
+stream: the emission that completes one write has already freed the slot the next lend asks for.
+design.md states it and level 2 names it `ManagedWriterNeverObservesSlotBusy`; removing the wait
+makes the writer observe `SLOT_BUSY`, which is the proof it is load-bearing.
 
 ### T2.2: Server streaming (Rust channel + FFI + .NET)
 
@@ -314,6 +320,15 @@ Two questions the model settled rather than the code:
 .NET side: AsyncServerStreamingCall with read stream.
 
 **Deliverable**: .NET E2E test: server streaming.
+**Status**: done, and it is the task that changed the most.  The read side is now the machine
+design.md specifies rather than a background task draining eagerly into one response: one
+consumer of the delivery ring, taken by a transition and never by a peek, the registration
+disarmed before the winner is decided, one `CompareExchange` per read arbitrating between the
+token, the result and a decode failure, and the payload acquitted after that decision in a
+guaranteed block.  Two defects of T1.3 fell out of it: the count of unacquitted sends sat behind
+a `try { return ... } finally` and had never run - the compiler had been saying so, `CS0162` -
+and `Cancel` ended the call without handing the ring to a drain, so a response stream abandoned
+half read left the channel's disposal waiting for good.
 
 ### T2.3: Bidi streaming (Rust channel + FFI + .NET)
 
@@ -321,6 +336,32 @@ Two questions the model settled rather than the code:
 **Commit**: Concurrent send and recv. .NET side: AsyncDuplexStreamingCall.
 
 **Deliverable**: .NET E2E test: bidi streaming.
+**Status**: done, and it asked for nothing new in the binding: the writer landed with T2.1 and
+the reader with T2.2, and the two halves share no state - a write waits for an acquittal the
+engine delivers off the ring, a read takes the ring.  The work was the fixture, because
+interleaving is what the cardinality is for: a bidi service that answered only at the half-close
+would let a batching client pass and prove nothing.  The interleaved test passed without a
+change to the binding, which is the evidence that the halves are independent.
+
+### Phase 2 closing — what the cardinalities settled, and what is left
+
+**Every cardinality reads the same way.**  A call that answers once - unary, client streaming -
+is the streaming reader reduced to a single: one message, then a terminal, and anything else is
+a server that did not honour the cardinality.  There is no second read path to keep consistent
+with the first, which is what lets the model's `reader_state` cover all four rather than one.
+What differs between the cardinalities is what they send, not how they read.
+
+**Deliberately left, and why:**
+
+- `WriteOptions` is accepted and ignored: the ABI carries no per-write flag, and inventing one
+  for a value no caller sets would be a field to keep true rather than a feature.
+- No retry on a stream.  That is T5.3 and its replay buffer, and it is the reason T5.3 is a task
+  of its own rather than a clause of T5.2.
+- The streaming tests run against this repository's echo fixture, not against ArmoniK's own
+  contracts.  `ArmoniK.Api.Mock` implements three streaming RPCs - `Events.GetEvents`,
+  `Results.DownloadResultData` and `Results.UploadResultData` - and `ArmoniKClientTests` already
+  starts it, so exercising the generated stubs of those is available and not yet done.
+- arm64 is unchanged from phase 1: mapped and packaged, never executed.
 
 ---
 
