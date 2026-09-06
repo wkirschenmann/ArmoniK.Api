@@ -19,6 +19,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.Tests", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Mock", "ArmoniK.Api.Mock\ArmoniK.Api.Mock.csproj", "{3CC5FB77-EC5B-4DDE-B71A-10C4A67B31C0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.RustGrpcChannel", "ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj", "{AEE844B7-DB7D-421B-B074-DAFC77A16694}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.RustGrpcChannel.Tests", "ArmoniK.Api.Client.RustGrpcChannel.Tests\ArmoniK.Api.Client.RustGrpcChannel.Tests.csproj", "{F26C04B6-D943-4568-9237-C2FC1D8D2E37}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.RustGrpcChannel.TestServer", "ArmoniK.Api.Client.RustGrpcChannel.TestServer\ArmoniK.Api.Client.RustGrpcChannel.TestServer.csproj", "{9E195FB3-D4AB-4B31-A282-3B94710A896A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +63,18 @@ Global
 		{3CC5FB77-EC5B-4DDE-B71A-10C4A67B31C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3CC5FB77-EC5B-4DDE-B71A-10C4A67B31C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3CC5FB77-EC5B-4DDE-B71A-10C4A67B31C0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AEE844B7-DB7D-421B-B074-DAFC77A16694}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AEE844B7-DB7D-421B-B074-DAFC77A16694}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AEE844B7-DB7D-421B-B074-DAFC77A16694}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AEE844B7-DB7D-421B-B074-DAFC77A16694}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F26C04B6-D943-4568-9237-C2FC1D8D2E37}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F26C04B6-D943-4568-9237-C2FC1D8D2E37}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F26C04B6-D943-4568-9237-C2FC1D8D2E37}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F26C04B6-D943-4568-9237-C2FC1D8D2E37}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E195FB3-D4AB-4B31-A282-3B94710A896A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E195FB3-D4AB-4B31-A282-3B94710A896A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E195FB3-D4AB-4B31-A282-3B94710A896A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E195FB3-D4AB-4B31-A282-3B94710A896A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
