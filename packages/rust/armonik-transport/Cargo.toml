@@ -56,6 +56,9 @@ humantime.workspace = true
 # The boolean options are read straight from the environment, so testing which spellings they accept
 # means setting variables: process-global state, hence one test at a time.
 serial_test.workspace = true
+# The server-streaming fixture answers a stream of messages, and tonic asks for a `Stream` to
+# build it from; the regular build never produces one.
+futures.workspace = true
 # Only to round-trip `ClientConfigArgs` in the test that pins the `serde` feature.
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "time"] }

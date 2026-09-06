@@ -140,7 +140,32 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                     string? host,
                                                                                                     CallOptions options,
                                                                                                     TRequest request)
-    => throw Unsupported(method.Type);
+  {
+    MustCarryNoDeadline(options);
+    MustCarryNothingElseUnhonoured(options);
+
+    var call = channel_.StartCall(method.FullName,
+                                 options.Headers,
+                                 method.ResponseMarshaller,
+                                 streams: true);
+    call.CancelWith(options.CancellationToken);
+
+    // The one request goes without being awaited here: this cardinality hands the reader back to
+    // the caller, and a send that fails ends the call itself, so what the caller learns is the
+    // terminal that follows rather than a fault from a task nobody holds. Observed all the same,
+    // because an unobserved one would surface on the finalizer thread.
+    var sent = call.SendUnaryAsync(method.RequestMarshaller,
+                                   request);
+    _ = sent.ContinueWith(static settled => _ = settled.Exception,
+                          TaskContinuationOptions.OnlyOnFaulted);
+
+    return new AsyncServerStreamingCall<TResponse>(new NativeResponseStream<TResponse>(call),
+                                                   static state => ((NativeCall<TResponse>)state).ResponseHeadersAsync,
+                                                   static state => EndedStatus((NativeCall<TResponse>)state),
+                                                   static state => EndedTrailers((NativeCall<TResponse>)state),
+                                                   static state => ((NativeCall<TResponse>)state).Cancel(),
+                                                   call);
+  }
 
   public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                               string? host,

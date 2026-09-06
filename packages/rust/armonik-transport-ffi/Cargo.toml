@@ -22,6 +22,9 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
+# The tests include armonik-transport's gRPC fixture by path, and its server-streaming service
+# answers with a `Stream`.
+futures.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = ["codegen", "server", "router"] }
 tower-service.workspace = true

@@ -43,6 +43,26 @@ public class EchoService : Echo.EchoBase
            };
   }
 
+  /// <summary>Answers one message per comma-separated part of the request.</summary>
+  public override async Task Fan(EchoRequest                     request,
+                                 IServerStreamWriter<EchoReply>  responses,
+                                 ServerCallContext               context)
+  {
+    if (request.Text.Length == 0)
+    {
+      return;
+    }
+
+    foreach (var part in request.Text.Split(','))
+    {
+      await responses.WriteAsync(new EchoReply
+                                 {
+                                   Text = part,
+                                 })
+                     .ConfigureAwait(false);
+    }
+  }
+
   /// <summary>Reads every request message and answers once, naming what it saw.</summary>
   public override async Task<EchoReply> Collect(IAsyncStreamReader<EchoRequest> requests,
                                                 ServerCallContext              context)

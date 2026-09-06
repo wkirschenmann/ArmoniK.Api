@@ -35,6 +35,50 @@ async fn every_message_of_a_client_stream_reaches_the_server_before_its_one_repl
 }
 
 #[tokio::test]
+async fn every_message_of_a_server_stream_comes_back_in_order() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (mut send, mut recv, _control) = channel
+        .start_call(CallStartOptions::new(FAN))
+        .expect("the call starts")
+        .split();
+    send.send_message(Bytes::from(SENT.join(",")))
+        .await
+        .expect("the one request");
+    send.end_send().await.expect("the half-close");
+
+    let (_head, messages, status) = read_to_terminal(&mut recv).await;
+
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(
+        messages,
+        SENT.iter()
+            .map(|text| Bytes::from_static(text.as_bytes()))
+            .collect::<Vec<_>>(),
+        "one message per part, in order"
+    );
+}
+
+#[tokio::test]
+async fn a_server_stream_that_answers_nothing_still_reaches_its_terminal() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (mut send, mut recv, _control) = channel
+        .start_call(CallStartOptions::new(FAN))
+        .expect("the call starts")
+        .split();
+    send.send_message(Bytes::new()).await.expect("the request");
+    send.end_send().await.expect("the half-close");
+
+    let (_head, messages, status) = read_to_terminal(&mut recv).await;
+
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert!(messages.is_empty(), "{messages:?}");
+}
+
+#[tokio::test]
 async fn a_client_stream_that_sends_nothing_still_reaches_its_reply() {
     let server = TestServer::start().await;
     let channel = channel(&server.endpoint);

@@ -28,6 +28,7 @@ pub const ECHO: &str = "/armonik_transport.test.Echo/Echo";
 pub const FAIL: &str = "/armonik_transport.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
 pub const COLLECT: &str = "/armonik_transport.test.Echo/Collect";
+pub const FAN: &str = "/armonik_transport.test.Echo/Fan";
 
 /// A listener on an ephemeral loopback port, and the endpoint that reaches it.
 pub async fn loopback() -> (tokio::net::TcpListener, String) {
@@ -148,6 +149,36 @@ pub fn echo(request: Request<Bytes>) -> Answer {
     })
 }
 
+/// Answers one message per comma-separated part of the request.
+///
+/// Through tonic like the collector, so the framing a reader has to take apart is the reference
+/// implementation's and not this crate's own.
+#[derive(Clone, Copy)]
+pub struct Fanner;
+
+impl armonik_transport::reexports::tonic::server::ServerStreamingService<Bytes> for Fanner {
+    type Response = Bytes;
+    type ResponseStream = Pin<Box<dyn futures::Stream<Item = Result<Bytes, Status>> + Send>>;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Response<Self::ResponseStream>, Status>> + Send>>;
+
+    fn call(&mut self, request: Request<Bytes>) -> Self::Future {
+        Box::pin(async move {
+            let asked = String::from_utf8_lossy(request.get_ref()).into_owned();
+            let parts: Vec<Bytes> = if asked.is_empty() {
+                Vec::new()
+            } else {
+                asked
+                    .split(',')
+                    .map(|part| Bytes::from(part.to_owned()))
+                    .collect()
+            };
+            let stream = futures::stream::iter(parts.into_iter().map(Ok));
+            Ok(Response::new(Box::pin(stream) as Self::ResponseStream))
+        })
+    }
+}
+
 /// Reads every request message and answers once, naming how many it saw and their contents.
 ///
 /// Through tonic rather than a canned body, because this is the direction where the server has to
@@ -200,6 +231,14 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
     let path = request.uri().path().to_owned();
     if let Some(raw) = path.strip_prefix("/raw/") {
         return canned(raw, request.headers());
+    }
+
+    if path == FAN {
+        return Grpc::new(BytesCodec)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
+            .server_streaming(Fanner, request.map(TonicBody::new))
+            .await;
     }
 
     if path == COLLECT {
