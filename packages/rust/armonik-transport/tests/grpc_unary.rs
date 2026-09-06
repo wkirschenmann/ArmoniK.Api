@@ -251,6 +251,65 @@ async fn an_endpoint_nobody_answers_ends_the_call_rather_than_failing_to_start_i
     assert!(messages.is_empty());
 }
 
+/// A caller that gives up does not take the dial with it.
+///
+/// The dial opens the channel's connection, so it belongs to the channel. Run inside the first
+/// caller's future it belonged to that caller, and a call cancelled while it dialled - a deadline,
+/// `ak_call_cancel`, its channel closing - dropped the future and the dial with it. The callers
+/// queued behind started again from nothing, so under a stream of calls whose deadline is shorter
+/// than a dial none of them ever completed one, though a single call left alone would.
+///
+/// Timed rather than counted, because nothing observable says which caller dialled. The first
+/// caller gives up late on purpose: the second then finishes one budget from the start if it
+/// waited on the dial already running, and nearly two if it had to begin one of its own once the
+/// lock came free.
+#[tokio::test]
+async fn a_caller_that_gives_up_leaves_the_dial_to_whoever_else_is_waiting() {
+    const BLACK_HOLE: &str = "http://192.0.2.1:9";
+    let budget = std::time::Duration::from_millis(500);
+
+    let mut transport = TransportConfig::new(BLACK_HOLE.parse::<Uri>().expect("a URI"));
+    transport.connect_timeout = budget;
+    let mut config = GrpcChannelConfig::new(transport);
+    config.user_agent = Some("test".to_owned());
+    let channel = common::echo::channel_with(config).expect("a plain endpoint and default options");
+
+    let alone = std::time::Instant::now();
+    channel
+        .connect()
+        .await
+        .expect_err("nothing is reachable there");
+    if alone.elapsed() < budget {
+        eprintln!("skipped: {BLACK_HOLE} answered, so it is routed here");
+        return;
+    }
+
+    let started = std::time::Instant::now();
+
+    // The one that starts the dial, and gives up just before it would have finished.
+    let first = channel.clone();
+    let giving_up = tokio::spawn(async move {
+        let _ = tokio::time::timeout(budget.mul_f32(0.9), first.connect()).await;
+    });
+
+    // Behind it from the start, so what it waits on is the dial the first one began.
+    tokio::time::sleep(budget / 10).await;
+    let second = channel.clone();
+    let waiting = tokio::spawn(async move { second.connect().await });
+
+    giving_up.await.expect("the task ran");
+    waiting
+        .await
+        .expect("the task ran")
+        .expect_err("nothing is reachable there");
+
+    let together = started.elapsed();
+    assert!(
+        together < budget.mul_f32(1.4),
+        "the two took {together:?} against a budget of {budget:?}, so the second dialled again          after the first gave up instead of waiting on what it had started"
+    );
+}
+
 #[tokio::test]
 async fn callers_waiting_on_one_dial_share_its_failure() {
     const BLACK_HOLE: &str = "http://192.0.2.1:9";

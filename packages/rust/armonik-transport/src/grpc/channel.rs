@@ -1,10 +1,9 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, TE, USER_AGENT};
 use http::{Method, Request, Uri};
 use hyper::client::conn::http2::SendRequest;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{broadcast, watch, Mutex};
 
 use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
@@ -13,6 +12,7 @@ use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
 use super::driver;
 use super::error::ChannelError;
 use super::executor::Spawner;
+use crate::utils::safe_endpoint;
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
 
@@ -81,7 +81,6 @@ impl GrpcChannel {
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
                 connection: Mutex::new(Session::default()),
-                attempts: AtomicU64::new(0),
                 closed: watch::channel(false).0,
             }),
         })
@@ -161,14 +160,21 @@ pub(crate) struct Inner {
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
     connection: Mutex<Session>,
-    attempts: AtomicU64,
     closed: watch::Sender<bool>,
 }
 
 #[derive(Default)]
 struct Session {
     sender: Option<SendRequest<RequestBody>>,
-    failed: Option<ChannelError>,
+    /// The dial in flight, if one is, and how its outcome reaches whoever waits for it.
+    ///
+    /// A dial opens the channel's connection, so it is the channel's and not the first caller's.
+    /// Running it inside that caller's future made it theirs: a call cancelled while it dialled -
+    /// its deadline, `ak_call_cancel`, its channel closing - dropped the future and took the dial
+    /// with it, and the callers queued behind the lock started again from nothing. Under a stream
+    /// of calls whose deadline is shorter than a dial, none of them ever completes one, though a
+    /// single call left alone would.
+    dialling: Option<broadcast::Sender<Result<SendRequest<RequestBody>, ChannelError>>>,
 }
 
 impl Inner {
@@ -176,28 +182,53 @@ impl Inner {
         self.max_recv_message_size
     }
 
-    pub(crate) async fn sender(&self) -> Result<SendRequest<RequestBody>, ChannelError> {
-        // Read before the lock, compared after: whoever held it may have dialled and failed while
-        // this caller waited, and the failure is theirs to report rather than a second dial's.
-        let asked_at = self.attempts.load(Ordering::Acquire);
-
-        let mut slot = self.connection.lock().await;
-        if *self.closed.borrow() {
-            return Err(ChannelError::Closed);
-        }
-
-        if let Some(sender) = slot.sender.as_ref() {
-            if !sender.is_closed() {
-                return Ok(sender.clone());
+    /// The channel's connection, dialling it if there is none.
+    ///
+    /// A caller either takes the cached session, joins the dial already in flight, or starts one -
+    /// and starting one means spawning it, not running it here. Going away then detaches this
+    /// caller from the dial instead of cancelling it for everyone waiting.
+    pub(crate) async fn sender(self: &Arc<Self>) -> Result<SendRequest<RequestBody>, ChannelError> {
+        let mut waiting = {
+            let mut slot = self.connection.lock().await;
+            if *self.closed.borrow() {
+                return Err(ChannelError::Closed);
             }
-        }
 
-        if self.attempts.load(Ordering::Acquire) > asked_at {
-            if let Some(failed) = slot.failed.clone() {
-                return Err(failed);
+            if let Some(sender) = slot.sender.as_ref() {
+                if !sender.is_closed() {
+                    return Ok(sender.clone());
+                }
             }
-        }
 
+            match slot.dialling.as_ref() {
+                Some(dialling) => dialling.subscribe(),
+                None => {
+                    // One, because one outcome is sent and every waiter subscribed before it was.
+                    let (outcome, waiting) = broadcast::channel(1);
+                    slot.dialling = Some(outcome);
+                    let inner = Arc::clone(self);
+                    self.spawner.spawn(async move { inner.dial().await });
+                    waiting
+                }
+            }
+        };
+
+        // The lock is released, so the dial is free to take it when it is done. A caller dropped
+        // here drops only its receiver.
+        match waiting.recv().await {
+            Ok(outcome) => outcome,
+            // The dial task went away without an outcome, which happens when the runtime it was
+            // spawned on is shutting down.
+            Err(_) => Err(ChannelError::Closed),
+        }
+    }
+
+    /// Opens the connection and tells whoever waited.
+    ///
+    /// Its own task, so no caller owns it. The order at the end matters: the slot is updated and
+    /// the dial cleared before the outcome goes out, so a caller that arrives after the send finds
+    /// the session rather than a dial that is no longer running.
+    async fn dial(&self) {
         let dialled = crate::http2::open(
             &self.connector,
             &self.endpoint,
@@ -205,24 +236,29 @@ impl Inner {
         )
         .await;
 
-        self.attempts.fetch_add(1, Ordering::AcqRel);
+        let mut slot = self.connection.lock().await;
+        let outcome = slot.dialling.take();
+
+        let outcome = match outcome {
+            Some(outcome) => outcome,
+            None => return,
+        };
+
+        let told = |result| {
+            // Every waiter may have gone; the slot above is what the next caller reads.
+            let _ = outcome.send(result);
+        };
+
         let (sender, connection) = match dialled {
-            Ok(session) => {
-                slot.failed = None;
-                session
-            }
-            Err(error) => {
-                let error = ChannelError::from(error);
-                slot.failed = Some(error.clone());
-                return Err(error);
-            }
+            Ok(session) => session,
+            Err(error) => return told(Err(ChannelError::from(error))),
         };
 
         if *self.closed.borrow() {
-            return Err(ChannelError::Closed);
+            return told(Err(ChannelError::Closed));
         }
 
-        let endpoint = self.endpoint.clone();
+        let endpoint = safe_endpoint(&self.endpoint);
         self.spawner.spawn(async move {
             if let Err(error) = connection.await {
                 tracing::debug!(%endpoint, %error, "the HTTP/2 session ended");
@@ -230,7 +266,7 @@ impl Inner {
         });
 
         slot.sender = Some(sender.clone());
-        Ok(sender)
+        told(Ok(sender));
     }
 
     fn request_uri(&self, method: &str) -> Result<Uri, ChannelError> {
@@ -284,7 +320,6 @@ mod tests {
             max_sends_in_flight: 1,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
             connection: Mutex::new(Session::default()),
-            attempts: AtomicU64::new(0),
             closed: watch::channel(false).0,
         }
     }
