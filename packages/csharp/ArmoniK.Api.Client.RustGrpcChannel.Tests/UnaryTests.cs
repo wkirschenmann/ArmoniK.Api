@@ -429,6 +429,64 @@ public class UnaryTests : RuntimeLeaseFixture
                 Does.Contain("the deserializer gave up"));
   }
 
+  /// <summary>A message of no bytes, which is what an all-default protobuf serialises to.</summary>
+  /// <remarks>The header says a zero-length payload with a real owner must still be consumed -
+  /// the credit comes back with the acquittal, not with the bytes - and nothing exercised it end
+  /// to end. Both directions here: the request is empty and so is the reply's echo of it.</remarks>
+  [Test]
+  public async Task AMessageOfNoBytesCrossesAndIsGivenBack()
+  {
+    using var channel = Channel();
+
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest())
+                      .ResponseAsync.ConfigureAwait(false);
+
+    Assert.That(reply.Text,
+                Is.Empty);
+  }
+
+  /// <summary>Disposing with a call still running, which is the drain loop's only reason to
+  /// exist and was never entered with anything in it.</summary>
+  [Test]
+  public async Task AChannelDisposedWithACallInFlightCancelsItAndComesBack()
+  {
+    var channel = Channel();
+    var running = Client(channel)
+      .NeverAsync(new EchoRequest
+                  {
+                    Text = "held",
+                  });
+
+    await channel.DisposeAsync()
+                 .ConfigureAwait(false);
+
+    var ended = Assert.ThrowsAsync<RpcException>(async () => await running.ResponseAsync.ConfigureAwait(false));
+    Assert.That(ended!.StatusCode,
+                Is.EqualTo(StatusCode.Cancelled));
+    Assert.That(channel.DisposeState,
+                Is.EqualTo(ChannelDisposeState.Disposed));
+  }
+
+  /// <summary>Metadata the engine refuses, as a caller sees it.</summary>
+  [Test]
+  public void AReservedMetadataKeyIsRefusedBeforeTheCallStarts()
+  {
+    using var channel = Channel();
+
+    var refused = Assert.Throws<RpcException>(() => Client(channel)
+                                                .Say(new EchoRequest(),
+                                                     new Metadata
+                                                     {
+                                                       {
+                                                         "grpc-timeout", "1S"
+                                                       },
+                                                     }));
+
+    Assert.That(refused!.StatusCode,
+                Is.EqualTo(StatusCode.Internal));
+  }
+
   [Test]
   public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()
     => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,

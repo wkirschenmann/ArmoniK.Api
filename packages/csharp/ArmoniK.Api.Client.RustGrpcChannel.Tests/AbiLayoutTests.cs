@@ -200,8 +200,12 @@ public class AbiLayoutTests
                                      Is.EqualTo(1));
                        });
 
+  /// <summary>The version this binding was written against, as a literal.</summary>
+  /// <remarks>Not a check against the header - `layout.rs` does that, and this one cannot: it
+  /// compares the constant to the number it is. What it catches is the constant being edited
+  /// without anyone meaning to.</remarks>
   [Test]
-  public void TheAbiVersionIsTheOneTheHeaderDefines()
+  public void TheAbiVersionThisBindingSpeaksIsOne()
     => Assert.That(NativeMethods.AbiVersion,
                    Is.EqualTo(1));
 
