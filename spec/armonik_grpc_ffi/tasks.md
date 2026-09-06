@@ -15,12 +15,14 @@ The TLA+ proof comes before the FFI implementation.
 
 ## Context: existing PRs
 
-The current stack (#711 → #747) builds `armonik-transport` incrementally. The code is
-good but organized for the old architecture (FFI transport HTTP/2, no gRPC layer).
+The stack (#711 → #747) builds `armonik-transport` incrementally. **It is discarded**, and
+what is wanted is taken from it first: the option machinery (`config_utils`, the units, the
+schema, the `Secret` type), the proxy, the TLS beyond what this crate already carries, and
+their tests. It was organized for the old architecture - an FFI transport over HTTP/2 with no
+gRPC layer - so nothing of its shape survives, only its code.
 
-**What we pick from**: the transport code (proxy, TLS, serde, connector, tests) when we
-need it. **What we don't take as-is**: the organization as a stack piled across 18 PRs,
-the FFI skeleton/client (#744–#747), the reexports (#746).
+Phase 3 is where most of that harvest happens, because the options are what the stack is
+mostly about.
 
 Each task below indicates whether it picks from the stack or writes from scratch.
 
@@ -355,8 +357,8 @@ What differs between the cardinalities is what they send, not how they read.
 
 - `WriteOptions` is accepted and ignored: the ABI carries no per-write flag, and inventing one
   for a value no caller sets would be a field to keep true rather than a feature.
-- No retry on a stream.  That is T5.3 and its replay buffer, and it is the reason T5.3 is a task
-  of its own rather than a clause of T5.2.
+- No retry on a stream.  That is T6.4 and its replay buffer, and it is the reason it is a task of
+  its own rather than a clause of the retry that precedes it.
 - The streaming tests run against this repository's echo fixture, not against ArmoniK's own
   contracts.  `ArmoniK.Api.Mock` implements three streaming RPCs - `Events.GetEvents`,
   `Results.DownloadResultData` and `Results.UploadResultData` - and `ArmoniKClientTests` already
@@ -365,184 +367,245 @@ What differs between the cardinalities is what they send, not how they read.
 
 ---
 
-## Phase 3 — TLS and secure connection
+## Phase 3 — The option surface, end to end
 
-### T3.1: TLS with system roots
+The options were planned last, as T6.1 and T6.2. They come first instead: nothing in TLS, in
+proxy or in retry is reachable from a .NET caller until the JSON carries it, and the schema is
+the only dependency the configuration code has. Implementing three phases no consumer can use is
+the order this corrects.
 
-**Prerequisite**: T1.1
-**Source**: pick the TLS config from the existing stack (#725, #726)
-**Commit**: Add TLS to the connector (`CaSource::System`). Endpoint `https://`.
+**Where each side's authority lies.** Rust owns the option types, their defaults, their
+validation and the schema derived from them. .NET owns the loading: appsettings, environment and
+command line, in the order its own configuration system layers them. That division is forced
+rather than chosen - the files and the command line are .NET's, so a separate environment read on
+the Rust side would sit outside that ordering and break the precedence between the three. So the
+JSON handed to `ak_channel_create` is complete and authoritative, and **the engine consults no
+environment variable on the FFI path**. `from_env` stays for the crate's own Rust consumers.
+Empty means unset means take the default; it no longer means look at the environment.
 
-**Deliverable**: Test: unary call over HTTPS with system CA.
+### T3.1: Harvest `config_utils`
 
-### T3.2: Explicit PEM CA
+**Prerequisite**: none
+**Source**: the #7xx stack, which is discarded once what is wanted has been taken from it
+**Commit**: the from-string readers (`text`, `secret_text`, `boolean`, `optional_duration`,
+`optional_parsed` and the rest), `strip_rust_details`, `schema_with_prefix`, the `embed_prefixed!`
+macro and the `Secret` type. Domain-free machinery only: `endpoint`, `rate_limit` and `user_agent`
+are transport vocabulary and stay out, which is what keeps a later lift into its own crate a
+directory move.
+
+**Deliverable**: the module in place with its tests, and no domain option inside it.
+
+### T3.2: The option units, as live types
 
 **Prerequisite**: T3.1
-**Source**: pick from #726
-**Commit**: `CaSource::PemFile`. Option in the JSON config.
+**Source**: the #7xx stack
+**Commit**: `tls`, `proxy`, `retry`, `http2`, `tcp_keepalive` as nested types reached as
+`config.retry.max_attempts`, never flattened into plain fields. The prefix belongs to whoever
+embeds a unit, not to the unit, so one can be embedded twice. Names come from the mechanism -
+field name, `rename_all = "PascalCase"`, prefix - and nowhere from a per-field rename.
 
-**Deliverable**: Test: connection with custom CA.
+**Deliverable**: `grep -c rename` on each unit answers 1, the container attribute.
 
-### T3.3: mTLS (PEM + PKCS12)
+### T3.3: The schema, and the C# type, as build artefacts
 
 **Prerequisite**: T3.2
-**Source**: pick from #726, #730
-**Commit**: `IdentitySource::PemFiles` and `IdentitySource::Pkcs12`. Load + inject into rustls.
+**Commit**: `schemars` on the Rust types, emitted by a cargo target. The binding's csproj already
+shells out to `cargo build` for the engine; it runs the emitter and the C# generation in the same
+step, so the generated options type is produced from the schema at every build of the native
+library. Nothing is committed and nothing is diff-checked: staleness is not detected, it is made
+impossible. The build fails loudly if the generation does not run.
 
-**Deliverable**: mTLS tests: PEM pair and P12.
+**Deliverable**: the hand-written `ChannelOptions` is deleted and its replacement is generated.
+Round-trip test C# -> JSON -> Rust over every option.
 
-### T3.4: Effective OverrideTargetName
-
-**Prerequisite**: T3.1
-**Source**: pick from `wk/fix/rust-override-target-server-name`
-**Commit**: Override the ServerName in the rustls handshake.
-
-**Deliverable**: Test: override target, handshake succeeds with a different name.
-
-### T3.5: WindowsStore (CA and client identity)
+### T3.4: The .NET side loads, and only loads
 
 **Prerequisite**: T3.3
-**Commit**: `CaSource::WindowsStore` and `IdentitySource::WindowsStore`. Resolution on Rust side.
+**Commit**: bind `IConfiguration` - appsettings, environment, command line - onto the generated
+type, in .NET's own precedence order, and serialize the whole of it. No option is read on the
+Rust side of the FFI boundary.
 
-**Deliverable**: Test (Windows CI): mTLS from the store.
+**Deliverable**: a test setting the same option in two layers and asserting .NET's order decides;
+a test that an option set only in the environment reaches the engine.
 
-### T3.6: Insecure (unverified connection)
+### T3.5: Align the vocabulary by configuration
 
-**Prerequisite**: T3.1
-**Commit**: `CaSource::Insecure`. Explicit opt-in.
+**Prerequisite**: T3.4
+**Commit**: the prefixes and the structure are configurable, so the names line up with the
+existing client's where a counterpart exists rather than through a hand-written table. The
+generated type is a superset: there are many more options here than `GrpcClient` carries today,
+and the ones without a counterpart simply have none.
 
-**Deliverable**: Test: connection without certificate verification.
-
----
-
-## Phase 4 — Proxy
-
-### T4.1: Explicit proxy
-
-**Prerequisite**: T1.1
-**Source**: pick from #711, #712
-**Commit**: `ProxySource::ExplicitUri` and `ExplicitWithCredentials`. CONNECT tunnel.
-
-**Deliverable**: Test: unary via explicit HTTP proxy.
-
-### T4.2: Environment proxy
-
-**Prerequisite**: T4.1
-**Source**: pick from #716
-**Commit**: `ProxySource::Environment`. Read HTTP_PROXY/HTTPS_PROXY/NO_PROXY.
-
-**Deliverable**: Test: proxy via env.
-
-### T4.3: Windows system proxy
-
-**Prerequisite**: T4.1
-**Source**: existing code in the stack
-**Commit**: `ProxySource::WindowsSystem`. Async WinHTTP resolver with timeout.
-
-**Deliverable**: Test (Windows CI): system proxy.
+**Deliverable**: every `GrpcClient` option reaches its generated counterpart, and the options
+with no counterpart are listed rather than silently extra.
 
 ---
 
-## Phase 5 — Retry, deadline, robustness
+## Phase 4 — TLS and secure connection
 
-### T5.1: Deadline (local + grpc-timeout)
+### T4.1: The engine takes the real connector
 
-**Prerequisite**: T1.1
-**Commit**: Local timer per call. `grpc-timeout` header transmitted to the server. Expiration →
-cancel + RecvResult::End(DEADLINE_EXCEEDED). default_deadline option in GrpcChannelConfig.
+**Prerequisite**: T3.5, T1.1
+**Commit**: widen `GrpcChannelConfig` past `{ transport, user_agent, max_sends_in_flight,
+max_recv_message_size }` and let `connect.rs::https_connector` replace the plain connector of
+`http2.rs`, which refuses `https://` by construction.
 
-**Deliverable**: Test: deadline expires → status DEADLINE_EXCEEDED.
+This one task delivers what the August plan cut into five, because they are branches of one
+function that already exists and is tested: system roots, an explicit PEM CA, `OverrideTargetName`
+with its IPv6 and its option-naming error, the insecure opt-in, and mTLS from a PEM pair. It also
+carries what the old T5.6 asked for - keepalive, nodelay, keepalive interval and retries, connect
+timeout - because the same connector sets them.
 
-### T5.2: Automatic retry (unary)
+**Deliverable**: a unary call over HTTPS, and one test per branch of the connector reached from
+the engine rather than from the connector's own tests.
+
+### T4.2: Client identity from a PKCS#12 bundle
+
+**Prerequisite**: T4.1
+**Source**: the #7xx stack
+**Deliverable**: mTLS with a P12 bundle and its password, the password read as a `Secret`.
+
+### T4.3: The whole certificate chain
+
+**Prerequisite**: T4.2
+**Source**: the #7xx stack
+**Commit**: present the chain and not the leaf alone.
+
+**Deliverable**: a handshake a server accepts only when given an intermediate.
+
+### T4.4: WindowsStore, for the CA and for the identity
+
+**Prerequisite**: T4.2
+**Commit**: resolution on the Rust side. Genuinely new, and platform-specific.
+
+**Deliverable**: mTLS from the store, on the Windows CI.
+
+---
+
+## Phase 5 — Proxy
+
+### T5.1: Explicit proxy, with and without credentials
+
+**Prerequisite**: T4.1
+**Source**: the #7xx stack
+**Commit**: the proxy types and the CONNECT tunnel. The stack's `Secret` takes the password
+fields, and its URI handling replaces the `safe_endpoint` this crate carries.
+
+**Deliverable**: a unary call through an explicit HTTP proxy, and no credential in any message.
+
+### T5.2: Proxy from the environment
 
 **Prerequisite**: T5.1
-**Source**: pick the types from #732 (RetryConfig)
-**Commit**: RetryConfig in GrpcChannelConfig. Exponential backoff. Retryable codes.
-Transparent unary retry (no buffer needed — single message, replayable).
+**Source**: the #7xx stack
+**Commit**: `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`.
 
-**Deliverable**: Test: retry on UNAVAILABLE, succeeds on 2nd attempt.
+Read on the Rust side, unlike every other option, because these three are the operating system's
+convention rather than this library's vocabulary: a caller that sets none of them still expects
+them honoured, and .NET has no counterpart to bind. That is the one deliberate exception to
+phase 3's rule, and it is recorded here rather than discovered later.
 
-### T5.3: Streaming retry (replay buffer)
+**Deliverable**: a call through a proxy named only by the environment.
 
-**Prerequisite**: T5.2, T2.1
-**Commit**: Configurable replay buffer. Client streaming retryable if ≤ buffer.
-Bidi retryable if no response received and ≤ buffer. Commitment detection.
+### T5.3: Windows system proxy
 
-**Deliverable**: Tests: streaming retry ≤ buffer OK, streaming retry > buffer → committed (no retry).
+**Prerequisite**: T5.1
+**Commit**: the asynchronous WinHTTP resolver, with its timeout.
 
-### T5.4: Complete FFI runtime shutdown
-
-**Prerequisite**: T1.2, T0.4 (safety proofs)
-**Commit**: begin_shutdown closes the start gate. Drains/cancels calls. Awaits quiescence.
-Joins Tokio. SHUTDOWN_COMPLETE callback. Poll status → RELEASED.
-
-**Deliverable**: Test: create/shutdown/RELEASED cycles. No thread in flight after RELEASED.
-
-### T5.5: Eager connection (option)
-
-**Prerequisite**: T1.1
-**Commit**: `eager_connect` option in GrpcChannelConfig. If true, HTTP/2 connection at create.
-
-**Deliverable**: Test: with eager, the connection is established before the first call.
-
-### T5.6: TCP keepalive and idle timeout
-
-**Prerequisite**: T1.1
-**Source**: pick from #741
-**Commit**: Keepalive and idle timeout options in config. Applied to the Hyper pool.
-
-**Deliverable**: Test: idle connection is closed after timeout.
+**Deliverable**: a call through the system proxy, on the Windows CI.
 
 ---
 
-## Phase 6 — Config, packaging, final integration
+## Phase 6 — Deadline, retry, and what bounds them
 
-### T6.1: Complete JSON schema and C# generation
+### T6.1: Where the replay buffers' ceiling lives
 
-**Prerequisite**: All options implemented (T3.x, T4.x, T5.x)
-**Source**: pick from #728, #745
-**Commit**: Regenerate the JSON schema from the final Rust types (schemars). Generate C#
-types (RustChannelOptions). Schema freshness test. C# → JSON → Rust round-trip test.
+**Prerequisite**: T3.5
+**Commit**: study, then whatever it concludes.
 
-**Deliverable**: Schema committed. C# types generated. No drift.
+This was T8.1, after V1. It comes before the retry it bounds, because its own first question says
+so: what happens when the ceiling is reached is a contract and not an implementation detail, and
+choosing it after per-call buffers exist means retrofitting rather than designing.
 
-### T6.2: Complete mapping of existing ArmoniK client options
+A per-channel `max_buffer_size` consumed per call means a channel holds that size times the
+retryable calls in flight, and nothing bounds the product; several channels multiply it again.
+What to settle, in this order, because each answer constrains the next:
 
-**Prerequisite**: T6.1, T1.4
-**Commit**: Map all `GrpcChannel` options (ArmoniK.Api.Common.Options) to
-`RustChannelOptions`: endpoint, TLS, proxy, timeout, retry. Correspondence test.
+- **What happens at the ceiling.** Refusing a `send_message` and quietly making a call
+  non-retryable are two different contracts, and the second changes what a caller may conclude
+  from a failed call.
+- **Where the ceiling lives.** The runtime already owns a byte budget it lends for payloads -
+  `Ledger`, with `ak_runtime_memory_usage` reporting it - so the first candidate is that ledger
+  rather than a new mechanism. A pool is the alternative, and it couples a resilience policy to
+  an allocator.
+- **How a per-call size interacts with it**: borrow from the runtime, be refused, or be admitted
+  as non-retryable.
+- **What the host can observe.** A call that quietly stops being retryable is something a binding
+  has to be able to say, which is probably a diagnostic rather than a new event.
 
-**Deliverable**: The native provider accepts all existing client options.
+**Deliverable**: a decision recorded in the design, and either an implementation or a stated
+reason for keeping the per-call bound.
 
-### T6.3: Cross-platform build and NuGet package
+### T6.2: Deadline
 
-**Prerequisite**: T1.2
-**Commit**: CI build of the native DLL for win-x64, win-x86, linux-x64, linux-x86, linux-arm64.
-Multi-RID NuGet package with `runtimes/{rid}/native/`. Automatic resolution.
+**Prerequisite**: T1.1
+**Commit**: a local timer per call, the `grpc-timeout` header transmitted, expiry cancelling the
+call and answering `DEADLINE_EXCEEDED`.
 
-**Deliverable**: `dotnet pack` produces a functional NuGet. DLL resolved on each platform.
+It also lifts `MustCarryNoDeadline`, which is today the only `Unimplemented` the binding opposes
+to an ordinary caller.
 
-### T6.4: .NET Framework 4.7.2 and 4.8 E2E tests
+**Deliverable**: a deadline expires and the status says so; a caller's `CallOptions.Deadline` is
+no longer refused.
+
+### T6.3: Retry for a call that answers once
+
+**Prerequisite**: T6.1, T6.2
+**Source**: the retry types from the #7xx stack
+**Commit**: exponential backoff, retryable codes. A single message is replayable without a
+buffer, so this cardinality needs none.
+
+**Deliverable**: a retry on UNAVAILABLE that succeeds on the second attempt.
+
+### T6.4: Retry for a stream
 
 **Prerequisite**: T6.3, T2.3
-**Commit**: Test project targeting net472 and net48. Same suite as net6.0/net8.0.
+**Commit**: the replay buffer, bounded as T6.1 decided. A client stream is retryable while it
+fits; a bidi one while nothing has been answered and it fits. Commitment detection.
 
-**Deliverable**: All tests pass on .NET Framework. Identical behavior.
+**Deliverable**: a stream within the buffer retries, one past it is committed and does not.
 
-### T6.5: Comparative benchmarks campaign
+### T6.5: Eager connection, as an option
 
-**Prerequisite**: T6.4
-**Commit**: Unary latency benchmarks (P50/P95/P99), streaming throughput, memory overhead.
-Native vs managed. net48 and net8.0. Results documented.
+**Prerequisite**: T3.5
+**Commit**: the behaviour exists - `GrpcChannel::connect()`, and
+`connecting_up_front_reports_what_a_call_would_have_reported` tests it - so this is the option
+that reaches it and nothing else.
 
-**Deliverable**: Performance baseline established.
+**Deliverable**: with the option set, the connection is established before the first call.
 
-### T6.6: Documentation and cleanup
+### T6.6: Packaging, finished
 
-**Prerequisite**: T6.5
-**Commit**: README, migration guide. Close obsolete PRs from the stack. Dead code cleanup.
+**Prerequisite**: T4.1
+**Commit**: the Linux runtime identifiers in CI, `dotnet pack` producing a package that resolves
+on each platform, and arm64 executed at last rather than only mapped and packed.
 
-**Deliverable**: Clean repo. PR stack ready to merge into main.
+**Deliverable**: a package that works on every runtime identifier it claims.
+
+### T6.7: Benchmarks
+
+**Prerequisite**: T6.6
+**Commit**: unary latency at P50, P95 and P99, streaming throughput, memory overhead. Native
+against managed, on net4.8 and net8.0.
+
+**Deliverable**: a baseline recorded.
+
+### T6.8: Documentation and cleanup
+
+**Prerequisite**: T6.7
+**Commit**: README and migration guide. The #7xx stack discarded once nothing more is wanted from
+it. Dead code removed.
+
+**Deliverable**: a clean repository.
 
 ---
 
@@ -562,37 +625,6 @@ Tonic directly. Same functional behavior.
 
 ---
 
-## Phase 8 — Open subjects, after V1
-
-### T8.1: Bound the replay buffers of a whole process
-
-**Prerequisite**: T5.2 (retry works and its cost is measurable)
-**Commit**: study, then whatever it concludes.
-
-`RetryConfig::max_buffer_size` is configured per channel and consumed per call, so a channel
-holds that size times the number of retryable calls in flight and nothing bounds the product. A
-process with several channels multiplies it again, and the post-V1 per-call retry override would
-let a call set its own size, so no single configuration value can be read as the ceiling. V1
-states the limit as per-call and accepts it.
-
-What to settle, in this order, because each answer constrains the next:
-
-- **What happens when the ceiling is reached.** Refusing a `send_message` and silently making a
-  call non-retryable are two different contracts, and the second one changes what a caller can
-  conclude from a failed call. This is the decision, not an implementation detail: pick it first.
-- **Where the ceiling lives.** A byte budget owned by the runtime and lent to channels, or a
-  pool whose exhaustion is itself the limit. A pool is tempting because it also answers the
-  allocation question, but it couples a resilience policy to an allocator.
-- **How a per-call size interacts with it.** A call asking for more than the channel's share
-  either borrows from the runtime, is refused, or is admitted as non-retryable.
-- **What the host can observe.** If a call quietly stops being retryable, a binding needs to be
-  able to say so, which probably means a diagnostic rather than a new event.
-
-**Deliverable**: a decision recorded in the design, and either an implementation or a stated
-reason for keeping the per-call bound.
-
----
-
 ## Dependency graph
 
 ```text
@@ -600,27 +632,33 @@ reason for keeping the per-call bound.
                                         │
 T1.1 ─────────────→ T1.2 ←─────────────┘ (FFI after proof)
   │                    │
-  │                  T1.3 → T1.4
+  │                  T1.3 → T1.4 → T1.5
   │                    │
-  ├── T2.1, T2.2 → T2.3
+  │                  T2.1, T2.2 → T2.3
   │
-  ├── T3.1 → T3.2 → T3.3 → T3.4, T3.5, T3.6
-  │
-  ├── T4.1 → T4.2, T4.3
-  │
-  ├── T5.1 → T5.2 → T5.3
-  │     T5.4, T5.5, T5.6
-  │
-  └── T6.1 → T6.2 → T6.3 → T6.4 → T6.5 → T6.6
+  └── T3.1 → T3.2 → T3.3 → T3.4 → T3.5   (the options, and everything waits on them)
+                                     │
+              ┌──────────────────────┼──────────────────────┐
+              │                      │                      │
+        T4.1 → T4.2 → T4.3     T5.1 → T5.2, T5.3      T6.1, T6.5, T6.6 → T6.7 → T6.8
+          └──→ T4.4                                     │
+                                                  T6.2 → T6.3 → T6.4
 ```
+
+T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
+gives the engine. T6.1 decides a ceiling before T6.4 builds what it bounds, and T6.2 stands on
+T1.1 alone, so it can run early.
 
 ---
 
 ## Parallelization
 
-- **Phase 0** (TLA+) advances in parallel with Phase 1 (Rust code)
-- **T1.1** (Rust channel) has no blocking prerequisite — starts immediately
-- **T1.2** (FFI) waits for T0.2 (FFI spec written) — the full proof (T0.4) is ideal but the
+- **Phase 0** (TLA+) advanced in parallel with Phase 1 (Rust code)
+- **T1.1** (Rust channel) had no blocking prerequisite
+- **T1.2** (FFI) waited for T0.2 (FFI spec written) — the full proof (T0.4) is ideal but the
   written spec is enough to start implementation
-- **Phases 3, 4, 5** are independent of each other — parallelizable after Phase 1
-- **T6.3** (cross-platform build) can start as soon as T1.2
+- **Phase 3 is the bottleneck and is not parallel with anything.** Every option of phases 4, 5
+  and 6 reaches a .NET caller through the schema it produces, so the three phases after it are
+  parallelizable with each other and none of them with it.
+- **T6.6** (packaging) can start as soon as T4.1, since what it packages is the engine
+- **T6.2** (deadline) stands on T1.1 alone and can run at any point
