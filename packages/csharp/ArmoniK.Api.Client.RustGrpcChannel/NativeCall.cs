@@ -253,8 +253,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
     while (true)
     {
       // Counted once the engine has taken it, so a refusal leaves nothing to acquit. The WRITE_DONE
-      // may land before this returns and drive the count below zero; the terminal is sequenced
-      // after it, so what the check below reads is the sum either way.
+      // may land before this returns and drive the count below zero; `RunAsync` reads the count
+      // only once this method has returned, which is why it reads the sum and not a moment of it.
       var status = lent.Commit();
       if (status == NativeMethods.AkStatus.Ok)
       {
@@ -311,6 +311,19 @@ internal sealed class NativeCall<TResponse> : ICallSink
         await handedBack_.WaitAsync()
                          .ConfigureAwait(false);
       }
+    }
+
+    // Here and not in the reader, because here the sender is known to have finished: it raises
+    // the count and only then lets `holding_` fall, and the wait above is on that. Read from the
+    // reader, the count could be -1 - a WRITE_DONE that landed while the sender was off the CPU
+    // between its P/Invoke returning and its own increment - and a call the server answered OK
+    // would fail with Internal.
+    var unacquitted = Volatile.Read(ref inFlight_);
+    if (unacquitted != 0)
+    {
+      throw new RpcException(new Status(StatusCode.Internal,
+                                        $"the call reached its terminal with {unacquitted} send(s) unacquitted"),
+                             trailers_);
     }
   }
 
@@ -383,13 +396,6 @@ internal sealed class NativeCall<TResponse> : ICallSink
                                  trailers_);
     }
 
-    var unacquitted = Volatile.Read(ref inFlight_);
-    if (unacquitted != 0)
-    {
-      throw new RpcException(new Status(StatusCode.Internal,
-                                        $"the call reached its terminal with {unacquitted} send(s) unacquitted"),
-                             trailers_);
-    }
 
     var status = await terminal_.Task.ConfigureAwait(false);
     if (status.StatusCode != StatusCode.OK)

@@ -1,7 +1,6 @@
 use std::ffi::c_void;
 
 use crate::abi::{ak_bytes, ak_callback, ak_event, ak_event_kind, ak_host_debt};
-use crate::guard_void;
 
 #[derive(Clone, Copy)]
 pub(crate) struct HostPtr(pub(crate) *mut c_void);
@@ -29,7 +28,7 @@ impl Host {
     }
 
     fn emit(&self, call_ctx: HostPtr, event: &ak_event) {
-        guard_void(|| unsafe { (self.callback)(self.runtime_ctx.0, call_ctx.0, event) });
+        unsafe { (self.callback)(self.runtime_ctx.0, call_ctx.0, event) }
     }
 
     pub(crate) fn deliver(
