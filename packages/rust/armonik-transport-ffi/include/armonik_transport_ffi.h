@@ -52,8 +52,11 @@ typedef enum {
     AK_STATUS_INVALID_STATE     = 6, /* a valid handle at the wrong moment: a send after the
                                         terminal, a start while stopping, a destroy before
                                         quiescence. A guard refused, which is not a fault */
-    AK_STATUS_MESSAGE_TOO_LARGE = 7, /* len exceeds the ceiling itself, so no return by anyone
-                                        will ever make room. Permanent; do not retry */
+    AK_STATUS_MESSAGE_TOO_LARGE = 7, /* len is past a bound no return by anyone moves: the
+                                        runtime's ceiling, or what one message can be at all -
+                                        the gRPC length prefix is four bytes, and no allocation
+                                        exceeds half an address space, which on a 32-bit target
+                                        is the smaller of the two. Permanent; do not retry */
 } ak_status;
 
 /* === Handles === */
