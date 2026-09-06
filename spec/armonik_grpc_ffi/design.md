@@ -689,7 +689,7 @@ refinement.
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
 | `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
-| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past the ceiling or past what one message can be - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
+| `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
@@ -1422,7 +1422,7 @@ So `ak_get_call_buffer` has four modeled lend outcomes - `OK`, `SLOT_BUSY`,
 `INVALID_STATE`, `INVALID_ARG`, and `INTERNAL` for a fault the ABI cannot attribute)
 are the ABI matrix's rows, outside the backpressure sub-machine level 1 formalizes.
 It lends, with `MESSAGE_TOO_LARGE` refused permanently when `len` exceeds the ceiling
-itself or what one message can be; or it refuses with
+itself; or it refuses with
 `AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
 not necessarily this call's doing - with a window deeper than one or replay bytes
@@ -1454,23 +1454,16 @@ cover, and `bytes_used` is the sum of `charge(b)` over every buffer lent and not
 The two refusals are then
 
 ```
-AK_STATUS_MESSAGE_TOO_LARGE  <=>  len > ceiling  or  len > max_message_size
+AK_STATUS_MESSAGE_TOO_LARGE  <=>  len > ceiling
 AK_STATUS_BUDGET_BUSY        <=>  len <= ceiling  and  bytes_used + charge > ceiling
 ```
 
-`max_message_size` is the ABI's own, not the host's: the gRPC length prefix is four bytes,
-and no allocation exceeds half an address space, which on a 32-bit target is the smaller of
-the two. Both halves are rigid - the ceiling because the charge covers the request, so no
-sequence of frees changes the answer; this one because nothing moves it at all - which is
-what makes the one status right for both.
-
-The model carries the ceiling half only: `IsLendable(len) == len <= Ceiling`. Nothing it
-proves about this refusal turns on which rigid bound was crossed - that it is permanent,
-that a host can evaluate it before it calls, that it writes the status and nothing else -
-so the second bound would add a constant and no argument. What it does mean is that the
-implementation refuses in a state where the model would lend, which is a stutter and not a
-step: no property asks that a lendable request be served, only that the accounting come to
-have room for it, and it does.
+`ceiling` is the one in force, not the one the host typed: the ABI has bounds of its own -
+the gRPC length prefix is four bytes, and no allocation exceeds half an address space -
+and a budget above them is one no single lend could ever draw on. `Ledger::limit` caps
+what was configured by what this library can lend, and `ak_runtime_memory_usage` reports
+that. One number, so `Ceiling` in the model is that number and the equivalence above is
+the whole story.
 
 Charging the request instead is the obvious alternative, and it fails at the one thing the
 ceiling exists for. A budget that counts what was asked for bounds an accounting fiction;

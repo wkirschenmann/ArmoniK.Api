@@ -147,18 +147,10 @@ impl CallState {
         if !self.accepts_work() {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
-        // Two ceilings, because which one bites depends on the target.
-        //
-        // The gRPC length prefix is four bytes, so a longer message has nowhere to go - refused
-        // here rather than at the send, where the engine's refusal is swallowed behind a
-        // WRITE_DONE and the host is told a message it never sent has left. And no allocation can
-        // exceed `isize::MAX`, which on a 32-bit target is half of what the prefix admits: there
-        // the four-byte test never fires, and a length past it fell through to the allocator and
-        // came back AK_STATUS_INTERNAL - a fault the ABI cannot attribute, for a request that can
-        // never be served by anyone.
-        if u32::try_from(len).is_err() || len > isize::MAX as usize {
-            return Err(ak_status::AK_STATUS_MESSAGE_TOO_LARGE);
-        }
+        // The ceiling covers what the wire and the allocator can carry as well as what the host
+        // budgeted: `Ledger` caps one by the other. Refused here rather than at the send, where
+        // the engine's refusal is swallowed behind a WRITE_DONE and the host is told a message it
+        // never sent has left.
         self.ledger.could_ever_fit(len)?;
         let Ok(slot) = self.window.try_acquire() else {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);

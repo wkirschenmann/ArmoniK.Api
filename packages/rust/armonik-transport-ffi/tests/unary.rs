@@ -445,8 +445,9 @@ fn a_length_no_frame_can_carry_is_refused_and_charges_nothing() {
     let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, SLOW, &[]);
 
-    // Past the four-byte gRPC length prefix on a 64-bit target, and past what any allocation
-    // can hold on a 32-bit one, where the prefix admits twice what the allocator does.
+    // Past this library's own ceiling on both widths, which is what a host that configured
+    // none gets: the four-byte gRPC prefix on a 64-bit target, and half the address space on a
+    // 32-bit one, where the allocator is the tighter of the two.
     assert_eq!(
         lend(call, usize::MAX).0,
         ak_status::AK_STATUS_MESSAGE_TOO_LARGE

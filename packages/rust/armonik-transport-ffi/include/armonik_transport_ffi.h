@@ -52,11 +52,8 @@ typedef enum {
     AK_STATUS_INVALID_STATE     = 6, /* a valid handle at the wrong moment: a send after the
                                         terminal, a start while stopping, a destroy before
                                         quiescence. A guard refused, which is not a fault */
-    AK_STATUS_MESSAGE_TOO_LARGE = 7, /* len is past a bound no return by anyone moves: the
-                                        runtime's ceiling, or what one message can be at all -
-                                        the gRPC length prefix is four bytes, and no allocation
-                                        exceeds half an address space, which on a 32-bit target
-                                        is the smaller of the two. Permanent; do not retry */
+    AK_STATUS_MESSAGE_TOO_LARGE = 7, /* len exceeds the ceiling itself, so no return by anyone
+                                        will ever make room. Permanent; do not retry */
 } ak_status;
 
 /* === Handles === */
@@ -185,7 +182,11 @@ typedef void (*ak_callback)(void *runtime_ctx, ak_call_ctx call_ctx, const ak_ev
 typedef struct {
     uint32_t struct_size;
     uint32_t worker_threads;  /* zero leaves the choice to the runtime */
-    uint64_t memory_ceiling;  /* bytes lent buffers may occupy at once; zero is no ceiling */
+    uint64_t memory_ceiling;  /* bytes lent buffers may occupy at once. Zero, or more than this
+                                 library can lend, asks for its own ceiling: four gigabytes, or
+                                 half the address space where that is smaller - the gRPC length
+                                 prefix and the allocator between them admit no more, so a budget
+                                 above it is one no single lend could draw on */
 } ak_runtime_config;
 
 typedef struct {
@@ -226,7 +227,8 @@ typedef struct {
 
 typedef struct {
     uint64_t bytes_used; /* occupied against the ceiling, atomic snapshot */
-    uint64_t ceiling;    /* the configured limit; zero is no ceiling */
+    uint64_t ceiling;    /* the limit in force, which is what was configured or this library's
+                            own where that is smaller. Never zero */
 } ak_memory_usage;
 
 /* === Runtime lifecycle === */
