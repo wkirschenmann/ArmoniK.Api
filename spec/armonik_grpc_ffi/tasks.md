@@ -455,18 +455,49 @@ as structured JSON, and `grep -c rename` on the unit answers 1, the container at
 ### T3.3: The schema, and the C# type, as build artefacts
 
 **Prerequisite**: T3.2
-**Commit**: `schemars` on the Rust types, emitted by a cargo target. The schema describes the
-structured shape - nested objects, booleans as booleans, numbers as numbers - because that is
-what the generated C# type has to serialize to, and a schema that said `string` everywhere would
-generate a class that says nothing about what it holds. It is also what makes the JSON strict:
-the type in the schema is the type the reader enforces. The binding's csproj already
+**Commit**: `schemars` on the Rust types, emitted by a cargo target. The binding's csproj already
 shells out to `cargo build` for the engine; it runs the emitter and the C# generation in the same
 step, so the generated options type is produced from the schema at every build of the native
 library. Nothing is committed and nothing is diff-checked: staleness is not detected, it is made
 impossible. The build fails loudly if the generation does not run.
 
-**Deliverable**: the hand-written `ChannelOptions` is deleted and its replacement is generated.
-Round-trip test C# -> JSON -> Rust over every option.
+The schema describes the structured shape - nested objects, booleans as booleans, numbers as
+numbers - because that is what the generated C# type has to serialize to, and a schema that said
+`string` everywhere would generate a class that says nothing about what it holds. It is also what
+makes the JSON strict: the type in the schema is the type the reader enforces.
+
+**The shape a draft settled**, so it is written here rather than rediscovered:
+
+- A duration is a number of seconds, `format: double`. A `Duration` derives `{ secs, nanos }`,
+  which is a memory layout rather than anything a document writes, and seconds map onto
+  `TimeSpan.FromSeconds` with no suffix to parse.
+- Nothing is nullable. Unset is absent, never `null`, so the C# side writes with
+  `JsonIgnoreCondition.WhenWritingNull` and the schema offers no null branch to generate against.
+- `additionalProperties: false` everywhere: an unknown option is refused rather than ignored, or
+  a stale spelling fails silently and late.
+- Nothing is required, and `{}` is a valid configuration. That holds because the endpoint - the
+  one value a channel cannot be created without - crosses the ABI as its own argument instead of
+  as an option that happens to be mandatory. `ak_channel_create` gains it, which is a change to
+  the header and therefore to the contract; `layout.rs` is what notices.
+
+**Documentation rides the schema, and that costs four things.** A rustdoc comment becomes the
+`description` of its property or its type, so an option is documented once, in Rust, beside the
+field. Turning that into XML doc comments is the generator's work:
+
+- The first paragraph becomes `<summary>` and the rest `<remarks>`; the blank line rustdoc and
+  the schema both preserve is the separator.
+- Markdown becomes XML: backticks are everywhere in this repository's style and have to reach the
+  IDE as `<c>`, not as backticks.
+- Intra-doc links resolve to nothing in C#. The harvested `strip_rust_details` did this for the
+  flat names of the discarded design and has to be adapted: to the generated property's name when
+  the link names an option, and to plain text when it names anything else.
+- And a rule on the writing rather than the generator: **an option's doc comment describes the
+  option, not the implementation that reads it.** It lands in a .NET consumer's tooltip, where
+  this crate's memory layout is noise. Whatever is about the implementation goes in an ordinary
+  comment beside the code.
+
+**Deliverable**: the hand-written `ChannelOptions` is deleted and its replacement is generated,
+with its documentation. Round-trip test C# -> JSON -> Rust over every option.
 
 ### T3.4: The .NET side loads, and only loads
 
