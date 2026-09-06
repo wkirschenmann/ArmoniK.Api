@@ -28,6 +28,13 @@ futures = "0.3"
 http = "1"
 http-body-util = "0.1"
 humantime = "2.3.0"
+# The version hyper resolves to. Direct, because a stream reset carries its reason in an
+# `h2::Error` that hyper passes through as its own error's source and does not re-export: reading
+# it means naming the type, and naming it means the same crate instance hyper linked. Cargo
+# unifies the two while the requirements are semver-compatible, which is what
+# `the_reset_reasons_this_engine_reads_are_the_ones_hyper_hands_it` fails to prove if they ever
+# stop being.
+h2 = "0.4"
 hyper = "1.10"
 hyper-rustls = { version = "0.27", default-features = false }
 hyper-util = "0.1"

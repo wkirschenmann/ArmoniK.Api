@@ -437,6 +437,24 @@ async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
     assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
 }
 
+/// A reset is not a lost connection, and the code says which.
+///
+/// hyper's server resets with INTERNAL_ERROR when a response body errors. What this test really
+/// guards is the step before the table: the reason is read by downcasting hyper's error source to
+/// `h2::Error`, which finds nothing at all if hyper ever links an `h2` this crate does not name -
+/// and finding nothing is UNAVAILABLE, silently, for every reset there is.
+#[tokio::test]
+async fn a_stream_the_peer_resets_carries_the_reason_it_was_reset_with() {
+    let (_, _messages, status) = call_on("/raw/ResetsMidBody", Bytes::from_static(b"x")).await;
+
+    // Both halves, because either alone would pass for the wrong reason. The message carries the
+    // h2 error, which is what tells this apart from a stream that merely ended without a status -
+    // that one is Internal too. And the code is Internal rather than Unavailable, which is the
+    // reason being read at all: every reset was UNAVAILABLE before, whatever it said.
+    assert!(status.message.contains("http2 error"), "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+}
+
 #[tokio::test]
 async fn a_call_outlives_the_channel_handle_it_was_started_on() {
     let server = TestServer::start().await;

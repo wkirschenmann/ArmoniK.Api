@@ -19,6 +19,7 @@ serde = ["dep:serde"]
 tonic = { workspace = true, features = ["channel", "codegen"] }
 snafu.workspace = true
 tracing.workspace = true
+h2 = { workspace = true }
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
 # `tokio` for `TokioIo`, which is what puts a `TcpStream` in the shape hyper reads and writes.
 # `client-legacy` for `HttpConnector`, which is the dial: resolution, the per-address loop

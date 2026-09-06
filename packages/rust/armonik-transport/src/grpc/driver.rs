@@ -139,7 +139,7 @@ async fn run(
 
     let response = match until_stopped(stop, sender.send_request(request)).await {
         None => return GrpcStatus::cancelled(),
-        Some(Err(error)) => return GrpcStatus::request_lost(error),
+        Some(Err(error)) => return GrpcStatus::request_lost(&error),
         Some(Ok(response)) => response,
     };
 
@@ -160,7 +160,7 @@ async fn run(
         let frame = match until_stopped(stop, body.frame()).await {
             None => return GrpcStatus::cancelled(),
             Some(None) => return GrpcStatus::no_status(),
-            Some(Some(Err(error))) => return GrpcStatus::stream_broke(error),
+            Some(Some(Err(error))) => return GrpcStatus::stream_broke(&error),
             Some(Some(Ok(frame))) => frame,
         };
 

@@ -47,16 +47,16 @@ impl GrpcStatus {
         Self::new(GrpcStatusCode::Unavailable, error.to_string())
     }
 
-    pub(crate) fn request_lost(error: impl std::fmt::Display) -> Self {
+    pub(crate) fn request_lost(error: &hyper::Error) -> Self {
         Self::new(
-            GrpcStatusCode::Unavailable,
+            reset_code(error),
             format!("the request did not reach the peer: {error}"),
         )
     }
 
-    pub(crate) fn stream_broke(error: impl std::fmt::Display) -> Self {
+    pub(crate) fn stream_broke(error: &hyper::Error) -> Self {
         Self::new(
-            GrpcStatusCode::Unavailable,
+            reset_code(error),
             format!("the response stream broke: {error}"),
         )
     }
@@ -88,6 +88,56 @@ impl GrpcStatus {
             "the peer ended the stream in the middle of a message",
         )
     }
+}
+
+/// What a broken stream means, from the RST_STREAM the peer sent.
+///
+/// gRPC's own table, in PROTOCOL-HTTP2. Reporting every reason as UNAVAILABLE told a host that
+/// retries on it to repeat a call the peer had deliberately cancelled, and to keep repeating one
+/// that failed on a framing error that is never transient.
+///
+/// UNAVAILABLE stays the answer for everything that is not a reset - an I/O error, a connection
+/// that died, a peer that never answered - and for REFUSED_STREAM, which is the one reason that
+/// does mean "try again".
+fn reset_code(error: &hyper::Error) -> GrpcStatusCode {
+    code_of(reset_reason(error))
+}
+
+fn code_of(reason: Option<h2::Reason>) -> GrpcStatusCode {
+    let Some(reason) = reason else {
+        return GrpcStatusCode::Unavailable;
+    };
+    // Compared rather than matched: the values of h2::Reason are associated constants, and a
+    // constant is only a pattern when its type opts into structural matching.
+    if reason == h2::Reason::CANCEL {
+        GrpcStatusCode::Cancelled
+    } else if reason == h2::Reason::ENHANCE_YOUR_CALM {
+        GrpcStatusCode::ResourceExhausted
+    } else if reason == h2::Reason::INADEQUATE_SECURITY {
+        GrpcStatusCode::PermissionDenied
+    } else if reason == h2::Reason::REFUSED_STREAM {
+        GrpcStatusCode::Unavailable
+    } else {
+        // Every framing and protocol error, and NO_ERROR, which on a stream that owed a status
+        // means the peer ended without giving one.
+        GrpcStatusCode::Internal
+    }
+}
+
+/// The `h2::Error` behind a hyper error, if that is what it is.
+///
+/// Down the source chain rather than off the error itself: hyper wraps it and exposes neither the
+/// type nor the reason. Which means this is only a reason when hyper linked the same `h2` this
+/// crate names - see the note on the workspace dependency.
+fn reset_reason(error: &hyper::Error) -> Option<h2::Reason> {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(cause) = source {
+        if let Some(h2) = cause.downcast_ref::<h2::Error>() {
+            return h2.reason();
+        }
+        source = cause.source();
+    }
+    None
 }
 
 impl std::fmt::Display for GrpcStatus {
@@ -207,6 +257,56 @@ fn hex(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    /// The table, reason by reason, without a `hyper::Error` - which has no public constructor,
+    /// so the downcast that feeds this is `grpc_unary.rs`'s to check.
+    #[test]
+    fn every_reset_reason_gets_the_code_grpc_gives_it() {
+        use super::{code_of, GrpcStatusCode};
+
+        assert_eq!(
+            code_of(Some(h2::Reason::CANCEL)),
+            GrpcStatusCode::Cancelled,
+            "a peer that abandoned the call is not a peer that is unreachable"
+        );
+        assert_eq!(
+            code_of(Some(h2::Reason::ENHANCE_YOUR_CALM)),
+            GrpcStatusCode::ResourceExhausted
+        );
+        assert_eq!(
+            code_of(Some(h2::Reason::INADEQUATE_SECURITY)),
+            GrpcStatusCode::PermissionDenied
+        );
+        assert_eq!(
+            code_of(Some(h2::Reason::REFUSED_STREAM)),
+            GrpcStatusCode::Unavailable,
+            "the one reason that does mean try again"
+        );
+
+        for framing in [
+            h2::Reason::NO_ERROR,
+            h2::Reason::PROTOCOL_ERROR,
+            h2::Reason::INTERNAL_ERROR,
+            h2::Reason::FLOW_CONTROL_ERROR,
+            h2::Reason::SETTINGS_TIMEOUT,
+            h2::Reason::STREAM_CLOSED,
+            h2::Reason::FRAME_SIZE_ERROR,
+            h2::Reason::COMPRESSION_ERROR,
+            h2::Reason::CONNECT_ERROR,
+        ] {
+            assert_eq!(
+                code_of(Some(framing)),
+                GrpcStatusCode::Internal,
+                "{framing:?}"
+            );
+        }
+
+        assert_eq!(
+            code_of(None),
+            GrpcStatusCode::Unavailable,
+            "an I/O error or a dead connection is not a reset"
+        );
+    }
+
     use super::*;
     use http::header::HeaderValue;
 

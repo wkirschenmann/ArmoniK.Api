@@ -190,17 +190,30 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
 
 pub struct Canned {
     frames: std::vec::IntoIter<Frame<Bytes>>,
+    /// Fails once the frames are out, rather than ending.
+    ///
+    /// It is how hyper's server is made to send a RST_STREAM: a body that errors resets the
+    /// stream with INTERNAL_ERROR, where a body that ends finishes the response.
+    then_fails: bool,
 }
 
 impl Body for Canned {
     type Data = Bytes;
-    type Error = Infallible;
+    type Error = std::io::Error;
 
     fn poll_frame(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        Poll::Ready(self.frames.next().map(Ok))
+        if let Some(frame) = self.frames.next() {
+            return Poll::Ready(Some(Ok(frame)));
+        }
+        if std::mem::replace(&mut self.then_fails, false) {
+            return Poll::Ready(Some(Err(std::io::Error::other(
+                "the canned body fails here",
+            ))));
+        }
+        Poll::Ready(None)
     }
 }
 
@@ -289,12 +302,19 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             ],
         ),
         "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
+        // A body that fails mid-stream, which is how hyper's server is made to send a
+        // RST_STREAM: it resets with INTERNAL_ERROR rather than finishing the response.
+        "ResetsMidBody" => (
+            grpc_head(),
+            vec![Frame::data(grpc_message(0, b"before the reset"))],
+        ),
         other => panic!("no canned response is named `{other}`"),
     };
 
     builder
         .body(TonicBody::new(Canned {
             frames: frames.into_iter(),
+            then_fails: case == "ResetsMidBody",
         }))
         .expect("a well-formed canned response")
 }
