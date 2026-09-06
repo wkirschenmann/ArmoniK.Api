@@ -29,6 +29,7 @@ pub const FAIL: &str = "/armonik_transport.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
 pub const COLLECT: &str = "/armonik_transport.test.Echo/Collect";
 pub const FAN: &str = "/armonik_transport.test.Echo/Fan";
+pub const CHAT: &str = "/armonik_transport.test.Echo/Chat";
 
 /// A listener on an ephemeral loopback port, and the endpoint that reaches it.
 pub async fn loopback() -> (tokio::net::TcpListener, String) {
@@ -149,6 +150,35 @@ pub fn echo(request: Request<Bytes>) -> Answer {
     })
 }
 
+/// Answers each request message with the same bytes, as they arrive.
+///
+/// The reply stream is driven by the request stream, so a client that reads before it has sent
+/// everything is reading answers to what it already sent - which is the whole point of the
+/// cardinality, and what a fixture that answered up front would not exercise.
+#[derive(Clone, Copy)]
+pub struct Chatter;
+
+impl armonik_transport::reexports::tonic::server::StreamingService<Bytes> for Chatter {
+    type Response = Bytes;
+    type ResponseStream = Pin<Box<dyn futures::Stream<Item = Result<Bytes, Status>> + Send>>;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Response<Self::ResponseStream>, Status>> + Send>>;
+
+    fn call(&mut self, request: Request<Streaming<Bytes>>) -> Self::Future {
+        Box::pin(async move {
+            let asked = request.into_inner();
+            let answered = futures::stream::unfold(asked, |mut asked| async move {
+                match asked.message().await {
+                    Ok(Some(message)) => Some((Ok(message), asked)),
+                    Ok(None) => None,
+                    Err(status) => Some((Err(status), asked)),
+                }
+            });
+            Ok(Response::new(Box::pin(answered) as Self::ResponseStream))
+        })
+    }
+}
+
 /// Answers one message per comma-separated part of the request.
 ///
 /// Through tonic like the collector, so the framing a reader has to take apart is the reference
@@ -231,6 +261,14 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
     let path = request.uri().path().to_owned();
     if let Some(raw) = path.strip_prefix("/raw/") {
         return canned(raw, request.headers());
+    }
+
+    if path == CHAT {
+        return Grpc::new(BytesCodec)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
+            .streaming(Chatter, request.map(TonicBody::new))
+            .await;
     }
 
     if path == FAN {

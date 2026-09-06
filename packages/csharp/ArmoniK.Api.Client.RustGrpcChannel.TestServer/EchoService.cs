@@ -43,6 +43,22 @@ public class EchoService : Echo.EchoBase
            };
   }
 
+  /// <summary>Answers each request message with the same text, as it arrives.</summary>
+  public override async Task Chat(IAsyncStreamReader<EchoRequest>  requests,
+                                  IServerStreamWriter<EchoReply>   responses,
+                                  ServerCallContext                context)
+  {
+    while (await requests.MoveNext(context.CancellationToken)
+                         .ConfigureAwait(false))
+    {
+      await responses.WriteAsync(new EchoReply
+                                 {
+                                   Text = requests.Current.Text,
+                                 })
+                     .ConfigureAwait(false);
+    }
+  }
+
   /// <summary>Answers one message per comma-separated part of the request.</summary>
   public override async Task Fan(EchoRequest                     request,
                                  IServerStreamWriter<EchoReply>  responses,

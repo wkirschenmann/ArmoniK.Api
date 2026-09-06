@@ -194,7 +194,28 @@ internal sealed class NativeCallInvoker : CallInvoker
   public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                               string? host,
                                                                                                               CallOptions options)
-    => throw Unsupported(method.Type);
+  {
+    MustCarryNoDeadline(options);
+    MustCarryNothingElseUnhonoured(options);
+
+    var call = channel_.StartCall(method.FullName,
+                                 options.Headers,
+                                 method.ResponseMarshaller,
+                                 streams: true);
+    call.CancelWith(options.CancellationToken);
+
+    // Both halves of the same call, and nothing between them: a write waits for its own
+    // acquittal, which the engine delivers off the ring, and a read takes the ring, so the two
+    // touch no shared state and need no order between them.
+    return new AsyncDuplexStreamingCall<TRequest, TResponse>(new NativeRequestStream<TRequest, TResponse>(call,
+                                                                                                          method.RequestMarshaller),
+                                                             new NativeResponseStream<TResponse>(call),
+                                                             static state => ((NativeCall<TResponse>)state).ResponseHeadersAsync,
+                                                             static state => EndedStatus((NativeCall<TResponse>)state),
+                                                             static state => EndedTrailers((NativeCall<TResponse>)state),
+                                                             static state => ((NativeCall<TResponse>)state).Cancel(),
+                                                             call);
+  }
 
   private static void MustCarryNoDeadline(in CallOptions options)
   {

@@ -17,6 +17,7 @@ service Echo {
   rpc Say (EchoRequest) returns (EchoReply);
   rpc Collect (stream EchoRequest) returns (EchoReply);
   rpc Fan (EchoRequest) returns (stream EchoReply);
+  rpc Chat (stream EchoRequest) returns (stream EchoReply);
   rpc Refuse (EchoRequest) returns (EchoReply);
   rpc Never (EchoRequest) returns (EchoReply);
 }

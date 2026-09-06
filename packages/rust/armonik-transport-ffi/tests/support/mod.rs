@@ -15,7 +15,7 @@ mod echo;
 // Which method names a given test binary needs is a fact about that binary, not about the
 // fixture that serves all of them.
 #[allow(unused_imports)]
-pub use echo::{COLLECT, ECHO, FAIL, FAN, SLOW};
+pub use echo::{CHAT, COLLECT, ECHO, FAIL, FAN, SLOW};
 pub use server::TestServer;
 
 use std::collections::HashMap;
@@ -141,6 +141,16 @@ impl Recorder {
 
     pub fn await_write_done(&self) -> Seen {
         self.await_kind("an acquittal", ak_event_kind::AK_EVENT_WRITE_DONE)
+    }
+
+    /// Waits until `wanted` messages have arrived, for the same reason as the acquittals.
+    pub fn await_messages(&self, wanted: usize) -> Seen {
+        self.wait_for(&format!("{wanted} message(s)"), |seen| {
+            seen.iter()
+                .filter(|event| event.kind == ak_event_kind::AK_EVENT_MESSAGE)
+                .count()
+                >= wanted
+        })
     }
 
     /// Waits until `wanted` acquittals have arrived, which is what a caller sending several

@@ -187,7 +187,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
     call.settling_ = call.SettlingAsync();
     if (!streams)
     {
-      call.drained_ = call.RunAsync();
+      call.drained_ = call.SingleAsync();
     }
 
     return call;
@@ -881,7 +881,11 @@ internal sealed class NativeCall<TResponse> : ICallSink
                       "the call was cancelled"));
 
   /// <summary>The one message a single-response cardinality answers with.</summary>
-  private async Task<TResponse> RunAsync()
+  /// <remarks>There is no second read path: unary, client streaming and any other cardinality
+  /// that answers once take the same reader as a server stream and reduce it to a single - one
+  /// message, then a terminal, and anything else is a server that did not honour the
+  /// cardinality. What differs between them is what they send, not how they read.</remarks>
+  private async Task<TResponse> SingleAsync()
   {
     TResponse response;
     try
