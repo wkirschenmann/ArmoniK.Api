@@ -38,7 +38,6 @@ pub enum ReadEnvError {
     NotUnicode {
         name: String,
         value: std::ffi::OsString,
-        backtrace: snafu::Backtrace,
         #[snafu(implicit)]
         location: snafu::Location,
     },
@@ -47,7 +46,6 @@ pub enum ReadEnvError {
     NotBoolean {
         name: String,
         value: String,
-        backtrace: snafu::Backtrace,
         #[snafu(implicit)]
         location: snafu::Location,
     },

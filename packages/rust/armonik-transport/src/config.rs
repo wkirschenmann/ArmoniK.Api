@@ -499,7 +499,6 @@ pub enum ConfigError {
     #[non_exhaustive]
     IncompatibleOptions {
         msg: String,
-        backtrace: snafu::Backtrace,
         #[snafu(implicit)]
         location: snafu::Location,
     },
