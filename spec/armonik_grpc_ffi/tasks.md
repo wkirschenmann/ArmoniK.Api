@@ -383,6 +383,26 @@ JSON handed to `ak_channel_create` is complete and authoritative, and **the engi
 environment variable on the FFI path**. `from_env` stays for the crate's own Rust consumers.
 Empty means unset means take the default; it no longer means look at the environment.
 
+**The options have two shapes, and only one of them is flat.** Across the FFI the JSON is
+structured and typed: units nest as objects, a boolean is a JSON boolean and not the string
+`"true"`, a number is a number. That is the shape a generated C# type serializes to and the shape
+that says the most about what a value is, so it is the one the boundary carries. An environment
+variable has no structure and no type at all, so there the same options are flat names under a
+prefix - `GrpcClient__TcpKeepAliveInterval` - and every value is text. `embed_prefixed!` and
+`schema_with_prefix` serve that second shape: they are how a unit is read under a prefix and how
+its schema is rewritten to match, and on the FFI path neither is needed because nothing is
+flattened there. Producing the flat shape for a .NET caller is .NET's, which binds its own
+configuration sources; producing it for a Rust caller is `from_env`'s, which stays.
+
+The readers are shared whichever shape carried the value: `text` accepts a real boolean or a real
+number as readily as a string, so one vocabulary interprets both and the two shapes cannot
+disagree about what a value means.
+
+**Left for later:** giving the Rust crate the same layering .NET has - files, environment,
+command line, bound onto the config types in one declared order - rather than `from_env` alone.
+The types this phase declares are what it would bind onto, so the question is worth asking after
+they exist and not before.
+
 ### T3.1: Harvest `config_utils`
 
 **Prerequisite**: none
@@ -400,7 +420,8 @@ directory move.
 **Prerequisite**: T3.1
 **Source**: the #7xx stack
 **Commit**: `tls`, `proxy`, `retry`, `http2`, `tcp_keepalive` as nested types reached as
-`config.retry.max_attempts`, never flattened into plain fields. The prefix belongs to whoever
+`config.retry.max_attempts`, never flattened into plain fields - and nested in the JSON too, as
+objects, rather than flattened into it. The prefix belongs to whoever
 embeds a unit, not to the unit, so one can be embedded twice. Names come from the mechanism -
 field name, `rename_all = "PascalCase"`, prefix - and nowhere from a per-field rename.
 
@@ -416,7 +437,10 @@ appear in the schema and reach the engine.
 ### T3.3: The schema, and the C# type, as build artefacts
 
 **Prerequisite**: T3.2
-**Commit**: `schemars` on the Rust types, emitted by a cargo target. The binding's csproj already
+**Commit**: `schemars` on the Rust types, emitted by a cargo target. The schema describes the
+structured shape - nested objects, booleans as booleans, numbers as numbers - because that is
+what the generated C# type has to serialize to, and a schema that said `string` everywhere would
+generate a class that says nothing about what it holds. The binding's csproj already
 shells out to `cargo build` for the engine; it runs the emitter and the C# generation in the same
 step, so the generated options type is produced from the schema at every build of the native
 library. Nothing is committed and nothing is diff-checked: staleness is not detected, it is made
