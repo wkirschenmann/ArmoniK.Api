@@ -404,7 +404,14 @@ directory move.
 embeds a unit, not to the unit, so one can be embedded twice. Names come from the mechanism -
 field name, `rename_all = "PascalCase"`, prefix - and nowhere from a per-field rename.
 
-**Deliverable**: `grep -c rename` on each unit answers 1, the container attribute.
+The `retry` unit carries **two** replay ceilings rather than one: what a call that answers once
+may hold, and what a stream may. They are different quantities - the first bounds a single
+message kept in case it has to go again, the second a whole sent prefix - so one value would
+either starve the stream or let a unary call reserve a stream's worth. T6.1 settles what happens
+when either is reached; that they are configuration, and that there are two, is settled here.
+
+**Deliverable**: `grep -c rename` on each unit answers 1, the container attribute. Both ceilings
+appear in the schema and reach the engine.
 
 ### T3.3: The schema, and the C# type, as build artefacts
 
@@ -517,33 +524,32 @@ phase 3's rule, and it is recorded here rather than discovered later.
 
 ## Phase 6 — Deadline, retry, and what bounds them
 
-### T6.1: Where the replay buffers' ceiling lives
+### T6.1: What happens when a replay ceiling is reached
 
 **Prerequisite**: T3.5
 **Commit**: study, then whatever it concludes.
 
-This was T8.1, after V1. It comes before the retry it bounds, because its own first question says
-so: what happens when the ceiling is reached is a contract and not an implementation detail, and
-choosing it after per-call buffers exist means retrofitting rather than designing.
+This was T8.1, after V1. It comes before the retry it bounds, because its own first question is a
+contract and not an implementation detail, and choosing it once per-call buffers exist means
+retrofitting rather than designing.
 
-A per-channel `max_buffer_size` consumed per call means a channel holds that size times the
-retryable calls in flight, and nothing bounds the product; several channels multiply it again.
-What to settle, in this order, because each answer constrains the next:
+Two of its four questions are already answered: the ceilings are configuration, and there are two
+of them - one for a call that answers once, one for a stream - which T3.2 declares. What is left
+is what they mean.
 
 - **What happens at the ceiling.** Refusing a `send_message` and quietly making a call
   non-retryable are two different contracts, and the second changes what a caller may conclude
-  from a failed call.
-- **Where the ceiling lives.** The runtime already owns a byte budget it lends for payloads -
-  `Ledger`, with `ak_runtime_memory_usage` reporting it - so the first candidate is that ledger
-  rather than a new mechanism. A pool is the alternative, and it couples a resilience policy to
-  an allocator.
-- **How a per-call size interacts with it**: borrow from the runtime, be refused, or be admitted
-  as non-retryable.
+  from a failed call. This is the decision; pick it first.
+- **Whether anything bounds the product.** A ceiling consumed per call means a channel holds it
+  times the retryable calls in flight, and several channels multiply it again. Either that
+  product is accepted and stated, or something bounds it - and the runtime already owns a byte
+  budget it lends for payloads, `Ledger`, reported by `ak_runtime_memory_usage`, which is the
+  first candidate rather than a new mechanism.
 - **What the host can observe.** A call that quietly stops being retryable is something a binding
   has to be able to say, which is probably a diagnostic rather than a new event.
 
 **Deliverable**: a decision recorded in the design, and either an implementation or a stated
-reason for keeping the per-call bound.
+reason for accepting the unbounded product.
 
 ### T6.2: Deadline
 
@@ -599,9 +605,41 @@ against managed, on net4.8 and net8.0.
 
 **Deliverable**: a baseline recorded.
 
-### T6.8: Documentation and cleanup
+### T6.8: Integration into `ArmoniK.Api.Client`
 
-**Prerequisite**: T6.7
+**Prerequisite**: T3.5, T6.6
+**Commit**: let a consumer choose the transport by configuration rather than by which factory it
+calls, and split the assemblies so that choosing costs only what it uses.
+
+Today the seam is `ChannelBase`: every generated ArmoniK stub takes one, `NativeChannel` is one,
+and a consumer picks by calling `NativeRuntimeFactory.Channel` instead of
+`GrpcChannelFactory.CreateChannel`. That works and is what phase 1 deliberately settled for -
+`ArmoniK.Api.Client` knows nothing of the native engine, so a consumer that does not want it does
+not carry it.
+
+Two facts constrain whatever replaces it, and neither is a matter of taste:
+
+- `GrpcChannelFactory.CreateChannel` returns `GrpcChannel`, grpc-dotnet's concrete type, not
+  `ChannelBase`. It can never hand back a `NativeChannel` without a breaking signature change.
+- A selector living inside `ArmoniK.Api.Client` makes that package depend on the native one, so
+  the cdylib and its architectures enter every consumer's build, including those that chose the
+  managed transport. The candidates that keep both properties are a third thin package that may
+  reference both, or the consumer's own dependency wiring.
+
+`HttpMessageHandler` is the existing precedent for naming a transport in a string option, and
+the generated options type is a superset of `GrpcClient`, so the two vocabularies meet here or
+nowhere.
+
+**Deferred until the Rust bridge on the other side is built**, so that both directions are
+designed together rather than one constrained by the other. Recorded now so the constraints above
+are not rediscovered.
+
+**Deliverable**: a consumer switches transport by configuration, and one that does not want the
+native engine does not build it.
+
+### T6.9: Documentation and cleanup
+
+**Prerequisite**: T6.8
 **Commit**: README and migration guide. The #7xx stack discarded once nothing more is wanted from
 it. Dead code removed.
 
@@ -640,7 +678,7 @@ T1.1 ─────────────→ T1.2 ←────────
                                      │
               ┌──────────────────────┼──────────────────────┐
               │                      │                      │
-        T4.1 → T4.2 → T4.3     T5.1 → T5.2, T5.3      T6.1, T6.5, T6.6 → T6.7 → T6.8
+        T4.1 → T4.2 → T4.3     T5.1 → T5.2, T5.3      T6.1, T6.5, T6.6 → T6.7 → T6.8 → T6.9
           └──→ T4.4                                     │
                                                   T6.2 → T6.3 → T6.4
 ```
@@ -662,3 +700,6 @@ T1.1 alone, so it can run early.
   parallelizable with each other and none of them with it.
 - **T6.6** (packaging) can start as soon as T4.1, since what it packages is the engine
 - **T6.2** (deadline) stands on T1.1 alone and can run at any point
+- **Phase 7 waits, though its prerequisites are met.** T7.1 needs T1.1 and T2.3 and both are
+  done, so it could start now. It does not: phases 3 to 6 may still move the surface it would
+  adapt to, and adapting twice costs more than waiting once.
