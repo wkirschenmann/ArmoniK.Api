@@ -209,10 +209,11 @@ POCO.  And a missing engine now raises `RustEngineMissingException`, naming the 
 the search looked, and which of the two supply routes was expected to answer - .NET's own message
 names a bare library and no reason.
 
-The test is `ArmoniKClientTests`, against `ArmoniK.Api.Mock` at `GrpcClient__Endpoint`, which is
-the contract `ArmoniK.Api.Client.Test` and the `armonik` crate's tests already run under.  It
-ignores itself when that variable is unset, so a developer who has not started a mock still gets a
-green suite.
+The test is `ArmoniKClientTests`, and it starts its own `ArmoniK.Api.Mock` the way the echo tests
+start their own server, on ports the fixture picks.  Readiness is read from the mock's HTTP root -
+the one thing it serves that is not gRPC - because it takes its ports from configuration and
+announces nothing.  So it runs wherever the suite runs, and a mock that never listens fails by
+name with the port it was waited on.
 
 ---
 
@@ -249,6 +250,15 @@ combinations of runtime, architecture and operating system.
 
 ### Phase 1 closing — the reviews, and what is deliberately left
 
+Two items this section listed as open are closed. The `/simplify` findings are applied. And the
+x86 flake - "seen once as 11 failures and never reproduced" - is diagnosed and fixed: snafu 0.9
+generates a `backtrace` field with `Backtrace::force_capture()` rather than `capture()`, so every
+error built one whatever `RUST_BACKTRACE` said, and on 32-bit Windows the `dbghelp` stack walk
+that triggers can enter a cycle and never return. Three write-only `backtrace` fields are gone,
+which removes the cycle and the per-error cost. It is layout-sensitive - it shows on a large debug
+binary, vanishes in release, and any edit to the enclosing function makes it go away - so a run
+that does not reproduce it proves nothing, and the rate has to be measured over tens of runs.
+
 Phase 1 was reviewed four times over: compliance to the TLA+ model, `/simplify` across the whole
 of `packages/rust` and then once per crate and per dll, a code-quality pass, and compliance to the
 model again. The second model pass is the one that earned its keep. It found two breaks of proved
@@ -277,18 +287,13 @@ Two questions the model settled rather than the code:
 
 - arm64 is mapped and packaged but has never been executed. There is no runner here; the first CI
   job on an arm host is what will say whether the packaging is enough.
-- One x86 test-matrix flake, seen once as 11 failures and never reproduced across fourteen further
-  matrix runs. Two explanations were tested and both fell - neither build parallelism nor
-  `grpc.tools` protodep contention survives a controlled comparison - so it is set aside rather
-  than explained.
-- The two `ArmoniK.Api.Mock` tests skip unless `GrpcClient__Endpoint` names a running mock, so
-  they have never run locally.
 - The happy-eyeballs behaviour that motivated adopting `hyper_util`'s connector has no test:
   nothing in the suite presents a dual-stack host with one dead address family.
-- Five minor divergences from the second model pass, and the `/simplify` findings not applied.
-  The largest gap is not a divergence but an absence: the model's reader machine
-  (`consumer_phase`, `reader_state`, the `BeginMoveNext` family) has no implementation, because
-  it is phase 2's, so the invariants over it are vacuous today.
+- Five minor divergences from the second model pass. The largest gap is not a divergence but an
+  absence: the model's reader machine (`consumer_phase`, `reader_state`, the `BeginMoveNext`
+  family) has no implementation, because it is phase 2's, so the invariants over it are vacuous
+  today. That is T2.2's starting point rather than a debt - the machine is specified and proved,
+  and `design.md` carries the `MoveNext` it asks for.
 
 ---
 
