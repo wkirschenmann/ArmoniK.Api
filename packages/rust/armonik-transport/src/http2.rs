@@ -197,7 +197,7 @@ pub enum TransportError {
     Configuration { message: String },
     #[snafu(display("`{endpoint}` could not be reached: {cause}"))]
     Connect { endpoint: Uri, cause: String },
-    #[snafu(display("`{endpoint}` accepted a connection but not an HTTP/2 session: {cause}"))]
+    #[snafu(display("the HTTP/2 preface could not be written to `{endpoint}`: {cause}"))]
     Http2Handshake { endpoint: Uri, cause: String },
     #[snafu(display("connecting to `{endpoint}` outlasted {after:?}"))]
     Timeout { endpoint: Uri, after: Duration },

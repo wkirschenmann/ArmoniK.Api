@@ -79,11 +79,7 @@ impl Deframer {
         // target at all, so waiting for it is waiting for what cannot arrive. Reachable only where
         // `usize` is 32 bits and no limit is set - which is a target this crate ships for.
         let Some(whole) = HEADER_LEN.checked_add(len) else {
-            return TooLongSnafu {
-                len,
-                max: self.max_message_size,
-            }
-            .fail();
+            return UnaddressableSnafu { len }.fail();
         };
 
         if self.buffered < whole {
@@ -142,12 +138,18 @@ pub(crate) enum DeframeError {
         "the peer announced a message of {len} bytes, past the {max} this channel holds"
     ))]
     TooLong { len: usize, max: usize },
+    #[snafu(display(
+        "the peer announced a message of {len} bytes, which no address on this target can span"
+    ))]
+    Unaddressable { len: usize },
 }
 
 impl DeframeError {
     pub(crate) fn status(&self) -> GrpcStatus {
         let code = match self {
-            Self::TooLong { .. } => GrpcStatusCode::ResourceExhausted,
+            // Both are "this side cannot hold it", one because a limit says so and one because
+            // no address does, and neither is a fault in the peer's framing.
+            Self::TooLong { .. } | Self::Unaddressable { .. } => GrpcStatusCode::ResourceExhausted,
             _ => GrpcStatusCode::Internal,
         };
         GrpcStatus::new(code, self.to_string())
@@ -266,7 +268,7 @@ mod tests {
 
         assert!(matches!(
             deframer.next_message(),
-            Err(DeframeError::TooLong { .. })
+            Err(DeframeError::Unaddressable { .. })
         ));
     }
 
