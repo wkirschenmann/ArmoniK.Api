@@ -93,7 +93,7 @@ pub struct ClientConfigArgs {
     /// Override the endpoint name during SSL verification
     #[cfg_attr(feature = "serde", serde(default))]
     pub override_target_name: String,
-    /// Timeout for establishing a connection to the server, defaults to no timeout
+    /// Timeout for establishing a connection to the server, defaults to 60s
     #[cfg_attr(feature = "serde", serde(default))]
     pub connect_timeout: String,
     /// Timeout for each request, defaults to no timeout
@@ -281,6 +281,7 @@ impl ClientConfig {
                 connect_timeout
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__ConnectTimeout",
                         value: connect_timeout,
                     })?
                     .into(),
@@ -293,7 +294,10 @@ impl ClientConfig {
             Some(
                 timeout
                     .parse::<humantime::Duration>()
-                    .context(InvalidDurationSnafu { value: timeout })?
+                    .context(InvalidDurationSnafu {
+                        name: "GrpcClient__Timeout",
+                        value: timeout,
+                    })?
                     .into(),
             )
         };
@@ -315,6 +319,7 @@ impl ClientConfig {
             let duration: Duration = parts[1]
                 .parse::<humantime::Duration>()
                 .context(InvalidDurationSnafu {
+                    name: "GrpcClient__RateLimit",
                     value: rate_limit.clone(),
                 })?
                 .into();
@@ -339,6 +344,7 @@ impl ClientConfig {
                 tcp_keepalive
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__TcpKeepalive",
                         value: tcp_keepalive,
                     })?
                     .into(),
@@ -352,6 +358,7 @@ impl ClientConfig {
                 tcp_keepalive_interval
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__TcpKeepaliveInterval",
                         value: tcp_keepalive_interval,
                     })?
                     .into(),
@@ -365,6 +372,7 @@ impl ClientConfig {
                 tcp_keepalive_retries
                     .parse::<u32>()
                     .context(InvalidIntegerSnafu {
+                        name: "GrpcClient__TcpKeepaliveRetries",
                         value: tcp_keepalive_retries,
                     })?,
             )
@@ -377,6 +385,7 @@ impl ClientConfig {
                 http2_keep_alive_interval
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__Http2KeepAliveInterval",
                         value: http2_keep_alive_interval,
                     })?
                     .into(),
@@ -390,6 +399,7 @@ impl ClientConfig {
                 http2_keep_alive_timeout
                     .parse::<humantime::Duration>()
                     .context(InvalidDurationSnafu {
+                        name: "GrpcClient__Http2KeepAliveTimeout",
                         value: http2_keep_alive_timeout,
                     })?
                     .into(),
@@ -403,6 +413,7 @@ impl ClientConfig {
                 http2_max_header_list_size
                     .parse::<u32>()
                     .context(InvalidIntegerSnafu {
+                        name: "GrpcClient__Http2MaxHeaderListSize",
                         value: http2_max_header_list_size,
                     })?,
             )
@@ -435,14 +446,6 @@ impl ClientConfig {
             http2_max_header_list_size,
             user_agent,
         })
-    }
-}
-
-impl TryFrom<&ClientConfig> for tonic::transport::Endpoint {
-    type Error = ConfigError;
-
-    fn try_from(value: &ClientConfig) -> Result<Self, Self::Error> {
-        Ok(Self::from(value.endpoint.clone()))
     }
 }
 
@@ -503,9 +506,12 @@ pub enum ConfigError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
-    #[snafu(display("`GrpcClient__ConnectTimeout={value}` is not a valid duration (e.g. `30s` or `1m`) [{location}]"))]
+    #[snafu(display(
+        "`{name}={value}` is not a valid duration (e.g. `30s` or `1m`) [{location}]"
+    ))]
     #[non_exhaustive]
     InvalidDuration {
+        name: &'static str,
         source: humantime::DurationError,
         value: String,
         #[snafu(implicit)]
@@ -519,9 +525,10 @@ pub enum ConfigError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
-    #[snafu(display("`{value}` is not a valid integer [{location}]"))]
+    #[snafu(display("`{name}={value}` is not a valid integer [{location}]"))]
     #[non_exhaustive]
     InvalidInteger {
+        name: &'static str,
         source: std::num::ParseIntError,
         value: String,
         #[snafu(implicit)]
@@ -603,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn a_duration_that_cannot_be_parsed_names_the_value() {
+    fn a_duration_that_cannot_be_parsed_names_the_variable_and_the_value() {
         let error = ClientConfig::from_config_args(ClientConfigArgs {
             tcp_keepalive: String::from("soon"),
             ..args()
@@ -614,7 +621,13 @@ mod tests {
             matches!(error, ConfigError::InvalidDuration { .. }),
             "{error:?}"
         );
-        assert!(chain(&error).contains("soon"), "{}", chain(&error));
+        // The variable, because a dozen of them are durations and the value alone leaves the
+        // reader to guess which one they mistyped.
+        assert!(
+            chain(&error).contains("GrpcClient__TcpKeepalive=soon"),
+            "{}",
+            chain(&error)
+        );
     }
 
     #[test]

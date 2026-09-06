@@ -25,7 +25,9 @@ pub(crate) fn read_env(name: &str) -> Result<String, ReadEnvError> {
 
 pub(crate) fn read_env_bool(name: &str) -> Result<bool, ReadEnvError> {
     let value = read_env(name)?;
-    match value.as_ref() {
+    // Trimmed and folded, because this environment is shared with the .NET client, whose binder
+    // takes these case-insensitively and whose `bool.ToString()` writes `True`.
+    match value.trim().to_ascii_lowercase().as_str() {
         "0" | "false" | "no" | "disable" | "disallow" | "forbid" | "" => Ok(false),
         "1" | "true" | "yes" | "enable" | "allow" | "authorize" => Ok(true),
         _ => NotBooleanSnafu {
@@ -134,7 +136,17 @@ mod tests {
     fn every_accepted_spelling_is_accepted() {
         // The vocabulary is wider than `true`/`false` and there is no other record of it: the list is the
         // specification, so it is written out here rather than sampled.
-        for spelling in ["1", "true", "yes", "enable", "allow", "authorize"] {
+        for spelling in [
+            "1",
+            "true",
+            "yes",
+            "enable",
+            "allow",
+            "authorize",
+            "True",
+            "TRUE",
+            " true ",
+        ] {
             let read = with_var("ARMONIK_TEST_BOOL", Some(spelling), || {
                 read_env_bool("ARMONIK_TEST_BOOL")
             });

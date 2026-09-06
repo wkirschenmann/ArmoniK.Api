@@ -25,10 +25,18 @@ pub async fn connect(config: ClientConfig) -> Result<tonic::transport::Channel, 
     let user_agent = config.user_agent.clone();
     let timeout = config.timeout;
     let rate_limit = config.rate_limit;
+    let connect_timeout = config.connect_timeout;
 
     let https = https_connector(config).await?;
 
     let mut transport_endpoint = tonic::transport::Endpoint::from(endpoint.clone());
+    if let Some(timeout) = connect_timeout {
+        // The whole connect, not each address inside it. `HttpConnector::set_connect_timeout`
+        // below bounds one TCP attempt; the TLS handshake sits outside it, so a peer that accepts
+        // the connection and never answers the ClientHello left `connect()` pending for ever -
+        // against a field documented as the timeout for establishing a connection.
+        transport_endpoint = transport_endpoint.connect_timeout(timeout);
+    }
     if let Some(target) = override_target {
         transport_endpoint = transport_endpoint.origin(target);
     }
