@@ -356,3 +356,103 @@ jobs:
           name: Test - ${{ matrix.os }} ${{ matrix.projects }}
           path: ${{ matrix.projects }}/TestResults/test-results.trx
           reporter: dotnet-trx
+
+  # The engine ships for 32-bit, where a size_t is four bytes and every length bound is a
+  # different bound: the gRPC prefix admits twice what an allocation can hold, the deframer's
+  # header-plus-body can fail to fit an address. The matrix above runs on the host's width alone,
+  # so this is the only place those branches execute.
+  test-rust-32-bit:
+    name: Test the Rust engine on i686
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install the Rust target
+        run: rustup target add i686-pc-windows-msvc
+
+      - name: Test
+        working-directory: packages/rust
+        run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi
+
+  # The binding ships netstandard2.0 and net8.0 and loads a native engine of one architecture, so
+  # what has to be exercised is the pairing: three client runtimes against two architectures. Its
+  # own job rather than a row in the matrix above, because it needs a Rust toolchain and an
+  # architecture dimension that nothing else there has.
+  test-rust-grpc-channel:
+    name: Test RustGrpcChannel ${{ matrix.tfm }} ${{ matrix.arch }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            tfm: net4.7
+            arch: x64
+            rid: win-x64
+            triple: x86_64-pc-windows-msvc
+          - os: windows-latest
+            tfm: net4.8
+            arch: x64
+            rid: win-x64
+            triple: x86_64-pc-windows-msvc
+          - os: windows-latest
+            tfm: net8.0
+            arch: x64
+            rid: win-x64
+            triple: x86_64-pc-windows-msvc
+          - os: windows-latest
+            tfm: net4.7
+            arch: x86
+            rid: win-x86
+            triple: i686-pc-windows-msvc
+          - os: windows-latest
+            tfm: net4.8
+            arch: x86
+            rid: win-x86
+            triple: i686-pc-windows-msvc
+          - os: windows-latest
+            tfm: net8.0
+            arch: x86
+            rid: win-x86
+            triple: i686-pc-windows-msvc
+          # .NET Framework is Windows only, so Linux carries the one runtime it can.
+          - os: ubuntu-latest
+            tfm: net8.0
+            arch: x64
+            rid: linux-x64
+            triple: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@3951f0dfe7a07e2313ec93c75700083e2005cbab # v4
+        with:
+          dotnet-version: 8.x
+
+      - name: Install the Rust target
+        run: rustup target add ${{ matrix.triple }}
+
+      # One architecture per job: a vcvars environment targets one, and switching inside a tree
+      # does not rebuild, which the project refuses rather than mixing.
+      - name: Build
+        working-directory: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.Tests
+        run: dotnet build -p:PlatformTarget=${{ matrix.arch }} -p:NativeEngineRids=${{ matrix.rid }}
+
+      # No server to start: each suite brings its own, the echo tests their echo server and the
+      # ArmoniK ones their Mock, on ports the fixtures pick. A step here that starts one and names
+      # it in the environment is a step whose failure the tests would report as a skip.
+      - name: Run tests
+        working-directory: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.Tests
+        run: dotnet test --no-build -f ${{ matrix.tfm }} -p:PlatformTarget=${{ matrix.arch }} --logger "trx;LogFileName=test-results.trx"
+
+      - name: Test Report
+        uses: dorny/test-reporter@v1
+        if: success() || failure()
+        with:
+          name: Test RustGrpcChannel ${{ matrix.tfm }} ${{ matrix.arch }} ${{ matrix.os }}
+          path: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.Tests/TestResults/test-results.trx
+          reporter: dotnet-trx

@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Imported into the consumer's build, which is why its conditions can ask what the consumer is.
+
+    .NET resolves a native asset by runtime identifier out of runtimes/<rid>/native, so it needs
+    nothing from here. .NET Framework has no such mechanism at all: no deps.json, no runtime
+    identifier, just the Win32 search order. So both architectures are copied beside the
+    application, in x86 and x64, and the binding's own static constructor loads the one matching
+    IntPtr.Size before the first P/Invoke.
+
+    Conditioned on the framework and on nothing else. An explicit PlatformTarget would let one of
+    the two copies be skipped, but AnyCPU - the default - has no architecture until the process
+    starts, so there would still have to be a run-time choice. One path for every Framework
+    consumer is worth more than the few megabytes the other copy costs.
+  -->
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <None Include="$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\armonik_transport_ffi.dll"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\armonik_transport_ffi.dll')"
+          Link="x64\armonik_transport_ffi.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\runtimes\win-x86\native\armonik_transport_ffi.dll"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x86\native\armonik_transport_ffi.dll')"
+          Link="x86\armonik_transport_ffi.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>
