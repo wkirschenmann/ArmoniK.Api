@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,6 +40,23 @@ public class EchoService : Echo.EchoBase
            {
              Text        = request.Text,
              SawMetadata = Saw(context.RequestHeaders),
+           };
+  }
+
+  /// <summary>Reads every request message and answers once, naming what it saw.</summary>
+  public override async Task<EchoReply> Collect(IAsyncStreamReader<EchoRequest> requests,
+                                                ServerCallContext              context)
+  {
+    var seen = new List<string>();
+    while (await requests.MoveNext(context.CancellationToken)
+                         .ConfigureAwait(false))
+    {
+      seen.Add(requests.Current.Text);
+    }
+
+    return new EchoReply
+           {
+             Text = $"{seen.Count}:{string.Join(",", seen)}",
            };
   }
 

@@ -15,6 +15,7 @@ message EchoReply {
 
 service Echo {
   rpc Say (EchoRequest) returns (EchoReply);
+  rpc Collect (stream EchoRequest) returns (EchoReply);
   rpc Refuse (EchoRequest) returns (EchoReply);
   rpc Never (EchoRequest) returns (EchoReply);
 }

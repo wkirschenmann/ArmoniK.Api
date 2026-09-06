@@ -15,7 +15,7 @@ use armonik_transport::reexports::hyper;
 use armonik_transport::reexports::hyper_util::rt::{TokioExecutor as HyperTokio, TokioIo};
 use armonik_transport::reexports::tonic::body::Body as TonicBody;
 use armonik_transport::reexports::tonic::metadata::{MetadataMap, MetadataValue as TonicValue};
-use armonik_transport::reexports::tonic::{Code, Request, Response, Status};
+use armonik_transport::reexports::tonic::{Code, Request, Response, Status, Streaming};
 use bytes::Bytes;
 use http::header::{HeaderMap, HeaderValue};
 use http::{StatusCode, Uri};
@@ -27,6 +27,7 @@ use super::codec::BytesCodec;
 pub const ECHO: &str = "/armonik_transport.test.Echo/Echo";
 pub const FAIL: &str = "/armonik_transport.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
+pub const COLLECT: &str = "/armonik_transport.test.Echo/Collect";
 
 /// A listener on an ephemeral loopback port, and the endpoint that reaches it.
 pub async fn loopback() -> (tokio::net::TcpListener, String) {
@@ -147,6 +148,33 @@ pub fn echo(request: Request<Bytes>) -> Answer {
     })
 }
 
+/// Reads every request message and answers once, naming how many it saw and their contents.
+///
+/// Through tonic rather than a canned body, because this is the direction where the server has to
+/// decode what the client framed, and tonic is the reference for that.
+#[derive(Clone, Copy)]
+pub struct Collector;
+
+impl armonik_transport::reexports::tonic::server::ClientStreamingService<Bytes> for Collector {
+    type Response = Bytes;
+    type Future = Answer;
+
+    fn call(&mut self, request: Request<Streaming<Bytes>>) -> Self::Future {
+        Box::pin(async move {
+            let mut stream = request.into_inner();
+            let mut seen: Vec<String> = Vec::new();
+            while let Some(message) = stream.message().await? {
+                seen.push(String::from_utf8_lossy(&message).into_owned());
+            }
+            Ok(Response::new(Bytes::from(format!(
+                "{}:{}",
+                seen.len(),
+                seen.join(",")
+            ))))
+        })
+    }
+}
+
 pub fn fail(_request: Request<Bytes>) -> Answer {
     Box::pin(async move {
         let mut metadata = MetadataMap::new();
@@ -172,6 +200,14 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
     let path = request.uri().path().to_owned();
     if let Some(raw) = path.strip_prefix("/raw/") {
         return canned(raw, request.headers());
+    }
+
+    if path == COLLECT {
+        return Grpc::new(BytesCodec)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
+            .client_streaming(Collector, request.map(TonicBody::new))
+            .await;
     }
 
     let handler = match path.as_str() {

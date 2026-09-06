@@ -1,5 +1,10 @@
 mod server;
 
+// Every helper is used by one cardinality or another, so which ones a given test binary leaves
+// unused is not a fact about the fixture.
+#[allow(dead_code)]
+pub mod host;
+
 #[allow(dead_code)]
 #[path = "../../../armonik-transport/tests/common/codec.rs"]
 mod codec;
@@ -7,7 +12,10 @@ mod codec;
 #[path = "../../../armonik-transport/tests/common/echo.rs"]
 mod echo;
 
-pub use echo::{ECHO, FAIL, SLOW};
+// Which method names a given test binary needs is a fact about that binary, not about the
+// fixture that serves all of them.
+#[allow(unused_imports)]
+pub use echo::{COLLECT, ECHO, FAIL, SLOW};
 pub use server::TestServer;
 
 use std::collections::HashMap;
@@ -133,6 +141,18 @@ impl Recorder {
 
     pub fn await_write_done(&self) -> Seen {
         self.await_kind("an acquittal", ak_event_kind::AK_EVENT_WRITE_DONE)
+    }
+
+    /// Waits until `wanted` acquittals have arrived, which is what a caller sending several
+    /// messages in a row needs: every event is kept, so waiting for the kind alone would be
+    /// satisfied by the first one.
+    pub fn await_write_dones(&self, wanted: usize) -> Seen {
+        self.wait_for(&format!("{wanted} acquittal(s)"), |seen| {
+            seen.iter()
+                .filter(|event| event.kind == ak_event_kind::AK_EVENT_WRITE_DONE)
+                .count()
+                >= wanted
+        })
     }
 
     pub fn await_shutdown(&self) -> Seen {

@@ -145,7 +145,26 @@ internal sealed class NativeCallInvoker : CallInvoker
   public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                               string? host,
                                                                                                               CallOptions options)
-    => throw Unsupported(method.Type);
+  {
+    MustCarryNoDeadline(options);
+    MustCarryNothingElseUnhonoured(options);
+
+    var call = channel_.StartCall(method.FullName,
+                                 options.Headers,
+                                 method.ResponseMarshaller);
+    call.CancelWith(options.CancellationToken);
+
+    // `Drained` is the same reader the unary path awaits, and it holds a client stream to one
+    // reply for the same reason: this cardinality answers exactly once.
+    return new AsyncClientStreamingCall<TRequest, TResponse>(new NativeRequestStream<TRequest, TResponse>(call,
+                                                                                                          method.RequestMarshaller),
+                                                             call.Drained,
+                                                             static state => ((NativeCall<TResponse>)state).ResponseHeadersAsync,
+                                                             static state => EndedStatus((NativeCall<TResponse>)state),
+                                                             static state => EndedTrailers((NativeCall<TResponse>)state),
+                                                             static state => ((NativeCall<TResponse>)state).Cancel(),
+                                                             call);
+  }
 
   public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method,
                                                                                                               string? host,

@@ -68,6 +68,12 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
   private readonly ArrivalSignal handedBack_ = new();
 
+  // The write waiting for its acquittal, or null between writes. A write linearizes at its
+  // WRITE_DONE and not at the commit, which is what lets one writer send in a row against a
+  // window of one: the emission that completes a write has already freed the slot the next lend
+  // asks for, so a conformant writer never meets SLOT_BUSY.
+  private TaskCompletionSource<bool>? writing_;
+
   private readonly Marshaller<TResponse> marshaller_;
   private readonly NativeRuntime runtime_;
 
@@ -183,6 +189,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
     if (kind == NativeMethods.AkEventKind.WriteDone)
     {
       Interlocked.Decrement(ref inFlight_);
+      Volatile.Read(ref writing_)
+              ?.TrySetResult(true);
       return false;
     }
 
@@ -209,13 +217,51 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
   }
 
-  internal async Task SendUnaryAsync<TRequest>(Marshaller<TRequest> marshaller,
-                                               TRequest request)
+  internal Task SendUnaryAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                         TRequest request)
+    => Sent(marshaller,
+            request,
+            halfClose: true);
+
+  /// <summary>One message of a client stream, complete when the engine has acquitted it.</summary>
+  /// <remarks>The acquittal and not the commit, because that is what frees the send window: a
+  /// caller honouring <c>IClientStreamWriter</c>'s one-writer contract therefore always finds the
+  /// window open at its next lend, whatever depth the ABI allows a host that pipelines deeper.
+  /// </remarks>
+  internal async Task WriteAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                           TRequest request)
+  {
+    var acquitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    Volatile.Write(ref writing_,
+                   acquitted);
+
+    await Sent(marshaller,
+               request,
+               halfClose: false)
+      .ConfigureAwait(false);
+
+    // The terminal is watched beside the acquittal because a write left pending would hang the
+    // caller. Level 1 emits every acquittal before the terminal, so a call that reaches its
+    // terminal first is an engine that broke that promise, and the caller hears it as the status.
+    var settled = await Task.WhenAny(acquitted.Task,
+                                     terminal_.Task)
+                            .ConfigureAwait(false);
+    if (settled != acquitted.Task)
+    {
+      throw new RpcException(await terminal_.Task.ConfigureAwait(false),
+                             trailers_);
+    }
+  }
+
+  private async Task Sent<TRequest>(Marshaller<TRequest> marshaller,
+                                    TRequest request,
+                                    bool halfClose)
   {
     try
     {
       await SendingAsync(marshaller,
-                         request)
+                         request,
+                         halfClose)
         .ConfigureAwait(false);
     }
     catch
@@ -226,13 +272,15 @@ internal sealed class NativeCall<TResponse> : ICallSink
   }
 
   private async Task SendingAsync<TRequest>(Marshaller<TRequest> marshaller,
-                                            TRequest request)
+                                            TRequest request,
+                                            bool halfClose)
   {
     Interlocked.Increment(ref holding_);
     try
     {
       await HoldingABufferAsync(marshaller,
-                                request)
+                                request,
+                                halfClose)
         .ConfigureAwait(false);
     }
     finally
@@ -245,7 +293,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
   }
 
   private async Task HoldingABufferAsync<TRequest>(Marshaller<TRequest> marshaller,
-                                                   TRequest request)
+                                                   TRequest request,
+                                                   bool halfClose)
   {
     using var lent = new LentBuffer(handle_);
     marshaller.ContextualSerializer(request,
@@ -285,6 +334,15 @@ internal sealed class NativeCall<TResponse> : ICallSink
       }
     }
 
+    if (halfClose)
+    {
+      HalfClose();
+    }
+  }
+
+  /// <summary>Says nothing more is coming.</summary>
+  internal void HalfClose()
+  {
     // The two the engine answers for a call that is already over, which the sender cannot rule
     // out and which the terminal reports anyway.
     var closed = NativeMethods.ak_call_end_send(handle_);
