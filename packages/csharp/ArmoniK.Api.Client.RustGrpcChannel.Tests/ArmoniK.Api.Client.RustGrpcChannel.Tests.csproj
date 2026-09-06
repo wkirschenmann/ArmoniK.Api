@@ -47,6 +47,10 @@
                       UndefineProperties="PlatformTarget;Prefer32Bit" />
     <!-- Built but not referenced: it is a net8.0 process these tests start, not a library they
          link, and a net4.7 host could not load it anyway. -->
+    <ProjectReference Include="..\ArmoniK.Api.Mock\ArmoniK.Api.Mock.csproj"
+                      ReferenceOutputAssembly="false"
+                      SetTargetFramework="TargetFramework=net8.0"
+                      UndefineProperties="PlatformTarget;Prefer32Bit" />
     <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\ArmoniK.Api.Client.RustGrpcChannel.TestServer.csproj"
                       ReferenceOutputAssembly="false"
                       SetTargetFramework="TargetFramework=net8.0"
@@ -62,6 +66,8 @@
   <ItemGroup>
     <AssemblyMetadata Include="TestServerAssembly"
                       Value="$(MSBuildThisFileDirectory)..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\bin\$(Configuration)\net8.0\ArmoniK.Api.Client.RustGrpcChannel.TestServer.dll" />
+    <AssemblyMetadata Include="MockServerAssembly"
+                      Value="$(MSBuildThisFileDirectory)..\ArmoniK.Api.Mock\bin\$(Configuration)\net8.0\ArmoniK.Api.Mock.dll" />
   </ItemGroup>
 
   <!-- An architecture switch in one tree does not rebuild on its own: MSBuild's up-to-date check

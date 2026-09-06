@@ -442,26 +442,11 @@ jobs:
         working-directory: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.Tests
         run: dotnet build -p:PlatformTarget=${{ matrix.arch }} -p:NativeEngineRids=${{ matrix.rid }}
 
-      # The ArmoniK client tests need a real ArmoniK server; the echo tests bring their own. It
-      # runs in the background because these tests only dial it, and they skip themselves when
-      # GrpcClient__Endpoint is unset rather than failing on its absence.
-      - name: Start the Mock server
-        working-directory: packages/csharp/ArmoniK.Api.Mock
-        shell: bash
-        env:
-          Grpc__Port: 5000
-          Http__Port: 4999
-        run: |
-          dotnet run --property:Configuration=Debug &
-          for _ in $(seq 1 60); do
-            curl -fsS -o /dev/null "http://localhost:4999/" && break
-            sleep 1
-          done
-
+      # No server to start: each suite brings its own, the echo tests their echo server and the
+      # ArmoniK ones their Mock, on ports the fixtures pick. A step here that starts one and names
+      # it in the environment is a step whose failure the tests would report as a skip.
       - name: Run tests
         working-directory: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.Tests
-        env:
-          GrpcClient__Endpoint: http://localhost:5000
         run: dotnet test --no-build -f ${{ matrix.tfm }} -p:PlatformTarget=${{ matrix.arch }} --logger "trx;LogFileName=test-results.trx"
 
       - name: Test Report

@@ -14,10 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System;
 using System.Threading.Tasks;
 
-using ArmoniK.Api.Client.Options;
 using ArmoniK.Api.gRPC.V1;
 using ArmoniK.Api.gRPC.V1.Results;
 
@@ -25,35 +23,31 @@ using NUnit.Framework;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
+/// <summary>The only tests that drive ArmoniK's own generated stubs over this invoker.</summary>
+/// <remarks>They start their own ArmoniK.Api.Mock, the way the echo tests start their own server,
+/// so they run wherever the suite runs rather than only where something else has already put a
+/// server on a port and named it in the environment.</remarks>
 [TestFixture]
 public class ArmoniKClientTests : RuntimeLeaseFixture
 {
-  private const string EndpointVariable = GrpcClient.SettingSection + "__" + nameof(GrpcClient.Endpoint);
+  private MockServerProcess? server_;
+  private string             endpoint_ = string.Empty;
 
-  private static string Endpoint
+  [OneTimeSetUp]
+  public void StartServer()
   {
-    get
-    {
-      var endpoint = Environment.GetEnvironmentVariable(EndpointVariable);
-      if (string.IsNullOrEmpty(endpoint))
-      {
-        Assert.Ignore($"{EndpointVariable} is unset, so no ArmoniK server is running");
-      }
-
-      if (!endpoint!.StartsWith("http://",
-                                StringComparison.OrdinalIgnoreCase))
-      {
-        Assert.Ignore($"`{endpoint}` is not plain HTTP/2, which is all this engine speaks");
-      }
-
-      return endpoint!;
-    }
+    server_   = MockServerProcess.Start();
+    endpoint_ = server_.Endpoint;
   }
+
+  [OneTimeTearDown]
+  public void StopServer()
+    => server_?.Dispose();
 
   [Test]
   public void AGeneratedArmoniKStubAnswersOverThisInvoker()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
 
     var results = new Results.ResultsClient(channel);
 
@@ -64,7 +58,7 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [Test]
   public async Task TheSameStubAnswersAsynchronously()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
 
     var configuration = await new Results.ResultsClient(channel).GetServiceConfigurationAsync(new Empty())
                                                                 .ConfigureAwait(false);
