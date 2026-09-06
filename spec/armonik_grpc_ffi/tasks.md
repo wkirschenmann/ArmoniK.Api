@@ -394,9 +394,22 @@ its schema is rewritten to match, and on the FFI path neither is needed because 
 flattened there. Producing the flat shape for a .NET caller is .NET's, which binds its own
 configuration sources; producing it for a Rust caller is `from_env`'s, which stays.
 
-The readers are shared whichever shape carried the value: `text` accepts a real boolean or a real
-number as readily as a string, so one vocabulary interprets both and the two shapes cannot
-disagree about what a value means.
+**And the two shapes are read with different strictness, on purpose.** The JSON is typed by its
+schema: a boolean field takes a JSON boolean, a number takes a number, and the string `"true"` is
+refused there. A schema that promises a type and then accepts anything spelled like it is not a
+contract, and the generated C# type has no reason to write anything else.
+
+The wide spellings belong to the sources that carry no type at all - the command line,
+environment variables, and any configuration file the Rust side may read one day. `1`, `True`,
+`on`, `y` and their opposites are what a shell, a C++ program, a Python script or an INI file
+writes, and refusing them would make an option unusable from whichever of those a deployment
+happens to use. `config_utils::boolean` is that vocabulary and `read_env_bool` its first reader.
+
+So one set of types is read two ways, and how is an open question rather than a settled one:
+serde attributes are fixed on the type, and the lenient readers cannot simply be attached to
+fields that must also deserialize strictly. Whether that is two representations, a deserializer
+chosen per source, or something else is T3.2's to answer, and it should be answered before the
+units are written rather than after.
 
 **Left for later:** giving the Rust crate the same layering .NET has - files, environment,
 command line, bound onto the config types in one declared order - rather than `from_env` alone.
@@ -415,24 +428,29 @@ directory move.
 
 **Deliverable**: the module in place with its tests, and no domain option inside it.
 
-### T3.2: The option units, as live types
+### T3.2: The channel's own options, as the first unit
 
 **Prerequisite**: T3.1
-**Source**: the #7xx stack
-**Commit**: `tls`, `proxy`, `retry`, `http2`, `tcp_keepalive` as nested types reached as
-`config.retry.max_attempts`, never flattened into plain fields - and nested in the JSON too, as
-objects, rather than flattened into it. The prefix belongs to whoever
-embeds a unit, not to the unit, so one can be embedded twice. Names come from the mechanism -
-field name, `rename_all = "PascalCase"`, prefix - and nowhere from a per-field rename.
+**Commit**: the options the engine already has - the endpoint, the user agent, the connect
+timeout, the message size it accepts, the delivery credits and the sends it allows in flight -
+declared as types and read strictly from a structured JSON, replacing the hand-written
+`ChannelSettings` the FFI crate carries today.
 
-The `retry` unit carries **two** replay ceilings rather than one: what a call that answers once
-may hold, and what a stream may. They are different quantities - the first bounds a single
-message kept in case it has to go again, the second a whole sent prefix - so one value would
-either starve the stream or let a unary call reserve a stream's worth. T6.1 settles what happens
-when either is reached; that they are configuration, and that there are two, is settled here.
+**No other unit arrives here.** TLS, proxy, retry and the TCP and HTTP/2 knobs each come with the
+feature that reads them: a unit landing three phases before anything consumes it is the same
+mistake as machinery landing before its first reader, and the proxy unit alone is twelve hundred
+lines nothing would call. Each of those tasks brings its unit, its entry in the schema and the
+property generation puts on the C# type, so the option surface grows a feature at a time and is
+never wider than what works.
 
-**Deliverable**: `grep -c rename` on each unit answers 1, the container attribute. Both ceilings
-appear in the schema and reach the engine.
+What this task settles for all of them, being the first: how a nested unit is declared, how it is
+read strictly from JSON and leniently from the text sources, and what answers the question T3.1
+left open - serde attributes are fixed on the type, so the lenient readers cannot simply be
+attached to fields that must also deserialize strictly. Names come from the mechanism, field name
+and `rename_all = "PascalCase"`, and nowhere from a per-field rename.
+
+**Deliverable**: the FFI crate's hand-written settings type is gone, the engine's options travel
+as structured JSON, and `grep -c rename` on the unit answers 1, the container attribute.
 
 ### T3.3: The schema, and the C# type, as build artefacts
 
@@ -440,7 +458,8 @@ appear in the schema and reach the engine.
 **Commit**: `schemars` on the Rust types, emitted by a cargo target. The schema describes the
 structured shape - nested objects, booleans as booleans, numbers as numbers - because that is
 what the generated C# type has to serialize to, and a schema that said `string` everywhere would
-generate a class that says nothing about what it holds. The binding's csproj already
+generate a class that says nothing about what it holds. It is also what makes the JSON strict:
+the type in the schema is the type the reader enforces. The binding's csproj already
 shells out to `cargo build` for the engine; it runs the emitter and the C# generation in the same
 step, so the generated options type is produced from the schema at every build of the native
 library. Nothing is committed and nothing is diff-checked: staleness is not detected, it is made
@@ -487,8 +506,12 @@ with its IPv6 and its option-naming error, the insecure opt-in, and mTLS from a 
 carries what the old T5.6 asked for - keepalive, nodelay, keepalive interval and retries, connect
 timeout - because the same connector sets them.
 
+It brings the `tls`, `tcp_keepalive` and `http2` units with it, in the shape T3.2 settled: their
+entries in the schema, and the properties generation puts on the C# type.
+
 **Deliverable**: a unary call over HTTPS, and one test per branch of the connector reached from
-the engine rather than from the connector's own tests.
+the engine rather than from the connector's own tests. Every option of those three units reaches
+the engine from a structured JSON.
 
 ### T4.2: Client identity from a PKCS#12 bundle
 
@@ -519,8 +542,10 @@ the engine rather than from the connector's own tests.
 
 **Prerequisite**: T4.1
 **Source**: the #7xx stack
-**Commit**: the proxy types and the CONNECT tunnel. The stack's `Secret` takes the password
-fields, and its URI handling replaces the `safe_endpoint` this crate carries.
+**Commit**: the proxy types and the CONNECT tunnel, with the `proxy` unit that configures them -
+the largest of the units, and it arrives here because this is where something reads it. `secrecy`
+takes the password fields, and the stack's URI handling replaces the `safe_endpoint` this crate
+carries.
 
 **Deliverable**: a unary call through an explicit HTTP proxy, and no credential in any message.
 
@@ -591,8 +616,12 @@ no longer refused.
 
 **Prerequisite**: T6.1, T6.2
 **Source**: the retry types from the #7xx stack
-**Commit**: exponential backoff, retryable codes. A single message is replayable without a
-buffer, so this cardinality needs none.
+**Commit**: exponential backoff, retryable codes, and the `retry` unit that configures them. A
+single message is replayable without a buffer, so this cardinality needs none of its own - but
+the unit declares **two** replay ceilings, one for a call that answers once and one for a stream,
+because they bound different things: a single message kept in case it has to go again, against a
+whole sent prefix. One value would either starve the stream or let a unary call reserve a
+stream's worth. T6.1 has already settled what happens when either is reached.
 
 **Deliverable**: a retry on UNAVAILABLE that succeeds on the second attempt.
 
