@@ -12,6 +12,9 @@
  *   - Memory crosses in one direction at a time. What the library hands over, the host gives
  *     back exactly once - a payload through ak_event_consumed, a lent buffer through
  *     ak_call_send_message or ak_return_call_buffer - and the runtime cannot finish until it has.
+ *     Exactly once is the host's to keep: unlike a handle, the owner in ak_bytes and ak_buffer is
+ *     a pointer, so giving one back twice reads memory this library has freed. Undefined
+ *     behaviour, not a refusal - there is nothing left to refuse with.
  *
  * Integers in the key/value blobs are in native byte order. This ABI runs in-process between this
  * library and its host; it is not a wire format.
@@ -33,7 +36,7 @@ extern "C" {
  *
  * Returned by every entry point that can fail. ak_event_consumed, ak_return_call_buffer and
  * ak_channel_release are void because a wrong token is a host bug the ABI cannot report anywhere
- * useful; ak_runtime_status and ak_abi_version return their answer.
+ * useful; ak_runtime_status, ak_channel_status and ak_abi_version return their answer.
  */
 typedef enum {
     AK_STATUS_OK                = 0,
@@ -103,7 +106,10 @@ typedef enum {
     AK_RUNTIME_GRPC_STOPPING     = 2, /* start gate closed, channels closing */
     AK_RUNTIME_GRPC_STOPPED      = 3, /* the gRPC side is done; the host may still hold memory */
     AK_RUNTIME_QUIESCENT         = 4, /* and nothing of it is outstanding either */
-    AK_RUNTIME_FAILED_UNQUIESCED = 5, /* quiescence impossible, destroy refused */
+    AK_RUNTIME_FAILED_UNQUIESCED = 5, /* quiescence impossible, destroy refused. Reserved: this
+                                         library reports it only when ak_runtime_status itself
+                                         faults, and nothing else produces it - a shutdown that
+                                         cannot finish stays GRPC_STOPPING */
 } ak_runtime_state;
 
 /* Only QUIESCENT permits ak_runtime_destroy or unloading the library. The host reaches it by
@@ -257,8 +263,12 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
 
 /* === Channel === */
 
-/* Creates a channel from a config JSON. Synchronous and performs no I/O, so it fails only on a
- * bad config. The JSON carries at least {"endpoint": "http://host:port"}, and optionally
+/* Creates a channel from a config JSON. Synchronous and performs no I/O: no name is resolved and
+ * no socket opened until the channel's first call. A bad config is AK_STATUS_INVALID_ARG, and so
+ * is a null out or a null config with a non-zero length; a runtime handle that names nothing is
+ * AK_STATUS_HANDLE_STALE, and one that is shutting down is AK_STATUS_INVALID_STATE.
+ *
+ * The JSON carries at least {"endpoint": "http://host:port"}, and optionally
  * connect_timeout_ms, user_agent, max_recv_message_size, delivery_credits and
  * max_sends_in_flight. An option spelled wrong is refused, not ignored.
  *
@@ -337,10 +347,12 @@ void ak_return_call_buffer(ak_buffer buffer);
 /* Signals end of sending. No ak_call_send_message after this. */
 ak_status ak_call_end_send(ak_handle call);
 
-/* Cancels the call, which then reaches a terminal carrying CANCELLED.
+/* Cancels the call, which then reaches a terminal - carrying CANCELLED, unless the peer's own
+ * status was already in.
  *
  * Asynchronous: the request takes effect when the call's task observes it, so callbacks already
- * committed may still arrive after this returns. INITIAL_METADATA is never skipped. */
+ * committed may still arrive after this returns, and a status the peer had already sent is the
+ * one delivered. INITIAL_METADATA is never skipped. */
 ak_status ak_call_cancel(ak_handle call);
 
 /* What the call still owes. Purely observational; it is legal never to call it. It exists because

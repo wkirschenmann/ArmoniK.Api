@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use armonik_transport::grpc::{
     CallControl, CallStartOptions, GrpcStatus, Metadata, RecvHalf, RecvResult, SendHalf,
@@ -73,6 +73,18 @@ pub(crate) struct CallState {
     progress: watch::Sender<u64>,
     over: watch::Sender<bool>,
     ended_sending: AtomicBool,
+    /// Held across deciding to queue a command and queueing it.
+    ///
+    /// The two writers are `ak_call_send_message` and `ak_call_end_send`, and the queue orders
+    /// commands by when they are sent, not by when a slot was reserved. Without this, both could
+    /// hold a slot, the second could end the sending and queue its command first, and the first
+    /// would then queue a send behind it: the writer takes the end, drops the send half, finds no
+    /// half for the message, and emits its WRITE_DONE anyway - the host told a message left that
+    /// never did. gRPC forbids a host doing the two at once; this makes the answer a refusal
+    /// rather than a false acquittal.
+    ///
+    /// Never held across an await, and taken only by those two downcalls.
+    queueing: Mutex<()>,
     handle: ak_handle,
     // The channel itself, not its name: leaving it is not optional, and a name would make it
     // conditional on a lookup whose failure the reader has no answer for.
@@ -205,6 +217,8 @@ impl CallState {
     }
 
     pub(crate) fn commit(&self, lent: Box<Lent>) -> ak_status {
+        let _queueing = self.queueing.lock().unwrap_or_else(PoisonError::into_inner);
+
         if !self.accepts_work() || self.ended_sending() {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         }
@@ -224,6 +238,8 @@ impl CallState {
     }
 
     pub(crate) fn end_send(&self) -> ak_status {
+        let _queueing = self.queueing.lock().unwrap_or_else(PoisonError::into_inner);
+
         if !self.live() {
             return ak_status::AK_STATUS_INVALID_STATE;
         }
@@ -289,11 +305,26 @@ pub(crate) fn keep(lent: Box<Lent>, status: ak_status) -> ak_status {
     status
 }
 
+/// Takes back a box this library lent, named by the pointer it handed the host.
+///
+/// The tag tells a buffer from a payload, and either from a pointer that is neither. What it
+/// cannot tell is a box already taken back: the read below happens before the check, so a second
+/// return reads eight bytes out of a freed allocation, and whether the tag survived there is the
+/// allocator's business. The header says a second return is undefined behaviour rather than a
+/// no-op, because that is what it is - a token would be needed to make it reportable, and the
+/// event path is where that token would be looked up.
+///
+/// Unaligned, because nothing promises the host's pointer is aligned for a `u64` - it is aligned
+/// for whatever the host thinks `owner` points at, which is `void`.
+///
+/// # Safety
+///
+/// `owner` must be null, or a pointer this library handed out and the host has not given back.
 unsafe fn take_tagged<T>(owner: *mut c_void, tag: u64) -> Option<Box<T>> {
     if owner.is_null() {
         return None;
     }
-    if unsafe { *(owner as *const u64) } != tag {
+    if unsafe { owner.cast::<u64>().read_unaligned() } != tag {
         return None;
     }
     Some(unsafe { Box::from_raw(owner as *mut T) })
@@ -372,6 +403,7 @@ fn create(
         progress: watch::channel(0).0,
         over: watch::channel(false).0,
         ended_sending: AtomicBool::new(false),
+        queueing: Mutex::new(()),
         channel,
         handle,
     });
@@ -541,6 +573,27 @@ async fn wait_for_cancel(state: &CallState) {
         .await;
 }
 
+/// The channel's count, given back unless the call that took it is started.
+///
+/// Every exit from `start_on` between the join and the call being live has to give it back, an
+/// unwind included: the entry point above turns a panic into AK_STATUS_INTERNAL, and a count left
+/// standing is a channel that reaches CLOSING and never CLOSED.
+struct Joined<'a>(Option<&'a Arc<AkChannel>>);
+
+impl Joined<'_> {
+    fn kept(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Joined<'_> {
+    fn drop(&mut self) {
+        if let Some(channel) = self.0 {
+            channel.leave();
+        }
+    }
+}
+
 pub(crate) fn start_on(
     channel: &Arc<AkChannel>,
     services: &CallServices<'_>,
@@ -549,16 +602,14 @@ pub(crate) fn start_on(
     ctx: HostPtr,
 ) -> Result<ak_handle, ak_status> {
     channel.join()?;
+    let joined = Joined(Some(channel));
 
     let mut options = CallStartOptions::new(method);
     options.metadata = metadata;
 
     let grpc_call = match channel.grpc.start_call(options) {
         Ok(call) => call,
-        Err(error) => {
-            channel.leave();
-            return Err(ak_status::from(error));
-        }
+        Err(error) => return Err(ak_status::from(error)),
     };
 
     let (send, recv, control) = grpc_call.split();
@@ -575,10 +626,7 @@ pub(crate) fn start_on(
         (Arc::clone(&state), (state, commands))
     });
 
-    // The join above counted this call on its channel, so a refusal has to give that back or the
-    // channel never closes again.
     let Some((handle, (state, commands))) = inserted else {
-        channel.leave();
         return Err(ak_status::AK_STATUS_INTERNAL);
     };
 
@@ -592,6 +640,9 @@ pub(crate) fn start_on(
         state.cancel();
     }
 
+    // From here the call is the channel's to count, and its terminal is what gives the count
+    // back.
+    joined.kept();
     start(&state, send, recv, commands, services.spawner);
     Ok(handle)
 }

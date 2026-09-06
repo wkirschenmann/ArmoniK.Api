@@ -123,8 +123,10 @@ fn close_channel(channel: &Arc<AkChannel>) {
         }
     }
     channel.grpc.close();
-    // The calls counted above may have all left while this ran, and there may have been none:
-    // either way nothing else is coming to finish the close.
+    // Whoever brings the count to zero finishes the close, and with no call to wait for that is
+    // this thread. It is also this thread when the last call left while the loop above ran - its
+    // own attempt found the count still standing - so the call is made unconditionally rather
+    // than reasoned about.
     channel.finish_closing();
 }
 

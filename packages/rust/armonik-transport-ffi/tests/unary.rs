@@ -113,10 +113,40 @@ impl Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
+        // Nothing here may panic while a test is already unwinding. A panic during a panic
+        // aborts the process, and the abort takes the failing assertion's message with it - the
+        // run then says "error: test failed" and names no test, which is how a flake stays
+        // unexplained however many times it is reproduced.
+        //
+        // So on the way out of a failure this reports rather than asserts, and does its best to
+        // give the claim back so the tests after it are not all failing for a reason that is not
+        // theirs either.
+        let failing = std::thread::panicking();
+
         if ak_runtime_status(self.runtime) != ak_runtime_state::AK_RUNTIME_QUIESCENT {
-            self.stop();
+            if failing {
+                let _ = ak_runtime_begin_shutdown(self.runtime);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while std::time::Instant::now() < deadline
+                    && ak_runtime_status(self.runtime) != ak_runtime_state::AK_RUNTIME_QUIESCENT
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            } else {
+                self.stop();
+            }
         }
-        assert_eq!(ak_runtime_destroy(self.runtime), ak_status::AK_STATUS_OK);
+
+        let destroyed = ak_runtime_destroy(self.runtime);
+        if failing {
+            eprintln!(
+                "the fixture tore down after a failure: status {:?}, destroy {destroyed:?}, {} events held",
+                ak_runtime_status(self.runtime),
+                self.recorder.len()
+            );
+        } else {
+            assert_eq!(destroyed, ak_status::AK_STATUS_OK);
+        }
     }
 }
 
