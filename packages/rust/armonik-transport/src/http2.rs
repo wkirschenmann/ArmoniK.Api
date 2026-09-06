@@ -12,7 +12,7 @@ use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
-use crate::utils::chain;
+use crate::utils::{chain, safe_endpoint};
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -139,7 +139,7 @@ where
             .await
             .map_err(|error| {
                 Http2HandshakeSnafu {
-                    endpoint: endpoint.clone(),
+                    endpoint: safe_endpoint(endpoint),
                     cause: chain(&error, ": "),
                 }
                 .build()
@@ -149,7 +149,7 @@ where
     match tokio::time::timeout(deadline, opening).await {
         Ok(result) => result,
         Err(_) => TimeoutSnafu {
-            endpoint: endpoint.clone(),
+            endpoint: safe_endpoint(endpoint),
             after: deadline,
         }
         .fail(),
@@ -171,7 +171,7 @@ impl Service<Uri> for TransportConnector {
         Box::pin(async move {
             dialling.await.map_err(|error| {
                 ConnectSnafu {
-                    endpoint: target.clone(),
+                    endpoint: safe_endpoint(&target),
                     cause: chain(&error, ": "),
                 }
                 .build()
@@ -195,12 +195,15 @@ pub enum TransportErrorKind {
 pub enum TransportError {
     #[snafu(display("{message}"))]
     Configuration { message: String },
+    // Rendered, not held: `TransportConnector` is public and its `Service<Uri>` takes any URI,
+    // not only the one `new` validated, so the guarantee at the top of this file has to be in the
+    // type rather than in who calls it.
     #[snafu(display("`{endpoint}` could not be reached: {cause}"))]
-    Connect { endpoint: Uri, cause: String },
+    Connect { endpoint: String, cause: String },
     #[snafu(display("the HTTP/2 preface could not be written to `{endpoint}`: {cause}"))]
-    Http2Handshake { endpoint: Uri, cause: String },
+    Http2Handshake { endpoint: String, cause: String },
     #[snafu(display("connecting to `{endpoint}` outlasted {after:?}"))]
-    Timeout { endpoint: Uri, after: Duration },
+    Timeout { endpoint: String, after: Duration },
 }
 
 impl TransportError {

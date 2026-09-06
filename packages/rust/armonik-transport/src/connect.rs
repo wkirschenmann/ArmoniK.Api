@@ -11,6 +11,7 @@ use rustls::pki_types::{IpAddr, ServerName};
 use snafu::{ResultExt, Snafu};
 
 use crate::config::{ConfigError, IncompatibleOptionsSnafu};
+use crate::utils::safe_endpoint;
 use crate::ClientConfig;
 
 /// Connect to the endpoint described by `config`, eagerly: this resolves once the connection is
@@ -68,7 +69,9 @@ pub async fn connect(config: ClientConfig) -> Result<tonic::transport::Channel, 
     transport_endpoint
         .connect_with_connector(https)
         .await
-        .context(TransportSnafu { endpoint })
+        .context(TransportSnafu {
+            endpoint: safe_endpoint(&endpoint),
+        })
 }
 
 /// Build the connector stack, TCP then TLS or mTLS, that [`connect`] wraps in a channel.
@@ -92,7 +95,7 @@ pub async fn https_connector(
     let tls_config = rustls::ClientConfig::builder_with_provider(crypto_provider)
         .with_safe_default_protocol_versions()
         .with_context(|_| TlsSnafu {
-            endpoint: endpoint.clone(),
+            endpoint: safe_endpoint(&endpoint),
         })?;
 
     // Configure the server verification
@@ -101,12 +104,14 @@ pub async fn https_connector(
         tls_config
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(crate::utils::InsecureCertVerifier))
-    } else if let Some(cacert) = config.cacert {
-        // Verify that the server certificate is signed with a specific CA cert
+    } else if !config.cacert.is_empty() {
+        // Verify that the server certificate is signed by one of the roots the file named
         let mut root_cert_store = rustls::RootCertStore::empty();
-        root_cert_store.add(cacert).with_context(|_| TlsSnafu {
-            endpoint: endpoint.clone(),
-        })?;
+        for cacert in config.cacert {
+            root_cert_store.add(cacert).with_context(|_| TlsSnafu {
+                endpoint: safe_endpoint(&endpoint),
+            })?;
+        }
         tls_config.with_root_certificates(root_cert_store)
     } else {
         // Verify the server certificate using the system CAs
@@ -119,9 +124,9 @@ pub async fn https_connector(
     let tls_config = if let Some((cert, key)) = config.identity {
         // Use the the specified client certificate and key for the client authentication
         tls_config
-            .with_client_auth_cert(vec![cert], key)
+            .with_client_auth_cert(cert, key)
             .with_context(|_| TlsSnafu {
-                endpoint: endpoint.clone(),
+                endpoint: safe_endpoint(&endpoint),
             })?
     } else {
         // No mTLS
@@ -200,7 +205,9 @@ pub enum ConnectionError {
     #[snafu(display("Could not connect to the remote {endpoint} [{location}]"))]
     #[non_exhaustive]
     Transport {
-        endpoint: Uri,
+        // Rendered by `safe_endpoint`, not the `Uri`: a password in the userinfo would otherwise
+        // reach the caller's log through this message.
+        endpoint: String,
         #[snafu(source(from(tonic::transport::Error, Box::new)))]
         source: Box<tonic::transport::Error>,
         #[snafu(implicit)]
@@ -209,7 +216,7 @@ pub enum ConnectionError {
     #[snafu(display("Could not establish TLS connection to the remote {endpoint} [{location}]"))]
     #[non_exhaustive]
     Tls {
-        endpoint: Uri,
+        endpoint: String,
         #[snafu(source(from(rustls::Error, Box::new)))]
         source: Box<rustls::Error>,
         #[snafu(implicit)]

@@ -23,6 +23,20 @@ pub(crate) fn read_env(name: &str) -> Result<String, ReadEnvError> {
     }
 }
 
+/// An endpoint as an error may print it: scheme, host and port, and nothing else.
+///
+/// A URI can carry `user:password@`, and every message that took `{endpoint}` put it in the
+/// caller's log. `http2::dialable` refuses such an endpoint outright, but the tonic path accepts
+/// it, and an error is not the place to find that out.
+pub(crate) fn safe_endpoint(endpoint: &http::Uri) -> String {
+    let scheme = endpoint.scheme_str().unwrap_or("http");
+    match (endpoint.host(), endpoint.port_u16()) {
+        (Some(host), Some(port)) => format!("{scheme}://{host}:{port}"),
+        (Some(host), None) => format!("{scheme}://{host}"),
+        (None, _) => format!("{scheme}://<no host>"),
+    }
+}
+
 pub(crate) fn read_env_bool(name: &str) -> Result<bool, ReadEnvError> {
     let value = read_env(name)?;
     // Trimmed and folded, because this environment is shared with the .NET client, whose binder
