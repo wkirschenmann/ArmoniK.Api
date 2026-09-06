@@ -455,11 +455,26 @@ as structured JSON, and `grep -c rename` on the unit answers 1, the container at
 ### T3.3: The schema, and the C# type, as build artefacts
 
 **Prerequisite**: T3.2
-**Commit**: `schemars` on the Rust types, emitted by a cargo target. The binding's csproj already
-shells out to `cargo build` for the engine; it runs the emitter and the C# generation in the same
-step, so the generated options type is produced from the schema at every build of the native
-library. Nothing is committed and nothing is diff-checked: staleness is not detected, it is made
-impossible. The build fails loudly if the generation does not run.
+**Commit**: `schemars` on the Rust types, emitted by a cargo target, and **the schema is
+committed**. A Roslyn source generator turns it into the options class, driven by an attribute
+that names it in the source rather than in a project file:
+
+```csharp
+[GenerateFromJsonSchema("options.schema.json")]
+partial class ChannelOptions { }
+```
+
+The schema is committed because a source generator runs at design time too, and a schema that
+only existed after a cargo build would leave a fresh clone with no type and a red IDE. The price
+is that it can go stale, so the build checks it: regenerating from the Rust types and comparing
+is a step, and a difference fails the build. Staleness is detected rather than impossible - the
+trade the attribute is worth.
+
+An earlier console tool exists, `ArmoniK.Api.TransportOptionsGenerator`, and is where this
+starts: `--schema`/`--output`, deterministic by design - "the same schema always gives the same
+bytes" - with its documentation generation and its fixture tests. What it assumes is the shape
+this plan discarded: one flat vocabulary, every property a `string`, `anyOf` branches unioned.
+Retargeting it at the structured shape is the work; its machinery and its tests survive.
 
 The schema describes the structured shape - nested objects, booleans as booleans, numbers as
 numbers - because that is what the generated C# type has to serialize to, and a schema that said
@@ -471,6 +486,17 @@ makes the JSON strict: the type in the schema is the type the reader enforces.
 - A duration is a number of seconds, `format: double`. A `Duration` derives `{ secs, nanos }`,
   which is a memory layout rather than anything a document writes, and seconds map onto
   `TimeSpan.FromSeconds` with no suffix to parse.
+- **A count is an `int`, not a `uint`, and a check is what states the constraint.** `uint`
+  excludes a negative but not zero, and zero is the value that actually breaks a window or a
+  credit; it buys half the check while costing CLS compliance and a binder that handles `int`
+  naturally. The constraint lives in the schema instead: `#[schemars(range(min = 1))]` emits
+  `"type": "integer", "format": "int32", "minimum": 1`, the generated class checks it, and the
+  transport refuses by option name regardless - one constraint, stated where a reader looks and
+  enforced where it matters.
+- **The schema is the generator every input.** Nothing is passed beside it: the type and its
+  format give the C# type, `minimum` gives the check, `description` gives the XML doc, `$defs`
+  and `$ref` give the nested classes, and a property absent from `required` is an optional one.
+  A generator that needed a second input would be a second place for the vocabulary to live.
 - Nothing is nullable. Unset is absent, never `null`, so the C# side writes with
   `JsonIgnoreCondition.WhenWritingNull` and the schema offers no null branch to generate against.
 - `additionalProperties: false` everywhere: an unknown option is refused rather than ignored, or
@@ -496,8 +522,18 @@ field. Turning that into XML doc comments is the generator's work:
   this crate's memory layout is noise. Whatever is about the implementation goes in an ordinary
   comment beside the code.
 
+**What is typed and what is not.** A type is used where it says something true and a string
+where the truth is stated elsewhere. Durations, counts, sizes and booleans are typed: their shape
+is nearly all of their constraint, and a `bool` cannot be misspelled at all - which is why the
+wide boolean vocabulary belongs to the text sources and not here. An endpoint, a certificate
+path, a proxy address, a rate limit spelled `100/1s`: strings, because their constraint is
+semantic and the transport is the only place that can state it. Typing does not have to be
+complete to be worth having - it moves a class of errors to the .NET binder, which names the
+configuration path, and leaves the rest to the transport, which names the option.
+
 **Deliverable**: the hand-written `ChannelOptions` is deleted and its replacement is generated,
-with its documentation. Round-trip test C# -> JSON -> Rust over every option.
+with its documentation. Round-trip test C# -> JSON -> Rust over every option, and a stale schema
+fails the build.
 
 ### T3.4: The .NET side loads, and only loads
 
@@ -778,6 +814,44 @@ another project's review cycle, and neither its schedule nor its outcome is ours
 waits on it: the tripwires are what makes waiting safe.
 
 **Deliverable**: a pull request per defect, or a stated reason for not carrying one.
+
+---
+
+## Phase 10 — Logs and observation across the ABI
+
+### T10.1: What a host can see of the engine
+
+**Prerequisite**: T3.5
+**Commit**: study, then whatever it concludes.
+
+The ABI lets a host observe two things - `ak_call_debt_of` and `ak_runtime_memory_usage` - and
+tells it nothing else. The engine has `tracing` spans and events inside it that reach nobody, so a
+deployment that misbehaves gives a .NET operator no more than a status code, and the questions an
+operator actually asks - which endpoint, which call, how long, why it retried - have no answer on
+that side of the boundary.
+
+It is recorded here rather than left implicit because the ABI is a contract: adding to it later
+is a header change, and the shape it takes should be chosen once rather than grown by accident.
+
+What to settle:
+
+- **How an event crosses.** A callback per event is the shape the rest of the ABI already uses,
+  and it has the same rule: it must not allocate on the host's behalf, and it must be total. The
+  alternative is a drained queue like the delivery ring, which costs a thread and buys batching.
+- **What an event carries.** A level, a target, a message, and structured fields - and fields are
+  where a C ABI gets expensive, because a `tracing` event's fields are typed and dynamic. A
+  rendered line is cheap and lossy; a field array is faithful and costs an allocation per event.
+- **Who filters, and where.** Filtering on the host side means every event crosses the boundary
+  including the ones nobody wants; filtering in the engine means the host has to be able to say
+  what it wants, which is another option and another call.
+- **What is measured rather than logged.** Calls in flight, bytes in the ledger, dials, retries:
+  counters a host can poll are cheaper than events it must consume, and the two observation
+  points that exist are already that shape.
+- **What a secret must never reach.** The engine holds endpoints, proxy credentials and
+  certificate paths. `safe_endpoint` exists because a URI can carry a password; a logging path
+  that bypassed it would undo that.
+
+**Deliverable**: a decision recorded in the design, and the ABI extension it calls for.
 
 ---
 
