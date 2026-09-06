@@ -159,6 +159,8 @@ public class AbiLayoutTests
                          Assert.That((int)NativeMethods.AkStatus.MessageTooLarge,
                                      Is.EqualTo(7));
 
+                         Assert.That((int)NativeMethods.AkRuntimeState.None,
+                                     Is.EqualTo(0));
                          Assert.That((int)NativeMethods.AkRuntimeState.Running,
                                      Is.EqualTo(1));
                          Assert.That((int)NativeMethods.AkRuntimeState.GrpcStopping,

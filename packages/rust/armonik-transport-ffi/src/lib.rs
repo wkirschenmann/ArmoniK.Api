@@ -113,7 +113,7 @@ pub extern "C" fn ak_runtime_status(runtime: ak_handle) -> ak_runtime_state {
         ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED,
         || match tables::runtimes().get(runtime) {
             Some(runtime) => runtime.state(),
-            None => ak_runtime_state::AK_RUNTIME_QUIESCENT,
+            None => ak_runtime_state::AK_RUNTIME_NONE,
         },
     )
 }

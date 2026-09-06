@@ -65,6 +65,7 @@ internal static class NativeMethods
 
   internal enum AkRuntimeState
   {
+    None              = 0,
     Running           = 1,
     GrpcStopping      = 2,
     GrpcStopped       = 3,

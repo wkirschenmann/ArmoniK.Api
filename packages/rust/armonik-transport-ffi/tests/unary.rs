@@ -641,6 +641,42 @@ fn a_token_naming_nothing_is_refused_rather_than_dereferenced() {
     ak_channel_release(u64::MAX);
 }
 
+/// The two entry points that answer with a state rather than a status say NONE for a handle they
+/// do not know, which is the same rule the ones above keep with HANDLE_STALE.
+///
+/// QUIESCENT would be the wrong answer and not merely an unhelpful one: it is the value that
+/// permits `ak_runtime_destroy` and unloading the library, so a host that passed a channel handle
+/// where the runtime's goes would read a licence to unload while a runtime is running.
+#[test]
+fn a_state_is_asked_of_a_handle_this_library_knows_or_it_is_none() {
+    let fixture = Host::connected();
+    let (runtime, channel) = (fixture.host.runtime, fixture.channel);
+
+    assert_eq!(
+        ak_runtime_status(AK_HANDLE_NONE),
+        ak_runtime_state::AK_RUNTIME_NONE
+    );
+    assert_eq!(
+        ak_runtime_status(channel),
+        ak_runtime_state::AK_RUNTIME_NONE,
+        "a channel handle names no runtime"
+    );
+    assert_eq!(
+        ak_channel_status(runtime),
+        ak_channel_state::AK_CHANNEL_NONE,
+        "and a runtime handle names no channel"
+    );
+
+    fixture.close();
+    drop(fixture);
+
+    assert_eq!(
+        ak_runtime_status(runtime),
+        ak_runtime_state::AK_RUNTIME_NONE,
+        "destroy reclaims the handle, so it names nothing after it"
+    );
+}
+
 #[test]
 fn no_call_starts_on_a_runtime_that_is_stopping() {
     let fixture = Host::connected();

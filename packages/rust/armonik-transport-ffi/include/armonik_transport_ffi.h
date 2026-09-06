@@ -98,6 +98,7 @@ typedef struct {
 /* === Runtime state === */
 
 typedef enum {
+    AK_RUNTIME_NONE              = 0, /* this library knows no such runtime */
     AK_RUNTIME_RUNNING           = 1, /* operational, accepts channels and calls */
     AK_RUNTIME_GRPC_STOPPING     = 2, /* start gate closed, channels closing */
     AK_RUNTIME_GRPC_STOPPED      = 3, /* the gRPC side is done; the host may still hold memory */
@@ -108,7 +109,12 @@ typedef enum {
 /* Only QUIESCENT permits ak_runtime_destroy or unloading the library. The host reaches it by
  * acting, not by waiting: while it still holds something the status stays STOPPED, and the
  * AK_EVENT_SHUTDOWN_COMPLETE callback says so through its host_debt field. Polling for QUIESCENT
- * before returning what it holds is therefore a deadlock. */
+ * before returning what it holds is therefore a deadlock.
+ *
+ * NONE is the value that keeps the first rule at the top of this file: a handle this library does
+ * not know - never created, or reclaimed by ak_runtime_destroy - is reported, not resolved. It is
+ * not QUIESCENT, which would tell a host that passed a channel handle by mistake that it may
+ * destroy the runtime and unload the library while one is running. */
 
 /* How far along a channel's closing is. A handle this library no longer knows reads as NONE,
  * which is also what an unopened one reads as: neither names a channel. */

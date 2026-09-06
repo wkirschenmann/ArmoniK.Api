@@ -185,6 +185,7 @@ fn every_enum_value_is_the_one_the_header_gives_it() {
             "AK_STATUS_MESSAGE_TOO_LARGE",
             ak_status::AK_STATUS_MESSAGE_TOO_LARGE as i32,
         ),
+        ("AK_RUNTIME_NONE", ak_runtime_state::AK_RUNTIME_NONE as i32),
         (
             "AK_RUNTIME_RUNNING",
             ak_runtime_state::AK_RUNTIME_RUNNING as i32,

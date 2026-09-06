@@ -24,6 +24,7 @@ pub enum ak_status {
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ak_runtime_state {
+    AK_RUNTIME_NONE = 0,
     AK_RUNTIME_RUNNING = 1,
     AK_RUNTIME_GRPC_STOPPING = 2,
     AK_RUNTIME_GRPC_STOPPED = 3,
@@ -52,6 +53,7 @@ pub enum ak_host_debt {
 impl ak_runtime_state {
     pub(crate) fn from_repr(value: i32) -> Option<Self> {
         [
+            Self::AK_RUNTIME_NONE,
             Self::AK_RUNTIME_RUNNING,
             Self::AK_RUNTIME_GRPC_STOPPING,
             Self::AK_RUNTIME_GRPC_STOPPED,
