@@ -39,12 +39,9 @@ pub(crate) fn safe_endpoint(endpoint: &http::Uri) -> String {
 
 pub(crate) fn read_env_bool(name: &str) -> Result<bool, ReadEnvError> {
     let value = read_env(name)?;
-    // Trimmed and folded, because this environment is shared with the .NET client, whose binder
-    // takes these case-insensitively and whose `bool.ToString()` writes `True`.
-    match value.trim().to_ascii_lowercase().as_str() {
-        "0" | "false" | "no" | "disable" | "disallow" | "forbid" | "" => Ok(false),
-        "1" | "true" | "yes" | "enable" | "allow" | "authorize" => Ok(true),
-        _ => NotBooleanSnafu {
+    match crate::config_utils::boolean(&value) {
+        Some(read) => Ok(read),
+        None => NotBooleanSnafu {
             name: name.to_owned(),
             value,
         }
@@ -150,13 +147,19 @@ mod tests {
         // specification, so it is written out here rather than sampled.
         for spelling in [
             "1",
-            "true",
+            "t",
+            "y",
+            "on",
             "yes",
+            "true",
             "enable",
             "allow",
             "authorize",
+            // The same value as another language writes it: C# and Python capitalise, a shouting
+            // shell script does not, and a value read out of a file keeps its whitespace.
             "True",
             "TRUE",
+            "On",
             " true ",
         ] {
             let read = with_var("ARMONIK_TEST_BOOL", Some(spelling), || {
@@ -165,7 +168,10 @@ mod tests {
             assert!(read.expect(spelling), "`{spelling}` should read as true");
         }
 
-        for spelling in ["0", "false", "no", "disable", "disallow", "forbid", ""] {
+        for spelling in [
+            "0", "f", "n", "off", "no", "false", "disable", "disallow", "forbid", "False", "OFF",
+            "",
+        ] {
             let read = with_var("ARMONIK_TEST_BOOL", Some(spelling), || {
                 read_env_bool("ARMONIK_TEST_BOOL")
             });

@@ -663,6 +663,40 @@ Tonic directly. Same functional behavior.
 
 ---
 
+## Phase 9 — What belongs upstream
+
+### T9.1: The tunnel fixes hyper-util has not had
+
+**Prerequisite**: T5.1
+**Commit**: carry upstream what this repository has measured and pinned.
+
+`hyper_util::client::legacy::connect::proxy::Tunnel` is what opens a CONNECT tunnel, and the
+proxy work does not write its own. As shipped in 0.1.20 it gets four cases wrong, each of them
+measured here and pinned by a `known_issue_*` test that is meant to fail the day a release fixes
+it - so a dependency bump turning CI red is the notice, not a regression:
+
+- **Only an exact `200` opens the tunnel**, where RFC 9110 says any `2xx` should. A proxy
+  answering `201` or `204` reads as a refusal.
+- **A status line split across two reads is rejected**, though the connection is fine. Legal
+  HTTP, and likelier with a slow proxy or a small MSS.
+- **An `HTTP/1.0 407` is not recognised as a request for credentials.** Only `HTTP/1.1 407` is,
+  so the message naming which two options to set is not shown for the older version.
+- **A target with no port is dialled on `443` whatever its scheme**, rather than the scheme
+  deciding between `80` and `443`. ArmoniK deployments always name a port, so this one is
+  unlikely to matter in practice.
+
+The first two are already tracked by [hyperium/hyper-util#300](https://github.com/hyperium/hyper-util/pull/300)
+and by ArmoniK.Api issue #702. The tests and the reproductions exist; what is missing is the
+patch and the pull request.
+
+It is a phase of its own and not a clause of T5.1 because it is work in another repository, on
+another project's review cycle, and neither its schedule nor its outcome is ours. Nothing here
+waits on it: the tripwires are what makes waiting safe.
+
+**Deliverable**: a pull request per defect, or a stated reason for not carrying one.
+
+---
+
 ## Dependency graph
 
 ```text

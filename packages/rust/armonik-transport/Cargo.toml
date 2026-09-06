@@ -11,7 +11,18 @@ version.workspace = true
 include = ["**/*.rs", "Cargo.toml", "README.md"]
 
 [features]
-serde = ["dep:serde"]
+# `secrecy/serde` so a secret option deserialises with the rest of them. There is no Serialize
+# half to turn on: the type refuses to be written out.
+serde = [
+  "dep:serde",
+  "secrecy/serde",
+  "dep:serde_with",
+  "dep:serde_path_to_error",
+]
+# A JSON schema of the option vocabulary, for generating an options class in another language.
+# `serde_json` because the prefix helper rewrites the generated schema's property names, and a
+# schemars 1.x schema is edited as the JSON value it wraps.
+schema = ["serde", "dep:schemars", "dep:serde_json"]
 
 [dependencies]
 # `channel` for `tonic::transport::Endpoint`, which is what `connect` builds; `codegen` for the
@@ -50,7 +61,16 @@ hyper-rustls = { workspace = true, features = [
 ] }
 rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
 serde = { workspace = true, optional = true }
+# Groups the options of one concern into a unit without changing the names they are read under:
+# it composes with `#[serde(flatten)]`, which is what lets a unit keep its own prefix.
+serde_with = { workspace = true, optional = true, features = ["std"] }
+# Wrapped around the deserializer a flattened unit reads through, so a refused value is named by
+# its option rather than by the `.` that `#[serde(flatten)]` reports.
+serde_path_to_error = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+secrecy.workspace = true
 humantime.workspace = true
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The boolean options are read straight from the environment, so testing which spellings they accept

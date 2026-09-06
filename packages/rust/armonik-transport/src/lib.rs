@@ -1,4 +1,10 @@
 mod config;
+// The readers wait for the option units of T3.2; the vocabulary they interpret does not, because
+// `read_env_bool` already interprets it and there is no reason for two lists of the same
+// spellings. Harvested as a module of its own because it names no option and carries no default,
+// and that is the property a reviewer has to be able to check.
+#[allow(dead_code, unused_macros, unused_imports)]
+mod config_utils;
 mod connect;
 pub mod grpc;
 pub mod http2;
