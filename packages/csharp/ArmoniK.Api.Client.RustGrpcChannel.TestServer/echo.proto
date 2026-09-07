@@ -20,4 +20,8 @@ service Echo {
   rpc Chat (stream EchoRequest) returns (stream EchoReply);
   rpc Refuse (EchoRequest) returns (EchoReply);
   rpc Never (EchoRequest) returns (EchoReply);
+  // Response headers and then no message at all, so a client awaiting them proves they arrive
+  // without a read rather than alongside one.
+  rpc HeadOnly (EchoRequest) returns (stream EchoReply);
+  rpc HeadThenChat (stream EchoRequest) returns (stream EchoReply);
 }

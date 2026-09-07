@@ -15,6 +15,7 @@
 // limitations under the License.
 
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,6 +57,32 @@ public class ServerStreamingTests : RuntimeLeaseFixture
     }
 
     return seen;
+  }
+
+  /// <summary>The headers resolve with no read, which is what the model's prologue promises.</summary>
+  /// <remarks>ArmoniK's own <c>WaitForResultsAsync</c> awaits <c>ResponseHeadersAsync</c> before its
+  /// first <c>MoveNext</c>, and <c>HeadOnly</c> sends no message at all, so a prologue consumed
+  /// inside a read cannot answer this at any speed.</remarks>
+  [Test]
+  public async Task TheResponseHeadArrivesWithoutAnyRead()
+  {
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var call = Client(channel)
+      .HeadOnly(new EchoRequest
+                {
+                  Text = "head",
+                });
+
+    var head = call.ResponseHeadersAsync;
+    var settled = await Task.WhenAny(head,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false);
+
+    Assert.That(settled,
+                Is.SameAs(head),
+                "the headers resolved with no read to carry them");
+    Assert.That((await head.ConfigureAwait(false)).GetValue("x-answered"),
+                Is.EqualTo("yes"));
   }
 
   [Test]

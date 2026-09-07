@@ -119,6 +119,50 @@ public class EchoService : Echo.EchoBase
     return new EchoReply();
   }
 
+  /// <summary>Response headers, then nothing, until the client gives up.</summary>
+  /// <remarks>A stream that sends no message is what tells a read apart from no read: a client
+  /// awaiting the headers here has nothing it could have read to get them.</remarks>
+  public override async Task HeadOnly(EchoRequest                    request,
+                                      IServerStreamWriter<EchoReply> responses,
+                                      ServerCallContext              context)
+  {
+    await context.WriteResponseHeadersAsync(new Metadata
+                                            {
+                                              {
+                                                "x-answered", "yes"
+                                              },
+                                            })
+                 .ConfigureAwait(false);
+
+    await Task.Delay(Timeout.Infinite,
+                     context.CancellationToken)
+              .ConfigureAwait(false);
+  }
+
+  /// <summary>The same for the duplex cardinality, which has its own reader machine.</summary>
+  public override async Task HeadThenChat(IAsyncStreamReader<EchoRequest> requests,
+                                          IServerStreamWriter<EchoReply>  responses,
+                                          ServerCallContext               context)
+  {
+    await context.WriteResponseHeadersAsync(new Metadata
+                                            {
+                                              {
+                                                "x-answered", "yes"
+                                              },
+                                            })
+                 .ConfigureAwait(false);
+
+    while (await requests.MoveNext(context.CancellationToken)
+                         .ConfigureAwait(false))
+    {
+      await responses.WriteAsync(new EchoReply
+                                 {
+                                   Text = requests.Current.Text,
+                                 })
+                     .ConfigureAwait(false);
+    }
+  }
+
   private static string Saw(Metadata headers)
   {
     var binary = headers.GetValueBytes("x-trace-bin");

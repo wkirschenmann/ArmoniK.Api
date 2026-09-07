@@ -177,6 +177,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
     call.ending_.Token.Register(call.EndNative);
 
+    // Not on the first read: what it resolves is what a caller may await instead of reading.
+    call.prologue_ = call.PrologueAsync();
     call.settling_ = call.SettlingAsync();
 
     return call;
@@ -359,11 +361,16 @@ internal sealed class NativeCall<TResponse> : ICallSink
   // rather than by a peek: a read moves the reader from `waiting` to `parsing`, and that move
   // is what confers ownership, so the drain's handoff - which takes the ring only from a
   // reader that holds no slot - and a read in flight can never both believe they hold the
-  // tail. `Phase` is the model's `reader_state` extended with the drain, so the arbiter is one
-  // word and there is nothing to keep consistent between two.
+  // tail. `Phase` carries the model's `reader_state`, its `consumer_phase` and the drain in one
+  // word, so the arbiter is one word and there is nothing to keep consistent between two.
+  //
+  // `Prologue` is the model's `consumer_phase = "prologue"`, and holding the ring is what makes
+  // it exclusive. The model lets a read be `waiting` while the phase is still the prologue; this
+  // does not, which is fewer behaviours and the same invariants.
 
   private enum Phase
   {
+    Prologue,
     Idle,
     Waiting,
     Parsing,
@@ -389,7 +396,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
     internal ReadOp? Op { get; }
   }
 
-  private Reading reading_ = new(Phase.Idle,
+  private Reading reading_ = new(Phase.Prologue,
                                  null);
 
   /// <summary>A drain is owed, and takes the ring as soon as no read holds a slot.</summary>
@@ -399,6 +406,9 @@ internal sealed class NativeCall<TResponse> : ICallSink
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   private Task? settling_;
+
+  /// <summary>The prologue, kept so its completion is owned rather than dropped.</summary>
+  private Task? prologue_;
 
   /// <summary>What a read finds when it reaches for the tail.</summary>
   /// <remarks>An empty ring is not a lost race, and a bool cannot say so: nothing published yet
@@ -461,6 +471,19 @@ internal sealed class NativeCall<TResponse> : ICallSink
       var seen = Volatile.Read(ref reading_);
       switch (seen.Phase)
       {
+        case Phase.Prologue:
+          // Waiting for the phase rather than publishing a read behind it is what keeps the
+          // arbiter one word, and the token is read here because nothing is published to carry it.
+          if (token.IsCancellationRequested)
+          {
+            CancelAndDrain();
+            throw Cancelled();
+          }
+
+          await arrived_.WaitAsync()
+                        .ConfigureAwait(false);
+          continue;
+
         case Phase.Finished:
           // A stream that ended answers the same thing however often it is asked. Publishing a
           // read here would wait on an event that can no longer come, and would overwrite the
@@ -737,6 +760,13 @@ internal sealed class NativeCall<TResponse> : ICallSink
                                   seen);
       FailHead(Cancelled());
     }
+    else if (seen.Phase == Phase.Prologue)
+    {
+      // The headers have no read to be faulted with, so they are faulted here - the model's
+      // `BeginDisposeCall`, which leaves no managed waiter behind. The phase is not moved: the
+      // prologue is the one owner of that transition, and it takes it on the signal below.
+      FailHead(Cancelled());
+    }
 
     HandoffToDrain();
 
@@ -754,10 +784,11 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
 
     var seen = Volatile.Read(ref reading_);
-    if (seen.Phase is Phase.Parsing or Phase.Draining or Phase.Finished)
+    if (seen.Phase is Phase.Prologue or Phase.Parsing or Phase.Draining or Phase.Finished)
     {
-      // A parse in flight owns its slot; a drain already holds the ring; a finished reader has
-      // consumed the terminal and there is nothing left to collect.
+      // The prologue and a parse in flight each own their slot; a drain already holds the ring;
+      // a finished reader has consumed the terminal and there is nothing left to collect. The
+      // prologue calls this again when it lets go, so a drain owed meanwhile is not lost.
       return;
     }
 
@@ -966,6 +997,62 @@ internal sealed class NativeCall<TResponse> : ICallSink
     return response;
   }
 
+  /// <summary>Consumes the initial metadata and resolves the headers, on no read's behalf.</summary>
+  /// <remarks>The model's <c>ConsumeHeader</c>: what owns slot 0 is the phase and not a read, so
+  /// <see cref="ResponseHeadersAsync" /> answers whether or not the caller is pumping the reader.
+  /// A task rather than part of <c>Publish</c>, because the header forbids parsing on the
+  /// callback's thread.</remarks>
+  private async Task PrologueAsync()
+  {
+    try
+    {
+      while (Volatile.Read(ref head_) == tail_)
+      {
+        if (ending_.IsCancellationRequested)
+        {
+          // Cancelled or settled with nothing published. Whatever arrives now is the drain's.
+          return;
+        }
+
+        await arrived_.WaitAsync()
+                      .ConfigureAwait(false);
+      }
+
+      var slot = ring_[(int)(tail_ & mask_)];
+      if (slot.Kind != NativeMethods.AkEventKind.InitialMetadata)
+      {
+        // A Trailers-Only response has no metadata of its own, and `Resolve` answers the headers
+        // with an empty set. Left where it is: this consumes the prologue, not whatever is first.
+        return;
+      }
+
+      try
+      {
+        headers_.TrySetResult(RawMetadata.Decode(Bytes(slot.Payload)));
+      }
+      catch (Exception thrown)
+      {
+        // The caller hears it from the headers, and the reader still gets the rest of the response.
+        FailHead(new RpcException(new Status(StatusCode.Internal,
+                                             "the response metadata could not be read",
+                                             thrown)));
+      }
+
+      NativeMethods.ak_event_consumed(slot.Payload);
+      tail_++;
+    }
+    finally
+    {
+      // Publishing the reader is what releases the tail - the volatile write orders the `tail_`
+      // above ahead of any reader that observes the new phase.
+      Volatile.Write(ref reading_,
+                     new Reading(Phase.Idle,
+                                 null));
+      HandoffToDrain();
+      arrived_.Set();
+    }
+  }
+
   private async Task SettlingAsync()
   {
     await settled_.Task.ConfigureAwait(false);
@@ -978,6 +1065,13 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
     ending_.Cancel();
     cancellation_.Dispose();
+
+    // This terminates: a terminal cannot be consumed until the prologue has let go, and the
+    // cancel above is what ends one still waiting on a call that published nothing.
+    if (prologue_ is not null)
+    {
+      await prologue_.ConfigureAwait(false);
+    }
   }
 
   /// <summary>Ends this call when the caller's token is cancelled.</summary>

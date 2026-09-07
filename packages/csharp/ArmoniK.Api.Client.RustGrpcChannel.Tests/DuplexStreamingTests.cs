@@ -15,6 +15,7 @@
 // limitations under the License.
 
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,6 +53,26 @@ public class DuplexStreamingTests : RuntimeLeaseFixture
 
   private Echo.EchoClient Client(NativeChannel channel)
     => new(channel.CreateCallInvoker());
+
+  /// <summary>The headers resolve with no read, on the cardinality that reads and writes at once.</summary>
+  [Test]
+  public async Task TheResponseHeadArrivesWithoutAnyRead()
+  {
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var call = Client(channel)
+      .HeadThenChat();
+
+    var head = call.ResponseHeadersAsync;
+    var settled = await Task.WhenAny(head,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false);
+
+    Assert.That(settled,
+                Is.SameAs(head),
+                "the headers resolved with no read to carry them, and with nothing sent yet");
+    Assert.That((await head.ConfigureAwait(false)).GetValue("x-answered"),
+                Is.EqualTo("yes"));
+  }
 
   /// <summary>Each answer read before the next message is sent.</summary>
   /// <remarks>Interleaved and not batched, because that is what the cardinality is for and what

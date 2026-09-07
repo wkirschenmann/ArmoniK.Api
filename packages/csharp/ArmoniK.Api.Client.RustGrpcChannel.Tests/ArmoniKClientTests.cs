@@ -14,9 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 using ArmoniK.Api.gRPC.V1;
+using ArmoniK.Api.gRPC.V1.Events;
 using ArmoniK.Api.gRPC.V1.Results;
 
 using NUnit.Framework;
@@ -43,6 +46,35 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [OneTimeTearDown]
   public void StopServer()
     => server_?.Dispose();
+
+  /// <summary>The pattern ArmoniK's own <c>WaitForResultsAsync</c> uses, over this invoker.</summary>
+  /// <remarks><c>EventsClientExt.WaitForResultsAsync</c> awaits <c>ResponseHeadersAsync</c> on the
+  /// event stream and only then reads it. Driven here against the real service rather than the echo
+  /// server, because it is that extension's shape and not a contrivance that has to work.</remarks>
+  [Test]
+  public async Task TheEventStreamAnswersItsHeadBeforeItIsRead()
+  {
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+
+    using var events = new gRPC.V1.Events.Events.EventsClient(channel).GetEvents(new EventSubscriptionRequest
+                                                                                 {
+                                                                                   SessionId = "session-id",
+                                                                                 });
+
+    var head = events.ResponseHeadersAsync;
+    var settled = await Task.WhenAny(head,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false);
+
+    Assert.That(settled,
+                Is.SameAs(head),
+                "WaitForResultsAsync awaits this before its first MoveNext");
+
+    Assert.That(await events.ResponseStream.MoveNext(CancellationToken.None)
+                            .ConfigureAwait(false),
+                Is.True,
+                "and the stream still reads afterwards");
+  }
 
   [Test]
   public void AGeneratedArmoniKStubAnswersOverThisInvoker()

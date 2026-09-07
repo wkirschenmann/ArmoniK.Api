@@ -20,6 +20,22 @@ Statuses used here:
 | **refused** | re-derived and it does not hold; the measurement that says so is given |
 | **deferred** | holds, and belongs to a task that is not this one; the task is named |
 
+## The blockers, at a glance
+
+| | count | |
+|---|---|---|
+| applied | 11 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, and the prologue that answers the headers |
+| answered by a decision | 5 | the platform set, the ABI's error channel, its size check, and two the absence of a publication channel dissolves |
+| re-derived and downgraded | 1 | the HTTP/2 window: the evidence holds, the number does not |
+| open | 15 | |
+
+**What the re-derivation is finding, over sixteen blockers so far: the audit's evidence lines hold
+and its conclusions need redoing.** Three of its claims were wrong on the number or the consequence
+while right about the mechanism, and one - the headers deadlock - was under-described rather than
+over: it missed that the formal model already prescribed the fix and that an invariant was vacuous
+against the code. So each finding is reproduced before it is believed, and what the reproduction
+says is written down beside it.
+
 ---
 
 ## Answered by the five decisions
@@ -115,8 +131,12 @@ this engine is ahead of it immediately and behind it on a long fat pipe. Which o
 wanted is a policy this repository has not chosen, and enabling `adaptive_window` is not free: it
 drops the starting window from 2 MiB to 64 KiB in exchange for growing past it.
 
-**Status: the choice goes to the user**, with T6.7's benchmarks as what should settle it. Severity
-as re-derived here is major, not blocker.
+**Decided: the window becomes configuration, and later.** Not a number this repository picks - the
+right one depends on the deployment's latency and on how many calls are in flight at once, and both
+are the operator's to know rather than ours. The options belong to the `http2` unit T4.1 already
+brings with it, in the shape T3.2 settled, so the schema declares them and both sides derive from
+it; T6.7's benchmarks are what say which default to ship. Severity as re-derived here is major, not
+blocker.
 
 ---
 
@@ -168,14 +188,27 @@ So both shapes owe an answer for a cancel with no read to fault, and the model a
 `BeginDisposeCall` "faults a headers task still pending: no managed waiter survives a dispose", and
 the binding has `FailHead` for it already.
 
-**Status: to build, in the model's shape.** There is no decision to take - the model outranks an
-implementation that improvised around it, and the improvisation is what makes ArmoniK's own client
-hang. What it needs: `consumer_phase` as its own state, `ConsumeHeader` as a step the metadata's
-arrival enables, and the cancel-with-no-read path faulting `headers_` rather than a read.
+**Applied, in the model's shape.** There was no decision to take: the model outranks an
+implementation that improvised around it, and the improvisation is what made ArmoniK's own client
+hang. `Phase` gains `Prologue` as its initial value, so the arbiter stays one word - holding the
+ring is what makes the prologue exclusive, `MoveNext` finding it waits for the phase rather than
+publishing behind it, `HandoffToDrain` refuses it as it refuses a parse in flight, and
+`CancelAndDrain` faults the headers without moving the transition. A task rather than part of
+`Publish`, because the header forbids parsing on the callback's thread.
+
+    before: Failed TheResponseHeadArrivesWithoutAnyRead        [10 s]  (server streaming)
+            Failed TheResponseHeadArrivesWithoutAnyRead        [10 s]  (duplex)
+            Failed TheEventStreamAnswersItsHeadBeforeItIsRead  [10 s]  (ArmoniK's own stub)
+    after:  all three passed; the suite is 81 where it was 78
+
+Each fails at its full timeout rather than on a value, which is what a deadlock looks like. The
+echo server gains `HeadOnly` and `HeadThenChat` - response headers and no message at all - because
+a stream with nothing to read is what tells a read apart from no read. This is the change the audit
+predicted the echo server would need.
 
 Sequencing note: A3-056 (effort L) wants this 1036-line class split into a ring, a read machine, a
-sender and a thin call. The prologue lands inside it either way, and a split moves code rather than
-changing it, so correctness goes first.
+sender and a thin call. The prologue landed inside it, because a split moves code rather than
+changing it while a deadlock is not deferrable.
 
 ---
 
