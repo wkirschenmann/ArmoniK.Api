@@ -24,19 +24,20 @@ Statuses used here:
 
 | | count | |
 |---|---|---|
-| applied | 16 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, an internal type that stopped escaping, a send ceiling that is waited on, and a panic that no longer strands what its task promised |
+| applied | 18 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, an internal type that stopped escaping, a send ceiling that is waited on, and a panic that no longer strands what its task promised |
 | answered by a decision | 5 | the platform set, the ABI's error channel, its size check, and two the absence of a publication channel dissolves |
 | re-derived, refused or downgraded | 2 | the HTTP/2 window, whose evidence holds and whose number does not; and the shutdown's debt decision, whose race cannot happen |
-| open | 10 | |
+| open | 8 | |
 
-Of the ten open, one is the engine's last failure path - a five-second timeout reported as
-quiescence - and the rest belong to tasks already named or need a decision recorded above.
+Of the eight open, none is a hang or a crash any more. What is left is one release path, one
+pre-existing defect in a component this branch does not touch, two refactors, one test gap, and
+two that wait on decisions recorded above.
 
-**What the re-derivation is finding, over sixteen blockers so far: the audit's evidence lines hold
+**What the re-derivation is finding, over twenty-five blockers so far: the audit's evidence lines hold
 and its conclusions need redoing.** Three of its claims were wrong on the number or the consequence
-while right about the mechanism, and one - the headers deadlock - was under-described rather than
-over: it missed that the formal model already prescribed the fix and that an invariant was vacuous
-against the code. So each finding is reproduced before it is believed, and what the reproduction
+while right about the mechanism, one described a race the code already closes, and one - the
+headers deadlock - was under-described rather than over: it missed that the formal model already
+prescribed the fix and that an invariant was vacuous against the code. So each finding is reproduced before it is believed, and what the reproduction
 says is written down beside it.
 
 ---
@@ -321,6 +322,30 @@ Two things this does not recover, named rather than implied: a panic between a m
 wire and its acquittal leaks that send's window permit and its charge against the ledger, so a
 runtime that meets it may not empty its ledger again; and a panic inside a call cannot know what
 that call owed. Removing the hangs is what this lot does.
+
+---
+
+## Applied: the vocabulary gate watches the third reader
+
+| Finding | What it said | Proof |
+|---|---|---|
+| N-021 | the `GrpcClient__*` environment namespace has two disagreeing readers - `ClientConfigArgs::from_env` and the .NET `Options.GrpcClient` - and the branch's new `OptionVocabularyTests` compares the .NET one against the schema while never looking at the Rust one | measured: the Rust reader knows 18 names, `Options.GrpcClient` declares 20, and the intersection is 6 - `AllowUnsafeConnection`, `CaCert`, `CertPem`, `Endpoint`, `KeyPem`, `OverrideTargetName`. Exactly the audit's count. The gate reads the reader's own calls now, and the divergence is pinned: removing one entry fails with `But was: < "TcpKeepalive" >` |
+
+**The divergence is pinned rather than reconciled, and deliberately.** Some of the twelve
+Rust-only names are the same concept under another spelling - `TcpKeepalive` against
+`KeepAliveTime`, `Timeout` against `RequestTimeout` - and which spelling wins is the #736
+vocabulary question, not this branch's. What the gate now catches is a name moving on one side
+alone, which matters because an unknown option is ignored rather than refused: drift there fails
+late and silently everywhere else.
+
+The names are read from the reader's `read_env` calls rather than mirrored in the test, because a
+list kept in the test is the drift it exists to catch. The audit suggested a `pub const NAMES` in
+Rust for the same purpose; reading the calls needs no second source of truth to keep in step.
+
+One thing worth recording because it was nearly missed: a memory of this repository said these
+divergences were "recorded in the crate README". They are - in the #7xx stack, which has not
+landed. On this branch nothing recorded them, which is why the gate is the right place for them
+rather than prose.
 
 ---
 
