@@ -100,8 +100,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
 
   internal NativeCall<TResponse> StartCall<TResponse>(string method,
                                                       Metadata? metadata,
-                                                      Marshaller<TResponse> marshaller,
-                                                      bool streams = false)
+                                                      Marshaller<TResponse> marshaller)
     where TResponse : class
   {
     if (Volatile.Read(ref disposing_) != 0)
@@ -115,8 +114,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
                                            deliveryCredits_,
                                            method,
                                            metadata,
-                                           marshaller,
-                                           streams);
+                                           marshaller);
     // The settlement and not the response: a server stream has no single response, and what the
     // drain has to wait for is the terminal consumed with nothing owed either way.
     Track(call,

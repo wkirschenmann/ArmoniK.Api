@@ -360,6 +360,57 @@ public class UnaryTests : RuntimeLeaseFixture
   private static readonly Marshaller<EchoReply> ReplyMarshaller = Marshallers.Create<EchoReply>(message => message.ToByteArray(),
                                                                                                 EchoReply.Parser.ParseFrom);
 
+  /// <summary>One reduction per call, because two would read the same ring.</summary>
+  /// <remarks>
+  ///   A cardinality that answers once takes the stream reader and reduces it to a single, and
+  ///   the invoker calls for that where it knows which shape it asked the server for. Nothing
+  ///   stops a second caller in the same assembly from asking for another, and the two would
+  ///   then divide one message and one terminal between them.
+  /// </remarks>
+  [Test]
+  public async Task ACallIsReadAsASingleResponseOnlyOnce()
+  {
+    using var channel = Channel();
+
+    var call = channel.StartCall("/armonik.transport.ffi.test.Echo/Say",
+                                 null,
+                                 ReplyMarshaller);
+
+    var reduced = call.SingleAsync();
+
+    // The task is discarded so this is an `Action`: NUnit awaits a delegate that returns one,
+    // which would pass whether the refusal reached the call site or only the task. What is under
+    // test is that it reaches the call site.
+    Assert.That(() =>
+                {
+                  _ = call.SingleAsync();
+                },
+                Throws.TypeOf<InvalidOperationException>()
+                      .With.Message.Contains("already being read"));
+
+    call.Cancel();
+
+    // Bounded, because a drain that stalls would hang the run rather than fail it - and the
+    // fixture's teardown asserts the runtime quiesced, so this has to end either way. The
+    // reduction's own failure is dropped: what is under test is the refusal above, not how a
+    // cancelled call ends.
+    var drained = await Task.WhenAny(reduced,
+                                     Task.Delay(TimeSpan.FromSeconds(5)))
+                            .ConfigureAwait(false);
+
+    Assert.That(drained,
+                Is.SameAs(reduced),
+                "the cancelled call's reduction ended");
+
+    try
+    {
+      await reduced.ConfigureAwait(false);
+    }
+    catch (RpcException)
+    {
+    }
+  }
+
   /// <summary>Each of these is an error path that must still give the engine back everything it
   /// lent, or the runtime never quiesces - which the fixture's own teardown assertion catches.
   /// </summary>

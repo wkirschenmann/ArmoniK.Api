@@ -81,7 +81,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
   private GCHandle self_;
   private ulong handle_;
   private Metadata trailers_ = Metadata.Empty;
-  private Task<TResponse>? drained_;
+  private int reduced_;
 
   private readonly CancellationTokenSource ending_ = new();
 
@@ -118,27 +118,18 @@ internal sealed class NativeCall<TResponse> : ICallSink
   internal Task<Metadata> ResponseHeadersAsync
     => headers_.Task;
 
-  internal Task<TResponse> Drained
-    => drained_ ?? throw new InvalidOperationException("the call was not started");
-
   internal Task<Status> TerminalAsync
     => terminal_.Task;
 
   internal Metadata Trailers
     => trailers_;
 
-  /// <param name="streams">
-  ///   Whether the application reads the response itself. A single-response cardinality is read
-  ///   by the call, so its reader runs from here; a server stream is read by whoever holds it,
-  ///   and starting a reader here would race the application for the ring.
-  /// </param>
   internal static NativeCall<TResponse> Start(NativeRuntime runtime,
                                               ulong channel,
                                               int deliveryCredits,
                                               string method,
                                               Metadata? metadata,
-                                              Marshaller<TResponse> marshaller,
-                                              bool streams = false)
+                                              Marshaller<TResponse> marshaller)
   {
     var call = new NativeCall<TResponse>(runtime,
                                          deliveryCredits,
@@ -185,10 +176,6 @@ internal sealed class NativeCall<TResponse> : ICallSink
     call.ending_.Token.Register(call.EndNative);
 
     call.settling_ = call.SettlingAsync();
-    if (!streams)
-    {
-      call.drained_ = call.SingleAsync();
-    }
 
     return call;
   }
@@ -880,12 +867,43 @@ internal sealed class NativeCall<TResponse> : ICallSink
     => new(new Status(StatusCode.Cancelled,
                       "the call was cancelled"));
 
-  /// <summary>The one message a single-response cardinality answers with.</summary>
-  /// <remarks>There is no second read path: unary, client streaming and any other cardinality
-  /// that answers once take the same reader as a server stream and reduce it to a single - one
-  /// message, then a terminal, and anything else is a server that did not honour the
-  /// cardinality. What differs between them is what they send, not how they read.</remarks>
-  private async Task<TResponse> SingleAsync()
+  /// <summary>Reads this call as the one message a cardinality answers once with.</summary>
+  /// <returns>The response, or a faulted task carrying an <see cref="RpcException" />.</returns>
+  /// <exception cref="InvalidOperationException">
+  ///   The call is already being read as a single response. Thrown rather than returned in a
+  ///   faulted task, because a second reduction is a fault of this assembly and not an outcome
+  ///   of the RPC - a caller has nothing to handle, and one has something to fix.
+  /// </exception>
+  /// <remarks>
+  ///   There is no second read path: unary, client streaming and any other cardinality that
+  ///   answers once take the same reader as a server stream and reduce it to a single - one
+  ///   message, then a terminal, and anything else is a server that did not honour the
+  ///   cardinality. What differs between them is what they send, not how they read.
+  ///   <para>
+  ///     Whoever wants one message asks for it, because the reader is one and only the caller
+  ///     knows which shape it asked the server for. Two readers on one ring would race, so
+  ///     exactly one call to this is what a cardinality answering once owes; a stream owes none,
+  ///     and its holder reads the ring itself.
+  ///   </para>
+  /// </remarks>
+  internal Task<TResponse> SingleAsync()
+  {
+    // Refused rather than raced: a second reduction reads the same ring as the first, and what
+    // the two would divide between them is one message and one terminal.
+    //
+    // Checked here and not in `Reduced` below, because an `async` method hands even a throw to
+    // the task it returns - and a caller that discards the task would then observe nothing at
+    // the line that was wrong.
+    if (Interlocked.Exchange(ref reduced_,
+                             1) != 0)
+    {
+      throw new InvalidOperationException("the call is already being read as a single response");
+    }
+
+    return Reduced();
+  }
+
+  private async Task<TResponse> Reduced()
   {
     TResponse response;
     try

@@ -55,7 +55,10 @@ internal sealed class NativeCallInvoker : CallInvoker
                                  method.ResponseMarshaller);
     call.CancelWith(options.CancellationToken);
 
+    // Started before the request is sent, so the reader is draining while the send is in flight
+    // and a terminal that arrives first has somebody to collect it.
     var answered = AnswerAsync(call,
+                               call.SingleAsync(),
                                method.RequestMarshaller,
                                request);
 
@@ -68,12 +71,12 @@ internal sealed class NativeCallInvoker : CallInvoker
   }
 
   private static async Task<TResponse> AnswerAsync<TRequest, TResponse>(NativeCall<TResponse> call,
+                                                                        Task<TResponse> drained,
                                                                         Marshaller<TRequest> marshaller,
                                                                         TRequest request)
     where TRequest : class
     where TResponse : class
   {
-    var drained = call.Drained;
     try
     {
       await call.SendUnaryAsync(marshaller,
@@ -146,8 +149,7 @@ internal sealed class NativeCallInvoker : CallInvoker
 
     var call = channel_.StartCall(method.FullName,
                                  options.Headers,
-                                 method.ResponseMarshaller,
-                                 streams: true);
+                                 method.ResponseMarshaller);
     call.CancelWith(options.CancellationToken);
 
     // The one request goes without being awaited here: this cardinality hands the reader back to
@@ -179,11 +181,11 @@ internal sealed class NativeCallInvoker : CallInvoker
                                  method.ResponseMarshaller);
     call.CancelWith(options.CancellationToken);
 
-    // `Drained` is the same reader the unary path awaits, and it holds a client stream to one
-    // reply for the same reason: this cardinality answers exactly once.
+    // The same reduction the unary path takes, for the same reason: this cardinality answers
+    // exactly once, whatever it sent to be answered.
     return new AsyncClientStreamingCall<TRequest, TResponse>(new NativeRequestStream<TRequest, TResponse>(call,
                                                                                                           method.RequestMarshaller),
-                                                             call.Drained,
+                                                             call.SingleAsync(),
                                                              static state => ((NativeCall<TResponse>)state).ResponseHeadersAsync,
                                                              static state => EndedStatus((NativeCall<TResponse>)state),
                                                              static state => EndedTrailers((NativeCall<TResponse>)state),
@@ -200,8 +202,7 @@ internal sealed class NativeCallInvoker : CallInvoker
 
     var call = channel_.StartCall(method.FullName,
                                  options.Headers,
-                                 method.ResponseMarshaller,
-                                 streams: true);
+                                 method.ResponseMarshaller);
     call.CancelWith(options.CancellationToken);
 
     // Both halves of the same call, and nothing between them: a write waits for its own
