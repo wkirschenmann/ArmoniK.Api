@@ -24,10 +24,13 @@ Statuses used here:
 
 | | count | |
 |---|---|---|
-| applied | 11 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, and the prologue that answers the headers |
+| applied | 14 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, and an internal type that stopped escaping |
 | answered by a decision | 5 | the platform set, the ABI's error channel, its size check, and two the absence of a publication channel dissolves |
 | re-derived and downgraded | 1 | the HTTP/2 window: the evidence holds, the number does not |
-| open | 15 | |
+| open | 12 | |
+
+Of the twelve open, one needs a decision before it can be built - the send memory ceiling, below -
+three are the engine's failure paths, and the rest belong to tasks already named.
 
 **What the re-derivation is finding, over sixteen blockers so far: the audit's evidence lines hold
 and its conclusions need redoing.** Three of its claims were wrong on the number or the consequence
