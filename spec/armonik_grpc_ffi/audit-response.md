@@ -117,3 +117,62 @@ drops the starting window from 2 MiB to 64 KiB in exchange for growing past it.
 
 **Status: the choice goes to the user**, with T6.7's benchmarks as what should settle it. Severity
 as re-derived here is major, not blocker.
+
+---
+
+## E-001 and E-008: the model already prescribes the fix, and an invariant is vacuous
+
+The audit found this one and under-described it. Recorded here before it is built, because what it
+turns out to be is not what it was reported as.
+
+**What it says.** E-001: "`headers_` is only ever resolved from inside `MoveNext`, so on
+server-streaming and duplex calls `ResponseHeadersAsync` cannot complete unless the caller is
+already pumping the reader." E-008: ArmoniK's own shipped `WaitForResultsAsync`
+(`EventsClientExt.cs:140`) awaits `ResponseHeadersAsync` on a server-streaming call before its
+first `MoveNext` - so the binding cannot serve the client it exists for. Both verified; both hold.
+
+**What the audit missed: `DotNetBinding.tla` already specifies the shape**, and has since phase 0.
+
+    ConsumerPhases == {"prologue", "application", "drain", "done"}
+    Init: consumer_phase = [c \in CallIds |-> "prologue"]
+
+    ConsumeHeader(cId) ==                          \* an action of its own
+        /\ consumer_phase[cId] = "prologue"
+        /\ RingTail(cId) = 0
+        /\ L1!HostConsumesEvent(cId)               \* the credit comes back here
+        /\ headers_completion' = [... EXCEPT ![cId] = "succeeded"]
+        /\ consumer_phase' = [... EXCEPT ![cId] = "application"]
+
+    BeginParseEvent(cId) == /\ consumer_phase[cId] = "application"   \* slot 0 is not the app's
+
+`ConsumeHeader` is enabled by the metadata arriving, not by a read. So the model resolves the
+headers without the application pumping anything, which is exactly what E-008 needs.
+
+**And the implementation has no `consumer_phase`.** `NativeCall.cs:362` says it plainly: "`Phase`
+is the model's `reader_state` extended with the drain". The model has two reader variables and the
+binding implements one. `grep -i prologue` over the whole binding returns a single line - a comment.
+So `PrologueReaderOnlyWaits` and the `DotNetBinding_MCwitnessPrologue` witness hold over a variable
+nothing implements: **vacuous against the code**. This is the same class of gap T1.5's status
+recorded one level up ("the model's reader machine had no implementation, so the invariants over it
+were vacuous"), and T2.2 closed that one by implementing `reader_state` while leaving
+`consumer_phase` behind.
+
+**The fold was deliberate, and its reason is real.** `NativeCall.cs:648`: "The prologue is consumed
+inside a read, under that read's own registration, so a token firing while the head is outstanding
+faults the read and the headers together rather than finding no operation to cancel." And the model
+knows that race exists - `PrologueReadCancellationUnreachable` is stated negatively so its witness
+run is *expected* to violate it, which is the trace proving a cancel can be pending while a call is
+in the prologue with the reader waiting.
+
+So both shapes owe an answer for a cancel with no read to fault, and the model already gives it:
+`BeginDisposeCall` "faults a headers task still pending: no managed waiter survives a dispose", and
+the binding has `FailHead` for it already.
+
+**Status: to build, in the model's shape.** There is no decision to take - the model outranks an
+implementation that improvised around it, and the improvisation is what makes ArmoniK's own client
+hang. What it needs: `consumer_phase` as its own state, `ConsumeHeader` as a step the metadata's
+arrival enables, and the cancel-with-no-read path faulting `headers_` rather than a read.
+
+Sequencing note: A3-056 (effort L) wants this 1036-line class split into a ring, a read machine, a
+sender and a thin call. The prologue lands inside it either way, and a split moves code rather than
+changing it, so correctness goes first.
