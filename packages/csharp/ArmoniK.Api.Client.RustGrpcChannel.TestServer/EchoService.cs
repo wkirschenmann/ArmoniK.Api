@@ -119,6 +119,12 @@ public class EchoService : Echo.EchoBase
     return new EchoReply();
   }
 
+  /// <summary>Ends the call without reading, so the client's next write meets a call that is over.</summary>
+  public override Task<EchoReply> CollectRefused(IAsyncStreamReader<EchoRequest> requests,
+                                                 ServerCallContext              context)
+    => throw new RpcException(new Status(StatusCode.PermissionDenied,
+                                          "not for you"));
+
   /// <summary>Response headers, then nothing, until the client gives up.</summary>
   /// <remarks>A stream that sends no message is what tells a read apart from no read: a client
   /// awaiting the headers here has nothing it could have read to get them.</remarks>

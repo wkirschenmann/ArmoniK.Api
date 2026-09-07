@@ -24,4 +24,7 @@ service Echo {
   // without a read rather than alongside one.
   rpc HeadOnly (EchoRequest) returns (stream EchoReply);
   rpc HeadThenChat (stream EchoRequest) returns (stream EchoReply);
+  // Ends the call without reading, so a client still holding the request stream writes into a
+  // call that is over.
+  rpc CollectRefused (stream EchoRequest) returns (EchoReply);
 }

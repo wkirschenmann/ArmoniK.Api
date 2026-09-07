@@ -53,8 +53,33 @@ internal sealed class NativeRequestStream<TRequest, TResponse> : IClientStreamWr
       throw new InvalidOperationException("the request stream is closed");
     }
 
-    return call_.WriteAsync(marshaller_,
-                            message);
+    // The guard above stays synchronous - it names a rule the caller broke, and an `async` method
+    // would deliver it through the task instead.
+    return Written(message);
+  }
+
+  private async Task Written(TRequest message)
+  {
+    try
+    {
+      await call_.WriteAsync(marshaller_,
+                             message)
+                 .ConfigureAwait(false);
+    }
+    catch (CallEnded ended)
+    {
+      // The engine refused the write because the call had already ended. What a caller hears here
+      // is an `RpcException` as it would over grpc-dotnet, and not a type of this binding's own.
+      //
+      // The terminal only if a read has already consumed it: awaiting it here would wait on a read
+      // this caller may never make - a writer that only writes would hang instead of hearing why.
+      var terminal = call_.TerminalAsync;
+      throw new RpcException(terminal.IsCompleted
+                               ? terminal.Result
+                               : new Status(StatusCode.Unavailable,
+                                            ended.Message),
+                             call_.Trailers);
+    }
   }
 
   /// <summary>Idempotent, because a caller disposing after completing is the ordinary path.</summary>

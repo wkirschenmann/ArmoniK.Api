@@ -17,6 +17,8 @@
 
 using System.Threading.Tasks;
 
+using Grpc.Core;
+
 using NUnit.Framework;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
@@ -89,6 +91,35 @@ public class ClientStreamingTests : RuntimeLeaseFixture
 
     Assert.That(reply.Text,
                 Is.EqualTo("0:"));
+  }
+
+  /// <summary>A write into a call the server ended answers with the call's status.</summary>
+  /// <remarks>The one path that reaches for the binding's internal <c>CallEnded</c>: the unary
+  /// invoker catches it, and nothing did on this side, so application code saw a type it cannot
+  /// name. Over grpc-dotnet a caller hears an <c>RpcException</c> here.</remarks>
+  [Test]
+  public async Task AWriteAfterTheCallEndedIsAnRpcException()
+  {
+    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var call = Client(channel)
+      .CollectRefused();
+
+    // Awaited first, so the terminal is observed before the write below rather than racing it.
+    try
+    {
+      await call.ResponseAsync.ConfigureAwait(false);
+      Assert.Fail("the server refused the call");
+    }
+    catch (RpcException)
+    {
+    }
+
+    Assert.That(() => call.RequestStream.WriteAsync(new EchoRequest
+                                                     {
+                                                       Text = "late",
+                                                     }),
+                Throws.InstanceOf<RpcException>(),
+                "the call's status, not a type of the binding's own");
   }
 
   [Test]

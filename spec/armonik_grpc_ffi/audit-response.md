@@ -210,6 +210,25 @@ Sequencing note: A3-056 (effort L) wants this 1036-line class split into a ring,
 sender and a thin call. The prologue landed inside it, because a split moves code rather than
 changing it while a deadlock is not deferrable.
 
+K-027 - "`ResponseHeadersAsync` is tested for the unary cardinality only; the three streaming ones,
+where the branch's known deadlock lives, have no test" - closes with it, and its own note that the
+echo server needed changing first was right.
+
+---
+
+## Applied: an internal type stops reaching application code
+
+| Finding | What it said | Proof |
+|---|---|---|
+| C-001, K-029 | `IClientStreamWriter<T>.WriteAsync` returns the call's task unchanged, so the binding's internal `CallEnded` reaches application code instead of an `RpcException`; and no test writes to a request stream after the call's terminal, which is the only path that raises it | the echo server gains `CollectRefused`, a client-streaming call refused without reading. Before: `Expected: instance of <Grpc.Core.RpcException> But was: <...Calls.CallEnded>`. After: passed |
+
+The obvious version of this fix would have introduced a worse defect than the one it cures.
+Answering from `await call_.TerminalAsync`, as the unary path does through its drained task, waits
+on a read the caller may never make: a writer that only writes would hang inside `WriteAsync`
+instead of hearing why it failed. So the terminal is used only when a read has already consumed
+one, and `Unavailable` otherwise - which is what `NativeCall.Start` already answers for the same
+two refusals.
+
 ---
 
 ## Applied: the archive holds the file its own tests read
