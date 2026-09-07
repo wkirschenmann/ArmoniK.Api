@@ -40,6 +40,52 @@
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
   </ItemGroup>
 
+  <!-- ChannelOptions.g.cs is generated from the engine's own option schema and committed, so a
+       reader of this assembly sees the vocabulary without running anything. Built but not
+       referenced: it is a net8.0 tool this build runs, not a library the binding links, and
+       OutputItemType is what hands over where it landed. -->
+  <ItemGroup>
+    <ProjectReference Include="..\tools\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="OptionsGeneratorTool"
+                      SetTargetFramework="TargetFramework=net8.0"
+                      UndefineProperties="PlatformTarget;Prefer32Bit" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Spelled out rather than taken from RustTargets.props, which this file imports further
+         down: a property is worth what is defined above it. Normalised because this path is named
+         in a failure message, and `a/../b` is one the reader has to resolve first. Forward
+         slashes, because a backslash is an ordinary filename character on Linux. -->
+    <OptionsSchema>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../rust/armonik-transport/options.schema.json'))</OptionsSchema>
+    <GeneratedOptions>$(MSBuildThisFileDirectory)ChannelOptions.g.cs</GeneratedOptions>
+  </PropertyGroup>
+
+  <!-- A committed generated file is one that can be stale, and a stale one is an option the
+       engine reads and no caller can set - or a bound the engine enforces and this assembly does
+       not. Compared rather than rewritten, so a build never edits the tree it is building.
+       After ResolveProjectReferences and not BeforeBuild, which is early enough that the tool
+       has not been built and OptionsGeneratorTool names nothing.
+
+       The tool itself is an input, or a change to what it renders would not re-run the check:
+       edit the emitter alone and both declared files stay older than the stamp. Its assembly
+       rather than its sources, because that is what a build of it produces. -->
+  <Target Name="CheckGeneratedOptionsMatchTheSchema" AfterTargets="ResolveProjectReferences"
+          Inputs="$(OptionsSchema);$(GeneratedOptions);@(OptionsGeneratorTool)"
+          Outputs="$(IntermediateOutputPath)options-checked.stamp">
+    <Exec Command="dotnet exec &quot;@(OptionsGeneratorTool)&quot; --schema &quot;$(OptionsSchema)&quot; --output &quot;$(GeneratedOptions)&quot; --check"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="OptionsCheckExitCode" />
+    </Exec>
+    <Error Condition="'$(OptionsCheckExitCode)' != '0'"
+           Text="ChannelOptions.g.cs is not what $(OptionsSchema) renders (exit $(OptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport/options.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs`." />
+    <Touch Files="$(IntermediateOutputPath)options-checked.stamp" AlwaysCreate="true" />
+    <!-- Or `dotnet clean` leaves the stamp and the next build skips the check. -->
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)options-checked.stamp" />
+    </ItemGroup>
+  </Target>
+
   <!-- The engine this binds to is a Rust cdylib in the same repository, and a binding without it
        does nothing, so building one builds the other. Cargo's profile directories are named after
        the .NET configurations, which is why the same lowercased name serves both. -->

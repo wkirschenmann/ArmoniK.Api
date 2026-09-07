@@ -19,8 +19,8 @@ pub const LARGEST_WINDOW: i32 = 536_870_910;
 /// A duration, in seconds.
 ///
 /// Seconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory
-/// layout rather than anything a document would write. One unit, no suffix to parse, and
-/// `TimeSpan.FromSeconds` on the other side takes exactly this.
+/// layout rather than anything a document would write. A number carries no unit, so every
+/// option of this type names one: `connect_timeout_seconds`, not `connect_timeout`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
@@ -60,7 +60,7 @@ pub struct TransportOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("exclusiveMinimum" = 0.0))
     )]
-    pub connect_timeout: Option<Seconds>,
+    pub connect_timeout_seconds: Option<Seconds>,
 }
 
 /// What a caller may set on one channel.
@@ -87,8 +87,8 @@ pub struct ChannelOptions {
 
     /// The largest message this client will accept, in bytes.
     ///
-    /// No upper bound: the largest a caller can name is a channel that refuses nothing. Zero is
-    /// the one that means something, and it means no message can ever be received.
+    /// No upper bound, because the largest a caller can name is a channel that refuses nothing.
+    /// Zero is refused: it is a channel that can receive no message at all.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -119,9 +119,106 @@ pub struct ChannelOptions {
     pub delivery_credits: Option<i32>,
 }
 
+/// The schema of [`ChannelOptions`], as the committed file holds it.
+///
+/// Rendered here rather than by whoever asks, so the file, the test that checks it and any
+/// other reader are looking at the same bytes.
+#[cfg(feature = "schema")]
+pub fn schema() -> String {
+    let schema = schemars::schema_for!(ChannelOptions);
+    let mut rendered = serde_json::to_string_pretty(&schema).expect("a schema renders");
+    rendered.push('\n');
+    rendered
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The committed schema is what generates the C# class, so it has to be what these types
+    /// say - and it cannot be regenerated at build time, since the generator that reads it runs
+    /// before any build on a fresh clone.
+    #[cfg(feature = "schema")]
+    #[test]
+    fn the_committed_schema_is_the_one_the_types_describe() {
+        let committed = include_str!("../options.schema.json").replace("\r\n", "\n");
+
+        assert_eq!(
+            committed,
+            schema(),
+            "the options changed and the schema did not; write it again with\n  \
+             cargo run -p armonik-transport --features schema --example schema -- \
+             packages/rust/armonik-transport/options.schema.json"
+        );
+    }
+
+    /// Every option the schema declares is one `serde` reads, under the name the schema spells.
+    ///
+    /// The two derives are separate readings of the same fields, and this crate makes them differ
+    /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
+    /// name they stopped agreeing on would be an option the generated C# sets, the schema admits,
+    /// and `deny_unknown_fields` refuses at the far end of the ABI.
+    #[cfg(all(feature = "schema", feature = "serde"))]
+    #[test]
+    fn every_option_the_schema_declares_is_one_serde_reads() {
+        let schema: serde_json::Value =
+            serde_json::from_str(&schema()).expect("the schema is a document");
+
+        let document = a_value_for(&schema, &schema);
+
+        let read = serde_json::from_value::<ChannelOptions>(document.clone());
+
+        assert!(
+            read.is_ok(),
+            "the schema declares {document}, which serde refuses: {}",
+            read.unwrap_err()
+        );
+    }
+
+    /// A value each property of `node` admits, as one document naming all of them.
+    ///
+    /// Values rather than a name list, because `deny_unknown_fields` refuses a name and the type
+    /// refuses a value, and only a document carrying both exercises the two.
+    #[cfg(all(feature = "schema", feature = "serde"))]
+    fn a_value_for(node: &serde_json::Value, root: &serde_json::Value) -> serde_json::Value {
+        use serde_json::{json, Value};
+
+        // A `$ref` states the type and the property beside it states its bounds, so the reference
+        // is followed only for what the property does not say.
+        let node = match node.get("$ref").and_then(Value::as_str) {
+            Some(reference) => {
+                let name = reference
+                    .rsplit('/')
+                    .next()
+                    .expect("a reference names something");
+                &root["$defs"][name]
+            }
+            None => node,
+        };
+
+        match node.get("type").and_then(Value::as_str) {
+            Some("object") | None => {
+                let properties = node
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .expect("an object states its properties");
+
+                Value::Object(
+                    properties
+                        .iter()
+                        .map(|(name, property)| (name.clone(), a_value_for(property, root)))
+                        .collect(),
+                )
+            }
+            // The smallest value every bound in this schema admits: `minimum` is 1 where it is
+            // stated, and `exclusiveMinimum` is 0.
+            Some("integer") => json!(1),
+            Some("number") => json!(1.0),
+            Some("string") => json!("x"),
+            Some("boolean") => json!(true),
+            Some(other) => panic!("`{other}` is a type this test states no value for"),
+        }
+    }
 
     /// The bound the schema states has to be one every target can honour, and the tighter of the
     /// two targets is what it states - so on a 64-bit host this passes with room to spare and on

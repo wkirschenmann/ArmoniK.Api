@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.csproj" />
+  </ItemGroup>
+
+  <!-- The two files the generator has to agree about, named here rather than found by walking up
+       from the test host's directory, which is three levels of bin/ away from either.
+
+       Forward slashes: these reach .NET as an attribute value rather than as a path MSBuild
+       normalises, and a backslash is an ordinary filename character on Linux, where this runs in
+       CI. Windows takes either. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="OptionsSchema"
+                      Value="$(MSBuildThisFileDirectory)../../../rust/armonik-transport/options.schema.json" />
+    <AssemblyMetadata Include="GeneratedOptions"
+                      Value="$(MSBuildThisFileDirectory)../../ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs" />
+  </ItemGroup>
+
+</Project>

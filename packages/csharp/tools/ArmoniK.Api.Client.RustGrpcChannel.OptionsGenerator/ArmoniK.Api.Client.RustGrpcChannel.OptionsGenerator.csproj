@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Company>ANEO</Company>
+    <Copyright>Copyright (C) ANEO, 2021-2026</Copyright>
+    <IsPackable>false</IsPackable>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- Corvus resolves the schema; this tool only decides what C# the resolved shape becomes. It
+       runs at build time and never ships, so none of this reaches a consumer of the channel: the
+       generated file is plain C# over System.Text.Json. -->
+  <ItemGroup>
+    <PackageReference Include="Corvus.Json.CodeGeneration" Version="5.5.4" />
+    <PackageReference Include="Corvus.Json.CodeGeneration.202012" Version="5.5.4" />
+  </ItemGroup>
+
+</Project>

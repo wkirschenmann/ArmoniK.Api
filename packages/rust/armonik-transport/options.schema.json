@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChannelOptions",
+  "description": "What a caller may set on one channel.",
+  "type": "object",
+  "properties": {
+    "DeliveryCredits": {
+      "description": "How many events the engine may hold for a call the host has not read from.",
+      "type": "integer",
+      "format": "int32",
+      "maximum": 536870910,
+      "minimum": 1
+    },
+    "MaxReceiveMessageSize": {
+      "description": "The largest message this client will accept, in bytes.\n\nNo upper bound, because the largest a caller can name is a channel that refuses nothing.\nZero is refused: it is a channel that can receive no message at all.",
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+    },
+    "MaxSendsInFlight": {
+      "description": "How many messages a call may have sent and unacquitted at once.",
+      "type": "integer",
+      "format": "int32",
+      "maximum": 536870910,
+      "minimum": 1
+    },
+    "Transport": {
+      "description": "What the transport does, beyond reaching the endpoint.",
+      "$ref": "#/$defs/TransportOptions",
+      "default": {}
+    },
+    "UserAgent": {
+      "description": "What this client calls itself in `user-agent`. Absent for the engine's own.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Seconds": {
+      "description": "A duration, in seconds.\n\nSeconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory\nlayout rather than anything a document would write. A number carries no unit, so every\noption of this type names one: `connect_timeout_seconds`, not `connect_timeout`.",
+      "type": "number",
+      "format": "double"
+    },
+    "TransportOptions": {
+      "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it\ncrosses the ABI as its own argument rather than as an option that happens to be mandatory.\nEverything in this document has a default, and `{}` is a valid configuration.",
+      "type": "object",
+      "properties": {
+        "ConnectTimeoutSeconds": {
+          "description": "How long a dial may take before it is given up on. Absent for the engine's own default.\n\nZero is refused: no dial could beat it, so it names a channel that can never connect.",
+          "$ref": "#/$defs/Seconds",
+          "exclusiveMinimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

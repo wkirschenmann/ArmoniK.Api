@@ -22,7 +22,7 @@ impl ChannelSettings {
 
     pub(crate) fn into_channel_config(self, endpoint: Uri) -> GrpcChannelConfig {
         let mut transport = TransportConfig::new(endpoint);
-        if let Some(seconds) = self.0.transport.connect_timeout {
+        if let Some(seconds) = self.0.transport.connect_timeout_seconds {
             transport.connect_timeout = seconds.into();
         }
 
@@ -51,7 +51,7 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
         return None;
     }
 
-    // Zero is the size that means something, and it means no message can ever be received.
+    // Zero is refused: it is a channel that can receive no message at all.
     if options.max_receive_message_size.is_some_and(|max| max < 1) {
         return None;
     }
@@ -63,7 +63,7 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
     // No dial could beat a timeout of zero, so it names a channel that can never connect.
     if options
         .transport
-        .connect_timeout
+        .connect_timeout_seconds
         .is_some_and(|timeout| timeout.0 <= 0.0)
     {
         return None;
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn a_nested_unit_is_read_as_an_object() {
-        let config = config_of(br#"{"Transport":{"ConnectTimeout":2.5}}"#);
+        let config = config_of(br#"{"Transport":{"ConnectTimeoutSeconds":2.5}}"#);
 
         assert_eq!(
             config.transport.connect_timeout,
@@ -131,7 +131,7 @@ mod tests {
             &br#"{"DeliveryCredits":0}"#[..],
             &br#"{"MaxSendsInFlight":0}"#[..],
             &br#"{"UserAgent":""}"#[..],
-            &br#"{"Transport":{"ConnectTimeout":0.0}}"#[..],
+            &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
         ] {
             assert!(
                 parse(refused).is_none(),

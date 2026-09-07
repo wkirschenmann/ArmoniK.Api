@@ -19,22 +19,33 @@ using System.Text.Json.Serialization;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-// The names are the schema's, which are the Rust field names in PascalCase, so the default
-// policy is the right one and there is nothing to configure. An option written any other way is
-// refused by the engine rather than ignored.
+// Rooted at ChannelOptions, which reaches every group of the vocabulary, so the whole graph is
+// serialized without reflection - which is what lets a trimmed or native-AOT host use this.
 [JsonSerializable(typeof(ChannelOptions))]
 internal partial class ChannelOptionsJsonContext : JsonSerializerContext
 {
 }
 
-/// <summary>What a caller sets on one channel, as the engine's schema describes it.</summary>
-/// <remarks>Hand-written until T3.3 generates it from that schema. The endpoint is not here: it
-/// crosses the ABI as its own argument, which is what lets every option have a default.</remarks>
-internal sealed class ChannelOptions
+/// <summary>What the schema does not say: how the document crosses the ABI.</summary>
+/// <remarks>
+///   The properties, their bounds and their documentation are generated from
+///   <c>options.schema.json</c> into ChannelOptions.g.cs. Only what a schema cannot describe is
+///   written here.
+/// </remarks>
+internal sealed partial class ChannelOptions
 {
-  public int DeliveryCredits { get; set; }
-
+  /// <summary>The document the engine reads, as UTF-8.</summary>
+  /// <returns>The options as JSON, without the ones left unset.</returns>
+  /// <exception cref="System.ArgumentOutOfRangeException">An option is outside its bounds.</exception>
+  /// <remarks>
+  ///   Checked before it is written, not after it is refused: the engine answers a bad document
+  ///   with a status on `ak_channel_create`, which names neither the option nor the bound.
+  /// </remarks>
   internal byte[] Encode()
-    => JsonSerializer.SerializeToUtf8Bytes(this,
-                                           ChannelOptionsJsonContext.Default.ChannelOptions);
+  {
+    Validate();
+
+    return JsonSerializer.SerializeToUtf8Bytes(this,
+                                               ChannelOptionsJsonContext.Default.ChannelOptions);
+  }
 }

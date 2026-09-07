@@ -476,6 +476,55 @@ bytes" - with its documentation generation and its fixture tests. What it assume
 this plan discarded: one flat vocabulary, every property a `string`, `anyOf` branches unioned.
 Retargeting it at the structured shape is the work; its machinery and its tests survive.
 
+**Status**: done, and **the generator is not a Roslyn one** - the only part of this task that did
+not survive being tried.  Three measurements settled it:
+
+- A Roslyn generator has to read JSON, and an analyzer loads inside the compiler, where
+  `System.Text.Json` and its transitive assemblies conflict with what MSBuild already holds.  The
+  documented failure (roslyn#41785, #66124) is green under `dotnet build` and red under Visual
+  Studio - the one shape no CI catches, and one no measurement here could clear either.
+- `Corvus.Json.SourceGenerator` has that solved (zero dependencies on netstandard2.0), but the
+  types it emits are `readonly partial struct` readers over a `JsonElement`.  T3.4 binds
+  `IConfiguration`, which needs a class with settable properties, so its output would have been
+  wrapped by a hand-written mutable facade - leaving Corvus buying only a validation the Rust
+  reader already performs, at the price of `NodaTime` and five more packages in every consumer of
+  `ArmoniK.Api.Client`.
+- Generators cannot read each other's output (roslyn#55104): they all receive the same input
+  compilation, so no generator could have read a Corvus-generated struct in the same assembly.
+  And a facade generated from the struct would carry neither the bounds nor the documentation,
+  which live in Corvus's emitted validation code and in XML comments, not in metadata.
+
+So `ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator` is a net8.0 tool that runs at build time
+and reads the schema with **Corvus's `TypeDeclaration` model** - the resolution engine without the
+emitter.  Corvus resolves `$ref`, `$defs` and the draft's rules; this repository decides the C#.
+Nothing of Corvus reaches a consumer, since the tool never ships.
+
+What that costs against the plan is the decorator and the `partial`: the class is named by the
+tool's `--output` rather than by an attribute.  What it keeps is everything the decorator was
+for - the schema committed, the C# generated from it and nothing else, and a build that fails on
+a stale file.  `CheckGeneratedOptionsMatchTheSchema` renders and compares rather than rewriting,
+so a build never edits the tree it is building.
+
+**And a duration names its unit.**  `ConnectTimeoutSeconds`, not `ConnectTimeout`: see the draft
+list above for why ISO-8601 was refused.
+
+**The round trip this task asks for is covered in three places rather than one.**  A single test
+spanning C# and Rust would need the channel to accept a `ChannelOptions`, which is T3.4's to add -
+`NativeRuntimeFactory.Channel` still takes a window and nothing else.  What holds meanwhile:
+
+- `ChannelOptionsTests` asserts the exact JSON each option produces, `{}` for a document that
+  names nothing included.
+- `armonik-transport-ffi`'s `config` tests read those documents back, so the far side of the
+  boundary is exercised on the same bytes.
+- and `every_option_the_schema_declares_is_one_serde_reads` closes the gap neither of those can
+  see.  The chain from the Rust types to the C# is two generated steps, each with a freshness
+  test, so a misspelling cannot survive it - but `schemars` and `serde` are two separate readings
+  of the same fields, and this crate makes them differ on purpose with `schemars(with = "i32")`.
+  That test builds a document from the schema's own properties and hands it to `serde`, where
+  `deny_unknown_fields` refuses any name the two stopped agreeing on.
+
+What is still owed is the one test that starts a channel with every option set, in T3.4.
+
 The schema describes the structured shape - nested objects, booleans as booleans, numbers as
 numbers - because that is what the generated C# type has to serialize to, and a schema that said
 `string` everywhere would generate a class that says nothing about what it holds. It is also what
@@ -483,9 +532,15 @@ makes the JSON strict: the type in the schema is the type the reader enforces.
 
 **The shape a draft settled**, so it is written here rather than rediscovered:
 
-- A duration is a number of seconds, `format: double`. A `Duration` derives `{ secs, nanos }`,
-  which is a memory layout rather than anything a document writes, and seconds map onto
-  `TimeSpan.FromSeconds` with no suffix to parse.
+- **A duration is a number of seconds, and the option's name carries the unit** -
+  `ConnectTimeoutSeconds`, not `ConnectTimeout`. A `Duration` derives `{ secs, nanos }`, which is
+  a memory layout rather than anything a document writes. ISO-8601 was weighed and refused: it is
+  the registered `format: duration`, and it would justify a `TimeSpan`, but `exclusiveMinimum` is
+  a numeric keyword that a string instance makes *ignored* rather than violated - so the schema
+  would silently stop stating that zero is refused, against the rule that every constraint which
+  can be said in the schema is said there. It also admits `P1Y`, which is not a fixed duration, so
+  a conforming validator would accept documents the engine refuses. The unit therefore lives in
+  the name, where it costs no converter on either side.
 - **A count is an `int`, not a `uint`, and a check is what states the constraint.** `uint`
   excludes a negative but not zero, and zero is the value that actually breaks a window or a
   credit; it buys half the check while costing CLS compliance and a binder that handles `int`
@@ -550,7 +605,7 @@ Rust side of the FFI boundary.
 **The flat name of an option is its nesting path, joined by `__`.** .NET's configuration already
 maps that separator onto a section, which the repository relies on today with
 `GrpcClient__Endpoint`, so a nested unit costs nothing to reach:
-`GrpcClient__Transport__ConnectTimeout` binds to `Transport.ConnectTimeout` with no code of ours.
+`GrpcClient__Transport__ConnectTimeoutSeconds` binds to `Transport.ConnectTimeoutSeconds` with no code of ours.
 The Rust side derives the same name from the same path rather than declaring a prefix per
 embedding - two embeddings of one unit have two paths by construction, which is what declaring
 them was for.

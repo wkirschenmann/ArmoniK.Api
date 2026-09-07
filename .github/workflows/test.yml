@@ -357,6 +357,34 @@ jobs:
           path: ${{ matrix.projects }}/TestResults/test-results.trx
           reporter: dotnet-trx
 
+  # The channel's C# options class is generated from a committed JSON schema, so two files have to
+  # agree and neither is checked by compiling the other. Its own job because it needs neither Rust
+  # nor a native engine nor an architecture: it reads two committed files and renders one.
+  test-options-generator:
+    name: Test the options generator
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install .NET Core
+        uses: actions/setup-dotnet@6bd8b7f7774af54e05809fcc5431931b3eb1ddee # v4
+        with:
+          dotnet-version: 8.x
+
+      - name: Run tests
+        working-directory: packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
+        run: dotnet test --logger "trx;LogFileName=test-results.trx"
+
+      - name: Test Report
+        uses: dorny/test-reporter@v1
+        if: success() || failure()
+        with:
+          name: Test the options generator
+          path: packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests/TestResults/test-results.trx
+          reporter: dotnet-trx
+
   # The engine ships for 32-bit, where a size_t is four bytes and every length bound is a
   # different bound: the gRPC prefix admits twice what an allocation can hold, the deframer's
   # header-plus-body can fail to fit an address. The matrix above runs on the host's width alone,

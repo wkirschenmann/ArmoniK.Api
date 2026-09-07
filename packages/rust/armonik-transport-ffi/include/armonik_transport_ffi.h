@@ -276,7 +276,7 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
  * The document is structured and typed, and a JSON schema states it: objects nest, a number is a
  * number and not a string spelled like one, and an option spelled wrong is refused rather than
  * ignored. It carries UserAgent, MaxReceiveMessageSize, DeliveryCredits, MaxSendsInFlight, and
- * a Transport object holding ConnectTimeout in seconds.
+ * a Transport object holding ConnectTimeoutSeconds.
  *
  * The two windows mirror each other. DeliveryCredits bounds the payloads of one call outstanding
  * at once, and the host chooses it because the host is what has to hold them; MaxSendsInFlight
