@@ -16,7 +16,7 @@
 
 using System.Threading.Tasks;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 internal sealed class ArrivalSignal
 {

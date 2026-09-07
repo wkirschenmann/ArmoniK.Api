@@ -22,7 +22,7 @@ using System.Text;
 
 using Grpc.Core;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 internal static class RawMetadata
 {

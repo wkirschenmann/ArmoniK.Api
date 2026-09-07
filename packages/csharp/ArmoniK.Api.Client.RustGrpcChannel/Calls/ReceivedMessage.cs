@@ -21,7 +21,9 @@ using System.Runtime.InteropServices;
 
 using Grpc.Core;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 /// <summary>A view of one delivered payload, for as long as the deserializer is running.</summary>
 ///

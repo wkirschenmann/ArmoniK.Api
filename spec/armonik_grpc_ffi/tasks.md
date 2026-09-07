@@ -619,6 +619,36 @@ Rust side takes the same layering, which is the item left for later.
 **Deliverable**: a test setting the same option in two layers and asserting .NET's order decides;
 a test that an option set only in the environment reaches the engine.
 
+**Status**: done.  `NativeRuntimeFactory.Channel` has three doors now - a `ChannelOptions`, an
+`IConfiguration`, and the delivery window alone - and the first is what the other two build.  The
+configuration one takes a *section* rather than a root: which sources a configuration is composed
+from and which of them wins is .NET's to resolve and the host's to compose, so a caller hands over
+`configuration.GetSection(...)` and this binds what is there.  Nothing of ours sits between the
+layers, which is what the two-layer test asserts.
+
+**`ChannelOptions` is public.**  A caller fills it in, and T6.8 will construct one from another
+assembly; the generator emits `public sealed class` for that reason.  Which makes the
+documentation requirement of T3.3 load-bearing rather than tidy: these are the tooltips a .NET
+caller reads.
+
+**And a bound was reachable by one door only.**  `MaxDeliveryCredits` - far tighter than the
+schema's, because every call sizes a ring from the number - was checked in the window overload
+and nowhere else, so an option arriving through a configuration was bounded only by the schema.
+It is checked wherever a window arrives now.
+
+**What the binder does with a name no option matches is drop it.**  That is .NET's behaviour and
+not this binding's to change, so a misspelled *configuration key* is ignored while a misspelled
+*option in the document* is refused by `additionalProperties: false` - the path a Rust or C++ host
+takes.  Stated as a test, because the difference is easy to assume away.
+
+**And nothing of the options surface is written by hand any more.**  T3.3 left a partial beside
+the generated file holding the `JsonSerializerContext` and `Encode`, on the grounds that how a
+document crosses the ABI is not something a schema says.  Both are mechanical given the root
+group's name, and leaving them out cost two hand edits the day the classes became public - so the
+generator renders them, the partial is deleted, and the classes are `sealed` rather than
+`partial`: a second part would be something the schema does not decide, and the place for that is
+the generator.
+
 ### T3.5: Align the vocabulary by configuration
 
 **Prerequisite**: T3.4
@@ -629,6 +659,26 @@ and the ones without a counterpart simply have none.
 
 **Deliverable**: every `GrpcClient` option reaches its generated counterpart, and the options
 with no counterpart are listed rather than silently extra.
+
+**Status**: done, and the first half of that deliverable had nothing to do.  Measured rather than
+assumed: of `GrpcClient`'s twenty options, **none** has a counterpart in this vocabulary today.
+Seventeen wait on a phase that has not run - `AllowUnsafeConnection`, `CaCert` and
+`OverrideTargetName` on T4.1, the three certificate options on T4.2, the three proxy ones on
+T5.1, the four retry ones on T6.3, `RequestTimeout` on T6.2, and the three keepalive and idle
+ones on T4.1 - and three are answered by something that is not an option at all: the endpoint
+crosses the ABI as `ak_channel_create`'s own argument, `HttpMessageHandler` names the handler
+grpc-dotnet should use and this engine *is* the handler, and `ReusePorts` is a socket option of
+that handler.  In the other direction all five of this channel's options are its own.
+
+So there is no table of names to align, and configurable prefixes have nothing to configure - the
+caller hands over the section, so the prefix is the caller's, and the structure is the schema's.
+What ships is the deliverable's second half, as a gate rather than a document:
+`OptionVocabularyTests` refuses an option on either side that has no entry, and each entry either
+maps a name, names the phase that will, or says what answers it instead.  That is what makes
+phases 4 to 6 move a name out of `Awaited` rather than quietly leave it there.
+
+It earned itself on the first run, finding `CertP12` - which a grep over `GrpcClient.cs` had
+missed, because the pattern excluded digits.
 
 ---
 
@@ -823,6 +873,18 @@ Two facts constrain whatever replaces it, and neither is a matter of taste:
 `HttpMessageHandler` is the existing precedent for naming a transport in a string option, and
 the generated options type is a superset of `GrpcClient`, so the two vocabularies meet here or
 nowhere.
+
+**And `ArmoniK.Api.Common` has to be split before this ships.** T3.4 took a reference to it for
+`ConfigurationExt.GetRequiredValue`, which is four lines - and Common also compiles 28 `.proto`
+files, the whole ArmoniK message set, plus `Grpc.Net.Client`, `ArmoniK.Utils` and
+`System.Diagnostics.DiagnosticSource`. The reference is a real package dependency of the produced
+nupkg, on both target frameworks, so every consumer of the transport pulls the API surface the
+transport is meant to be independent of - `design.md` says the channel serves any generated stub,
+and `ChannelOptions.g.cs` is rendered for a trimmed or native-AOT host.
+
+What that asks for is a small assembly holding what both sides need and nothing else: the
+configuration reader, and whatever else turns out to be shared once the two vocabularies meet.
+Measured rather than assumed - `dotnet sln`'s own nuspec is where the dependency was read.
 
 **Deferred until the Rust bridge on the other side is built**, so that both directions are
 designed together rather than one constrained by the other. Recorded now so the constraints above

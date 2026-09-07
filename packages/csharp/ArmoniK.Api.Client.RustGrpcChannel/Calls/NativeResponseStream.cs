@@ -20,7 +20,7 @@ using System.Threading.Tasks;
 
 using Grpc.Core;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 /// <summary>The response stream of a server streaming or duplex call.</summary>
 /// <remarks>It holds nothing: the reader machine is the call's, because the ring, the drain and

@@ -24,7 +24,11 @@ using Google.Protobuf;
 
 using Grpc.Core;
 
+using Microsoft.Extensions.Configuration;
+
 using NUnit.Framework;
+
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
@@ -55,6 +59,78 @@ public class UnaryTests : RuntimeLeaseFixture
 
   private NativeChannel Channel()
     => NativeRuntimeFactory.Channel(endpoint_);
+
+  /// <summary>A channel opened from a configuration, and a call over it.</summary>
+  /// <remarks>
+  ///   The whole path: an environment variable, .NET's binder, the generated options, the JSON,
+  ///   and the engine reading it. `ChannelOptionsTests` stops at the document; only a served call
+  ///   says the engine accepted it.
+  /// </remarks>
+  [Test]
+  public async Task AnOptionSetOnlyInTheEnvironmentReachesTheEngine()
+  {
+    const string prefix = "AKRUSTUNARY_";
+
+    Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__DeliveryCredits",
+                                       "4");
+    Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__Transport__ConnectTimeoutSeconds",
+                                       "30");
+
+    try
+    {
+      var configuration = new ConfigurationBuilder().AddEnvironmentVariables(prefix)
+                                                    .Build();
+
+      using var channel = NativeRuntimeFactory.Channel(endpoint_,
+                                                       configuration);
+
+      var reply = await Client(channel)
+                        .SayAsync(new EchoRequest
+                                  {
+                                    Text = "bound",
+                                  })
+                        .ResponseAsync.ConfigureAwait(false);
+
+      Assert.That(reply.Text,
+                  Is.EqualTo("bound"));
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__DeliveryCredits",
+                                         null);
+      Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__Transport__ConnectTimeoutSeconds",
+                                         null);
+    }
+  }
+
+  /// <summary>Opening a channel writes nothing to the options it was given.</summary>
+  /// <remarks>
+  ///   The factory resolves the delivery window into what it sends. Resolved into the caller's
+  ///   instance, a second channel opened from it would inherit the first one's resolution.
+  /// </remarks>
+  [Test]
+  public void OpeningAChannelLeavesTheCallersOptionsAsTheyWere()
+  {
+    var options = new ChannelOptions();
+
+    using var channel = NativeRuntimeFactory.Channel(endpoint_,
+                                                     options);
+
+    Assert.That(options.DeliveryCredits,
+                Is.Null,
+                "the window was resolved into the copy the channel holds, not into this");
+  }
+
+  /// <summary>A configuration with no section for this is refused, not defaulted.</summary>
+  /// <remarks>
+  ///   A misspelled section name would otherwise be a channel nobody configured, opened on the
+  ///   engine's defaults and behaving almost right. `Channel(endpoint)` is how to ask for those.
+  /// </remarks>
+  [Test]
+  public void AConfigurationWithNoSectionForThisIsRefused()
+    => Assert.That(() => NativeRuntimeFactory.Channel(endpoint_,
+                                                      new ConfigurationBuilder().Build()),
+                   Throws.TypeOf<InvalidOperationException>());
 
   /// <summary>Every reply, and every call disposed even if one of them throws.</summary>
   private static async Task<EchoReply[]> RepliesOf(AsyncUnaryCall<EchoReply>[] calls)

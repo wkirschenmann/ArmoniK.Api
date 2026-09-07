@@ -28,7 +28,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     private const string Usage = @"Generates the C# options class of the native transport channel.
 
 Usage:
-  dotnet run --project packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- \
+  dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- \
     --schema <path to the JSON schema> --output <path to the .cs file> [--namespace <ns>] [--check]
 
 Options:
@@ -166,7 +166,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
           return 0;
         }
 
-        Console.Error.WriteLine($"'{outputPath}' is not what '{schemaPath}' renders. Write it again with `dotnet run --project packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema {schemaPath} --output {outputPath}`.");
+        Console.Error.WriteLine($"'{outputPath}' is not what '{schemaPath}' renders. Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema {schemaPath} --output {outputPath}`.");
         return 4;
       }
 

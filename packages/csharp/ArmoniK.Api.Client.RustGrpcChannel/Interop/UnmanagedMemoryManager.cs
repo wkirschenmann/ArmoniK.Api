@@ -18,7 +18,7 @@
 using System;
 using System.Buffers;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
 {

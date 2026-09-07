@@ -21,7 +21,7 @@ using System.Threading.Tasks;
 
 using Grpc.Core;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 /// <summary>The request stream of a client streaming or duplex call.</summary>
 /// <remarks><c>IClientStreamWriter</c> promises one writer and no <c>CompleteAsync</c> beside a

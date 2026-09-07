@@ -23,13 +23,45 @@
 #nullable enable
 
 using System;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>What a caller may set on one channel.</summary>
-internal sealed partial class ChannelOptions
+// Rooted at ChannelOptions, which reaches every group of the vocabulary, so the whole graph is
+// serialized without reflection - which is what lets a trimmed or native-AOT host use this.
+[JsonSerializable(typeof(ChannelOptions))]
+internal partial class ChannelOptionsJsonContext : JsonSerializerContext
 {
+}
+
+/// <summary>What a caller may set on one channel.</summary>
+public sealed class ChannelOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public ChannelOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public ChannelOptions(ChannelOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    DeliveryCredits = other.DeliveryCredits;
+    MaxReceiveMessageSize = other.MaxReceiveMessageSize;
+    MaxSendsInFlight = other.MaxSendsInFlight;
+    Transport = other.Transport is null
+                  ? null
+                  : new TransportOptions(other.Transport);
+    UserAgent = other.UserAgent;
+  }
+
   /// <summary>How many events the engine may hold for a call the host has not read from.</summary>
   [JsonPropertyName("DeliveryCredits")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -93,6 +125,21 @@ internal sealed partial class ChannelOptions
 
     Transport?.Validate();
   }
+
+  /// <summary>The document the engine reads, as UTF-8.</summary>
+  /// <returns>The options as JSON, without the ones left unset.</returns>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its bounds.</exception>
+  /// <remarks>
+  ///   Checked before it is written, not after it is refused: the engine answers a bad
+  ///   document with a status naming neither the option nor the bound.
+  /// </remarks>
+  internal byte[] Encode()
+  {
+    Validate();
+
+    return JsonSerializer.SerializeToUtf8Bytes(this,
+                                               ChannelOptionsJsonContext.Default.ChannelOptions);
+  }
 }
 
 /// <summary>What the transport does, beyond reaching the endpoint it was given.</summary>
@@ -101,8 +148,26 @@ internal sealed partial class ChannelOptions
 ///   crosses the ABI as its own argument rather than as an option that happens to be mandatory.
 ///   Everything in this document has a default, and <c>{}</c> is a valid configuration.
 /// </remarks>
-internal sealed partial class TransportOptions
+public sealed class TransportOptions
 {
+  /// <summary>Options nobody has set.</summary>
+  public TransportOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public TransportOptions(TransportOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    ConnectTimeoutSeconds = other.ConnectTimeoutSeconds;
+  }
+
   /// <summary>How long a dial may take before it is given up on. Absent for the engine's own default.</summary>
   /// <remarks>Zero is refused: no dial could beat it, so it names a channel that can never connect.</remarks>
   [JsonPropertyName("ConnectTimeoutSeconds")]

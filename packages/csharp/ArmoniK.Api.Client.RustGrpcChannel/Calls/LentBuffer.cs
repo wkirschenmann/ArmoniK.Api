@@ -20,7 +20,9 @@ using System.Buffers;
 
 using Grpc.Core;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, IDisposable
 {

@@ -26,9 +26,9 @@
        CI. Windows takes either. -->
   <ItemGroup>
     <AssemblyMetadata Include="OptionsSchema"
-                      Value="$(MSBuildThisFileDirectory)../../../rust/armonik-transport/options.schema.json" />
+                      Value="$(MSBuildThisFileDirectory)../../rust/armonik-transport/options.schema.json" />
     <AssemblyMetadata Include="GeneratedOptions"
-                      Value="$(MSBuildThisFileDirectory)../../ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs" />
+                      Value="$(MSBuildThisFileDirectory)../ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs" />
   </ItemGroup>
 
 </Project>

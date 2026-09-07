@@ -374,7 +374,7 @@ jobs:
           dotnet-version: 8.x
 
       - name: Run tests
-        working-directory: packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
+        working-directory: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
         run: dotnet test --logger "trx;LogFileName=test-results.trx"
 
       - name: Test Report
@@ -382,7 +382,7 @@ jobs:
         if: success() || failure()
         with:
           name: Test the options generator
-          path: packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests/TestResults/test-results.trx
+          path: packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests/TestResults/test-results.trx
           reporter: dotnet-trx
 
   # The engine ships for 32-bit, where a size_t is four bytes and every length bound is a

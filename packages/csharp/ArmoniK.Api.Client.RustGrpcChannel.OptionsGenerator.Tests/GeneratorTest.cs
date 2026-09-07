@@ -131,7 +131,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
       Assert.That(rendered,
                   Does.Contain("public TransportOptions? Transport { get; set; }"));
       Assert.That(rendered,
-                  Does.Contain("internal sealed partial class TransportOptions"));
+                  Does.Contain("public sealed class TransportOptions"));
       Assert.That(rendered,
                   Does.Contain("Transport?.Validate();"));
     }
@@ -195,6 +195,40 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("Names"));
 
+    /// <summary>A group is copied and not shared, or a caller still holds what it handed over.</summary>
+    /// <remarks>
+    ///   A holder of these options reads them more than once - once to size what it allocates,
+    ///   once to serialize - and a settable property read twice is two values if anything sets it
+    ///   in between. The copy is what makes it one, and a shared group would be the same hole one
+    ///   level down.
+    /// </remarks>
+    [Test]
+    public async Task AGroupIsCopiedRatherThanShared()
+    {
+      var rendered = await Render(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                       @",
+  ""$defs"": {
+    ""TransportOptions"": {
+      ""description"": ""What the transport does."",
+      ""type"": ""object"",
+      ""additionalProperties"": false,
+      ""properties"": { ""Timeout"": { ""description"": ""How long."", ""type"": ""number"", ""format"": ""double"" } }
+    }
+  }"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("public Options(Options other)"));
+                        Assert.That(rendered,
+                                    Does.Contain(": new TransportOptions(other.Transport);"),
+                                    "the group is copied");
+                        Assert.That(rendered,
+                                    Does.Contain("throw new ArgumentNullException(nameof(other));"));
+                      });
+    }
+
     /// <summary>A bound stated twice applies twice, so the check is the stricter of the two.</summary>
     /// <remarks>
     ///   Draft 2020-12 applies a `$ref` and the keywords beside it together. Taking the property's
@@ -237,6 +271,56 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("cycle"));
 
+    /// <summary>The document the engine reads is rendered here too, root only.</summary>
+    /// <remarks>The document is one object, so a group of it gets neither.</remarks>
+    [Test]
+    public async Task TheRootRendersTheDocumentAndAGroupDoesNot()
+    {
+      var rendered = await Render(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                       @",
+  ""$defs"": {
+    ""TransportOptions"": {
+      ""description"": ""What the transport does."",
+      ""type"": ""object"",
+      ""additionalProperties"": false,
+      ""properties"": { ""Timeout"": { ""description"": ""How long."", ""type"": ""number"", ""format"": ""double"" } }
+    }
+  }"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("[JsonSerializable(typeof(Options))]"));
+                        Assert.That(rendered,
+                                    Does.Contain("internal partial class OptionsJsonContext : JsonSerializerContext"));
+                        Assert.That(rendered,
+                                    Does.Contain("OptionsJsonContext.Default.Options"));
+                        Assert.That(rendered.Split("internal byte[] Encode()")
+                                            .Length - 1,
+                                    Is.EqualTo(1),
+                                    "the root encodes and the group does not");
+                      });
+    }
+
+    /// <summary>A group named after the serializer context is refused.</summary>
+    /// <remarks>The context is declared beside the classes, so the two would be one name.</remarks>
+    [Test]
+    public void AGroupNamedAfterTheSerializerContextIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Held"": {{ {Documented}""$ref"": ""#/$defs/OptionsJsonContext"" }}",
+                                                   @",
+  ""$defs"": {
+    ""OptionsJsonContext"": {
+      ""description"": ""A group whose name is taken."",
+      ""type"": ""object"",
+      ""additionalProperties"": false,
+      ""properties"": { ""A"": { ""description"": ""A."", ""type"": ""string"" } }
+    }
+  }"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("serializer context"));
+
     /// <summary>Two schemas of one name would be one class declared twice.</summary>
     [Test]
     public void TwoSchemasOfOneNameAreRefused()
@@ -250,6 +334,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("Same"));
+
+    /// <summary>An option named after the group that declares it is refused.</summary>
+    /// <remarks>C# admits no member named after its own class, and says so about a generated file.</remarks>
+    [Test]
+    public void AnOptionNamedAfterItsOwnGroupIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Options"": {{ {Documented}""type"": ""string"" }}"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("named after its own class"));
 
     [Test]
     public void AnObjectStatingNoPropertiesIsRefused()
@@ -273,6 +366,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [TestCase("credits", TestName = "AName_LowerCase")]
     [TestCase("Trailing\\n", TestName = "AName_TrailingNewline")]
     [TestCase("Validate", TestName = "AName_AMemberEveryClassHas")]
+    [TestCase("Encode", TestName = "AName_TheRootsOwnMember")]
     public void ANameThisGeneratorCannotWriteIsRefused(string name)
       => Assert.That(async () => await Render(Wrap($@"""{name}"": {{ {Documented}""type"": ""string"" }}"))
                        .ConfigureAwait(false),
@@ -549,7 +643,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                                                   "\n"),
                   Is.EqualTo(rendered),
                   "the schema changed and the class did not; write it again with\n"
-                  + "  dotnet run --project packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- "
+                  + "  dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- "
                   + "--schema packages/rust/armonik-transport/options.schema.json "
                   + "--output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs");
     }

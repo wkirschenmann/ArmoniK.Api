@@ -20,6 +20,8 @@ using System.Threading.Tasks;
 
 using Grpc.Core;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 internal sealed class NativeCallInvoker : CallInvoker

@@ -20,6 +20,9 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 internal sealed class NativeRuntime

@@ -29,6 +29,10 @@
     <PackageReference Include="Grpc.Core.Api" Version="2.71.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\ArmoniK.Api.Common\ArmoniK.Api.Common.csproj" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
@@ -37,7 +41,7 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
     <!-- IAsyncDisposable and ValueTask: a channel's disposal is asynchronous because the last
          one released awaits the runtime's destroy, and neither type is in netstandard2.0. -->
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.0" />
   </ItemGroup>
 
   <!-- ChannelOptions.g.cs is generated from the engine's own option schema and committed, so a
@@ -45,7 +49,7 @@
        referenced: it is a net8.0 tool this build runs, not a library the binding links, and
        OutputItemType is what hands over where it landed. -->
   <ItemGroup>
-    <ProjectReference Include="..\tools\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.csproj"
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.csproj"
                       ReferenceOutputAssembly="false"
                       OutputItemType="OptionsGeneratorTool"
                       SetTargetFramework="TargetFramework=net8.0"
@@ -78,7 +82,7 @@
       <Output TaskParameter="ExitCode" PropertyName="OptionsCheckExitCode" />
     </Exec>
     <Error Condition="'$(OptionsCheckExitCode)' != '0'"
-           Text="ChannelOptions.g.cs is not what $(OptionsSchema) renders (exit $(OptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/tools/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport/options.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs`." />
+           Text="ChannelOptions.g.cs is not what $(OptionsSchema) renders (exit $(OptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport/options.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs`." />
     <Touch Files="$(IntermediateOutputPath)options-checked.stamp" AlwaysCreate="true" />
     <!-- Or `dotnet clean` leaves the stamp and the next build skips the check. -->
     <ItemGroup>

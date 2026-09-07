@@ -18,6 +18,8 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 /// <summary>The native engine could not be loaded. The message says where it was looked for and

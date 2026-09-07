@@ -24,7 +24,9 @@ using System.Threading.Tasks;
 
 using Grpc.Core;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 internal interface ICallSink
 {

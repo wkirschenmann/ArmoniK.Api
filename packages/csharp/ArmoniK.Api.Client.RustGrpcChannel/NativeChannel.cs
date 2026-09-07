@@ -22,6 +22,9 @@ using System.Threading.Tasks;
 
 using Grpc.Core;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 internal enum ChannelDisposeState
@@ -52,19 +55,17 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
 
   internal NativeChannel(NativeRuntime runtime,
                          string endpoint,
-                         int deliveryCredits)
+                         ChannelOptions options)
     : base(endpoint)
   {
-    runtime_         = runtime;
-    deliveryCredits_ = deliveryCredits;
+    runtime_ = runtime;
+    // Resolved by the factory, so this and the engine size from one number.
+    deliveryCredits_ = options.DeliveryCredits!.Value;
 
     // The endpoint is its own argument and never an option: it is the one value a channel cannot
     // be created without, so every option of the document has a default and `{}` would do.
     var named = Encoding.UTF8.GetBytes(endpoint);
-    var json = new ChannelOptions
-               {
-                 DeliveryCredits = deliveryCredits,
-               }.Encode();
+    var json = options.Encode();
 
     unsafe
     {

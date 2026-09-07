@@ -18,7 +18,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 internal static class NativeMethods
 {

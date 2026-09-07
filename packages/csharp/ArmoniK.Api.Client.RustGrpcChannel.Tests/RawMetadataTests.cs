@@ -21,6 +21,8 @@ using Grpc.Core;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>The blob the engine reads, sized in one pass and written in another.</summary>

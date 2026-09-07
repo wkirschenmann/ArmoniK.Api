@@ -59,15 +59,33 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     {
       // Ahead of any rendering: a name reaches an identifier, a `nameof`, and two string
       // literals, and one that is not a C# name would be spliced into all four.
+      var context = groups[0]
+                      .Name
+                    + "JsonContext";
+
       foreach (var group in groups)
       {
         RefuseAName(group.Name,
                     "a schema");
 
+        // The serializer context is declared beside the classes and named after the root, so a
+        // group of that name would be two types of one name in a file nobody wrote.
+        if (group.Name == context)
+        {
+          throw new NotSupportedException($"`{group.Name}` names a schema, and it is also the serializer context this renders for `{groups[0].Name}`.");
+        }
+
         foreach (var option in group.Options)
         {
           RefuseAName(option.Name,
                       $"an option of `{group.Name}`");
+
+          // C# refuses a member named after the type that declares it, and the message it gives
+          // names a file nobody wrote.
+          if (option.Name == group.Name)
+          {
+            throw new NotSupportedException($"`{option.Name}` is an option of the group of the same name, and C# admits no member named after its own class.");
+          }
         }
       }
 
@@ -90,34 +108,60 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
             .Append("#nullable enable\n")
             .Append('\n')
             .Append("using System;\n")
+            .Append("using System.Text.Json;\n")
             .Append("using System.Text.Json.Serialization;\n")
             .Append('\n')
             .Append("namespace ")
             .Append(namespaceName)
             .Append(";\n");
 
+      // Rooted at the first group, which reaches every other: the context is what serializes
+      // without reflection, which is what lets a trimmed or native-AOT host send a document.
+      source.Append('\n')
+            .Append("// Rooted at ")
+            .Append(groups[0]
+                      .Name)
+            .Append(", which reaches every group of the vocabulary, so the whole graph is\n")
+            .Append("// serialized without reflection - which is what lets a trimmed or native-AOT host use this.\n")
+            .Append("[JsonSerializable(typeof(")
+            .Append(groups[0]
+                      .Name)
+            .Append("))]\n")
+            .Append("internal partial class ")
+            .Append(groups[0]
+                      .Name)
+            .Append("JsonContext : JsonSerializerContext\n{\n}\n");
+
       foreach (var group in groups)
       {
         source.Append('\n');
         Append(source,
-               group);
+               group,
+               ReferenceEquals(group,
+                               groups[0]));
       }
 
       return source.ToString();
     }
 
     private static void Append(StringBuilder source,
-                               OptionGroup group)
+                               OptionGroup group,
+                               bool isRoot)
     {
       Document(source,
                group.Description,
                string.Empty);
 
-      // Partial, because what the schema does not say - how a document crosses the ABI - is
-      // written by hand beside this rather than squeezed into the vocabulary.
-      source.Append("internal sealed partial class ")
+      // Public, because this is what a caller fills in. Not partial: the whole surface is
+      // rendered here - the properties, the bounds, the copy, the serializer context and the
+      // encoding - so a second part would be something the schema does not decide, and the place
+      // for that is this generator.
+      source.Append("public sealed class ")
             .Append(group.Name)
             .Append("\n{\n");
+
+      AppendConstructors(source,
+                         group);
 
       var first = true;
 
@@ -154,7 +198,145 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       AppendValidate(source,
                      group);
 
+      if (isRoot)
+      {
+        AppendEncode(source,
+                     group);
+      }
+
       source.Append("}\n");
+    }
+
+    // Only the root group: the document the engine reads is one object, and a group of it is not
+    // a document. `Validate` runs first, because the engine answers a bad one with a status that
+    // names neither the option nor the bound.
+    private static void AppendEncode(StringBuilder source,
+                                     OptionGroup group)
+    {
+      source.Append('\n')
+            .Append(Indent)
+            .Append("/// <summary>The document the engine reads, as UTF-8.</summary>\n")
+            .Append(Indent)
+            .Append("/// <returns>The options as JSON, without the ones left unset.</returns>\n")
+            .Append(Indent)
+            .Append("/// <exception cref=\"ArgumentOutOfRangeException\">An option is outside its bounds.</exception>\n")
+            .Append(Indent)
+            .Append("/// <remarks>\n")
+            .Append(Indent)
+            .Append("///   Checked before it is written, not after it is refused: the engine answers a bad\n")
+            .Append(Indent)
+            .Append("///   document with a status naming neither the option nor the bound.\n")
+            .Append(Indent)
+            .Append("/// </remarks>\n")
+            .Append(Indent)
+            .Append("internal byte[] Encode()\n")
+            .Append(Indent)
+            .Append("{\n")
+            .Append(Indent)
+            .Append(Indent)
+            .Append("Validate();\n")
+            .Append('\n')
+            .Append(Indent)
+            .Append(Indent)
+            .Append("return JsonSerializer.SerializeToUtf8Bytes(this,\n")
+            .Append(Indent)
+            .Append(Indent)
+            .Append("                                           ")
+            .Append(group.Name)
+            .Append("JsonContext.Default.")
+            .Append(group.Name)
+            .Append(");\n")
+            .Append(Indent)
+            .Append("}\n");
+    }
+
+    // A caller's instance is theirs, and what a channel reads has to stay what it read: a value
+    // taken twice from a settable property is two values if anything sets it in between. So a
+    // holder takes a copy, and the copy is deep - a group left shared would be the same hole one
+    // level down.
+    private static void AppendConstructors(StringBuilder source,
+                                           OptionGroup group)
+    {
+      source.Append(Indent)
+            .Append("/// <summary>Options nobody has set.</summary>\n")
+            .Append(Indent)
+            .Append("public ")
+            .Append(group.Name)
+            .Append("()\n")
+            .Append(Indent)
+            .Append("{\n")
+            .Append(Indent)
+            .Append("}\n")
+            .Append('\n')
+            .Append(Indent)
+            .Append("/// <summary>A copy of <paramref name=\"other\" />, sharing nothing with it.</summary>\n")
+            .Append(Indent)
+            .Append("/// <param name=\"other\">The options to copy.</param>\n")
+            .Append(Indent)
+            .Append("/// <exception cref=\"ArgumentNullException\"><paramref name=\"other\" /> is null.</exception>\n")
+            .Append(Indent)
+            .Append("public ")
+            .Append(group.Name)
+            .Append("(")
+            .Append(group.Name)
+            .Append(" other)\n")
+            .Append(Indent)
+            .Append("{\n")
+            .Append(Indent)
+            .Append(Indent)
+            .Append("if (other is null)\n")
+            .Append(Indent)
+            .Append(Indent)
+            .Append("{\n")
+            .Append(Indent)
+            .Append(Indent)
+            .Append(Indent)
+            .Append("throw new ArgumentNullException(nameof(other));\n")
+            .Append(Indent)
+            .Append(Indent)
+            .Append("}\n");
+
+      if (group.Options.Count > 0)
+      {
+        source.Append('\n');
+      }
+
+      foreach (var option in group.Options)
+      {
+        source.Append(Indent)
+              .Append(Indent)
+              .Append(option.Name)
+              .Append(" = ");
+
+        if (option.IsGroup)
+        {
+          source.Append("other.")
+                .Append(option.Name)
+                .Append(" is null\n")
+                .Append(Indent)
+                .Append(Indent)
+                .Append(Indent)
+                .Append(new string(' ', option.Name.Length + 3))
+                .Append("? null\n")
+                .Append(Indent)
+                .Append(Indent)
+                .Append(Indent)
+                .Append(new string(' ', option.Name.Length + 3))
+                .Append(": new ")
+                .Append(option.Type)
+                .Append("(other.")
+                .Append(option.Name)
+                .Append(");\n");
+          continue;
+        }
+
+        source.Append("other.")
+              .Append(option.Name)
+              .Append(";\n");
+      }
+
+      source.Append(Indent)
+            .Append("}\n\n");
     }
 
     // Every bound the schema states, checked here. The schema cannot say all of it in the type -
@@ -490,8 +672,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                    RegexOptions.CultureInvariant);
 
     // What a generated class already declares, or inherits and would shadow without saying so.
+    // `Encode` is the root's, and a group has none - listed for every class all the same, because
+    // which group is the root is no reason for an option to be spelled one way here.
     private static readonly HashSet<string> Members = new(StringComparer.Ordinal)
                                                       {
+                                                        "Encode",
                                                         "Equals",
                                                         "GetHashCode",
                                                         "GetType",

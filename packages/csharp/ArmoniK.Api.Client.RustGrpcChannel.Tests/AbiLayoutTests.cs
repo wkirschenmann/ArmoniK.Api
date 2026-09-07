@@ -20,6 +20,8 @@ using System.Runtime.InteropServices;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>What `armonik-transport-ffi/tests/layout.rs` asserts, from the other side.</summary>

@@ -15,7 +15,12 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Text;
+
+using ArmoniK.Api.Common.Utils;
+
+using Microsoft.Extensions.Configuration;
 
 using NUnit.Framework;
 
@@ -142,6 +147,125 @@ public class ChannelOptionsTests
                              MaxReceiveMessageSize = int.MaxValue,
                            }),
                    Is.EqualTo(@"{""MaxReceiveMessageSize"":2147483647}"));
+
+  /// <summary>A copy shares nothing with what it copied, one group down included.</summary>
+  /// <remarks>
+  ///   What a channel sizes its rings from and what it sends the engine have to be one number,
+  ///   and a settable property read twice is two numbers if anything sets it in between - so the
+  ///   factory reads a copy. A group left shared would be the same hole one level down.
+  /// </remarks>
+  [Test]
+  public void ACopySharesNothingWithWhatItCopied()
+  {
+    var original = new ChannelOptions
+                   {
+                     DeliveryCredits = 4,
+                     Transport = new TransportOptions
+                                 {
+                                   ConnectTimeoutSeconds = 2.5,
+                                 },
+                   };
+
+    var copy = new ChannelOptions(original);
+
+    original.DeliveryCredits              = 8;
+    original.Transport!.ConnectTimeoutSeconds = 30;
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(copy.DeliveryCredits,
+                                  Is.EqualTo(4));
+                      Assert.That(copy.Transport!.ConnectTimeoutSeconds,
+                                  Is.EqualTo(2.5),
+                                  "the group is copied and not shared");
+                    });
+  }
+
+  [Test]
+  public void ACopyOfNothingIsRefused()
+    => Assert.That(() => new ChannelOptions(null!),
+                   Throws.TypeOf<ArgumentNullException>());
+
+  /// <summary>An option named in two layers is settled by .NET before it arrives.</summary>
+  /// <remarks>This binds the composition and reads no source itself, so .NET's order decides.</remarks>
+  [Test]
+  public void AnOptionNamedInTwoLayersTakesTheLatersValue()
+  {
+    var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                         {
+                                                                           ["Section:DeliveryCredits"] = "4",
+                                                                           ["Section:UserAgent"]       = "first",
+                                                                         })
+                                                  .AddInMemoryCollection(new Dictionary<string, string?>
+                                                                         {
+                                                                           ["Section:UserAgent"] = "second",
+                                                                         })
+                                                  .Build();
+
+    var options = configuration.GetRequiredValue<ChannelOptions>("Section");
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(options.UserAgent,
+                                  Is.EqualTo("second"),
+                                  "the later layer wins");
+                      Assert.That(options.DeliveryCredits,
+                                  Is.EqualTo(4),
+                                  "and an option only the earlier layer names still arrives");
+                    });
+  }
+
+  /// <summary>A group is reached by the separator .NET already maps onto a section.</summary>
+  /// <remarks>The repository relies on that mapping today with `GrpcClient__Endpoint`.</remarks>
+  [Test]
+  public void AnOptionSetOnlyInTheEnvironmentReachesTheDocument()
+  {
+    const string prefix = "AKRUSTTEST_";
+
+    Environment.SetEnvironmentVariable(prefix + "Section__MaxSendsInFlight",
+                                       "7");
+    Environment.SetEnvironmentVariable(prefix + "Section__Transport__ConnectTimeoutSeconds",
+                                       "2.5");
+
+    try
+    {
+      var configuration = new ConfigurationBuilder().AddEnvironmentVariables(prefix)
+                                                    .Build();
+
+      var options = configuration.GetRequiredValue<ChannelOptions>("Section");
+
+      // The document, because an option bound but not serialized is one the engine never sees.
+      Assert.That(Encoded(options),
+                  Is.EqualTo(@"{""MaxSendsInFlight"":7,""Transport"":{""ConnectTimeoutSeconds"":2.5}}"));
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(prefix + "Section__MaxSendsInFlight",
+                                         null);
+      Environment.SetEnvironmentVariable(prefix + "Section__Transport__ConnectTimeoutSeconds",
+                                         null);
+    }
+  }
+
+  /// <summary>A configuration key no option matches is dropped, not refused.</summary>
+  /// <remarks>
+  ///   .NET's binder ignores it. What `additionalProperties: false` refuses is a misspelling in
+  ///   the document, which is the path a Rust or C++ host takes.
+  /// </remarks>
+  [Test]
+  public void AConfigurationKeyNoOptionMatchesIsIgnoredByTheBinder()
+  {
+    var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                         {
+                                                                           ["Section:DeliveryCredit"] = "4",
+                                                                         })
+                                                  .Build();
+
+    var options = configuration.GetRequiredValue<ChannelOptions>("Section");
+
+    Assert.That(Encoded(options),
+                Is.EqualTo("{}"));
+  }
 
   [Test]
   public void AValueOnEitherEdgeOfItsRangeIsAdmitted()

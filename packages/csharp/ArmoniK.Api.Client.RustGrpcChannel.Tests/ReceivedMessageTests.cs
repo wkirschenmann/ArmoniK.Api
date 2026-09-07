@@ -21,6 +21,9 @@ using System.Runtime.InteropServices;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 [TestFixture]

@@ -18,6 +18,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
+using ArmoniK.Api.Common.Utils;
+
+using Microsoft.Extensions.Configuration;
+
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 internal enum RuntimeDisposeState
@@ -67,17 +73,83 @@ public static class NativeRuntimeFactory
   /// because the ABI's own is `Semaphore::MAX_PERMITS`, which is 2^61 and sizes nothing.</remarks>
   public const int MaxDeliveryCredits = 1 << 15;
 
+  /// <summary>The delivery window a channel gets when its options name none.</summary>
+  /// <remarks>
+  ///   Resolved into the document a channel sends, so the engine is never left to apply its own -
+  ///   which is what keeps the ring this side sizes and the credits that side grants the same
+  ///   number. One, because a host that asks for nothing gets a channel it can drive without ever
+  ///   holding two of anything.
+  /// </remarks>
+  public const int DefaultDeliveryCredits = 1;
+
+  /// <summary>The section a channel's options are read from when a caller names none.</summary>
+  public const string SettingSection = "RustGrpcChannel";
+
+  /// <summary>Opens a channel with the options a configuration carries.</summary>
+  /// <param name="endpoint">Where the channel connects, as the engine's own argument.</param>
+  /// <param name="configuration">What the options are read from.</param>
+  /// <param name="key">The section holding them.</param>
+  /// <returns>The channel, holding a lease on the runtime.</returns>
+  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
+  /// <exception cref="InvalidOperationException"><paramref name="key" /> names no section.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
+  /// <remarks>
+  ///   Required rather than optional: a caller who names a section meant to configure this, and a
+  ///   misspelled name that quietly gave the engine's defaults would be a channel nobody
+  ///   configured. <see cref="Channel(string,int)" /> is how to ask for the defaults.
+  /// </remarks>
+  public static NativeChannel Channel(string endpoint,
+                                      IConfiguration configuration,
+                                      string key = SettingSection)
+  {
+    if (configuration is null)
+    {
+      throw new ArgumentNullException(nameof(configuration));
+    }
+
+    return Channel(endpoint,
+                   configuration.GetRequiredValue<ChannelOptions>(key));
+  }
+
+  /// <summary>Opens a channel with a delivery window, and the engine's defaults elsewhere.</summary>
+  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="deliveryCredits">How many events the engine may hold for an unread call.</param>
+  /// <returns>The channel, holding a lease on the runtime.</returns>
+  /// <exception cref="ArgumentOutOfRangeException">The window is outside what is admitted.</exception>
+  public static NativeChannel Channel(string endpoint,
+                                      int deliveryCredits = DefaultDeliveryCredits)
+    => Channel(endpoint,
+               new ChannelOptions
+               {
+                 DeliveryCredits = deliveryCredits,
+               });
+
   /// <summary>Opens a channel and takes a lease on the runtime, creating it if there is none.
   /// Disposing the channel gives the lease back.</summary>
+  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="options">What the channel is opened with, read once and never written to.</param>
+  /// <returns>The channel, holding a lease on the runtime.</returns>
+  /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
   public static NativeChannel Channel(string endpoint,
-                                      int deliveryCredits = 1)
+                                      ChannelOptions options)
   {
-    if (deliveryCredits is < 1 or > MaxDeliveryCredits)
+    if (options is null)
     {
-      throw new ArgumentOutOfRangeException(nameof(deliveryCredits),
-                                            deliveryCredits,
-                                            $"a delivery window is between 1 and {MaxDeliveryCredits}: zero admits no delivery at all, and every call of the channel allocates a ring of the next power of two above it");
+      throw new ArgumentNullException(nameof(options));
     }
+
+    // One read of the caller's instance: what a channel sizes its rings from and what it sends
+    // the engine are the same number only if nothing can set it in between.
+    var settled = new ChannelOptions(options)
+                  {
+                    DeliveryCredits = options.DeliveryCredits ?? DefaultDeliveryCredits,
+                  };
+
+    // The schema's bounds, then this binding's own tighter one. Both are checked here rather
+    // than left to the engine, which answers a bad document with a status naming no option.
+    settled.Validate();
+    RefuseAWindowNoRingCanHold(settled.DeliveryCredits);
 
     NativeRuntime runtime;
     try
@@ -93,12 +165,24 @@ public static class NativeRuntimeFactory
     {
       return new NativeChannel(runtime,
                                endpoint,
-                               deliveryCredits);
+                               settled);
     }
     catch
     {
       Release();
       throw;
+    }
+  }
+
+  // Checked wherever a window arrives, so which door a caller came through does not decide
+  // which bound applies.
+  private static void RefuseAWindowNoRingCanHold(int? deliveryCredits)
+  {
+    if (deliveryCredits > MaxDeliveryCredits)
+    {
+      throw new ArgumentOutOfRangeException(nameof(ChannelOptions.DeliveryCredits),
+                                            deliveryCredits,
+                                            $"a delivery window is at most {MaxDeliveryCredits} here: every call of the channel allocates a ring of the next power of two above it");
     }
   }
 

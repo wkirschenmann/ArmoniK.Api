@@ -17,7 +17,9 @@
 
 using System;
 
-namespace ArmoniK.Api.Client.RustGrpcChannel;
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 /// <summary>Raised where the engine refuses a send because the call is already over.</summary>
 ///
