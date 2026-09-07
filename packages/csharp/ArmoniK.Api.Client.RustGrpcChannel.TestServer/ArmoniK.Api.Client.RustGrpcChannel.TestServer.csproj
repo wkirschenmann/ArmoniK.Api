@@ -4,6 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <PackageVersion>3.29.2</PackageVersion>
+    <Version>3.29.2</Version>
     <LangVersion>10</LangVersion>
     <Nullable>enable</Nullable>
     <!-- The gRPC server every client target dials. Kestrel and Grpc.AspNetCore are ASP.NET Core,

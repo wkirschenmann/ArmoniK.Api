@@ -5,6 +5,8 @@
          netstandard2.0 half. That half is the one nothing exercised, so it gets its own hosts. -->
     <TargetFrameworks>net4.7;net4.8;net8.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
+    <PackageVersion>3.29.2</PackageVersion>
+    <Version>3.29.2</Version>
     <LangVersion>10</LangVersion>
     <Nullable>enable</Nullable>
     <!-- The engine is a native library of one architecture, so the host must not silently be of
@@ -65,12 +67,16 @@
   </ItemGroup>
 
   <!-- Where that process lives, handed to the fixture rather than rediscovered at run time: the
-       tests run from three different framework directories and the server from only one. -->
+       tests run from three different framework directories and the server from only one.
+
+       Forward slashes, because these reach .NET as an attribute value and not as a path MSBuild
+       normalises: on Linux a backslash is an ordinary filename character, so the whole tail would
+       be one name that `File.Exists` never finds. -->
   <ItemGroup>
     <AssemblyMetadata Include="TestServerAssembly"
-                      Value="$(MSBuildThisFileDirectory)..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\bin\$(Configuration)\net8.0\ArmoniK.Api.Client.RustGrpcChannel.TestServer.dll" />
+                      Value="$(MSBuildThisFileDirectory)../ArmoniK.Api.Client.RustGrpcChannel.TestServer/bin/$(Configuration)/net8.0/ArmoniK.Api.Client.RustGrpcChannel.TestServer.dll" />
     <AssemblyMetadata Include="MockServerAssembly"
-                      Value="$(MSBuildThisFileDirectory)..\ArmoniK.Api.Mock\bin\$(Configuration)\net8.0\ArmoniK.Api.Mock.dll" />
+                      Value="$(MSBuildThisFileDirectory)../ArmoniK.Api.Mock/bin/$(Configuration)/net8.0/ArmoniK.Api.Mock.dll" />
   </ItemGroup>
 
   <!-- An architecture switch in one tree does not rebuild on its own: MSBuild's up-to-date check

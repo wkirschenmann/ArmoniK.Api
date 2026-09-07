@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import process from 'node:process'
 import consola from 'consola'
 import { _readAndReplace } from './versions/_readAndReplace'
@@ -49,3 +50,18 @@ javaFiles.forEach(_readAndReplace(javaPattern, `<version>${version}</version>`))
 consola.info('Updating rust projects to ', version)
 rustFiles.forEach(_readAndReplace(rustPattern, `version = "${version}-beta-0"`))
 rustDependencyFiles.forEach(_readAndReplace(rustDependencyPattern, `${version}-beta-0`))
+
+// Cargo.lock pins the workspace members by version as well, and every cargo invocation in CI passes
+// --locked, which refuses to resolve a manifest the lock does not match. `--workspace` so the
+// third-party pins stay where they are: a version bump is not the moment to move them.
+consola.info('Locking rust workspace members at ', version)
+try {
+  execFileSync('cargo', ['update', '--workspace', '--offline'], {
+    cwd: 'packages/rust',
+    stdio: 'inherit',
+  })
+}
+catch {
+  consola.fatal('cargo update failed, so Cargo.lock still names the previous version')
+  process.exit(1)
+}

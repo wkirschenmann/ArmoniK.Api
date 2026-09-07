@@ -6,6 +6,8 @@
     <Company>ANEO</Company>
     <Copyright>Copyright (C) ANEO, 2021-2026</Copyright>
     <IsPackable>false</IsPackable>
+    <PackageVersion>3.29.2</PackageVersion>
+    <Version>3.29.2</Version>
     <LangVersion>10</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
