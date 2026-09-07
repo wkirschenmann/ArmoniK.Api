@@ -81,3 +81,39 @@ Deferred from the same neighbourhood, with its mechanism: the schema states no m
 `ConnectTimeoutSeconds`, so the generated `Validate()` accepts a value the engine then refuses -
 an error found late rather than early. That is the audit's "one bound, one place" (its lot 13),
 which moves bounds into the schema and derives both sides from it, and it is a task of its own.
+
+---
+
+## H-009, the HTTP/2 window: the observation holds, the number does not
+
+The audit's evidence is right and its conclusion is not, so this one is recorded rather than fixed.
+
+**What it says.** "The HTTP/2 client is handshaked with no flow-control tuning, so it runs on
+hyper's 64 KiB stream and connection windows with adaptive_window off. A 64 KiB window caps one
+stream at window/RTT: ~64 MB/s at 1 ms RTT, ~6.4 MB/s at 10 ms - and .NET's SocketsHttpHandler
+scales its own window to 16 MiB by default, so on any non-LAN path this engine is slower than the
+managed client it exists to beat." Severity blocker, confidence high.
+
+**The evidence half is true**: `http2::Builder::new(executor).handshake(io)` calls none of
+`initial_stream_window_size`, `initial_connection_window_size` or `adaptive_window`, anywhere in
+the crate.
+
+**The number is wrong.** hyper 1.10.1, which `Cargo.lock` resolves, defaults its HTTP/2 *client* to
+
+    src/proto/h2/client.rs:48  const DEFAULT_CONN_WINDOW: u32 = 1024 * 1024 * 5;   // 5mb
+    src/proto/h2/client.rs:49  const DEFAULT_STREAM_WINDOW: u32 = 1024 * 1024 * 2; // 2mb
+
+65 535 is `SPEC_WINDOW_SIZE`, and in hyper it is what `adaptive_window(true)` *sets* as its BDP
+starting point - not a default. So the untuned engine has a 2 MiB stream window, and the same
+arithmetic gives 2 GB/s at 1 ms and 200 MB/s at 10 ms rather than 64 and 6.4 MB/s. The conclusion
+that the engine is slower than the managed client on any non-LAN path does not follow from it.
+
+**What is left of the finding, which is real.** The window is a library default nobody here chose,
+and the comparison with .NET is the other way round at the start and possibly the audit's way round
+at the limit: `SocketsHttpHandler` starts a stream at 64 KiB and scales dynamically to 16 MiB, so
+this engine is ahead of it immediately and behind it on a long fat pipe. Which of the two shapes is
+wanted is a policy this repository has not chosen, and enabling `adaptive_window` is not free: it
+drops the starting window from 2 MiB to 64 KiB in exchange for growing past it.
+
+**Status: the choice goes to the user**, with T6.7's benchmarks as what should settle it. Severity
+as re-derived here is major, not blocker.
