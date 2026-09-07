@@ -298,16 +298,31 @@ internal sealed class NativeCall<TResponse> : ICallSink
                                                    TRequest request,
                                                    bool halfClose)
   {
-    using var lent = new LentBuffer(handle_);
-    marshaller.ContextualSerializer(request,
-                                    lent);
-
+    // One whole attempt per turn, serialization included: the lend is asked for at the announced
+    // length, before a byte is written, so a ceiling with no room is met there and not halfway
+    // through. Serializing again costs a second pass over a message that has not changed, and it
+    // is what lets the ceiling be waited on instead of allocated around.
     while (true)
     {
-      // Counted once the engine has taken it, so a refusal leaves nothing to acquit. The WRITE_DONE
-      // may land before this returns and drive the count below zero; `RunAsync` reads the count
-      // only once this method has returned, which is why it reads the sum and not a moment of it.
-      var status = lent.Commit();
+      using var lent = new LentBuffer(handle_);
+
+      NativeMethods.AkStatus status;
+      try
+      {
+        marshaller.ContextualSerializer(request,
+                                        lent);
+
+        // Counted once the engine has taken it, so a refusal leaves nothing to acquit. The
+        // WRITE_DONE may land before this returns and drive the count below zero; `RunAsync` reads
+        // the count only once this method has returned, which is why it reads the sum and not a
+        // moment of it.
+        status = lent.Commit();
+      }
+      catch (NoRoomYet)
+      {
+        status = NativeMethods.AkStatus.BudgetBusy;
+      }
+
       if (status == NativeMethods.AkStatus.Ok)
       {
         Interlocked.Increment(ref inFlight_);

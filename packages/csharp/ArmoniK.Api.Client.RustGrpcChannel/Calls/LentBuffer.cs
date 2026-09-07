@@ -70,7 +70,12 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
                                             "a message is not a negative number of bytes");
     }
 
-    Take(payloadLength);
+    if (Take(payloadLength) == NativeMethods.AkStatus.BudgetBusy)
+    {
+      // Serializing onto the managed heap instead would answer backpressure with the very
+      // allocation the ceiling exists to refuse, and `bytes_used` would never see those bytes.
+      throw new NoRoomYet();
+    }
   }
 
   public override IBufferWriter<byte> GetBufferWriter()
@@ -187,7 +192,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         return status;
 
       case NativeMethods.AkStatus.BudgetBusy:
-        spilled_ ??= new byte[length];
         return status;
 
       case NativeMethods.AkStatus.InvalidState:

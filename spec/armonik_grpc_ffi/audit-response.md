@@ -24,13 +24,14 @@ Statuses used here:
 
 | | count | |
 |---|---|---|
-| applied | 14 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, and an internal type that stopped escaping |
+| applied | 15 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, an internal type that stopped escaping, and a send ceiling that is waited on |
 | answered by a decision | 5 | the platform set, the ABI's error channel, its size check, and two the absence of a publication channel dissolves |
 | re-derived and downgraded | 1 | the HTTP/2 window: the evidence holds, the number does not |
-| open | 12 | |
+| open | 11 | |
 
-Of the twelve open, one needs a decision before it can be built - the send memory ceiling, below -
-three are the engine's failure paths, and the rest belong to tasks already named.
+Of the eleven open, three are the engine's failure paths - a panic in a spawned task, a debt read
+before a lend has counted, a five-second timeout reported as quiescence - one is a public option
+that may have no effect, and the rest belong to tasks already named.
 
 **What the re-derivation is finding, over sixteen blockers so far: the audit's evidence lines hold
 and its conclusions need redoing.** Three of its claims were wrong on the number or the consequence
@@ -224,6 +225,42 @@ echo server needed changing first was right.
 | Finding | What it said | Proof |
 |---|---|---|
 | C-001, K-029 | `IClientStreamWriter<T>.WriteAsync` returns the call's task unchanged, so the binding's internal `CallEnded` reaches application code instead of an `RpcException`; and no test writes to a request stream after the call's terminal, which is the only path that raises it | the echo server gains `CollectRefused`, a client-streaming call refused without reading. Before: `Expected: instance of <Grpc.Core.RpcException> But was: <...Calls.CallEnded>`. After: passed |
+
+---
+
+## Applied: the send ceiling is waited on, not allocated around
+
+| Finding | What it said | Proof |
+|---|---|---|
+| I-001 | on `AK_STATUS_BUDGET_BUSY` the binding allocates the refused bytes on the managed heap and copies them into the arena at commit, so the ceiling arbitrated by the engine's ledger is overridden by the host | `spilled_ ??= new byte[length]` is gone from the ceiling's branch. The refusal is met in `SetPayloadLength`, which is called with the exact length before a byte is written, so the whole attempt restarts: `NoRoomYet` out of the serialization, the send loop waits for room and serializes again |
+
+**Decided: the ceiling is backpressure, so nothing is allocated on the .NET side.** `BUDGET_BUSY`
+says wait, the way `SLOT_BUSY` says wait for a call's window, and answering a wait with an
+allocation answers it with the one thing it exists to refuse. What made the allocation look
+necessary is that the refusal arrives inside a `SerializationContext` override, which cannot await;
+what makes it unnecessary is that the same override is handed the exact length up front, so the
+attempt is restartable rather than half-done.
+
+`spilled_` stays for `SerializationContext.Complete(byte[])`, where a marshaller hands over an array
+allocated before this binding saw it. design.md's decided row claimed "nothing to copy, and no
+managed heap to fragment" while the ceiling branch did both; it now names that one exception.
+
+No test exercises the ceiling, and the audit says so itself in A3-146: nothing drives the memory
+ceiling to exhaustion or the send window to its limit. Such a test needs a ceiling sized to one
+message and two sends in flight, in a runtime of its own - `Configure` is refused while one exists.
+Named here rather than left implied.
+
+**And the same principle leaves a question.** `AK_STATUS_SLOT_BUSY` is the other backpressure
+status, and `LentBuffer.Take` drops it into its default branch as `RpcException(Internal)` - a
+failure where the header says "backpressure, not an error; retry when a WRITE_DONE arrives". It is
+unreachable as this host is built, because a write linearizes at its acquittal and there is never
+more than one in flight. Which is exactly why the audit pairs it with a decision rather than a fix:
+if this binding does not pipeline sends, `MaxSendsInFlight` is a public option with no effect, and
+removing it is worth more than handling a status that cannot arrive. **That one is the user's.**
+
+---
+
+## The writer's fix, and the worse defect it nearly carried
 
 The obvious version of this fix would have introduced a worse defect than the one it cures.
 Answering from `await call_.TerminalAsync`, as the unary path does through its drained task, waits
