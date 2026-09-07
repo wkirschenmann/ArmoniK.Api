@@ -27,6 +27,32 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 [TestFixture]
 public class RustEngineMissingTests
 {
+  /// <summary>An endpoint reaches a message without whatever it carried before its host.</summary>
+  /// <remarks>
+  ///   The engine refuses an endpoint that carries `user:password@`, so that refusal is precisely
+  ///   the one whose message a caller reads - and the endpoint as given would put the password in
+  ///   their log. Asserted on what must be absent as well as on what must be there: a redaction
+  ///   that keeps the host is worth nothing if it keeps the userinfo too.
+  /// </remarks>
+  [Test]
+  public void AnEndpointInAMessageKeepsItsSchemeHostAndPortAndNothingElse()
+  {
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(NativeChannel.Safely("http://user:secret@example.test:5000/some/path?q=1"),
+                                  Is.EqualTo("http://example.test:5000"));
+                      Assert.That(NativeChannel.Safely("https://user:secret@example.test/"),
+                                  Is.EqualTo("https://example.test"),
+                                  "a default port is not spelled out");
+                      Assert.That(NativeChannel.Safely("http://example.test:5000"),
+                                  Is.EqualTo("http://example.test:5000"),
+                                  "an endpoint carrying nothing secret is unchanged");
+                      Assert.That(NativeChannel.Safely("user:secret@example.test:5000"),
+                                  Does.Not.Contain("secret"),
+                                  "a string no Uri parses is named rather than echoed");
+                    });
+  }
+
   /// <summary>The message is the whole point of this type, so it is asserted rather than assumed.</summary>
   [Test]
   public void TheMessageNamesWhatSomeoneWouldGoAndCheck()

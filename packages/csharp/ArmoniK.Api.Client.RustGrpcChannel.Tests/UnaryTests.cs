@@ -654,6 +654,40 @@ public class UnaryTests : RuntimeLeaseFixture
                 Does.Contain("call credentials"));
   }
 
+  /// <summary>A per-call authority is refused too, which is the same rule one option later.</summary>
+  /// <remarks>The `host` argument overrides the channel's authority for one call, and the endpoint
+  /// crosses the ABI once, at the channel. Dropped, it would send the call to a server the caller
+  /// did not name and let that server's answer stand for the binding's silence.</remarks>
+  [Test]
+  public void APerCallHostIsRefusedRatherThanDropped()
+  {
+    using var channel = Channel();
+
+    // Built here rather than taken from the generated client, which passes no host: reaching the
+    // argument means calling the invoker the way a generated stub does.
+    var say = new Method<EchoRequest, EchoReply>(MethodType.Unary,
+                                                 "armonik.transport.ffi.test.Echo",
+                                                 "Say",
+                                                 Marshallers.Create(request => request.ToByteArray(),
+                                                                    EchoRequest.Parser.ParseFrom),
+                                                 Marshallers.Create(reply => reply.ToByteArray(),
+                                                                    EchoReply.Parser.ParseFrom));
+
+    var refused = Assert.Throws<RpcException>(() => channel.CreateCallInvoker()
+                                                          .BlockingUnaryCall(say,
+                                                                             "elsewhere.test",
+                                                                             new CallOptions(),
+                                                                             new EchoRequest
+                                                                             {
+                                                                               Text = "redirected",
+                                                                             }));
+
+    Assert.That(refused!.StatusCode,
+                Is.EqualTo(StatusCode.Unimplemented));
+    Assert.That(refused.Status.Detail,
+                Does.Contain("per-call host"));
+  }
+
   [Test]
   public async Task TheChannelsTwoHalvesAgreeOnItsState()
   {

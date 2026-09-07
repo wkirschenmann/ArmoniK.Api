@@ -83,10 +83,30 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
                                                      out handle_);
         if (status != NativeMethods.AkStatus.Ok)
         {
-          throw new InvalidOperationException($"`{endpoint}` was refused ({status})");
+          throw new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status})");
         }
       }
     }
+  }
+
+  /// <summary>An endpoint as a message may carry it: the scheme, the host and the port.</summary>
+  /// <remarks>An endpoint may carry `user:password@`, and the engine refusing one is exactly the
+  /// case that reaches the message above - so the string as given would put a password in the
+  /// caller's log. The engine renders the same three parts, for the same reason. A string no
+  /// `Uri` parses is named rather than echoed: there is nothing in it this can promise is not a
+  /// secret.</remarks>
+  internal static string Safely(string endpoint)
+  {
+    if (!Uri.TryCreate(endpoint,
+                       UriKind.Absolute,
+                       out var parsed))
+    {
+      return "an endpoint that is not a URI";
+    }
+
+    return parsed.IsDefaultPort
+             ? $"{parsed.Scheme}://{parsed.Host}"
+             : $"{parsed.Scheme}://{parsed.Host}:{parsed.Port}";
   }
 
   internal ChannelDisposeState DisposeState

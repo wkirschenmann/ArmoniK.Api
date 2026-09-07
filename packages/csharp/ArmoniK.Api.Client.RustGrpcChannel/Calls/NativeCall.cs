@@ -819,7 +819,23 @@ internal sealed class NativeCall<TResponse> : ICallSink
   }
 
   /// <summary>Consumes what the application will not, so the call can settle.</summary>
+  /// <remarks>Nothing may leave this: the drain runs on a task nobody awaits, and `settled_` is
+  /// the first thing `SettlingAsync` waits on - so an escape would be a call that never settles
+  /// and a channel whose disposal waits for it. Faulted rather than completed, because completing
+  /// it says the terminal was consumed.</remarks>
   private async Task DrainAsync()
+  {
+    try
+    {
+      await DrainingAsync().ConfigureAwait(false);
+    }
+    catch (Exception thrown)
+    {
+      settled_.TrySetException(thrown);
+    }
+  }
+
+  private async Task DrainingAsync()
   {
     while (true)
     {

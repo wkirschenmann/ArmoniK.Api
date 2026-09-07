@@ -161,8 +161,11 @@ public class OptionVocabularyTests
                 Is.True,
                 $"the Rust client's config is not where the build said: {source}");
 
+    // Cast first: on .NET Framework a `MatchCollection` is only the non-generic `IEnumerable`, so
+    // `Select` does not reach it and this half of the suite is the one nothing else compiles.
     return Regex.Matches(File.ReadAllText(source),
                          @"read_env(?:_bool)?\(""GrpcClient__(?<name>[A-Za-z0-9]+)""")
+                .Cast<Match>()
                 .Select(match => match.Groups["name"].Value)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();

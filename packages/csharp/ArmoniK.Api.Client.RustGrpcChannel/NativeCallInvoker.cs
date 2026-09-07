@@ -49,6 +49,7 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                 CallOptions options,
                                                                                 TRequest request)
   {
+    MustCarryNoHost(host);
     MustCarryNoDeadline(options);
     MustCarryNothingElseUnhonoured(options);
 
@@ -146,6 +147,7 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                     CallOptions options,
                                                                                                     TRequest request)
   {
+    MustCarryNoHost(host);
     MustCarryNoDeadline(options);
     MustCarryNothingElseUnhonoured(options);
 
@@ -175,6 +177,7 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                               string? host,
                                                                                                               CallOptions options)
   {
+    MustCarryNoHost(host);
     MustCarryNoDeadline(options);
     MustCarryNothingElseUnhonoured(options);
 
@@ -199,6 +202,7 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                               string? host,
                                                                                                               CallOptions options)
   {
+    MustCarryNoHost(host);
     MustCarryNoDeadline(options);
     MustCarryNothingElseUnhonoured(options);
 
@@ -247,6 +251,21 @@ internal sealed class NativeCallInvoker : CallInvoker
     {
       throw new RpcException(new Status(StatusCode.Unimplemented,
                                         "this invoker carries no propagation token: it holds a parent call's deadline and cancellation, and neither crosses the C ABI"));
+    }
+  }
+
+  /// <summary>Refuses a per-call authority, which this invoker cannot send.</summary>
+  /// <remarks>The `host` argument every `CallInvoker` override takes overrides the channel's
+  /// authority for one call, and nothing here reads it: the endpoint crosses the ABI once, at the
+  /// channel. Refused for the same reason as the credentials above - a call sent to an authority
+  /// other than the one asked for is answered by the wrong server, and the answer names that
+  /// server rather than the binding that redirected it.</remarks>
+  private static void MustCarryNoHost(string? host)
+  {
+    if (!string.IsNullOrEmpty(host))
+    {
+      throw new RpcException(new Status(StatusCode.Unimplemented,
+                                        $"this invoker carries no per-call host: `{host}` would be dropped and the call sent to the channel's endpoint"));
     }
   }
 
