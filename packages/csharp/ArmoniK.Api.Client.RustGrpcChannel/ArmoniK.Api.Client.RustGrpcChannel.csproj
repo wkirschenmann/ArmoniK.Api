@@ -123,7 +123,11 @@
     </ItemGroup>
   </Target>
 
+  <!-- For a build that wants the managed surface and no engine: the documentation, which reads
+       this assembly's public types on an image with no Rust toolchain. The assembly is pure
+       managed, so it compiles without one; what it cannot do is load a call at run time. -->
   <Target Name="BuildNativeEngine" BeforeTargets="BeforeBuild"
+          Condition="'$(SkipNativeEngine)' != 'true'"
           Outputs="%(RustTarget.Identity)">
     <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild
          run this once per architecture rather than once with all of them. -->

@@ -107,7 +107,8 @@
        triple now. -->
   <Import Project="$(MSBuildThisFileDirectory)..\RustTargets.props" />
 
-  <Target Name="CopyNativeEngineForTests" AfterTargets="CopyFilesToOutputDirectory">
+  <Target Name="CopyNativeEngineForTests" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(SkipNativeEngine)' != 'true'">
     <!-- The one row of the shared table this host wants, so an architecture is added in one
          place instead of in two lists keyed differently. -->
     <ItemGroup>
