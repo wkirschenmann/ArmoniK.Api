@@ -250,13 +250,43 @@ ceiling to exhaustion or the send window to its limit. Such a test needs a ceili
 message and two sends in flight, in a runtime of its own - `Configure` is refused while one exists.
 Named here rather than left implied.
 
-**And the same principle leaves a question.** `AK_STATUS_SLOT_BUSY` is the other backpressure
-status, and `LentBuffer.Take` drops it into its default branch as `RpcException(Internal)` - a
-failure where the header says "backpressure, not an error; retry when a WRITE_DONE arrives". It is
-unreachable as this host is built, because a write linearizes at its acquittal and there is never
-more than one in flight. Which is exactly why the audit pairs it with a decision rather than a fix:
-if this binding does not pipeline sends, `MaxSendsInFlight` is a public option with no effect, and
-removing it is worth more than handling a status that cannot arrive. **That one is the user's.**
+**And the same principle leaves a question, whose first answer was wrong.** `AK_STATUS_SLOT_BUSY` is
+the other backpressure status, and `LentBuffer.Take` drops it into its default branch as
+`RpcException(Internal)` - a failure where the header says "backpressure, not an error; retry when a
+WRITE_DONE arrives". It is unreachable as this host is built, because `WriteAsync` returns only at
+the acquittal and there is never more than one send in flight.
+
+Two readings were recorded here before this one and both were wrong. The first was that
+`MaxSendsInFlight` has no effect and is worth removing. The second was that the formal model
+forbids using it and would have to change first. What design.md actually says settles both.
+
+**The window is a memory bound, and it is live.** design.md: "The send window bounds the memory the
+call's arena lends out: at most `MaxSendsInFlight` buffers at a time, counting both those the host
+is still filling and those already committed and awaiting their WRITE_DONE. The slot is charged when
+the buffer is lent rather than when the message is committed, because the allocation is what costs
+memory." So the option bounds an arena for any host, and `AK_STATUS_SLOT_BUSY` is how the ABI
+refuses past it, synchronously and without blocking.
+
+**What a depth above one buys is pipelining**, and it is not the network that gains: the
+serialization of message N+1 overlaps the transmission of N. That is a gain on a saturated link as
+much as an idle one.
+
+**And this binding exercising one is a stated decision, not a gap.** design.md, in the layer-4
+sketch: "native depth allows MaxSendsInFlight; this binding exercises one, the writer being single
+and completing at WRITE_DONE", and beside the writer's completion source, "No slot counter and no
+send signal: one writer completing at WRITE_DONE never finds the window full, so there is nothing to
+wait for". `DotNetBinding.tla` is faithful to that - its writer has no `SLOT_BUSY` action at all, and
+its budget-retry comment says "the window is always open" - and the code is faithful to both. So
+`LentBuffer`'s default branch is unreachable by a decision that is written down, not by accident.
+
+Revisiting it is therefore three artefacts in order, and design.md is the first rather than the
+model: the layer-4 decision changes, then the model's writer gains the right to serialize while
+writes are outstanding - level 1 already bounds them with a semaphore of the window's size - then
+the binding returns at the commit instead of the acquittal and `SLOT_BUSY` becomes a wait.
+
+**Whether that happens now is the user's call.** It is a feature the ABI already permits, it
+interacts with the replay ceiling phase 6 has to settle - a retry needs the sent bytes kept past
+their acquittal - and none of it is a correction. Recorded against T6.1, which owns that subject.
 
 ---
 

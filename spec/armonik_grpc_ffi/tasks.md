@@ -836,6 +836,23 @@ is what they mean.
 **Deliverable**: a decision recorded in the design, and either an implementation or a stated
 reason for accepting the unbounded product.
 
+**A fourth question belongs here, because it shares the subject: whether this binding starts using
+the send window's depth.** The window is a memory bound on the arena and it is live for any host -
+at most `MaxSendsInFlight` buffers lent at once, charged at the lend, refused past it with
+`AK_STATUS_SLOT_BUSY`. What a depth above one buys is pipelining, and not of the network: the
+serialization of message N+1 overlaps the transmission of N, which is a gain on a saturated link
+as much as an idle one.
+
+This binding exercises one, and that is decided rather than missing - design.md says "native depth
+allows MaxSendsInFlight; this binding exercises one, the writer being single and completing at
+WRITE_DONE". The model is faithful to it, having no `SLOT_BUSY` action at all, and so is the code.
+
+Changing it is three artefacts in this order: that layer-4 decision, then the model's writer gains
+the right to serialize while writes are outstanding - level 1 already bounds them with a semaphore
+of the window's size - then the binding returns at the commit instead of the acquittal and
+`LentBuffer`'s default branch becomes a wait. It lands in this task because a retry needs the sent
+bytes kept past their acquittal, which is the same question as what the arena retains.
+
 ### T6.2: Deadline
 
 **Prerequisite**: T4.0, T1.1
