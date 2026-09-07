@@ -250,6 +250,13 @@ the packaging carry it, and the first CI job on an arm host will say whether tha
 matrix is 15 tests over three runtimes and two architectures, and `test.yml` runs seven
 combinations of runtime, architecture and operating system.
 
+The set delivered here is not the set the package promises. Requirement 8.1 names eleven runtime
+identifiers; `RustTargets.props` declares seven of them and omits `linux-arm` and the three musl
+ones, while `linux-x86` - which the requirement used to ask for - is gone, .NET publishing no
+runtime for it. Of the eleven, CI builds three: win-x64, win-x86, linux-x64. Closing that gap is
+its own task, T6.6: each musl triple needs its own toolchain, and the CI matrix, the Framework copy
+step and the loader have to derive from the props table instead of repeating it.
+
 ### Phase 1 closing — the reviews, and what is deliberately left
 
 Two items this section listed as open are closed. The `/simplify` findings are applied. And the
@@ -427,6 +434,15 @@ are transport vocabulary and stay out, which is what keeps a later lift into its
 directory move.
 
 **Deliverable**: the module in place with its tests, and no domain option inside it.
+
+**Status**: done as stated, and ahead of its consumers. The module is in place with its tests, but
+T3.2 declared the channel's options with plain derives, so one of its five hundred lines' worth of
+readers is called - `boolean`, from `utils.rs`. `mod config_utils` therefore carries
+`#[allow(dead_code, unused_macros, unused_imports)]`, which reads as the crate declaring the module
+dead. It is not: the from-string readers, `strip_rust_details`, `schema_with_prefix` and
+`embed_prefixed!` are how the prefixed units of T4.1 and T5.1 get declared, and the #7xx stack
+lands on them. The `allow` is the marker of a harvest that precedes its use, and nothing but this
+line said so.
 
 ### T3.2: The channel's own options, as the first unit
 
@@ -684,9 +700,38 @@ missed, because the pattern excluded digits.
 
 ## Phase 4 — TLS and secure connection
 
+### T4.0: The ABI says why it refused, and becomes additive
+
+**Prerequisite**: T3.4
+**Why it is here and not in the original plan**: the five branches of T4.1's connector fail in ways
+only a message tells apart - a CA file that is not there, a PEM that does not parse, a handshake the
+peer refused, a certificate name no override can satisfy. A status code carries none of them, so
+requirements 11.1, 11.2 and 11.5 are unreachable through this ABI until it carries a message. This
+comes before the branches that need it rather than after.
+
+**Commit**: `ak_error` and `ak_error_release` as the ABI section states them, a nullable
+`ak_error *out_error` on every entry point that can fail, and the errors the engine already builds
+flattened into `detail` instead of collapsing into `AK_STATUS_INVALID_ARG`. The configuration reader
+stops answering with an `Option`, which is where the reason for a refusal is discarded today.
+`snafu::Location` leaves the message that crosses the ABI - requirement 11.4 - and stays in the
+tracing record.
+
+In the same version bump, because a second one is not free: `ak_runtime_config` and
+`ak_call_start_options` gain `version`, `flags` and reserved fields validated to zero, and their
+size check becomes a minimum instead of an equality. That is what makes T6.2's deadline field an
+addition rather than a break of every host compiled before it, and it is why this task precedes
+T6.2 as well.
+
+`AK_ABI_VERSION` becomes 2 and `tests/layout.rs` follows it. Free exactly once: no host is compiled
+against version 1 outside this repository, and that stops being true the day one ships.
+
+**Deliverable**: a configuration document refused over a named key produces that key's name in the
+message, read from C and from .NET; a host passing NULL for `out_error` causes no allocation; and a
+struct one field longer than this library knows is accepted with the unknown tail ignored.
+
 ### T4.1: The engine takes the real connector
 
-**Prerequisite**: T3.5, T1.1
+**Prerequisite**: T4.0, T3.5, T1.1
 **Commit**: widen `GrpcChannelConfig` past `{ transport, user_agent, max_sends_in_flight,
 max_recv_message_size }` and let `connect.rs::https_connector` replace the plain connector of
 `http2.rs`, which refuses `https://` by construction.
@@ -793,9 +838,13 @@ reason for accepting the unbounded product.
 
 ### T6.2: Deadline
 
-**Prerequisite**: T1.1
+**Prerequisite**: T4.0, T1.1
 **Commit**: a local timer per call, the `grpc-timeout` header transmitted, expiry cancelling the
 call and answering `DEADLINE_EXCEEDED`.
+
+T4.0 comes first because the deadline is a field of `ak_call_start_options`, and a field changes
+that struct's size: while the size is checked for equality, adding it refuses every host compiled
+before it.
 
 It also lifts `MustCarryNoDeadline`, which is today the only `Unimplemented` the binding opposes
 to an ordinary caller.
@@ -836,10 +885,46 @@ that reaches it and nothing else.
 ### T6.6: Packaging, finished
 
 **Prerequisite**: T4.1
-**Commit**: the Linux runtime identifiers in CI, `dotnet pack` producing a package that resolves
-on each platform, and arm64 executed at last rather than only mapped and packed.
+**Commit**: the eleven runtime identifiers of requirement 8.1 in `RustTargets.props` - it gains
+`linux-arm` and the three musl ones - with the CI matrix, the .NET Framework copy step and
+`NativeMethods.EngineDirectory` derived from that table rather than each carrying its own list.
+`dotnet pack` producing a package that resolves on each platform, and arm64 executed at last
+rather than only mapped and packed.
 
-**Deliverable**: a package that works on every runtime identifier it claims.
+**Where the work actually is: the two armv7 targets.** GitHub offers hosted arm64 runners for public
+repositories - `ubuntu-24.04-arm` and `windows-11-arm` - and this workspace uses `ubuntu-latest` and
+`windows-latest` and nothing else. Where those runners are available, win-arm64, linux-arm64 and
+linux-musl-arm64 are built and executed natively with no cross toolchain at all, which closes the
+oldest gap this document carries: T1.5's arm64, mapped and packaged and never once run. `osx-x64`
+and `osx-arm64` have hosted runners too. What no hosted runner covers is 32-bit armv7 - `linux-arm`
+and `linux-musl-arm` are cross-compiled and stay unexecuted, and that is the honest tier boundary.
+
+Musl costs less than it looks, and for three reasons that are independent of each other - none of
+them the C ABI, which rustc emits on its own.
+
+**Why musl is a separate asset at all**: `std` is compiled per `target_env`, and `target_env` is
+part of the triple - `rustc --print cfg` answers `gnu` for one and `musl` for the other. What this
+library holds is `std`, tokio and hyper, whose reactor wants `epoll`, whose pool wants pthreads and
+whose sockets and clock go the same way, so the C library is linked whatever the crypto does. A
+shared object linked against glibc does not load on Alpine. This reason survives dropping TLS and
+survives a pure-Rust crypto backend.
+
+**Why every target needs a C compiler**: `rustls` reaches `ring`, which is not written in Rust
+alone - 107 C and assembly files its build script hands to `cc`. That is also the whole reason a
+Windows build needs `cl.exe`. The crypto itself is nearly freestanding, including two libc headers
+and no allocation, but `cc` still has to produce code for the target, so a musl target needs a
+musl-targeting compiler rather than the host's. And `ring` is not libc-free on the two arm targets:
+it reads CPU capabilities through `getauxval`, and branches on the libc flavour to do it.
+
+**Why the musl builds need a flag**: `crt-static` is on by default on those targets and on no gnu
+one, which statically links the C runtime into a `cdylib`. They need
+`-C target-feature=-crt-static`.
+
+`EngineDirectory` picks between `x64` and `x86` on `IntPtr.Size` alone, which answers for the two
+platforms .NET Framework runs on and for nothing else; the table has to reach it.
+
+**Deliverable**: a package that works on every runtime identifier it claims, and one table that
+every consumer of the list reads.
 
 ### T6.7: Benchmarks
 
@@ -916,6 +1001,13 @@ gRPC engine.
 
 **Deliverable**: Rust ArmoniK client tests pass using `armonik-transport` instead of
 Tonic directly. Same functional behavior.
+
+This is also where the crate stops carrying two disjoint stacks. Until here the Rust client
+compiles sixteen mandatory dependencies where it compiled eight - `h2`, `http`, `http-body-util`,
+`bytes`, `base64`, `tokio` with five features, `tower-service` and `secrecy` - for an engine it
+does not use, and the only code the two stacks share is `chain` and `safe_endpoint`. That is paid
+deliberately rather than gated: a feature gate over the engine would be removed by this task, and
+a feature position nothing exercises rots before then.
 
 ---
 
@@ -1003,6 +1095,7 @@ T1.1 ─────────────→ T1.2 ←────────
   │                  T2.1, T2.2 → T2.3
   │
   └── T3.1 → T3.2 → T3.3 → T3.4 → T3.5   (the options, and everything waits on them)
+                              └── T4.0   (the ABI break, before any field is added to it)
                                      │
               ┌──────────────────────┼──────────────────────┐
               │                      │                      │
@@ -1012,8 +1105,9 @@ T1.1 ─────────────→ T1.2 ←────────
 ```
 
 T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
-gives the engine. T6.1 decides a ceiling before T6.4 builds what it bounds, and T6.2 stands on
-T1.1 alone, so it can run early.
+gives the engine. T6.1 decides a ceiling before T6.4 builds what it bounds. T4.0 is upstream of
+both T4.1 and T6.2 for two different reasons: T4.1's failures need a message to be distinguishable
+at all, and T6.2 adds a field to a struct whose size is checked for equality.
 
 ---
 
@@ -1027,7 +1121,8 @@ T1.1 alone, so it can run early.
   and 6 reaches a .NET caller through the schema it produces, so the three phases after it are
   parallelizable with each other and none of them with it.
 - **T6.6** (packaging) can start as soon as T4.1, since what it packages is the engine
-- **T6.2** (deadline) stands on T1.1 alone and can run at any point
+- **T6.2** (deadline) stands on T1.1 and T4.0: nothing about a timer waits on the option surface,
+  but the field it adds waits on the struct being able to grow
 - **Phase 7 comes after 3, 4, 5 and 6.** T7.1's declared prerequisites, T1.1 and T2.3, are met,
   so it could start at any time; it does not, by decision. Adapting the Rust client to a surface
   those phases are still moving would mean adapting it twice, and a client that could not offer

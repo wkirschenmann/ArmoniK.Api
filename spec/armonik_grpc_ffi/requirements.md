@@ -225,8 +225,12 @@ change.
 
 ### Acceptance Criteria
 
-1. The NuGet package contains native binaries for win-x64, win-x86, linux-x64, linux-x86 and
-   linux-arm64.
+1. The NuGet package contains native binaries for every non-wasm platform that .NET targets:
+   win-x64, win-x86, win-arm64, linux-x64, linux-arm, linux-arm64, linux-musl-x64,
+   linux-musl-arm, linux-musl-arm64, osx-x64 and osx-arm64. The musl identifiers are separate
+   assets rather than aliases: a shared object linked against glibc does not load on Alpine.
+   linux-x86 is absent because .NET publishes no runtime for it, so no .NET process could load
+   an asset built for it.
 2. The appropriate native binary is resolved automatically at runtime based on the RID.
 3. No additional installation (Rust runtime, external DLL) is required.
 4. If the native DLL is missing (unsupported RID), channel creation fails with an explicit
@@ -284,6 +288,9 @@ reading the transport source code.
    in release builds.
 5. Error codes are programmatically distinguishable (configuration vs connection vs transport vs
    timeout vs cancellation).
+6. Every criterion above is met at the ABI, not only at the .NET surface: a failing entry point
+   reports the category and the message to any host. A status code alone cannot carry criteria 1,
+   2 and 5, so the entry points that can fail take a detail argument.
 
 ---
 
@@ -320,7 +327,11 @@ that a binding compiled against a previous version continues to work with a newe
    ignores what it does not know.
 4. No change to the signature, layout, calling convention or semantics of an existing symbol
    within the same major version.
-5. Evolvable records use `size` + `version` + `flags` + reserved fields validated to zero.
+5. Evolvable records — the ones the host fills and this library reads — use `size` + `version` +
+   `flags` + reserved fields validated to zero, and the size is checked as a minimum so that a
+   newer library serves a host compiled before it. A record this library fills and the host
+   reads has a fixed layout instead, versioned by `ak_abi_version()` at load time: the two sides
+   agree there or they do not run.
 
 ---
 
@@ -343,6 +354,11 @@ undefined behavior when used from .NET.
 7. Unloading the native library is only allowed after certified quiescence (`AK_RELEASED`).
 8. A panic on the Rust side does not propagate to the host — it is contained and converted to
    an error.
+9. One runtime exists per process, and one channel factory per runtime: a second create before
+   the first is destroyed is refused. Several tokio runtimes in one process share the machine's
+   cores without knowing of each other, which is what this forbids. The first lessee's
+   worker-thread count and memory ceiling are the process's, and a later caller that sets them
+   is refused rather than ignored.
 
 ---
 

@@ -1136,6 +1136,42 @@ typedef struct {
     void *owner;            // opaque - passed as-is to ak_event_consumed
 } ak_bytes;
 
+// === Errors ===
+
+// Why a fallible entry point refused. A status says whether a call worked and,
+// when it did not, whether waiting would help; it cannot carry a message or
+// name a family, which is what requirements 11.1, 11.2 and 11.5 ask for.
+typedef enum {
+    AK_ERROR_CONFIG     = 1,  // the configuration document, before any socket
+    AK_ERROR_CONNECTION = 2,  // DNS, TCP, TLS handshake
+    AK_ERROR_TRANSPORT  = 3,  // HTTP/2 or gRPC framing, after a connection
+    AK_ERROR_TIMEOUT    = 4,
+    AK_ERROR_CANCELLED  = 5,
+} ak_error_kind;
+
+// Filled by this library, read by the host. Fixed layout: the two sides agree
+// through ak_abi_version() at load time, so there is no size prefix to read -
+// that mechanism serves the records the host fills, and this one travels the
+// other way.
+typedef struct {
+    int32_t kind;      // ak_error_kind
+    ak_bytes detail;   // UTF-8, the cause chain flattened into one message.
+                       // detail.owner == NULL means there is nothing to free,
+                       // which is how a constant message crosses without an
+                       // allocation. Released by ak_error_release, never by
+                       // ak_event_consumed: a refusal is not a delivery, and it
+                       // takes no delivery credit.
+} ak_error;
+
+// No release callback travels in the struct. The host would copy a live code
+// pointer into its own memory, and only quiescence permits unloading this
+// library: a host that retires the runtime before formatting the message would
+// call into an unmapped page. A symbol the host's own loader resolved keeps the
+// module referenced for as long as its stub exists.
+//
+// A no-op when detail.owner is NULL, so a host may route every error through it.
+void ak_error_release(ak_bytes detail);
+
 // === Events ===
 typedef enum {
     AK_RUNTIME_RUNNING           = 1,  // operational, accepts channels and calls
@@ -3767,11 +3803,17 @@ split happens, read the ABI blocks as normative and the rest as justification.
 **The header is the contract; two things it needs are still missing.** The header lives at
 `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`, written by hand and
 committed so an ABI change shows up in review. It settles what this section used to list as
-undecided: `ak_bytes_in` as the borrowed mirror of `ak_bytes`, a `uint32_t struct_size`
-prefix on every options struct (a size the library does not know is refused rather than
-read), `ak_runtime_config` and `ak_call_start_options`, the metadata blob as a
+undecided: `ak_bytes_in` as the borrowed mirror of `ak_bytes`, a size prefix on every options
+struct the host fills, `ak_runtime_config` and `ak_call_start_options`, the metadata blob as a
 length-prefixed key/value sequence, and the `AK_EVENT_STATUS` payload as a length-prefixed
 reason followed by the trailing metadata - the code itself is `ak_event.status_code`.
+
+That prefix is a `uint32_t struct_size` alone, compared for exact equality, so a host
+compiled against any other revision is refused in both directions and no addition can ever be
+additive. Requirement 13.3 promises additivity and 13.5 asks for `size` + `version` + `flags`
++ reserved validated to zero with the size checked as a minimum, which is what the record the
+host fills needs; the record this library fills has a fixed layout and `ak_abi_version()` for
+its agreement.
 
 What is still owed:
 
@@ -3788,6 +3830,12 @@ five-field struct: its three categories need each buffer's position in its lifec
 tracked, and it is an observability tool rather than one a retry needs. And no path sets
 `AK_RUNTIME_FAILED_UNQUIESCED`, so the failure model this document describes has no
 implementation - a runtime either reaches quiescence or waits.
+
+`ak_error` and `ak_error_release` are specified above and implemented nowhere: every failing
+entry point answers with a status alone, `From<ChannelError> for ak_status` sends everything
+but `Closed` to `AK_STATUS_INVALID_ARG`, and the configuration reader returns an `Option`, so
+it discards the reason for a refusal before anything could report it. The engine's error types
+are careful and no host can read one.
 
 **Protocol surface not yet contractualized.** Message and metadata size limits and what a
 violation produces on each side; gRPC compression (`grpc-encoding`,
@@ -3818,6 +3866,11 @@ table above maps the five call shapes and stops there.
 | `ak_channel_release` returns void | Keep void as an idempotent no-op / return `AK_STATUS_HANDLE_STALE` like the other downcalls | Layer 3. The general promise says every downcall on a dead handle reports HANDLE_STALE; the release is the one exception, and either the signature or the promise must move |
 | Low-memory probe | Warn when the memory the system has available drops below `ceiling` / no probe | Layer 3. The ceiling bounds what this runtime lends, not what the machine has left; a runtime configured near the machine's limit refuses nothing and is killed instead. Deferred until there is operational data to set a threshold against |
 | A ceiling for the receive path | Configurable capacity, reserved from a bounded pool / unbounded as now | Layer 3. Would make the receive side refusable the way emission is - a different design from this one, and one that needs data on real receive footprints before it is worth the ABI surface |
+| Platforms the package promises | **The eleven non-wasm runtime identifiers .NET targets**: win-x64, win-x86, win-arm64, linux-x64, linux-arm, linux-arm64, linux-musl-x64, linux-musl-arm, linux-musl-arm64, osx-x64, osx-arm64. `RustTargets.props` owns the table; the CI matrix, the .NET Framework copy step and the loader derive from it, because four tables that disagree is how an architecture gets built and not packaged. linux-x86 is out - .NET publishes no runtime for it, so nothing could load the asset. musl is in and is not an alias: a shared object linked against glibc does not load on Alpine | Requirement 8.1, decided |
+| An error detail channel in the ABI | **`ak_error { kind, ak_bytes detail }` as a nullable out-argument on every fallible entry point, freed by `ak_error_release`.** Nothing is allocated when the host passes NULL, and `detail.owner == NULL` carries a constant message with no allocation at all. The release is a symbol and not a pointer inside the struct: the host would copy a live code pointer into its own memory, and quiescence permits unloading this library. The same version bump carries requirement 13.5 on the two records the host fills and turns their exact-size check into a minimum - free while no host is compiled against version 1, and never free again | Layer 3, decided |
+| Splitting `armonik-transport` | **No split, and no feature gate over the engine.** The client compiles sixteen mandatory dependencies where it compiled eight, for an engine it does not use yet - but T7.1 puts it on that engine and T4.1 gives the engine the TLS stack, so both halves converge and the count stops being paid for nothing. A gate would be scaffolding with a demolition date, and a feature position nothing exercises rots | Layer 1, decided |
+| Which of `connect.rs` and a new TLS path survives | **`connect.rs::https_connector`, which T4.1 already states.** Its five branches - system roots, an explicit PEM CA, `OverrideTargetName` with its IPv6 case, the insecure opt-in, mTLS from a PEM pair - exist and are tested, so the engine takes the connector rather than growing a second one. The public `TransportConnection` alias changes type with it and costs nothing: no crate here has a publication channel, `publish.yml` carrying jobs for C#, Python, C++, Java and npm and none for cargo | Layer 1, decided |
+| One runtime per process: choice or implementation limit | **A choice, and now requirement 14.9.** Several tokio runtimes in one process share the machine's cores without knowing of each other. `static LIVE` and the three `OnceLock` registries enforce it and the header states it at `ak_runtime_create`; what follows is that the first lessee's thread count and memory ceiling are the process's, which `NativeRuntimeFactory.Configure` refuses to overwrite rather than ignoring | Requirement 14, decided |
 
 ---
 
