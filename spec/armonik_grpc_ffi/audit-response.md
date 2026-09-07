@@ -275,14 +275,24 @@ much as an idle one.
 sketch: "native depth allows MaxSendsInFlight; this binding exercises one, the writer being single
 and completing at WRITE_DONE", and beside the writer's completion source, "No slot counter and no
 send signal: one writer completing at WRITE_DONE never finds the window full, so there is nothing to
-wait for". `DotNetBinding.tla` is faithful to that - its writer has no `SLOT_BUSY` action at all, and
-its budget-retry comment says "the window is always open" - and the code is faithful to both. So
-`LentBuffer`'s default branch is unreachable by a decision that is written down, not by accident.
+wait for". So `LentBuffer`'s default branch is unreachable by a decision that is written down.
 
-Revisiting it is therefore three artefacts in order, and design.md is the first rather than the
-model: the layer-4 decision changes, then the model's writer gains the right to serialize while
-writes are outstanding - level 1 already bounds them with a semaphore of the window's size - then
-the binding returns at the commit instead of the acquittal and `SLOT_BUSY` becomes a wait.
+**What that decision does not do is constrain what may be built, and reading it as though it did was
+a category error made twice here.** `DotNetBinding` is level 2: it *describes* this binding, which
+is why its writer is one state machine and why it has no `SLOT_BUSY` action. The model that
+constrains is level 1, the ABI's, and it already carries the general case:
+
+    HasFreeSendSlot(cId) == SendWindowOccupancy(cId) < MaxSendsInFlight
+    RefuseLendForSlot(cId, len) == ... /\ ~HasFreeSendSlot(cId)
+                                      /\ last_lend_status' = "SLOT_BUSY"
+    HasNoSendInFlight(cId) == /\ write_dones_emitted[cId] = Len(submitted[cId])
+
+`submitted` is a sequence, so several messages in flight are modelled, and the `SLOT_BUSY` refusal
+with them. Nothing about the ABI's guarantees moves if this binding starts using the depth.
+
+Revisiting it is therefore three artefacts in order: design.md's layer-4 decision, then level 2's
+writer becomes multi-slot and its refinement proof is redone - level 1 needs nothing - then the
+binding returns at the commit instead of the acquittal and `SLOT_BUSY` becomes a wait.
 
 **Whether that happens now is the user's call.** It is a feature the ABI already permits, it
 interacts with the replay ceiling phase 6 has to settle - a retry needs the sent bytes kept past

@@ -845,13 +845,19 @@ as much as an idle one.
 
 This binding exercises one, and that is decided rather than missing - design.md says "native depth
 allows MaxSendsInFlight; this binding exercises one, the writer being single and completing at
-WRITE_DONE". The model is faithful to it, having no `SLOT_BUSY` action at all, and so is the code.
+WRITE_DONE".
 
-Changing it is three artefacts in this order: that layer-4 decision, then the model's writer gains
-the right to serialize while writes are outstanding - level 1 already bounds them with a semaphore
-of the window's size - then the binding returns at the commit instead of the acquittal and
-`LentBuffer`'s default branch becomes a wait. It lands in this task because a retry needs the sent
-bytes kept past their acquittal, which is the same question as what the arena retains.
+That decision lives at level 2 and constrains nothing above it. `DotNetBinding` describes this
+binding, which is why its writer is one state machine with no `SLOT_BUSY` action; level 1 already
+carries the general case - `HasFreeSendSlot`, `RefuseLendForSlot`, and a `submitted` sequence that
+`HasNoSendInFlight` compares against the acquittals emitted. So the ABI's guarantees do not move
+if this binding starts using the depth.
+
+Changing it is three artefacts in this order: that layer-4 decision, then level 2's writer becomes
+multi-slot and its refinement proof is redone, then the binding returns at the commit instead of the
+acquittal and `LentBuffer`'s default branch becomes a wait. It lands in this task because a retry
+needs the sent bytes kept past their acquittal, which is the same question as what the arena
+retains.
 
 ### T6.2: Deadline
 
