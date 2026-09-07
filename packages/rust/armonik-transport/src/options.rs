@@ -27,9 +27,14 @@ pub const LARGEST_WINDOW: i32 = 536_870_910;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Seconds(pub f64);
 
-impl From<Seconds> for Duration {
-    fn from(value: Seconds) -> Self {
-        Duration::from_secs_f64(value.0)
+impl TryFrom<Seconds> for Duration {
+    type Error = std::time::TryFromFloatSecsError;
+
+    /// Fallible because a document names a number and not every number is a duration: a
+    /// `Duration` holds neither a negative value nor one past its own range, and both are
+    /// ordinary doubles a caller is free to write.
+    fn try_from(value: Seconds) -> Result<Self, Self::Error> {
+        Duration::try_from_secs_f64(value.0)
     }
 }
 

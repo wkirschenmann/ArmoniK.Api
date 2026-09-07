@@ -191,6 +191,14 @@ impl From<ChannelError> for ak_status {
 
 pub const AK_ABI_VERSION: i32 = 1;
 
+/// The largest `worker_threads` a runtime is created with; above it, `AK_STATUS_INVALID_ARG`.
+///
+/// A worker is an OS thread, so the useful range is the machine's core count and this is far past
+/// any of them. The bound exists because the failures beyond it are not reportable: tokio sizes a
+/// per-worker table before creating anything, and near `u32::MAX` that allocation ends the
+/// process - the one failure `catch_unwind` cannot turn into a status.
+pub const AK_MAX_WORKER_THREADS: u32 = 1024;
+
 /// Reads an options struct, once its size prefix says the host built it with these fields.
 ///
 /// The prefix first, and only then the rest. The header promises a struct of an unknown size is

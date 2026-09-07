@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use armonik_transport::grpc::GrpcChannelConfig;
 use armonik_transport::http2::TransportConfig;
 use armonik_transport::options::{ChannelOptions, LARGEST_WINDOW};
@@ -9,27 +11,35 @@ const MAX_SENDS_IN_FLIGHT: i32 = 1;
 const DELIVERY_CREDITS: i32 = 1;
 
 /// The options a host sent, read and found admissible.
-pub(crate) struct ChannelSettings(ChannelOptions);
+///
+/// The timeout is held as the `Duration` it became rather than as the number it was written as:
+/// converting once, where the document is refused, is what leaves nothing here that can fail.
+pub(crate) struct ChannelSettings {
+    options: ChannelOptions,
+    connect_timeout: Option<Duration>,
+}
 
 impl ChannelSettings {
     pub(crate) fn delivery_credits(&self) -> usize {
-        self.0.delivery_credits.unwrap_or(DELIVERY_CREDITS) as usize
+        self.options.delivery_credits.unwrap_or(DELIVERY_CREDITS) as usize
     }
 
     pub(crate) fn max_sends_in_flight(&self) -> usize {
-        self.0.max_sends_in_flight.unwrap_or(MAX_SENDS_IN_FLIGHT) as usize
+        self.options
+            .max_sends_in_flight
+            .unwrap_or(MAX_SENDS_IN_FLIGHT) as usize
     }
 
     pub(crate) fn into_channel_config(self, endpoint: Uri) -> GrpcChannelConfig {
         let mut transport = TransportConfig::new(endpoint);
-        if let Some(seconds) = self.0.transport.connect_timeout_seconds {
-            transport.connect_timeout = seconds.into();
+        if let Some(connect_timeout) = self.connect_timeout {
+            transport.connect_timeout = connect_timeout;
         }
 
         let mut config = GrpcChannelConfig::new(transport);
         config.max_sends_in_flight = self.max_sends_in_flight();
-        config.user_agent = self.0.user_agent;
-        if let Some(max) = self.0.max_receive_message_size {
+        config.user_agent = self.options.user_agent;
+        if let Some(max) = self.options.max_receive_message_size {
             config.max_recv_message_size = max as usize;
         }
         config
@@ -60,16 +70,19 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
         return None;
     }
 
-    // No dial could beat a timeout of zero, so it names a channel that can never connect.
-    if options
-        .transport
-        .connect_timeout_seconds
-        .is_some_and(|timeout| timeout.0 <= 0.0)
-    {
-        return None;
-    }
+    // No dial could beat a timeout of zero, so it names a channel that can never connect. And a
+    // number is not yet a duration: `Duration` holds neither a negative value nor one past its
+    // own range, so the conversion is what says whether the document named one.
+    let connect_timeout = match options.transport.connect_timeout_seconds {
+        None => None,
+        Some(seconds) if seconds.0 <= 0.0 => return None,
+        Some(seconds) => Some(Duration::try_from(seconds).ok()?),
+    };
 
-    Some(ChannelSettings(options))
+    Some(ChannelSettings {
+        options,
+        connect_timeout,
+    })
 }
 
 #[cfg(test)]
@@ -123,6 +136,31 @@ mod tests {
             config.transport.connect_timeout,
             std::time::Duration::from_millis(2500)
         );
+    }
+
+    #[test]
+    fn a_timeout_no_duration_can_hold_is_refused_rather_than_read() {
+        // JSON has no NaN and no infinity, but 1e300 is an ordinary double and no `Duration`
+        // holds it. Refusing it here is what keeps the conversion below infallible in practice:
+        // a value this admits and that panics one line later reaches a host as INTERNAL, which
+        // says a fault where the truth is a configuration error.
+        assert!(parse(br#"{"Transport":{"ConnectTimeoutSeconds":1e300}}"#).is_none());
+    }
+
+    #[test]
+    fn every_document_this_reader_admits_becomes_a_config() {
+        // The reader's own promise: what it returns `Some` for is what `into_channel_config`
+        // can build, so no admitted document panics on the way through.
+        for admitted in [
+            &b"{}"[..],
+            &br#"{"Transport":{"ConnectTimeoutSeconds":1e300}}"#[..],
+            &br#"{"Transport":{"ConnectTimeoutSeconds":2.5}}"#[..],
+            &br#"{"Transport":{"ConnectTimeoutSeconds":1.7976931348623157e308}}"#[..],
+        ] {
+            if parse(admitted).is_some() {
+                let _ = config_of(admitted);
+            }
+        }
     }
 
     #[test]

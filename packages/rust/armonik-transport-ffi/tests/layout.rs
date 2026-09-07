@@ -283,6 +283,17 @@ fn the_header_and_the_library_agree_on_the_version() {
     );
 }
 
+#[test]
+fn the_header_and_the_library_agree_on_the_worker_ceiling() {
+    // A bound a host reads and a bound the library enforces are the same number or the header
+    // lies about what is accepted.
+    let declared = format!("#define AK_MAX_WORKER_THREADS {AK_MAX_WORKER_THREADS}");
+    assert!(
+        header().lines().any(|line| line.trim() == declared),
+        "the header does not say {declared}"
+    );
+}
+
 /// Each entry point coerced to the signature the header declares for it, so a parameter that
 /// changes type or moves is a compile error rather than nothing at all.
 ///

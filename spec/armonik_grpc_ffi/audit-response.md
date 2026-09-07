@@ -58,3 +58,26 @@ One defect found beside L-003 rather than in it: `_readAndReplace` writes the re
 success without ever checking that the pattern matched, so a moved or renamed version tag stops
 being versioned silently. It fails now. The Rust dependency line is the case that mattered - its
 pattern is a lookaround anchored on one exact string, and nothing else would have noticed.
+
+---
+
+## Applied: two numbers a host may send
+
+Commit: "two numbers a host may send that end the call, or the process".
+
+| Finding | What it said | Proof |
+|---|---|---|
+| A1-001 | `From<Seconds> for Duration` panics for a negative, non-finite or over-large value, and nothing bounds the option above | `{"Transport":{"ConnectTimeoutSeconds":1e300}}` is admitted by the reader and panics at `library/core/src/time.rs:964`. The conversion is `TryFrom` now and the reader holds the `Duration` it built; 9 passed in `config::tests` against 2 failures |
+| A2-001 | `worker_threads` goes to tokio's builder with no upper bound | reproduced at the audit's own number: `memory allocation of 34359738360 bytes failed`, exit code 9 - the process ends, so `catch_unwind` never sees it. `AK_MAX_WORKER_THREADS` is 1024, in `abi.rs` and in the header, pinned by a layout test |
+
+The audit's probe for A1-001 named `Seconds(-1.0)` alongside `Seconds(1e300)`. Only the second is
+reachable through the ABI: the reader already refused `<= 0.0`. The finding held on its other half.
+
+1024 is the one number here that is chosen rather than measured. A worker is an OS thread, so the
+useful range is the machine's core count; past the bound the failures are thread exhaustion or that
+allocation, and a host can act on neither.
+
+Deferred from the same neighbourhood, with its mechanism: the schema states no maximum for
+`ConnectTimeoutSeconds`, so the generated `Validate()` accepts a value the engine then refuses -
+an error found late rather than early. That is the audit's "one bound, one place" (its lot 13),
+which moves bounds into the schema and derives both sides from it, and it is a task of its own.

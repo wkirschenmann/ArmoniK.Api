@@ -185,9 +185,16 @@ typedef void (*ak_callback)(void *runtime_ctx, ak_call_ctx call_ctx, const ak_ev
  * read: it names a version whose fields are not the ones read here.
  */
 
+/* The largest worker_threads a runtime is created with; above it, AK_STATUS_INVALID_ARG. A worker
+ * is an OS thread, so the useful range is the machine's core count. The bound exists because the
+ * failures past it are not reportable: the runtime sizes a per-worker table before creating
+ * anything, and near UINT32_MAX that allocation ends the process. */
+#define AK_MAX_WORKER_THREADS 1024
+
 typedef struct {
     uint32_t struct_size;
-    uint32_t worker_threads;  /* zero leaves the choice to the runtime */
+    uint32_t worker_threads;  /* zero leaves the choice to the runtime; at most
+                                 AK_MAX_WORKER_THREADS */
     uint64_t memory_ceiling;  /* bytes lent buffers may occupy at once. Zero, or more than this
                                  library can lend, asks for its own ceiling: four gigabytes, or
                                  half the address space where that is smaller - the gRPC length

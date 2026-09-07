@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 
-use crate::abi::{ak_event_kind, ak_host_debt, ak_runtime_state, ak_status};
+use crate::abi::{ak_event_kind, ak_host_debt, ak_runtime_state, ak_status, AK_MAX_WORKER_THREADS};
 use crate::call::CallServices;
 use crate::host::Host;
 use crate::ledger::Ledger;
@@ -68,6 +68,10 @@ impl AkRuntime {
         memory_ceiling: u64,
         host: Host,
     ) -> Result<Arc<Self>, ak_status> {
+        if worker_threads > AK_MAX_WORKER_THREADS {
+            return Err(ak_status::AK_STATUS_INVALID_ARG);
+        }
+
         let mut builder = tokio::runtime::Builder::new_multi_thread();
         builder.enable_all();
         if worker_threads > 0 {
@@ -231,5 +235,32 @@ mod tests {
         AkRuntime::relinquish();
         Claim::take().expect("relinquish gives back what keep held");
         AkRuntime::relinquish();
+    }
+
+    #[test]
+    fn a_worker_count_no_machine_could_serve_is_refused() {
+        // Refused rather than attempted, because the attempt does not fail: tokio sizes a table
+        // of one entry per worker before creating any, and near `u32::MAX` that allocation aborts
+        // the process. An abort is not a status, and no guard here can make it one.
+        let refused = |workers| {
+            AkRuntime::new(workers, 0, Host::new(never_called, std::ptr::null_mut()))
+                .err()
+                .expect("a count past the maximum is refused")
+        };
+
+        assert_eq!(refused(u32::MAX), ak_status::AK_STATUS_INVALID_ARG);
+        assert_eq!(
+            refused(AK_MAX_WORKER_THREADS + 1),
+            ak_status::AK_STATUS_INVALID_ARG
+        );
+    }
+
+    /// The refusal happens before a runtime exists, so nothing ever emits through this.
+    extern "C" fn never_called(
+        _runtime_ctx: *mut std::ffi::c_void,
+        _call_ctx: *mut std::ffi::c_void,
+        _event: *const crate::abi::ak_event,
+    ) {
+        unreachable!("a refused runtime emits nothing")
     }
 }
