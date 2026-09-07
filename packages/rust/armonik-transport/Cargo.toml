@@ -8,7 +8,9 @@ readme = "README.md"
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
-include = ["**/*.rs", "Cargo.toml", "README.md"]
+# The schema is committed rather than generated, and a test reads it with `include_str!`, so an
+# archive without it is one whose own tests do not compile.
+include = ["**/*.rs", "Cargo.toml", "README.md", "options.schema.json"]
 
 [features]
 # `secrecy/serde` so a secret option deserialises with the rest of them. There is no Serialize

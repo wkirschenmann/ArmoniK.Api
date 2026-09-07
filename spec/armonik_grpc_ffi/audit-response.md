@@ -176,3 +176,11 @@ arrival enables, and the cancel-with-no-read path faulting `headers_` rather tha
 Sequencing note: A3-056 (effort L) wants this 1036-line class split into a ring, a read machine, a
 sender and a thin call. The prologue lands inside it either way, and a split moves code rather than
 changing it, so correctness goes first.
+
+---
+
+## Applied: the archive holds the file its own tests read
+
+| Finding | What it said | Proof |
+|---|---|---|
+| L-007 | `options.schema.json` is committed beside the crate and read by `include_str!`, but the crate's `include` list does not name it | `cargo package -p armonik-transport --list`, diffed before and after: exactly one line gained, `options.schema.json`. The reader is `src/options.rs:149`, inside `the_committed_schema_is_the_one_the_types_describe`, so what an archive without it breaks is that test rather than a consumer's build - narrower than the finding implies, and still an archive whose own tests do not compile |
