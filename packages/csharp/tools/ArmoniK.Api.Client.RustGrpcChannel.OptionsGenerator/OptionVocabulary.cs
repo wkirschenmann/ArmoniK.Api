@@ -33,8 +33,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     /// <summary>The name the document spells, which is also the C# name.</summary>
     public string Name { get; init; } = string.Empty;
 
-    /// <summary>The `description` that applies here, or null where the schema states none.</summary>
-    public string? Description { get; init; }
+    /// <summary>The `description` that applies here, which the schema has to state.</summary>
+    public string Description { get; init; } = string.Empty;
 
     /// <summary>The C# type of the property, nullable form excluded.</summary>
     public string Type { get; init; } = string.Empty;
@@ -58,8 +58,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     /// <summary>The class name: the schema's `title`, or the `$defs` entry's own name.</summary>
     public string Name { get; init; } = string.Empty;
 
-    /// <summary>The `description` of the group, or null where the schema states none.</summary>
-    public string? Description { get; init; }
+    /// <summary>The `description` of the group, which the schema has to state.</summary>
+    public string Description { get; init; } = string.Empty;
 
     /// <summary>The options of the group, in the order Corvus returns them.</summary>
     public IReadOnlyList<Option> Options { get; init; } = Array.Empty<Option>();
@@ -153,24 +153,40 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
         if (type == "object" || target.HasPropertyDeclarations)
         {
+          // A group is bounded by what it declares, not by the option that holds one. Written
+          // on the option it would bind that one embedding and not the next, which is the
+          // opposite of what a `$defs` entry is for - and the keywords this generator checks
+          // bound a number or a string, so on a group they asserted nothing and were dropped.
+          var bounds = BoundsOf(node,
+                                target);
+
+          if (bounds.Count > 0)
+          {
+            throw new NotSupportedException($"`{property.JsonPropertyName}` is a group and states {string.Join(", ", bounds.Select(bound => $"`{bound.Keyword}`"))}, which bounds no group. State it on the options the group declares.");
+          }
+
           var groupName = NameOf(target,
                                  false);
           nested.Add((target, groupName));
 
           options.Add(new Option
                       {
-                        Name        = property.JsonPropertyName,
-                        Description = Description(node) ?? Description(target),
-                        Type        = groupName,
-                        IsGroup     = true,
+                        Name = property.JsonPropertyName,
+                        Description = Described(Description(node) ?? Description(target),
+                                                $"`{property.JsonPropertyName}`"),
+                        Type    = groupName,
+                        IsGroup = true,
                       });
           continue;
         }
 
         options.Add(new Option
                     {
-                      Name        = property.JsonPropertyName,
-                      Description = Description(node) ?? Description(target),
+                      Name = property.JsonPropertyName,
+                      // The property's own, then the one its reference states: a `$defs` entry
+                      // describes what it is, and a property describes what it is for here.
+                      Description = Described(Description(node) ?? Description(target),
+                                              $"`{property.JsonPropertyName}`"),
                       Type = CSharpType(type,
                                         Keyword(target,
                                                 "format")
@@ -190,9 +206,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       groups.Add(new OptionGroup
                  {
-                   Name        = name,
-                   Description = Description(declaration),
-                   Options     = options,
+                   Name = name,
+                   Description = Described(Description(declaration),
+                                           $"`{name}`"),
+                   Options = options,
                  });
 
       foreach (var (subdeclaration, subname) in nested)
@@ -391,14 +408,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     // Of two bounds that both apply, the one that admits less: the larger of two lower bounds,
     // the smaller of two upper ones.
+    //
+    // Compared as integers where both are, because a `double` holds 53 bits of mantissa and two
+    // bounds differing only past that would compare equal - so the value written stays exact,
+    // as `Literal` keeps it, and the choice between two does too.
     private static string Stricter(string keyword,
                                    JsonElement here,
                                    JsonElement there)
     {
       var lower = keyword is "minimum" or "exclusiveMinimum" or "minLength";
-      var wider = here.GetDouble() > there.GetDouble() == lower;
 
-      return Literal(wider
+      var greater = here.TryGetInt64(out var whole) && there.TryGetInt64(out var otherWhole)
+                      ? whole > otherWhole
+                      : here.GetDouble() > there.GetDouble();
+
+      return Literal(greater == lower
                        ? here
                        : there);
     }
@@ -616,6 +640,23 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                ? throw new NotSupportedException($"`{location}` has no title and no name to take one from.")
                : segment!;
     }
+
+    /// <summary>The description a node states, which it has to state.</summary>
+    /// <param name="description">What the schema says, or null where it says nothing.</param>
+    /// <param name="what">What the node is, for the message.</param>
+    /// <returns>The description, never empty.</returns>
+    /// <exception cref="NotSupportedException">There is none, or it is empty.</exception>
+    /// <remarks>
+    ///   An option's documentation is the schema's to carry: it is written once as a doc comment
+    ///   on a Rust field and lands in a .NET caller's tooltip. Absent, a caller has to read the
+    ///   engine's source to learn what an option does; empty, the doc comment exists and says
+    ///   nothing. Both are refused rather than generated as a property with no documentation.
+    /// </remarks>
+    private static string Described(string? description,
+                                    string what)
+      => string.IsNullOrWhiteSpace(description)
+           ? throw new NotSupportedException($"{what} states no `description`, and every option and group of this vocabulary documents itself.")
+           : description!;
 
     private static string? Description(TypeDeclaration declaration)
       => Keyword(declaration,

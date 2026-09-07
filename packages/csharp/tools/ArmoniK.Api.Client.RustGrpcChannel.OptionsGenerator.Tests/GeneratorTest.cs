@@ -34,20 +34,29 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                              "Test",
                              "test.schema.json");
 
+    /// <summary>A root schema around <paramref name="properties" />.</summary>
+    /// <remarks>
+    ///   It states a `description` because every option and group of this vocabulary documents
+    ///   itself, and a fixture that left one out would be testing the refusal rather than what it
+    ///   set out to. `Undescribed` is the fixture for that.
+    /// </remarks>
     private static string Wrap(string properties,
                                string defs = "")
       => $@"{{
   ""$schema"": ""https://json-schema.org/draft/2020-12/schema"",
   ""title"": ""Options"",
+  ""description"": ""What a caller may set."",
   ""type"": ""object"",
   ""properties"": {{{properties}}},
   ""additionalProperties"": false{defs}
 }}";
 
+    private const string Documented = @"""description"": ""What this option does."", ";
+
     [Test]
     public async Task AnOptionBecomesANullableSettableProperty()
     {
-      var rendered = await Render(Wrap(@"""Credits"": { ""type"": ""integer"", ""format"": ""int32"" }"))
+      var rendered = await Render(Wrap($@"""Credits"": {{ {Documented}""type"": ""integer"", ""format"": ""int32"" }}"))
                        .ConfigureAwait(false);
 
       Assert.That(rendered,
@@ -69,7 +78,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task TwoBoundsOnOneOptionAreOneCheck()
     {
-      var rendered = await Render(Wrap(@"""Credits"": { ""type"": ""integer"", ""format"": ""int32"", ""minimum"": 1, ""maximum"": 9 }"))
+      var rendered = await Render(Wrap($@"""Credits"": {{ {Documented}""type"": ""integer"", ""format"": ""int32"", ""minimum"": 1, ""maximum"": 9 }}"))
                        .ConfigureAwait(false);
 
       Assert.That(rendered,
@@ -91,7 +100,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task AReferenceKeepsTheKeywordsStatedBesideIt()
     {
-      var rendered = await Render(Wrap(@"""Timeout"": { ""$ref"": ""#/$defs/Seconds"", ""exclusiveMinimum"": 0.0 }",
+      var rendered = await Render(Wrap($@"""Timeout"": {{ {Documented}""$ref"": ""#/$defs/Seconds"", ""exclusiveMinimum"": 0.0 }}",
                                        @",
   ""$defs"": { ""Seconds"": { ""type"": ""number"", ""format"": ""double"" } }"))
                        .ConfigureAwait(false);
@@ -107,12 +116,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task AGroupBecomesItsOwnClassAndIsValidatedThroughItsOwner()
     {
-      var rendered = await Render(Wrap(@"""Transport"": { ""$ref"": ""#/$defs/TransportOptions"" }",
+      var rendered = await Render(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
                                        @",
   ""$defs"": {
     ""TransportOptions"": {
       ""type"": ""object"",
-      ""properties"": { ""Timeout"": { ""type"": ""number"", ""format"": ""double"", ""minimum"": 1 } },
+      ""description"": ""What the transport does."",
+      ""properties"": { ""Timeout"": { ""description"": ""How long."", ""type"": ""number"", ""format"": ""double"", ""minimum"": 1 } },
       ""additionalProperties"": false
     }
   }"))
@@ -180,7 +190,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
 
     [Test]
     public void ATypeThisGeneratorHasNoCSharpForIsRefused()
-      => Assert.That(async () => await Render(Wrap(@"""Names"": { ""type"": ""array"" }"))
+      => Assert.That(async () => await Render(Wrap($@"""Names"": {{ {Documented}""type"": ""array"" }}"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("Names"));
@@ -194,10 +204,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task OfTwoBoundsThatBothApplyTheStricterIsChecked()
     {
-      var rendered = await Render(Wrap(@"""Credits"": { ""$ref"": ""#/$defs/Window"", ""minimum"": 1, ""maximum"": 900 }",
+      var rendered = await Render(Wrap($@"""Credits"": {{ {Documented}""$ref"": ""#/$defs/Window"", ""minimum"": 1, ""maximum"": 900 }}",
                                        @",
   ""$defs"": {
-    ""Window"": { ""type"": ""integer"", ""format"": ""int32"", ""minimum"": 5, ""maximum"": 99 }
+    ""Window"": { ""description"": ""A window."", ""type"": ""integer"", ""format"": ""int32"", ""minimum"": 5, ""maximum"": 99 }
   }"))
                        .ConfigureAwait(false);
 
@@ -217,7 +227,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     /// </remarks>
     [Test]
     public void ACycleOfReferencesIsRefused()
-      => Assert.That(async () => await Render(Wrap(@"""X"": { ""$ref"": ""#/$defs/A"" }",
+      => Assert.That(async () => await Render(Wrap($@"""X"": {{ {Documented}""$ref"": ""#/$defs/A"" }}",
                                                    @",
   ""$defs"": {
     ""A"": { ""$ref"": ""#/$defs/B"" },
@@ -230,12 +240,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     /// <summary>Two schemas of one name would be one class declared twice.</summary>
     [Test]
     public void TwoSchemasOfOneNameAreRefused()
-      => Assert.That(async () => await Render(Wrap(@"""First"": { ""$ref"": ""#/$defs/Group"" },
-  ""Second"": { ""$ref"": ""#/$defs/Other"" }",
+      => Assert.That(async () => await Render(Wrap($@"""First"": {{ {Documented}""$ref"": ""#/$defs/Group"" }},
+  ""Second"": {{ {Documented}""$ref"": ""#/$defs/Other"" }}",
                                                    @",
   ""$defs"": {
-    ""Group"": { ""title"": ""Same"", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""string"" } } },
-    ""Other"": { ""title"": ""Same"", ""type"": ""object"", ""properties"": { ""B"": { ""type"": ""string"" } } }
+    ""Group"": { ""title"": ""Same"", ""description"": ""One."", ""type"": ""object"", ""additionalProperties"": false, ""properties"": { ""A"": { ""description"": ""A."", ""type"": ""string"" } } },
+    ""Other"": { ""title"": ""Same"", ""description"": ""Two."", ""type"": ""object"", ""additionalProperties"": false, ""properties"": { ""B"": { ""description"": ""B."", ""type"": ""string"" } } }
   }"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
@@ -243,7 +253,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
 
     [Test]
     public void AnObjectStatingNoPropertiesIsRefused()
-      => Assert.That(async () => await Render(Wrap(@"""Bag"": { ""type"": ""object"" }"))
+      => Assert.That(async () => await Render(Wrap($@"""Bag"": {{ {Documented}""type"": ""object"" }}"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("no properties"));
@@ -264,7 +274,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [TestCase("Trailing\\n", TestName = "AName_TrailingNewline")]
     [TestCase("Validate", TestName = "AName_AMemberEveryClassHas")]
     public void ANameThisGeneratorCannotWriteIsRefused(string name)
-      => Assert.That(async () => await Render(Wrap($@"""{name}"": {{ ""type"": ""string"" }}"))
+      => Assert.That(async () => await Render(Wrap($@"""{name}"": {{ {Documented}""type"": ""string"" }}"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>());
 
@@ -278,7 +288,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task ANameSpelledWithAnEscapeIsUsedDecoded()
     {
-      var rendered = await Render(Wrap(@"""A\u0062"": { ""type"": ""string"" }"))
+      var rendered = await Render(Wrap($@"""A\u0062"": {{ {Documented}""type"": ""string"" }}"))
                        .ConfigureAwait(false);
 
       Assert.That(rendered,
@@ -317,7 +327,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task AnOptionWhoseLocalIsAKeywordIsWrittenVerbatim()
     {
-      var rendered = await Render(Wrap(@"""Default"": { ""type"": ""integer"", ""format"": ""int32"", ""minimum"": 1 }"))
+      var rendered = await Render(Wrap($@"""Default"": {{ {Documented}""type"": ""integer"", ""format"": ""int32"", ""minimum"": 1 }}"))
                        .ConfigureAwait(false);
 
       Assert.That(rendered,
@@ -334,7 +344,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [TestCase(@"""type"": ""string"", ""minimum"": 1", TestName = "AMismatch_MinimumOnText")]
     [TestCase(@"""type"": ""boolean"", ""minimum"": 1", TestName = "AMismatch_MinimumOnABoolean")]
     public void ABoundThatDoesNotFitItsTypeIsRefused(string schema)
-      => Assert.That(async () => await Render(Wrap($@"""X"": {{ {schema} }}"))
+      => Assert.That(async () => await Render(Wrap($@"""X"": {{ {Documented}{schema} }}"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("bounds no"));
@@ -348,7 +358,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     [Test]
     public async Task ANumberIsRefusedWhenItIsNotFinite()
     {
-      var rendered = await Render(Wrap(@"""Ratio"": { ""type"": ""number"", ""format"": ""double"" }"))
+      var rendered = await Render(Wrap($@"""Ratio"": {{ {Documented}""type"": ""number"", ""format"": ""double"" }}"))
                        .ConfigureAwait(false);
 
       Assert.That(rendered,
@@ -365,7 +375,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     /// </remarks>
     [Test]
     public void ACycleThroughAnEscapedPointerIsRefused()
-      => Assert.That(async () => await Render(Wrap(@"""X"": { ""$ref"": ""#/$defs/A~1B"" }",
+      => Assert.That(async () => await Render(Wrap($@"""X"": {{ {Documented}""$ref"": ""#/$defs/A~1B"" }}",
                                                    @",
   ""$defs"": { ""A/B"": { ""$ref"": ""#/$defs/A~1B"" } }"))
                        .ConfigureAwait(false),
@@ -379,7 +389,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
     /// </remarks>
     [Test]
     public void AReferenceToAnEnclosingSchemaIsRefused()
-      => Assert.That(async () => await Render(Wrap(@"""Self"": { ""$ref"": ""#"" }"))
+      => Assert.That(async () => await Render(Wrap($@"""Self"": {{ {Documented}""$ref"": ""#"" }}"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("contains it"));
@@ -438,6 +448,82 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                   Is.Empty,
                   "the closed form is what a generated class already is");
     }
+
+    /// <summary>A bound written beside a reference to a group is refused, not read.</summary>
+    /// <remarks>
+    ///   Stated there it binds one embedding and not the next, which is the opposite of what a
+    ///   `$defs` entry is for - so the schema has to say it in the group, where it means the same
+    ///   thing everywhere the group is used. Read instead, it would be dropped in silence: the
+    ///   group path built its option without consulting a single keyword.
+    /// </remarks>
+    [Test]
+    public void ABoundBesideAReferenceToAGroupIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"", ""minimum"": 1 }}",
+                                                   @",
+  ""$defs"": {
+    ""TransportOptions"": {
+      ""description"": ""What the transport does."",
+      ""additionalProperties"": false,
+      ""type"": ""object"",
+      ""properties"": { ""Timeout"": { ""description"": ""How long."", ""type"": ""number"", ""format"": ""double"" } }
+    }
+  }"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("bounds no group"));
+
+    /// <summary>Two bounds are compared as integers, so one past 2^53 does not move.</summary>
+    /// <remarks>
+    ///   A `double` holds 53 bits of mantissa, so 9007199254740993 and 9007199254740992 are one
+    ///   number to it: `>` is false either way, and comparing that way always picks the
+    ///   reference's. The larger is on the property here, so that choice is the wrong one - put
+    ///   the other way round, a double comparison lands on the right answer by luck and the test
+    ///   says nothing.
+    /// </remarks>
+    [Test]
+    public async Task TwoLargeBoundsAreComparedWithoutLosingPrecision()
+    {
+      var rendered = await Render(Wrap($@"""Count"": {{ {Documented}""$ref"": ""#/$defs/Big"", ""minimum"": 9007199254740993 }}",
+                                       @",
+  ""$defs"": {
+    ""Big"": { ""description"": ""A count."", ""type"": ""integer"", ""format"": ""int64"", ""minimum"": 9007199254740992 }
+  }"))
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered,
+                  Does.Contain("count < 9007199254740993"),
+                  "the larger of the two lower bounds, which a double cannot tell apart");
+      Assert.That(rendered,
+                  Does.Not.Contain("count < 9007199254740992"));
+    }
+
+    /// <summary>Every option and every group documents itself, or the schema is refused.</summary>
+    /// <remarks>
+    ///   The documentation is written once as a Rust doc comment and lands in a .NET caller's
+    ///   tooltip. Absent, a caller has to read the engine's source to learn what an option does;
+    ///   empty, the doc comment exists and says nothing.
+    /// </remarks>
+    [TestCase(@"""type"": ""string""", TestName = "ADescription_Absent")]
+    [TestCase(@"""description"": """", ""type"": ""string""", TestName = "ADescription_Empty")]
+    [TestCase(@"""description"": ""   "", ""type"": ""string""", TestName = "ADescription_Blank")]
+    public void AnOptionThatDocumentsNothingIsRefused(string schema)
+      => Assert.That(async () => await Render(Wrap($@"""X"": {{ {schema} }}"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("documents itself"));
+
+    [Test]
+    public void AGroupThatDocumentsNothingIsRefused()
+      => Assert.That(async () => await Render($@"{{
+  ""$schema"": ""https://json-schema.org/draft/2020-12/schema"",
+  ""title"": ""Options"",
+  ""type"": ""object"",
+  ""additionalProperties"": false,
+  ""properties"": {{ ""X"": {{ {Documented}""type"": ""string"" }} }}
+}}")
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("documents itself"));
 
     /// <summary>The committed class is what the committed schema renders.</summary>
     /// <remarks>
