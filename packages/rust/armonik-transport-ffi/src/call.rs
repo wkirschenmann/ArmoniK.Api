@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use armonik_transport::grpc::{
-    CallControl, CallStartOptions, GrpcStatus, Metadata, RecvHalf, RecvResult, SendHalf,
+    CallControl, CallStartOptions, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf, RecvResult,
+    SendHalf,
 };
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
@@ -426,8 +427,23 @@ fn start(
 async fn writer(
     state: Arc<CallState>,
     send: SendHalf,
-    mut commands: mpsc::Receiver<Command>,
+    commands: mpsc::Receiver<Command>,
     done: oneshot::Sender<()>,
+) {
+    // Guarded for the acquittal below rather than for the loop's sake: the reader waits on it
+    // before the terminal, and a panic that skipped it would leave that wait to the oneshot's
+    // drop - the same outcome by accident instead of on purpose. What is not recovered is what
+    // the panicking send owed: its window permit and its charge against the ledger, so a runtime
+    // that meets this may not empty its ledger again.
+    let _ = crate::guarded(write_until_closed(&state, send, commands)).await;
+
+    let _ = done.send(());
+}
+
+async fn write_until_closed(
+    state: &Arc<CallState>,
+    send: SendHalf,
+    mut commands: mpsc::Receiver<Command>,
 ) {
     let mut send = Some(send);
     let mut over = state.over.subscribe();
@@ -472,41 +488,20 @@ async fn writer(
             }
         }
     }
-
-    let _ = done.send(());
 }
 
-async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: oneshot::Receiver<()>) {
-    let head = match recv.recv_initial_metadata().await {
-        Ok(metadata) => blob::encode_metadata(metadata),
-        Err(_) => blob::encode_metadata(&Metadata::new()),
-    };
-    let delivered_head = deliver(
-        &state,
-        ak_event_kind::AK_EVENT_INITIAL_METADATA,
-        Bytes::from(head),
-    )
-    .await;
-
-    let status = if !delivered_head {
-        GrpcStatus::cancelled()
-    } else {
-        loop {
-            if state.cancelled.load(Ordering::Acquire) {
-                break GrpcStatus::cancelled();
-            }
-
-            match recv.next_message().await {
-                Ok(RecvResult::Message(message)) => {
-                    if !deliver(&state, ak_event_kind::AK_EVENT_MESSAGE, message.data).await {
-                        break GrpcStatus::cancelled();
-                    }
-                }
-                Ok(RecvResult::End(status)) => break status,
-                Err(_) => break GrpcStatus::cancelled(),
-            }
-        }
-    };
+async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::Receiver<()>) {
+    let status = crate::guarded(read_until_end(&state, recv))
+        .await
+        .unwrap_or_else(|| {
+            // The read side panicked, which is a bug here and not the peer's doing. The terminal
+            // goes out all the same: a host waiting for one it will never get is the hang
+            // requirement 14.8 exists to forbid.
+            GrpcStatus::new(
+                GrpcStatusCode::Internal,
+                "the transport failed while reading the response",
+            )
+        });
 
     state.over.send_replace(true);
     let _ = writer_is_done.await;
@@ -537,9 +532,41 @@ async fn reader(state: Arc<CallState>, mut recv: RecvHalf, writer_is_done: onesh
         });
     }
 
-    drop(recv);
-
     reclaim(&state).await;
+}
+
+/// Everything the read side does before the terminal: the head, then a message at a time.
+async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatus {
+    let head = match recv.recv_initial_metadata().await {
+        Ok(metadata) => blob::encode_metadata(metadata),
+        Err(_) => blob::encode_metadata(&Metadata::new()),
+    };
+    let delivered_head = deliver(
+        state,
+        ak_event_kind::AK_EVENT_INITIAL_METADATA,
+        Bytes::from(head),
+    )
+    .await;
+
+    if !delivered_head {
+        return GrpcStatus::cancelled();
+    }
+
+    loop {
+        if state.cancelled.load(Ordering::Acquire) {
+            break GrpcStatus::cancelled();
+        }
+
+        match recv.next_message().await {
+            Ok(RecvResult::Message(message)) => {
+                if !deliver(state, ak_event_kind::AK_EVENT_MESSAGE, message.data).await {
+                    break GrpcStatus::cancelled();
+                }
+            }
+            Ok(RecvResult::End(status)) => break status,
+            Err(_) => break GrpcStatus::cancelled(),
+        }
+    }
 }
 
 async fn reclaim(state: &Arc<CallState>) {

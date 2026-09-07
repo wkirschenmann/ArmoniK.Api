@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
 use crate::channel::AkChannel;
 use crate::host::Host;
+use crate::ledger::Ledger;
 use crate::runtime::{AkRuntime, Claim};
 use crate::tables;
 
@@ -62,53 +63,70 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
     let ledger = Arc::clone(runtime.ledger());
 
     runtime.spawner().spawn(async move {
-        let reached = |act: fn(&AkRuntime)| {
-            if let Some(runtime) = weak.upgrade() {
-                act(&runtime);
+        let failed = Weak::clone(&weak);
+        if crate::guarded(shutting_down(weak, host, ledger))
+            .await
+            .is_none()
+        {
+            // Nothing else can finish this shutdown: no SHUTDOWN_COMPLETE went out and no
+            // teardown thread was started, so the runtime would answer STOPPED for the life of
+            // the process and refuse every destroy. That is what AK_RUNTIME_FAILED_UNQUIESCED
+            // names - "quiescence impossible, destroy refused" - and this is the only path that
+            // reaches it.
+            if let Some(runtime) = failed.upgrade() {
+                runtime.set_state(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED);
             }
-        };
-
-        reached(AkRuntime::close_the_gate);
-
-        for channel in tables::channels().values() {
-            close_channel(&channel);
-        }
-        let calls = tables::calls().values();
-        for call in &calls {
-            call.cancel();
-        }
-        for call in &calls {
-            call.finished().await;
-        }
-
-        let debt = if ledger.empty() {
-            ak_host_debt::AK_HOST_NOTHING_TO_RETURN
-        } else {
-            ak_host_debt::AK_HOST_MUST_RETURN
-        };
-
-        // The state before the event that announces it, so a host that reads the status from
-        // inside the callback reads STOPPED. Nothing gates on STOPPED - destroy wants QUIESCENT,
-        // the gate and `start_stopping` want RUNNING - so publishing it early costs nothing.
-        //
-        // Two signals, because the host may still hold payloads and buffers when the gRPC side
-        // stops: this one says whether it does, and RESOURCES_RELEASED below says it has given
-        // them all back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
-        reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
-        host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
-
-        let owed = debt == ak_host_debt::AK_HOST_MUST_RETURN;
-        if owed {
-            ledger.drained().await;
-        }
-
-        // The rest is a thread's, not a task's. It emits RESOURCES_RELEASED and then shuts tokio
-        // down, and QUIESCENT is that thread having finished - so the host reads it when there is
-        // nothing left rather than when this task got here.
-        if let Some(runtime) = weak.upgrade() {
-            runtime.tear_down(owed);
         }
     });
+}
+
+async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledger>) {
+    let reached = |act: fn(&AkRuntime)| {
+        if let Some(runtime) = weak.upgrade() {
+            act(&runtime);
+        }
+    };
+
+    reached(AkRuntime::close_the_gate);
+
+    for channel in tables::channels().values() {
+        close_channel(&channel);
+    }
+    let calls = tables::calls().values();
+    for call in &calls {
+        call.cancel();
+    }
+    for call in &calls {
+        call.finished().await;
+    }
+
+    let debt = if ledger.empty() {
+        ak_host_debt::AK_HOST_NOTHING_TO_RETURN
+    } else {
+        ak_host_debt::AK_HOST_MUST_RETURN
+    };
+
+    // The state before the event that announces it, so a host that reads the status from
+    // inside the callback reads STOPPED. Nothing gates on STOPPED - destroy wants QUIESCENT,
+    // the gate and `start_stopping` want RUNNING - so publishing it early costs nothing.
+    //
+    // Two signals, because the host may still hold payloads and buffers when the gRPC side
+    // stops: this one says whether it does, and RESOURCES_RELEASED below says it has given
+    // them all back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
+    reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
+    host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
+
+    let owed = debt == ak_host_debt::AK_HOST_MUST_RETURN;
+    if owed {
+        ledger.drained().await;
+    }
+
+    // The rest is a thread's, not a task's. It emits RESOURCES_RELEASED and then shuts tokio
+    // down, and QUIESCENT is that thread having finished - so the host reads it when there is
+    // nothing left rather than when this task got here.
+    if let Some(runtime) = weak.upgrade() {
+        runtime.tear_down(owed);
+    }
 }
 
 pub(crate) fn release_channel(handle: ak_handle) {

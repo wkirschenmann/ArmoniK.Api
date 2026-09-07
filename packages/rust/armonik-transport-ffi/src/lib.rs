@@ -32,6 +32,27 @@ fn guard_void(body: impl FnOnce()) {
     let _ = catch_unwind(AssertUnwindSafe(body));
 }
 
+/// A task body whose panic answers `None` instead of ending the task in silence.
+///
+/// The entry-point guards above cannot serve here: a future panics inside a `poll`, so the catch
+/// has to be per poll rather than around the whole thing. `Box::pin` because that makes the
+/// projection safe code.
+///
+/// What a caller owes on `None` is whatever the task promised someone else - a call's terminal, a
+/// shutdown's completion - because a task that dies quietly leaves a host waiting for an event
+/// that will never come. Requirement 14.8 is that promise: contained, and converted to an error.
+async fn guarded<T>(body: impl std::future::Future<Output = T>) -> Option<T> {
+    let mut body = Box::pin(body);
+    std::future::poll_fn(move |cx| {
+        match catch_unwind(AssertUnwindSafe(|| body.as_mut().poll(cx))) {
+            Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+            Ok(std::task::Poll::Ready(value)) => std::task::Poll::Ready(Some(value)),
+            Err(_) => std::task::Poll::Ready(None),
+        }
+    })
+    .await
+}
+
 /// # Safety
 ///
 /// `out` must be writable for its type.
@@ -336,4 +357,72 @@ pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
     guard_void(|| {
         drop(unsafe { call::take_payload(payload.owner) });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Silences the panic report the guarded tests provoke, so a passing run is quiet.
+    fn quietly<T>(body: impl FnOnce() -> T) -> T {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let answer = body();
+        std::panic::set_hook(previous);
+        answer
+    }
+
+    #[test]
+    fn a_task_body_that_finishes_answers_what_it_returned() {
+        let answer = futures_lite_block_on(guarded(async { 7 }));
+        assert_eq!(answer, Some(7));
+    }
+
+    #[test]
+    fn a_task_body_that_panics_before_it_suspends_answers_none() {
+        let answer = quietly(|| futures_lite_block_on(guarded(async { panic!("at once") })));
+        assert_eq!(answer, None::<()>);
+    }
+
+    /// The reason this is not the synchronous `guard` beside it: a future panics inside a `poll`,
+    /// and a catch around the whole future would be entered once and never again.
+    #[test]
+    fn a_task_body_that_panics_after_it_suspends_answers_none() {
+        let answer = quietly(|| {
+            futures_lite_block_on(guarded(async {
+                Yielded { done: false }.await;
+                panic!("after a suspension");
+            }))
+        });
+        assert_eq!(answer, None::<()>);
+    }
+
+    /// One suspension, so the body above is polled twice.
+    struct Yielded {
+        done: bool,
+    }
+
+    impl std::future::Future for Yielded {
+        type Output = ();
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<()> {
+            if self.done {
+                return std::task::Poll::Ready(());
+            }
+            self.done = true;
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    }
+
+    /// A one-thread executor, so these tests need no runtime of their own.
+    fn futures_lite_block_on<T>(body: impl std::future::Future<Output = T>) -> T {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a current-thread runtime");
+        runtime.block_on(body)
+    }
 }

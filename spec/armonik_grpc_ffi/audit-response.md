@@ -24,14 +24,13 @@ Statuses used here:
 
 | | count | |
 |---|---|---|
-| applied | 15 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, an internal type that stopped escaping, and a send ceiling that is waited on |
+| applied | 16 | the four version tags, the lock file, a path Linux cannot read, the archive's schema, two numbers a host may send, the prologue that answers the headers with its two test gaps, an internal type that stopped escaping, a send ceiling that is waited on, and a panic that no longer strands what its task promised |
 | answered by a decision | 5 | the platform set, the ABI's error channel, its size check, and two the absence of a publication channel dissolves |
-| re-derived and downgraded | 1 | the HTTP/2 window: the evidence holds, the number does not |
-| open | 11 | |
+| re-derived, refused or downgraded | 2 | the HTTP/2 window, whose evidence holds and whose number does not; and the shutdown's debt decision, whose race cannot happen |
+| open | 10 | |
 
-Of the eleven open, three are the engine's failure paths - a panic in a spawned task, a debt read
-before a lend has counted, a five-second timeout reported as quiescence - one is a public option
-that may have no effect, and the rest belong to tasks already named.
+Of the ten open, one is the engine's last failure path - a five-second timeout reported as
+quiescence - and the rest belong to tasks already named or need a decision recorded above.
 
 **What the re-derivation is finding, over sixteen blockers so far: the audit's evidence lines hold
 and its conclusions need redoing.** Three of its claims were wrong on the number or the consequence
@@ -297,6 +296,60 @@ binding returns at the commit instead of the acquittal and `SLOT_BUSY` becomes a
 **Whether that happens now is the user's call.** It is a feature the ABI already permits, it
 interacts with the replay ceiling phase 6 has to settle - a retry needs the sent bytes kept past
 their acquittal - and none of it is a correction. Recorded against T6.1, which owns that subject.
+
+---
+
+## Applied: a panic in a task no longer strands what the task promised
+
+| Finding | What it said | Proof |
+|---|---|---|
+| R-053 | the spawned reader, writer and shutdown tasks are not wrapped in `catch_unwind`, so a panic there kills the task silently and the call never reaches its terminal, the channel never closes and the runtime never quiesces - a hang rather than the error requirement 14.8 promises | `guarded` in `lib.rs`, and each task's tail now runs on both paths. 3 tests on the guard itself, the load-bearing one being a body that panics *after* a suspension - which a catch around the whole future would never see, and which is why the entry points' synchronous `guard` cannot serve here. 201 Rust tests where there were 198 |
+
+The reader's terminal moved out of the guarded body, so a panic while reading answers `Internal`
+and the terminal still goes out. The writer's acquittal likewise: the reader waits on it before the
+terminal, and a panic that skipped it used to leave that wait to the oneshot's drop - the same
+outcome by accident rather than on purpose.
+
+**And the shutdown task gets `AK_RUNTIME_FAILED_UNQUIESCED` its first producer.** A panic there is
+the worst of the three: no `SHUTDOWN_COMPLETE` goes out and no teardown thread starts, so the
+runtime answers STOPPED for the life of the process and refuses every destroy. The header already
+defines the state for exactly this - "quiescence impossible, destroy refused" - and design.md
+recorded that nothing set it. Now something does, which is also what the .NET side's status polling
+needs to stop waiting.
+
+Two things this does not recover, named rather than implied: a panic between a message reaching the
+wire and its acquittal leaks that send's window permit and its charge against the ledger, so a
+runtime that meets it may not empty its ledger again; and a panic inside a call cannot know what
+that call owed. Removing the hangs is what this lot does.
+
+---
+
+## Refused: A2-002, the shutdown's debt decision
+
+**What it said.** "The shutdown's host-debt decision reads only `Ledger::empty()`, which a lend
+already committed to inside `fill` has not yet incremented." Fix proposed: fold every call's
+`debt.buffers`/`debt.payloads` into the decision, and gate `ak_get_call_buffer` on `pass_the_gate`.
+
+**The window it names is real.** `lend` claims `debt.buffers` with a compare-exchange before it
+calls `fill`, and `fill` is what charges the ledger, so there is an interval where a call shows a
+buffer claim and the ledger shows nothing. And `finished()`, which the shutdown awaits per call,
+waits on `Debt::quiet()` - the terminal and the callbacks - not on `Debt::settled()`, which is what
+reads `buffers` and `payloads`. So the shutdown does read the ledger with that window open.
+
+**It still cannot be wrong, for two reasons that are in the code.** The shutdown cancels every call
+*before* it awaits any of them, and `fill` opens with `accepts_work()`, which is
+`live() && !cancelled`. So a lend inside the window fails, charges nothing, and `lend` puts
+`debt.buffers` back - the host is refused and holds nothing to return. And the terminal's own
+payload is charged by `lend_payload` before `debt.terminal` is stored, so the flag the shutdown
+waits on is released after the charge it would otherwise miss.
+
+A lend that *succeeds* between the gate closing and the calls being cancelled charges the ledger,
+and the read that follows reports `MUST_RETURN` - correct, and why gating `ak_get_call_buffer` is
+not needed either.
+
+**Status: refused, both halves.** No test is added for a race that cannot happen; what would earn
+its place is a test that `quiet()` and `settled()` stay different, which is the property this rests
+on - noted for the test-gap sweep rather than done here.
 
 ---
 
