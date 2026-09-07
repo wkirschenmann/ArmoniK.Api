@@ -1416,9 +1416,21 @@ and only then writes.
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
 the writer it wakes can act on it straight away. Retry costs no copy at all: the
 bytes are already Rust's, so a retryable call simply keeps the allocation until it commits.
-The slot budget and the replay buffer (`RetryConfig::max_buffer_size`) are two independent
-budgets - the first bounds how many buffers are outstanding, the second how many bytes are
-retained for replay - and neither has to be traded against the other.
+The slot budget and the replay buffer (`RetryConfig::max_buffer_size`) charge two different
+phases of one buffer's life - the first while it is outstanding, the second once it is retained
+past its WRITE_DONE - so neither is spent on the other's account.
+
+**They are not independent in effect, though, and the window has to be the larger.** A replay
+sends the retained bytes again, so it passes back through the send window: a window of one
+replays a retained message per round trip, which spends the memory the cache costs without
+buying the speed it exists for. The window is the parallelism a replay can use and the cache is
+the work a replay has to do, so a cache that retains more messages than the window admits
+retains what cannot be replayed any faster than re-serializing it would have been.
+
+The two are denominated differently - the window in buffers, the cache in bytes - so the
+constraint cannot be checked as written until one of them changes unit or the pair is related
+through a message size. That is T6.1's to settle, and it is why neither value can be chosen
+alone.
 
 **Receive (Rust → host)**:
 - `ak_event.payload` is an owned `ak_bytes` (reference-counted Rust buffer)
@@ -3856,7 +3868,7 @@ table above maps the five call shapes and stops there.
 |----------|---------|--------|
 | Crate for X509Store Windows | Direct native APIs / `schannel` crate / `windows` crate | Layer 1 |
 | Exact handle format | **Slot map: index plus generation.** A stale handle is refused with a status instead of dereferenced, which is what makes runtime-driven reclamation safe: the host may still hold a token for a call already reclaimed | Layer 3, decided |
-| Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes an arena retains past their WRITE_DONE, which is the one knob between replayability and memory held |
+| Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes an arena retains past their WRITE_DONE, which is the one knob between replayability and memory held. **Not choosable alone**: a replay re-enters the send window, so the window has to admit at least what the cache retains or the retained bytes cannot be replayed any faster than re-serializing them. T6.1 settles the pair, and the differing units - buffers against bytes - with it |
 | Host queue signal mechanism | **Moot: there is no host queue.** The per-call ring replaces it, and its signal must be latched auto-reset - never `SemaphoreSlim`, whose `Release` can run a waiter inline on the callback's thread | Layer 4, decided |
 | Generator for the C# options | **A build-time tool reading the schema with `Corvus.Json.CodeGeneration`.** A Roslyn generator cannot carry `System.Text.Json`: an analyzer loads inside the compiler, and the documented failure is green under `dotnet build` and red under Visual Studio, which is the one shape no CI can catch. Corvus's own generator has no such problem but emits `readonly struct` readers over a `JsonElement`, which is the wrong shape for a class `IConfiguration` binds and would need a hand-written mutable facade anyway. So its `TypeDeclaration` model does the reading - `$ref`, `$defs`, draft 2020-12 - and this repository decides the C#. The tool runs at build time, so none of Corvus reaches a consumer | Layer 4, decided |
 | Connection pool management (idle eviction) | Internal timer vs lazy check | Layer 2 |

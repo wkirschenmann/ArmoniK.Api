@@ -855,9 +855,18 @@ if this binding starts using the depth.
 
 Changing it is three artefacts in this order: that layer-4 decision, then level 2's writer becomes
 multi-slot and its refinement proof is redone, then the binding returns at the commit instead of the
-acquittal and `LentBuffer`'s default branch becomes a wait. It lands in this task because a retry
-needs the sent bytes kept past their acquittal, which is the same question as what the arena
-retains.
+acquittal and `LentBuffer`'s default branch becomes a wait.
+
+**Decided, and it is why this belongs here rather than beside it: the window has to be larger than
+the replay cache.** A replay sends the retained bytes again, so it passes back through the window -
+a window of one replays a retained message per round trip, which spends the memory the cache costs
+without buying the speed it exists for. So the two values are chosen together, not in sequence, and
+design.md's claim that they never trade against each other now says what is true of it: they charge
+different phases of a buffer's life, and they still constrain each other in effect.
+
+The first thing this study owes is therefore a unit. The window counts buffers and the cache counts
+bytes, so "larger than" is not checkable as the two are spelled today - either the cache gains a
+message count, or the pair is related through a message size the configuration states.
 
 ### T6.2: Deadline
 
