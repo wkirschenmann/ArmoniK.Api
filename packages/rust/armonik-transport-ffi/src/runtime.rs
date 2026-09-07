@@ -199,7 +199,13 @@ impl AkRuntime {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(tokio) = taken {
-            tokio.shutdown_timeout(std::time::Duration::from_secs(5));
+            // Dropped rather than given a deadline. This thread finishing is what `state` reports
+            // as QUIESCENT, and the header promises that state alone permits `ak_runtime_destroy`
+            // or unloading the library - so a deadline that expired with work still running would
+            // make the promise a lie exactly when it matters. A shutdown that does not end leaves
+            // the state at GRPC_STOPPED, which refuses the destroy and says so; the host's own
+            // patience is the host's to bound.
+            drop(tokio);
         }
     }
 
