@@ -1,0 +1,251 @@
+// This file is part of the ArmoniK project
+//
+// Copyright (C) ANEO, 2021-2026. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License")
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+using Grpc.Core;
+
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
+namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
+
+/// <summary>What a call is to the two halves that drive it.</summary>
+///
+/// The facts both sides read and neither owns: the handle they downcall on, the end they watch,
+/// and the terminal that answers whatever they were waiting for when the call died.
+internal interface ICallState
+{
+  ulong Handle { get; }
+
+  CancellationToken Ending { get; }
+
+  Task<Status> TerminalAsync { get; }
+
+  Metadata Trailers { get; }
+
+  /// <summary>Ends the call, which is what a send that failed does to the rest of it.</summary>
+  void EndCall();
+}
+
+/// <summary>One call's outbound half: what it has serialized, sent, and not had acquitted.</summary>
+///
+/// Not generic, because nothing here reads the response type: a request's marshaller arrives with
+/// the request. So it is compiled once rather than once per response.
+internal sealed class Sender
+{
+  private readonly ICallState call_;
+  private readonly NativeRuntime runtime_;
+
+  private int inFlight_;
+
+  private int holding_;
+
+  private readonly ArrivalSignal handedBack_ = new();
+
+  // The write waiting for its acquittal, or null between writes. A write linearizes at its
+  // WRITE_DONE and not at the commit, which is what lets one writer send in a row against a
+  // window of one: the emission that completes a write has already freed the slot the next lend
+  // asks for, so a conformant writer never meets SLOT_BUSY.
+  private TaskCompletionSource<bool>? writing_;
+
+  internal Sender(ICallState call,
+                  NativeRuntime runtime)
+  {
+    call_    = call;
+    runtime_ = runtime;
+  }
+
+  /// <summary>What the engine has taken and not yet acquitted.</summary>
+  internal int Unacquitted
+    => Volatile.Read(ref inFlight_);
+
+  /// <summary>A WRITE_DONE: one send has left, and its writer may return.</summary>
+  internal void Acquitted()
+  {
+    Interlocked.Decrement(ref inFlight_);
+    Volatile.Read(ref writing_)
+            ?.TrySetResult(true);
+  }
+
+  /// <summary>Waits until no serializer holds a buffer of the engine's.</summary>
+  /// <remarks>What the settlement waits on: a call still holding a buffer is not settled,
+  /// whatever its terminal says.</remarks>
+  internal async Task HandedEverythingBackAsync()
+  {
+    while (Volatile.Read(ref holding_) != 0)
+    {
+      await handedBack_.WaitAsync()
+                       .ConfigureAwait(false);
+    }
+  }
+
+  internal Task SendUnaryAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                         TRequest request)
+    => Sent(marshaller,
+            request,
+            halfClose: true);
+
+  /// <summary>One message of a client stream, complete when the engine has acquitted it.</summary>
+  /// <remarks>The acquittal and not the commit, because that is what frees the send window: a
+  /// caller honouring <c>IClientStreamWriter</c>'s one-writer contract therefore always finds the
+  /// window open at its next lend, whatever depth the ABI allows a host that pipelines deeper.
+  /// </remarks>
+  internal async Task WriteAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                           TRequest request)
+  {
+    var acquitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    Volatile.Write(ref writing_,
+                   acquitted);
+
+    await Sent(marshaller,
+               request,
+               halfClose: false)
+      .ConfigureAwait(false);
+
+    // The terminal is watched beside the acquittal because a write left pending would hang the
+    // caller. Level 1 emits every acquittal before the terminal, so a call that reaches its
+    // terminal first is an engine that broke that promise, and the caller hears it as the status.
+    var settled = await Task.WhenAny(acquitted.Task,
+                                     call_.TerminalAsync)
+                            .ConfigureAwait(false);
+    if (settled != acquitted.Task)
+    {
+      throw new RpcException(await call_.TerminalAsync.ConfigureAwait(false),
+                             call_.Trailers);
+    }
+  }
+
+  /// <summary>Says nothing more is coming.</summary>
+  internal void HalfClose()
+  {
+    // The two the engine answers for a call that is already over, which the sender cannot rule
+    // out and which the terminal reports anyway.
+    var closed = NativeMethods.ak_call_end_send(call_.Handle);
+    if (closed is not (NativeMethods.AkStatus.Ok or NativeMethods.AkStatus.HandleStale
+                                                 or NativeMethods.AkStatus.InvalidState))
+    {
+      throw Failed($"the half-close was refused ({closed})");
+    }
+  }
+
+  private async Task Sent<TRequest>(Marshaller<TRequest> marshaller,
+                                    TRequest request,
+                                    bool halfClose)
+  {
+    try
+    {
+      await SendingAsync(marshaller,
+                         request,
+                         halfClose)
+        .ConfigureAwait(false);
+    }
+    catch
+    {
+      call_.EndCall();
+      throw;
+    }
+  }
+
+  private async Task SendingAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                            TRequest request,
+                                            bool halfClose)
+  {
+    Interlocked.Increment(ref holding_);
+    try
+    {
+      await HoldingABufferAsync(marshaller,
+                                request,
+                                halfClose)
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      if (Interlocked.Decrement(ref holding_) == 0)
+      {
+        handedBack_.Set();
+      }
+    }
+  }
+
+  private async Task HoldingABufferAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                                   TRequest request,
+                                                   bool halfClose)
+  {
+    // One whole attempt per turn, serialization included: the lend is asked for at the announced
+    // length, before a byte is written, so a ceiling with no room is met there and not halfway
+    // through. Serializing again costs a second pass over a message that has not changed, and it
+    // is what lets the ceiling be waited on instead of allocated around.
+    while (true)
+    {
+      using var lent = new LentBuffer(call_.Handle);
+
+      NativeMethods.AkStatus status;
+      try
+      {
+        marshaller.ContextualSerializer(request,
+                                        lent);
+
+        // Counted once the engine has taken it, so a refusal leaves nothing to acquit. The
+        // WRITE_DONE may land before this returns and drive the count below zero; the reduction
+        // reads the count only once this method has returned, which is why it reads the sum and
+        // not a moment of it.
+        status = lent.Commit();
+      }
+      catch (NoRoomYet)
+      {
+        status = NativeMethods.AkStatus.BudgetBusy;
+      }
+
+      if (status == NativeMethods.AkStatus.Ok)
+      {
+        Interlocked.Increment(ref inFlight_);
+        break;
+      }
+
+      if (status is NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale)
+      {
+        throw new CallEnded(status);
+      }
+
+      if (status != NativeMethods.AkStatus.BudgetBusy)
+      {
+        throw Failed($"the message was refused ({status})");
+      }
+
+      try
+      {
+        await runtime_.WaitForRoomAsync(call_.Ending)
+                      .ConfigureAwait(false);
+      }
+      catch (OperationCanceledException)
+      {
+        throw new RpcException(new Status(StatusCode.Cancelled,
+                                          "the call ended while its send waited for room against the ceiling"));
+      }
+    }
+
+    if (halfClose)
+    {
+      HalfClose();
+    }
+  }
+
+  private static RpcException Failed(string reason)
+    => new(new Status(StatusCode.Internal,
+                      reason));
+}
