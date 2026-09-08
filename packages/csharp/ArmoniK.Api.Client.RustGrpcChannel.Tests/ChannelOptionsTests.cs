@@ -247,10 +247,10 @@ public class ChannelOptionsTests
     }
   }
 
-  /// <summary>A configuration key no option matches is dropped, not refused.</summary>
+  /// <summary>A configuration key no option matches is dropped by .NET's binder.</summary>
   /// <remarks>
-  ///   .NET's binder ignores it. What `additionalProperties: false` refuses is a misspelling in
-  ///   the document, which is the path a Rust or C++ host takes.
+  ///   Bound as it comes, which is what the factory's door may not do: a misspelling reaches the
+  ///   engine as an absent option, and an absent option is a default.
   /// </remarks>
   [Test]
   public void AConfigurationKeyNoOptionMatchesIsIgnoredByTheBinder()
@@ -265,6 +265,27 @@ public class ChannelOptionsTests
 
     Assert.That(Encoded(options),
                 Is.EqualTo("{}"));
+  }
+
+  /// <summary>And the door refuses it, as `additionalProperties: false` refuses it in the
+  /// document a Rust or C++ host hands over.</summary>
+  /// <remarks>Needs no engine: the section is bound before anything native is reached.</remarks>
+  [Test]
+  public void AConfigurationKeyNoOptionMatchesIsRefusedByTheDoor()
+  {
+    var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                         {
+                                                                           ["Section:DeliveryCredit"] = "4",
+                                                                         })
+                                                  .Build();
+
+    var refused = Assert.Throws<InvalidOperationException>(() => NativeRuntimeFactory.Channel("http://127.0.0.1:1",
+                                                                                              configuration,
+                                                                                              "Section"));
+
+    Assert.That(refused?.Message,
+                Does.Contain("DeliveryCredit"),
+                "the message names the key, since finding it is the whole difficulty");
   }
 
   [Test]

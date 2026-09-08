@@ -7,7 +7,9 @@
     nothing from here. .NET Framework has no such mechanism at all: no deps.json, no runtime
     identifier, just the Win32 search order. So both architectures are copied beside the
     application, in x86 and x64, and the binding's own static constructor loads the one matching
-    IntPtr.Size before the first P/Invoke.
+    IntPtr.Size before the first P/Invoke. Two is all there is to choose between, and IntPtr.Size
+    tells them apart: .NET Framework has no ARM64 flavour, and on an ARM64 host it runs emulated
+    as one of these two.
 
     Conditioned on the framework and on nothing else. An explicit PlatformTarget would let one of
     the two copies be skipped, but AnyCPU - the default - has no architecture until the process

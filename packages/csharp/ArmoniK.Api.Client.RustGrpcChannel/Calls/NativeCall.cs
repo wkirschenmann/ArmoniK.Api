@@ -91,6 +91,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
   private static readonly ConditionalWeakTable<string, byte[]> MethodNames = new();
 
+  private readonly object disarm_ = new();
+
   private CancellationTokenRegistration cancellation_;
 
   private NativeCall(NativeRuntime runtime,
@@ -1095,7 +1097,17 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
 
     ending_.Cancel();
-    cancellation_.Dispose();
+
+    // Cancelled before the claim, so an invoker that publishes after this reads the cancel and
+    // disposes its own copy: in either order the registration is disposed exactly once.
+    CancellationTokenRegistration registration;
+    lock (disarm_)
+    {
+      registration  = cancellation_;
+      cancellation_ = default;
+    }
+
+    registration.Dispose();
 
     // This terminates: a terminal cannot be consumed until the prologue has let go, and the
     // cancel above is what ends one still waiting on a call that published nothing.
@@ -1110,8 +1122,9 @@ internal sealed class NativeCall<TResponse> : ICallSink
   /// before the call is started and cannot race the reader disposing it: a call the engine ends
   /// at once - a channel released underneath it - reaches its terminal and disposes
   /// <c>cancellation_</c> while the invoker is still on its way here, and the registration would
-  /// then outlive the call for as long as the caller's token source does. A token already
-  /// cancelled cancels immediately, which is what a caller passing one expects.</remarks>
+  /// then outlive the call for as long as the caller's token source does. Reading that state and
+  /// publishing are one step under <c>disarm_</c>, so no terminal lands between them. A token
+  /// already cancelled cancels immediately, which is what a caller passing one expects.</remarks>
   internal void CancelWith(CancellationToken token)
   {
     if (!token.CanBeCanceled)
@@ -1120,13 +1133,17 @@ internal sealed class NativeCall<TResponse> : ICallSink
     }
 
     var registration = token.Register(Cancel);
-    if (ending_.IsCancellationRequested)
+
+    lock (disarm_)
     {
-      registration.Dispose();
-      return;
+      if (!ending_.IsCancellationRequested)
+      {
+        cancellation_ = registration;
+        return;
+      }
     }
 
-    cancellation_ = registration;
+    registration.Dispose();
   }
 
   /// <summary>Ends the call, and makes sure what it already published is collected.</summary>

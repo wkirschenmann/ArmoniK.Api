@@ -18,8 +18,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-using ArmoniK.Api.Common.Utils;
-
 using Microsoft.Extensions.Configuration;
 
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
@@ -91,12 +89,18 @@ public static class NativeRuntimeFactory
   /// <param name="key">The section holding them.</param>
   /// <returns>The channel, holding a lease on the runtime.</returns>
   /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException"><paramref name="key" /> names no section.</exception>
+  /// <exception cref="InvalidOperationException">
+  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
+  /// </exception>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
   /// <remarks>
   ///   Required rather than optional: a caller who names a section meant to configure this, and a
   ///   misspelled name that quietly gave the engine's defaults would be a channel nobody
   ///   configured. <see cref="Channel(string,int)" /> is how to ask for the defaults.
+  ///
+  ///   The same argument one level down is what binds the section strictly. The engine refuses an
+  ///   option it does not know in the document it is handed, so a key dropped here would be the
+  ///   one door of the two that answers a misspelling with a working channel.
   /// </remarks>
   public static NativeChannel Channel(string endpoint,
                                       IConfiguration configuration,
@@ -107,8 +111,11 @@ public static class NativeRuntimeFactory
       throw new ArgumentNullException(nameof(configuration));
     }
 
+    var options = configuration.GetRequiredSection(key)
+                               .Get<ChannelOptions>(binder => binder.ErrorOnUnknownConfiguration = true);
+
     return Channel(endpoint,
-                   configuration.GetRequiredValue<ChannelOptions>(key));
+                   options ?? throw new InvalidOperationException($"{key} carries no options"));
   }
 
   /// <summary>Opens a channel with a delivery window, and the engine's defaults elsewhere.</summary>
