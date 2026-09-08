@@ -622,8 +622,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
     // status, the drain and the settlement would wait forever on something no step can resolve.
     if (terminal && end is null)
     {
-      end = new Status(StatusCode.Internal,
-                       $"the call's terminal could not be read: {decodeFailure?.Message}");
+      end = Unreadable(decodeFailure);
     }
 
     bool won;
@@ -865,8 +864,14 @@ internal sealed class NativeCall<TResponse> : ICallSink
       {
         if (terminal)
         {
-          Resolve(new Status(StatusCode.Internal,
-                             $"the call's terminal could not be read: {thrown.Message}"));
+          Resolve(Unreadable(thrown));
+        }
+        else
+        {
+          // The headers, which the terminal would otherwise answer with an empty set on a call
+          // that ended OK - "none" where the truth is "none that could be read".
+          FailHead(new RpcException(new Status(StatusCode.Internal,
+                                               $"the call's initial metadata could not be read: {thrown.Message}")));
         }
       }
       finally
@@ -885,6 +890,14 @@ internal sealed class NativeCall<TResponse> : ICallSink
       }
     }
   }
+
+  /// <summary>The status a terminal nobody could decode reports, wherever it was consumed.</summary>
+  /// <remarks>A terminal always yields one: after the slot is released the trailers are gone, so
+  /// a call left without a status would keep every later read, the drain and the settlement
+  /// waiting on something no step can produce.</remarks>
+  private static Status Unreadable(Exception? thrown)
+    => new(StatusCode.Internal,
+           $"the call's terminal could not be read: {thrown?.Message}");
 
   private Status DecodedStatus(in Slot slot)
   {
