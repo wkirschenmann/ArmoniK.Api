@@ -25,7 +25,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>Client streaming: several messages, then one reply.</summary>
 [TestFixture]
-public class ClientStreamingTests : RuntimeLeaseFixture
+public class ClientStreamingTests : EchoServerFixture
 {
   private static readonly string[] Sent =
   {
@@ -34,27 +34,10 @@ public class ClientStreamingTests : RuntimeLeaseFixture
     "three",
   };
 
-  private EchoServerProcess? server_;
-  private string             endpoint_ = string.Empty;
-
-  [OneTimeSetUp]
-  public void StartServer()
-  {
-    server_   = EchoServerProcess.Start();
-    endpoint_ = server_.Endpoint;
-  }
-
-  [OneTimeTearDown]
-  public void StopServer()
-    => server_?.Dispose();
-
-  private Echo.EchoClient Client(NativeChannel channel)
-    => new(channel.CreateCallInvoker());
-
   [Test]
   public async Task EveryMessageReachesTheServerInOrderAndTheReplyNamesThemAll()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 
@@ -80,7 +63,7 @@ public class ClientStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task AStreamThatSendsNothingStillReachesItsReply()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 
@@ -100,7 +83,7 @@ public class ClientStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task AWriteAfterTheCallEndedIsAnRpcException()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .CollectRefused();
 
@@ -125,7 +108,7 @@ public class ClientStreamingTests : RuntimeLeaseFixture
   [Test]
   public void AWriteAfterTheStreamIsClosedIsRefused()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 

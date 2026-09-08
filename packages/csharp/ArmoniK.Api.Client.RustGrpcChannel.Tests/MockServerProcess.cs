@@ -18,11 +18,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Text;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
@@ -51,7 +49,7 @@ internal sealed class MockServerProcess : IDisposable
 
   internal static MockServerProcess Start()
   {
-    var assembly = MockAssembly();
+    var assembly = BuiltServer.Assembly("MockServerAssembly");
     var grpcPort = FreePort();
     var httpPort = FreePort();
 
@@ -94,7 +92,7 @@ internal sealed class MockServerProcess : IDisposable
     }
     catch
     {
-      Kill(process);
+      BuiltServer.Kill(process);
       throw;
     }
   }
@@ -175,44 +173,9 @@ internal sealed class MockServerProcess : IDisposable
     return port;
   }
 
-  private static string MockAssembly()
-  {
-    var recorded = typeof(MockServerProcess).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-                                            .FirstOrDefault(metadata => metadata.Key == "MockServerAssembly")
-                                           ?.Value;
-    if (string.IsNullOrEmpty(recorded))
-    {
-      throw new InvalidOperationException("the build recorded no MockServerAssembly");
-    }
-
-    var assembly = Path.GetFullPath(recorded!);
-    if (!File.Exists(assembly))
-    {
-      throw new FileNotFoundException($"the mock was not built: {assembly}",
-                                      assembly);
-    }
-
-    return assembly;
-  }
-
-  private static void Kill(Process process)
-  {
-    try
-    {
-      if (!process.HasExited)
-      {
-        process.Kill();
-      }
-    }
-    catch (InvalidOperationException)
-    {
-      // It ended between the two, which is where it was going.
-    }
-  }
-
   public void Dispose()
   {
-    Kill(process_);
+    BuiltServer.Kill(process_);
     process_.Dispose();
   }
 }

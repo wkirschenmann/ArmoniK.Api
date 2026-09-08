@@ -17,8 +17,6 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Text;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
@@ -41,7 +39,7 @@ internal sealed class EchoServerProcess : IDisposable
 
   internal static EchoServerProcess Start()
   {
-    var assembly = ServerAssembly();
+    var assembly = BuiltServer.Assembly("TestServerAssembly");
     var process = new Process
                   {
                     StartInfo = new ProcessStartInfo("dotnet",
@@ -84,7 +82,7 @@ internal sealed class EchoServerProcess : IDisposable
     }
     catch
     {
-      Kill(process);
+      BuiltServer.Kill(process);
       throw;
     }
   }
@@ -129,43 +127,9 @@ internal sealed class EchoServerProcess : IDisposable
     }
   }
 
-  private static string ServerAssembly()
-  {
-    var recorded = typeof(EchoServerProcess).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-                                            .FirstOrDefault(metadata => metadata.Key == "TestServerAssembly")
-                                           ?.Value;
-    if (string.IsNullOrEmpty(recorded))
-    {
-      throw new InvalidOperationException("the build recorded no TestServerAssembly");
-    }
-
-    var assembly = Path.GetFullPath(recorded!);
-    if (!File.Exists(assembly))
-    {
-      throw new FileNotFoundException($"the test server is not built: {assembly}",
-                                      assembly);
-    }
-
-    return assembly;
-  }
-
-  private static void Kill(Process process)
-  {
-    try
-    {
-      if (!process.HasExited)
-      {
-        process.Kill();
-      }
-    }
-    catch (InvalidOperationException)
-    {
-    }
-  }
-
   public void Dispose()
   {
-    Kill(process_);
+    BuiltServer.Kill(process_);
     process_.Dispose();
   }
 }

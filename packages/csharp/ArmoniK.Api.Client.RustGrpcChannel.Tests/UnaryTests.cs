@@ -33,32 +33,20 @@ using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 [TestFixture]
-public class UnaryTests : RuntimeLeaseFixture
+public class UnaryTests : EchoServerFixture
 {
-  private EchoServerProcess? server_;
-  private string endpoint_ = string.Empty;
-
+  /// <summary>Two workers, so a test that reads while another callback runs has a thread for
+  /// both. Set here rather than in the base, which every fixture shares.</summary>
   [OneTimeSetUp]
-  public void StartServer()
-  {
-    server_   = EchoServerProcess.Start();
-    endpoint_ = server_.Endpoint;
-    NativeRuntimeFactory.Configure(workerThreads: 2);
-  }
+  public void ConfigureTheRuntime()
+    => NativeRuntimeFactory.Configure(workerThreads: 2);
 
   /// <summary>One test asks for a memory ceiling, and every other one runs without.</summary>
   protected override void ArmTheNextTest()
     => NativeRuntimeFactory.Configure(workerThreads: 2);
 
-  [OneTimeTearDown]
-  public void StopServer()
-    => server_?.Dispose();
-
-  private Echo.EchoClient Client(NativeChannel channel)
-    => new(channel.CreateCallInvoker());
-
   private NativeChannel Channel()
-    => NativeRuntimeFactory.Channel(endpoint_);
+    => NativeRuntimeFactory.Channel(Endpoint);
 
   /// <summary>A channel opened from a configuration, and a call over it.</summary>
   /// <remarks>
@@ -81,7 +69,7 @@ public class UnaryTests : RuntimeLeaseFixture
       var configuration = new ConfigurationBuilder().AddEnvironmentVariables(prefix)
                                                     .Build();
 
-      using var channel = NativeRuntimeFactory.Channel(endpoint_,
+      using var channel = NativeRuntimeFactory.Channel(Endpoint,
                                                        configuration);
 
       var reply = await Client(channel)
@@ -113,7 +101,7 @@ public class UnaryTests : RuntimeLeaseFixture
   {
     var options = new ChannelOptions();
 
-    using var channel = NativeRuntimeFactory.Channel(endpoint_,
+    using var channel = NativeRuntimeFactory.Channel(Endpoint,
                                                      options);
 
     Assert.That(options.DeliveryCredits,
@@ -128,7 +116,7 @@ public class UnaryTests : RuntimeLeaseFixture
   /// </remarks>
   [Test]
   public void AConfigurationWithNoSectionForThisIsRefused()
-    => Assert.That(() => NativeRuntimeFactory.Channel(endpoint_,
+    => Assert.That(() => NativeRuntimeFactory.Channel(Endpoint,
                                                       new ConfigurationBuilder().Build()),
                    Throws.TypeOf<InvalidOperationException>());
 
@@ -406,7 +394,7 @@ public class UnaryTests : RuntimeLeaseFixture
   [Test]
   public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_,
+    using var channel = NativeRuntimeFactory.Channel(Endpoint,
                                                     deliveryCredits: 4);
 
     var reply = await Client(channel)
@@ -616,7 +604,7 @@ public class UnaryTests : RuntimeLeaseFixture
 
   [Test]
   public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()
-    => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
+    => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(Endpoint,
                                                                                      deliveryCredits: 0));
 
   /// <summary>Every call of the channel sizes a ring from this, so a window nothing bounds is a
@@ -626,9 +614,9 @@ public class UnaryTests : RuntimeLeaseFixture
   public void AWindowDeeperThanAnyRingIsRefusedBeforeAnythingIsOpened()
     => Assert.Multiple(() =>
                        {
-                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
+                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(Endpoint,
                                                                                                        NativeRuntimeFactory.MaxDeliveryCredits + 1));
-                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(endpoint_,
+                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(Endpoint,
                                                                                                        int.MaxValue));
                        });
 

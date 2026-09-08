@@ -49,14 +49,9 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                 CallOptions options,
                                                                                 TRequest request)
   {
-    MustCarryNoHost(host);
-    MustCarryNoDeadline(options);
-    MustCarryNothingElseUnhonoured(options);
-
-    var call = channel_.StartCall(method.FullName,
-                                 options.Headers,
-                                 method.ResponseMarshaller);
-    call.CancelWith(options.CancellationToken);
+    var call = Started(method,
+                       host,
+                       options);
 
     // Started before the request is sent, so the reader is draining while the send is in flight
     // and a terminal that arrives first has somebody to collect it.
@@ -147,14 +142,9 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                     CallOptions options,
                                                                                                     TRequest request)
   {
-    MustCarryNoHost(host);
-    MustCarryNoDeadline(options);
-    MustCarryNothingElseUnhonoured(options);
-
-    var call = channel_.StartCall(method.FullName,
-                                 options.Headers,
-                                 method.ResponseMarshaller);
-    call.CancelWith(options.CancellationToken);
+    var call = Started(method,
+                       host,
+                       options);
 
     // The one request goes without being awaited here: this cardinality hands the reader back to
     // the caller, and a send that fails ends the call itself, so what the caller learns is the
@@ -177,14 +167,9 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                               string? host,
                                                                                                               CallOptions options)
   {
-    MustCarryNoHost(host);
-    MustCarryNoDeadline(options);
-    MustCarryNothingElseUnhonoured(options);
-
-    var call = channel_.StartCall(method.FullName,
-                                 options.Headers,
-                                 method.ResponseMarshaller);
-    call.CancelWith(options.CancellationToken);
+    var call = Started(method,
+                       host,
+                       options);
 
     // The same reduction the unary path takes, for the same reason: this cardinality answers
     // exactly once, whatever it sent to be answered.
@@ -202,14 +187,9 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                                                                               string? host,
                                                                                                               CallOptions options)
   {
-    MustCarryNoHost(host);
-    MustCarryNoDeadline(options);
-    MustCarryNothingElseUnhonoured(options);
-
-    var call = channel_.StartCall(method.FullName,
-                                 options.Headers,
-                                 method.ResponseMarshaller);
-    call.CancelWith(options.CancellationToken);
+    var call = Started(method,
+                       host,
+                       options);
 
     // Both halves of the same call, and nothing between them: a write waits for its own
     // acquittal, which the engine delivers off the ring, and a read takes the ring, so the two
@@ -222,6 +202,27 @@ internal sealed class NativeCallInvoker : CallInvoker
                                                              static state => EndedTrailers((NativeCall<TResponse>)state),
                                                              static state => ((NativeCall<TResponse>)state).Cancel(),
                                                              call);
+  }
+
+  /// <summary>Starts the call every cardinality starts the same way.</summary>
+  /// <remarks>One place for the refusals, because a call option this invoker cannot honour has to
+  /// be refused by all four or by none: the one that let it through would be the one a caller
+  /// happened to use.</remarks>
+  private NativeCall<TResponse> Started<TRequest, TResponse>(Method<TRequest, TResponse> method,
+                                                             string? host,
+                                                             in CallOptions options)
+    where TRequest : class
+    where TResponse : class
+  {
+    MustCarryNoHost(host);
+    MustCarryNoDeadline(options);
+    MustCarryNothingElseUnhonoured(options);
+
+    var call = channel_.StartCall(method.FullName,
+                                  options.Headers,
+                                  method.ResponseMarshaller);
+    call.CancelWith(options.CancellationToken);
+    return call;
   }
 
   private static void MustCarryNoDeadline(in CallOptions options)

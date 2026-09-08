@@ -28,25 +28,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>Server streaming: one request, then a message per read.</summary>
 [TestFixture]
-public class ServerStreamingTests : RuntimeLeaseFixture
+public class ServerStreamingTests : EchoServerFixture
 {
-  private EchoServerProcess? server_;
-  private string             endpoint_ = string.Empty;
-
-  [OneTimeSetUp]
-  public void StartServer()
-  {
-    server_   = EchoServerProcess.Start();
-    endpoint_ = server_.Endpoint;
-  }
-
-  [OneTimeTearDown]
-  public void StopServer()
-    => server_?.Dispose();
-
-  private Echo.EchoClient Client(NativeChannel channel)
-    => new(channel.CreateCallInvoker());
-
   private static async Task<List<string>> ReadAll(IAsyncStreamReader<EchoReply> replies)
   {
     var seen = new List<string>();
@@ -66,7 +49,7 @@ public class ServerStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task TheResponseHeadArrivesWithoutAnyRead()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .HeadOnly(new EchoRequest
                 {
@@ -88,7 +71,7 @@ public class ServerStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task EveryMessageComesBackInOrderAndTheStreamThenEnds()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest
            {
@@ -116,7 +99,7 @@ public class ServerStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task AReadPastTheEndKeepsAnsweringFalse()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest
            {
@@ -135,7 +118,7 @@ public class ServerStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task AStreamThatAnswersNothingEndsCleanly()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest());
 
@@ -155,7 +138,7 @@ public class ServerStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task AStreamAbandonedHalfwayStillLetsTheChannelBeDisposed()
   {
-    using (var channel = NativeRuntimeFactory.Channel(endpoint_))
+    using (var channel = NativeRuntimeFactory.Channel(Endpoint))
     {
       using var call = Client(channel)
         .Fan(new EchoRequest
@@ -176,7 +159,7 @@ public class ServerStreamingTests : RuntimeLeaseFixture
   [Test]
   public void ACancelledTokenEndsTheReadAsCancelled()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest
            {

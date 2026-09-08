@@ -28,7 +28,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>Bidi streaming: sends and answers interleaved on one call.</summary>
 [TestFixture]
-public class DuplexStreamingTests : RuntimeLeaseFixture
+public class DuplexStreamingTests : EchoServerFixture
 {
   private static readonly string[] Sent =
   {
@@ -37,28 +37,11 @@ public class DuplexStreamingTests : RuntimeLeaseFixture
     "three",
   };
 
-  private EchoServerProcess? server_;
-  private string             endpoint_ = string.Empty;
-
-  [OneTimeSetUp]
-  public void StartServer()
-  {
-    server_   = EchoServerProcess.Start();
-    endpoint_ = server_.Endpoint;
-  }
-
-  [OneTimeTearDown]
-  public void StopServer()
-    => server_?.Dispose();
-
-  private Echo.EchoClient Client(NativeChannel channel)
-    => new(channel.CreateCallInvoker());
-
   /// <summary>The headers resolve with no read, on the cardinality that reads and writes at once.</summary>
   [Test]
   public async Task TheResponseHeadArrivesWithoutAnyRead()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .HeadThenChat();
 
@@ -80,7 +63,7 @@ public class DuplexStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task EachMessageIsAnsweredBeforeTheNextIsSent()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Chat();
 
@@ -116,7 +99,7 @@ public class DuplexStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task EverythingSentBeforeAnythingIsReadStillComesBackInOrder()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Chat();
 
@@ -147,7 +130,7 @@ public class DuplexStreamingTests : RuntimeLeaseFixture
   [Test]
   public async Task AConversationWithNothingToSayEndsCleanly()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Chat();
 
