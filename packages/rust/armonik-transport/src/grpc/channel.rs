@@ -7,6 +7,7 @@ use tokio::sync::{broadcast, watch, Mutex};
 
 use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
+use crate::options::LARGEST_WINDOW;
 
 use super::call::{self, CallStartOptions, GrpcCall, RequestBody};
 use super::driver;
@@ -54,6 +55,15 @@ impl GrpcChannel {
     ) -> Result<Self, GrpcChannelConfigError> {
         if config.max_sends_in_flight == 0 {
             return Err(GrpcChannelConfigError::ZeroSendWindow);
+        }
+
+        // The schema's bound, checked at a door that takes a number rather than a document: the
+        // window sizes a channel whose semaphore panics above its own limit instead of refusing,
+        // and the first call is where that would land.
+        if config.max_sends_in_flight > LARGEST_WINDOW as usize {
+            return Err(GrpcChannelConfigError::SendWindowTooLarge {
+                value: config.max_sends_in_flight,
+            });
         }
 
         if config.max_recv_message_size == 0 {
@@ -322,6 +332,35 @@ mod tests {
             connection: Mutex::new(Session::default()),
             closed: watch::channel(false).0,
         }
+    }
+
+    /// Both edges of the window, at the door that takes a number.
+    ///
+    /// The FFI refuses this range out of a document; nothing refused it here, and a window past
+    /// the semaphore's limit panics at the call that sizes its channel rather than at the
+    /// configuration that named it.
+    #[tokio::test]
+    async fn a_send_window_outside_what_the_options_admit_is_refused() {
+        let refused = |max_sends_in_flight| {
+            let mut config = GrpcChannelConfig::new(TransportConfig::new(Uri::from_static(
+                "http://127.0.0.1:1234",
+            )));
+            config.max_sends_in_flight = max_sends_in_flight;
+            GrpcChannel::new(config, tokio::runtime::Handle::current()).err()
+        };
+
+        assert!(matches!(
+            refused(0),
+            Some(GrpcChannelConfigError::ZeroSendWindow)
+        ));
+        assert!(matches!(
+            refused(LARGEST_WINDOW as usize + 1),
+            Some(GrpcChannelConfigError::SendWindowTooLarge { .. })
+        ));
+        assert!(
+            refused(LARGEST_WINDOW as usize).is_none(),
+            "the deepest window the options admit is one this door takes"
+        );
     }
 
     #[test]

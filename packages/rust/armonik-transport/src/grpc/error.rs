@@ -1,6 +1,7 @@
 use snafu::Snafu;
 
 use crate::http2::TransportError;
+use crate::options::LARGEST_WINDOW;
 
 use super::metadata::MetadataError;
 
@@ -12,6 +13,11 @@ pub enum GrpcChannelConfigError {
          would let it send nothing"
     ))]
     ZeroSendWindow,
+    #[snafu(display(
+        "a `max_sends_in_flight` of {value} is past {LARGEST_WINDOW}, the deepest window the \
+         options admit"
+    ))]
+    SendWindowTooLarge { value: usize },
     #[snafu(display(
         "`max_recv_message_size` of zero admits only empty messages, and zero is what a caller \
          means by `no limit`"

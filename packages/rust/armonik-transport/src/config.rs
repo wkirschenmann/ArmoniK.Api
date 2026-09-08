@@ -174,16 +174,15 @@ impl ClientConfig {
         Self::from_config_args(ClientConfigArgs::from_env()?)
     }
     pub fn from_config_args(args: ClientConfigArgs) -> Result<Self, ConfigError> {
-        // The endpoint is not in the span, and neither are the two PEM paths' contents: an
-        // endpoint may carry `user:password@`, which is refused below - but the span is built
-        // before that check, so it would record what the check exists to keep out.
+        // Neither the endpoint nor the override target is in the span, and neither are the two
+        // PEM paths' contents: both fields are refused below for carrying `user:password@`, and
+        // the span is built before that check, so it would record what the check keeps out.
         let _span = tracing::debug_span!(
             "ClientConfig",
             args.cert_pem,
             args.key_pem,
             args.ca_cert,
             args.allow_unsafe_connection,
-            args.override_target_name,
             args.connect_timeout,
             args.timeout,
             args.rate_limit,
@@ -659,6 +658,45 @@ mod tests {
         assert!(said.contains("GrpcClient__Endpoint"), "{said}");
         assert!(!said.contains("s3cret"), "the message repeats it: {said}");
         assert!(!said.contains("alice"), "the message repeats it: {said}");
+    }
+
+    /// The same promise for the override target, which is an authority and carries a password as
+    /// readily as the endpoint does.
+    ///
+    /// Read out of the source, because what is asserted is a field's absence and a subscriber
+    /// only ever sees the fields that are there. The span is built before any validation, so this
+    /// is the one place where the two guards below cannot help.
+    #[test]
+    fn no_field_the_userinfo_guard_refuses_is_recorded_in_the_span() {
+        let source = include_str!("config.rs");
+        let opened = source
+            .find("\"ClientConfig\",")
+            .expect("the span is built in this file");
+        let closed = source[opened..]
+            .find(");")
+            .expect("the span's arguments are a call");
+        let span = &source[opened..opened + closed];
+
+        for field in ["endpoint", "override_target_name"] {
+            assert!(
+                !span.contains(field),
+                "`{field}` is refused below for carrying `user:password@`, and this span records \
+                 it before that check: {span}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_override_that_carries_a_password_is_refused_and_the_password_is_not_repeated() {
+        let error = ClientConfig::from_config_args(ClientConfigArgs {
+            override_target_name: String::from("alice:s3cret@other:5001"),
+            ..args()
+        })
+        .expect_err("userinfo is not an authority");
+
+        let said = chain(&error);
+        assert!(said.contains("GrpcClient__OverrideTargetName"), "{said}");
+        assert!(!said.contains("s3cret"), "the message repeats it: {said}");
     }
 
     #[test]
