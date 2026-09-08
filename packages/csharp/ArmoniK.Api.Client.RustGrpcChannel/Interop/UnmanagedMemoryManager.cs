@@ -14,30 +14,67 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 using System;
 using System.Buffers;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
+/// <summary>A <see cref="Memory{T}" /> over memory of the engine's, for as long as it is lent.</summary>
+///
+/// The only reason this type exists: a `Span` can be built from a pointer and a `Memory` cannot -
+/// it may outlive the frame that made it, so it names its store through a manager that answers
+/// `GetSpan` and `Pin`. For memory outside the GC both answers are trivial, which is why the ones
+/// below are so short.
+///
+/// It takes the record the ABI handed over rather than a pointer and a length, so the two cannot
+/// be paired with anything but each other, and disposal is what says the engine has it back.
 internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
 {
   private readonly IntPtr start_;
   private readonly int length_;
 
-  internal UnmanagedMemoryManager(IntPtr start,
-                                  int length)
+  private bool returned_;
+
+  internal UnmanagedMemoryManager(in NativeMethods.AkBuffer buffer)
+    : this(buffer.Ptr,
+           buffer.Len)
   {
-    start_  = start;
-    length_ = length;
+  }
+
+  internal UnmanagedMemoryManager(in NativeMethods.AkBytes payload)
+    : this(payload.Ptr,
+           payload.Len)
+  {
+  }
+
+  private UnmanagedMemoryManager(IntPtr start,
+                                 UIntPtr length)
+  {
+    length_ = Length(length);
+    if (start == IntPtr.Zero && length_ != 0)
+    {
+      throw new ArgumentException($"{length_} bytes at no address",
+                                  nameof(start));
+    }
+
+    start_ = start;
   }
 
   public override Span<byte> GetSpan()
-    => Span(start_,
+    => Span(Lent,
             length_);
 
   public override unsafe MemoryHandle Pin(int elementIndex = 0)
-    => new((byte*)start_ + elementIndex);
+  {
+    if (elementIndex < 0 || elementIndex > length_)
+    {
+      throw new ArgumentOutOfRangeException(nameof(elementIndex),
+                                            elementIndex,
+                                            $"outside the {length_} bytes this names");
+    }
+
+    return new MemoryHandle((byte*)Lent + elementIndex);
+  }
 
   public override void Unpin()
   {
@@ -62,7 +99,16 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
     => new((void*)start,
            length);
 
+  /// <summary>Ends every view this handed out.</summary>
+  /// <remarks>Nothing is freed here - the memory is the engine's - but a `Memory` a serializer
+  /// kept would otherwise still read an address the engine has taken back and reused. Disposal is
+  /// the moment that stops being true, so it is the moment this stops answering.</remarks>
   protected override void Dispose(bool disposing)
-  {
-  }
+    => returned_ = true;
+
+  private IntPtr Lent
+    => returned_
+         ? throw new ObjectDisposedException(nameof(UnmanagedMemoryManager),
+                                            "this names memory the engine has taken back")
+         : start_;
 }

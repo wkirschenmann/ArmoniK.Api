@@ -688,6 +688,78 @@ public class UnaryTests : RuntimeLeaseFixture
                 Does.Contain("per-call host"));
   }
 
+  /// <summary>A serializer that announces a length twice is named, and the call is not blamed.</summary>
+  /// <remarks>The engine lends one buffer at a time and answers a second ask with the status it
+  /// also answers for a call that has ended, so the caller was told its call was over. Which
+  /// stage the message is in is known here and nowhere else.</remarks>
+  [Test]
+  public void ASerializerThatAnnouncesTwiceIsNamedRatherThanTheCall()
+  {
+    using var channel = Channel();
+
+    var refused = Assert.Throws<RpcException>(() => channel.CreateCallInvoker()
+                                                          .BlockingUnaryCall(SayWith(Marshallers.Create<EchoRequest>((request,
+                                                                                                                      context) =>
+                                                                                                                     {
+                                                                                                                       var bytes = request.ToByteArray();
+                                                                                                                       context.SetPayloadLength(bytes.Length);
+                                                                                                                       context.SetPayloadLength(bytes.Length);
+                                                                                                                     },
+                                                                                                                     context => EchoRequest.Parser
+                                                                                                                                           .ParseFrom(context.PayloadAsNewBuffer()))),
+                                                                             null,
+                                                                             new CallOptions(),
+                                                                             new EchoRequest
+                                                                             {
+                                                                               Text = "announced twice",
+                                                                             }));
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(refused!.StatusCode,
+                                  Is.EqualTo(StatusCode.Internal));
+                      Assert.That(refused.Status.Detail,
+                                  Does.Contain("announced a length twice"));
+                    });
+  }
+
+  /// <summary>And a serializer that swaps the buffer it was lent for an array of its own sends the
+  /// array, whatever it announced first.</summary>
+  /// <remarks>The one path that takes two buffers for one message: the first is given back before
+  /// the second is asked for, because the engine lends one at a time.</remarks>
+  [Test]
+  public void AnArrayReplacesWhateverTheSerializerAnnounced()
+  {
+    using var channel = Channel();
+
+    var reply = channel.CreateCallInvoker()
+                       .BlockingUnaryCall(SayWith(Marshallers.Create<EchoRequest>((request,
+                                                                                   context) =>
+                                                                                  {
+                                                                                    context.SetPayloadLength(1);
+                                                                                    context.Complete(request.ToByteArray());
+                                                                                  },
+                                                                                  context => EchoRequest.Parser
+                                                                                                        .ParseFrom(context.PayloadAsNewBuffer()))),
+                                          null,
+                                          new CallOptions(),
+                                          new EchoRequest
+                                          {
+                                            Text = "the array, not the announcement",
+                                          });
+
+    Assert.That(reply.Text,
+                Is.EqualTo("the array, not the announcement"));
+  }
+
+  private static Method<EchoRequest, EchoReply> SayWith(Marshaller<EchoRequest> requests)
+    => new(MethodType.Unary,
+           "armonik.transport.ffi.test.Echo",
+           "Say",
+           requests,
+           Marshallers.Create(reply => reply.ToByteArray(),
+                              EchoReply.Parser.ParseFrom));
+
   [Test]
   public async Task TheChannelsTwoHalvesAgreeOnItsState()
   {

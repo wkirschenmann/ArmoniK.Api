@@ -16,6 +16,7 @@
 
 
 using System;
+using System.Runtime.InteropServices;
 
 using NUnit.Framework;
 
@@ -40,4 +41,46 @@ public class UnmanagedMemoryManagerTests
   [Test]
   public void ALengthPastWhatASpanHoldsIsRefused()
     => Assert.Throws<OverflowException>(() => UnmanagedMemoryManager.Length((UIntPtr)((ulong)int.MaxValue + 1)));
+
+  /// <summary>What a serializer kept past the send stops answering, rather than reading the
+  /// arena the engine has taken back and lent to another call.</summary>
+  [Test]
+  public void AViewTheEngineTookBackIsUnusable()
+  {
+    var arena = Marshal.AllocHGlobal(4);
+    try
+    {
+      var view = new UnmanagedMemoryManager(new NativeMethods.AkBuffer
+                                            {
+                                              Ptr = arena,
+                                              Len = (UIntPtr)4,
+                                            });
+      var kept = view.Memory;
+      Assert.That(kept.Length,
+                  Is.EqualTo(4),
+                  "the view names the buffer while it is lent");
+
+      ((IDisposable)view).Dispose();
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.Throws<ObjectDisposedException>(() => _ = kept.Span);
+                        Assert.Throws<ObjectDisposedException>(() => view.GetSpan());
+                        Assert.Throws<ObjectDisposedException>(() => view.Pin());
+                      });
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(arena);
+    }
+  }
+
+  /// <summary>A pair the ABI cannot have produced, refused where it is built.</summary>
+  [Test]
+  public void BytesAtNoAddressAreRefused()
+    => Assert.Throws<ArgumentException>(() => _ = new UnmanagedMemoryManager(new NativeMethods.AkBytes
+                                                                             {
+                                                                               Ptr = IntPtr.Zero,
+                                                                               Len = (UIntPtr)4,
+                                                                             }));
 }

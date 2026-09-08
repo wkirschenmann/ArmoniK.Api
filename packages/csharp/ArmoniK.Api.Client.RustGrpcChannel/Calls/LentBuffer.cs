@@ -24,14 +24,18 @@ using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
+/// <summary>One message, serialized into a buffer the engine lends.</summary>
+///
+/// An instance serves that message and is then thrown away, which is what lets the buffer be asked
+/// for at the announced length and the written count be checked against it. The buffer is the
+/// state: holding none is a message not begun or already sent, and both refuse a write through a
+/// capacity of zero.
 internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, IDisposable
 {
   private readonly ulong call_;
   private NativeMethods.AkBuffer buffer_;
   private UnmanagedMemoryManager? block_;
-  private byte[]? spilled_;
   private int written_;
-  private bool lent_;
 
   internal LentBuffer(ulong call)
     => call_ = call;
@@ -49,12 +53,15 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 
   public Memory<byte> GetMemory(int sizeHint = 0)
   {
-    Reserve(sizeHint);
-    return spilled_ is not null
-             ? new Memory<byte>(spilled_,
-                                written_,
-                                spilled_.Length - written_)
-             : Block.Memory.Slice(written_);
+    var wanted = written_ + Math.Max(sizeHint,
+                                     1);
+    if (Capacity < wanted)
+    {
+      throw new RpcException(new Status(StatusCode.Internal,
+                                        $"the marshaller announced {Capacity} bytes and then asked to write {wanted}"));
+    }
+
+    return Block.Memory.Slice(written_);
   }
 
   public Span<byte> GetSpan(int sizeHint = 0)
@@ -68,6 +75,15 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       throw new ArgumentOutOfRangeException(nameof(payloadLength),
                                             payloadLength,
                                             "a message is not a negative number of bytes");
+    }
+
+    // A second announcement is the serializer's mistake, not the call's: the engine lends one
+    // buffer at a time and refuses the second ask with the status it also uses for a call that
+    // has ended, so left to it the caller reads that its call was cancelled.
+    if (Holding)
+    {
+      throw new RpcException(new Status(StatusCode.Internal,
+                                        $"the serializer announced a length twice: {Capacity} bytes, then {payloadLength}"));
     }
 
     if (Take(payloadLength) == NativeMethods.AkStatus.BudgetBusy)
@@ -88,7 +104,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   /// bytes. Refused here, where it can still be told apart from a transport failure.</remarks>
   public override void Complete()
   {
-    if (lent_ && written_ != Capacity)
+    if (written_ != Capacity)
     {
       throw new RpcException(new Status(StatusCode.Internal,
                                         $"the serializer announced {Capacity} bytes and wrote {written_}"));
@@ -96,88 +112,73 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   }
 
   /// <summary>Ends the serialization with a payload of its own.</summary>
-  /// <remarks>The array replaces whatever was announced, buffer included: `Commit` asks for one
-  /// of the array's size and copies into it. Giving back the buffer first, because the engine
-  /// lends one at a time and the second ask would be refused as a host bug - which reads as a
-  /// call that ended, and the caller would see Cancelled for a marshaller's choice.</remarks>
+  /// <remarks>The array replaces whatever was announced, buffer included. The first is given back
+  /// before the next is asked for, because the engine lends one at a time.</remarks>
   public override void Complete(byte[] payload)
   {
-    if (lent_)
+    if (Holding)
     {
       GiveBack();
     }
 
-    spilled_ = payload;
+    if (Take(payload.Length) == NativeMethods.AkStatus.BudgetBusy)
+    {
+      throw new NoRoomYet();
+    }
+
+    new ReadOnlySpan<byte>(payload).CopyTo(Arena);
     written_ = payload.Length;
   }
 
+  /// <summary>Hands the buffer to the engine, which sends it.</summary>
+  /// <remarks>What the engine takes back this stops naming, so a view a serializer kept is a
+  /// disposed view rather than an arena lent to the next call. A refusal leaves the buffer here,
+  /// and disposal returns it.</remarks>
   internal NativeMethods.AkStatus Commit()
   {
-    if (spilled_ is not null)
-    {
-      var taken = Take(written_);
-      if (taken != NativeMethods.AkStatus.Ok)
-      {
-        return taken;
-      }
-
-      new ReadOnlySpan<byte>(spilled_,
-                             0,
-                             written_).CopyTo(Arena);
-      spilled_ = null;
-    }
-
     var status = NativeMethods.ak_call_send_message(call_,
                                                     buffer_);
     if (status == NativeMethods.AkStatus.Ok)
     {
-      lent_ = false;
+      ReleaseBlock();
+      buffer_ = default;
     }
 
     return status;
+  }
+
+  public void Dispose()
+  {
+    if (Holding)
+    {
+      GiveBack();
+    }
   }
 
   private void GiveBack()
   {
     ReleaseBlock();
     NativeMethods.ak_return_call_buffer(buffer_);
-    buffer_ = default;
-    lent_   = false;
+    buffer_  = default;
+    written_ = 0;
   }
 
-  public void Dispose()
-  {
-    ReleaseBlock();
-    if (lent_)
-    {
-      GiveBack();
-    }
-  }
+  /// <summary>The token a lend hands over and a return consumes, so it is the lend.</summary>
+  private bool Holding
+    => buffer_.Owner != IntPtr.Zero;
 
   private int Capacity
-    => spilled_?.Length ?? Arena.Length;
+    => UnmanagedMemoryManager.Length(buffer_.Len);
 
   private Span<byte> Arena
     => UnmanagedMemoryManager.Span(buffer_.Ptr,
                                    buffer_.Len);
 
   private UnmanagedMemoryManager Block
-    => block_ ??= new UnmanagedMemoryManager(buffer_.Ptr,
-                                             Capacity);
+    => block_ ??= new UnmanagedMemoryManager(buffer_);
 
-  private void Reserve(int sizeHint)
-  {
-    var wanted = written_ + Math.Max(sizeHint,
-                                     1);
-    if (Capacity >= wanted)
-    {
-      return;
-    }
-
-    throw new RpcException(new Status(StatusCode.Internal,
-                                      $"the marshaller announced {Capacity} bytes and then asked to write {wanted}"));
-  }
-
+  // Reached holding nothing, both callers having made sure of it, so no view can be naming an
+  // older buffer here.
   private NativeMethods.AkStatus Take(int length)
   {
     var status = NativeMethods.ak_get_call_buffer(call_,
@@ -186,11 +187,6 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     switch (status)
     {
       case NativeMethods.AkStatus.Ok:
-        // The manager names the buffer that has just been replaced.
-        ReleaseBlock();
-        lent_ = true;
-        return status;
-
       case NativeMethods.AkStatus.BudgetBusy:
         return status;
 
