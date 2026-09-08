@@ -43,11 +43,7 @@ internal interface ICallSink
 internal sealed class NativeCall<TResponse> : ICallSink
   where TResponse : class
 {
-  private readonly Slot[] ring_;
-  private readonly int mask_;
-  private long head_;
-  private long tail_;
-  private readonly ArrivalSignal arrived_ = new();
+  private readonly DeliveryRing delivered_;
 
   private readonly TaskCompletionSource<Metadata> headers_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -102,19 +98,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
     runtime_    = runtime;
     marshaller_ = marshaller;
 
-    // One slot more than the window, because the terminal goes out with every credit spent.
-    //
-    // `NativeRuntimeFactory.MaxDeliveryCredits` is what keeps this loop finite: a shift is not
-    // checked in C#, so an unbounded window would take `size` through `int.MinValue` to zero and
-    // spin here for ever on the caller's thread.
-    var size = 1;
-    while (size < deliveryCredits + 1)
-    {
-      size <<= 1;
-    }
-
-    ring_ = new Slot[size];
-    mask_ = size - 1;
+    delivered_ = new DeliveryRing(deliveryCredits);
 
     self_ = GCHandle.Alloc(this);
   }
@@ -198,15 +182,9 @@ internal sealed class NativeCall<TResponse> : ICallSink
       return false;
     }
 
-    var at = (int)(head_ & mask_);
-    ring_[at].Payload = payload;
-    ring_[at].Kind    = kind;
-    ring_[at].Status  = statusCode;
-
-    // From this write the slot is the reader's, and so is giving the payload back.
-    Volatile.Write(ref head_,
-                   head_ + 1);
-    arrived_.Set();
+    delivered_.Publish(kind,
+                       payload,
+                       statusCode);
     return true;
   }
 
@@ -497,8 +475,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
             throw Cancelled();
           }
 
-          await arrived_.WaitAsync()
-                        .ConfigureAwait(false);
+          await delivered_.WaitAsync()
+                          .ConfigureAwait(false);
           continue;
 
         case Phase.Finished:
@@ -541,7 +519,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
       throw;
     }
 
-    Slot slot;
+    DeliveryRing.Slot slot;
     try
     {
       // The transition is the only thing that confers ownership - the signal is a wake-up and
@@ -563,8 +541,8 @@ internal sealed class NativeCall<TResponse> : ICallSink
           throw Cancelled();
         }
 
-        await arrived_.WaitAsync()
-                      .ConfigureAwait(false);
+        await delivered_.WaitAsync()
+                        .ConfigureAwait(false);
       }
     }
     catch
@@ -646,8 +624,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
         Resolve(end.Value);
       }
 
-      NativeMethods.ak_event_consumed(slot.Payload);
-      tail_++;
+      delivered_.Release();
       PublishIdleOrFinished(terminal);
     }
 
@@ -697,7 +674,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
   /// <summary>Moves the reader from waiting to parsing, which is what takes the slot.</summary>
   private Claim TryBeginParse(ReadOp op,
-                              out Slot slot)
+                              out DeliveryRing.Slot slot)
   {
     slot = default;
 
@@ -708,7 +685,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
       return Claim.Lost;
     }
 
-    if (Volatile.Read(ref head_) == tail_)
+    if (delivered_.IsEmpty)
     {
       return Claim.Empty;
     }
@@ -721,7 +698,9 @@ internal sealed class NativeCall<TResponse> : ICallSink
       return Claim.Lost;
     }
 
-    slot = ring_[(int)(tail_ & mask_)];
+    // Peeked rather than taken: the slot stays at the tail until the parse releases it, which
+    // is what leaves a drain something to find if this read never finishes.
+    delivered_.TryPeek(out slot);
     return Claim.Acquired;
   }
 
@@ -788,7 +767,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
 
     // Last, so a waiter that observed an empty ring before any of this wakes and sees the claim
     // lost. The signal grants nothing; it is only what stops the wait.
-    arrived_.Set();
+    delivered_.Wake();
   }
 
   /// <summary>Gives the ring to a drain, if one is owed and no read holds a slot.</summary>
@@ -840,13 +819,13 @@ internal sealed class NativeCall<TResponse> : ICallSink
   {
     while (true)
     {
-      while (Volatile.Read(ref head_) == tail_)
+      DeliveryRing.Slot slot;
+      while (!delivered_.TryPeek(out slot))
       {
-        await arrived_.WaitAsync()
-                      .ConfigureAwait(false);
+        await delivered_.WaitAsync()
+                        .ConfigureAwait(false);
       }
 
-      var slot = ring_[(int)(tail_ & mask_)];
       var terminal = slot.Kind == NativeMethods.AkEventKind.Status;
 
       try
@@ -876,8 +855,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
       }
       finally
       {
-        NativeMethods.ak_event_consumed(slot.Payload);
-        tail_++;
+        delivered_.Release();
       }
 
       if (terminal)
@@ -899,7 +877,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
     => new(StatusCode.Internal,
            $"the call's terminal could not be read: {thrown?.Message}");
 
-  private Status DecodedStatus(in Slot slot)
+  private Status DecodedStatus(in DeliveryRing.Slot slot)
   {
     RawMetadata.DecodeStatus(Bytes(slot.Payload),
                              out var reason,
@@ -1052,7 +1030,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
   {
     try
     {
-      while (Volatile.Read(ref head_) == tail_)
+      while (delivered_.IsEmpty)
       {
         if (ending_.IsCancellationRequested)
         {
@@ -1060,11 +1038,11 @@ internal sealed class NativeCall<TResponse> : ICallSink
           return;
         }
 
-        await arrived_.WaitAsync()
-                      .ConfigureAwait(false);
+        await delivered_.WaitAsync()
+                        .ConfigureAwait(false);
       }
 
-      var slot = ring_[(int)(tail_ & mask_)];
+      delivered_.TryPeek(out var slot);
       if (slot.Kind != NativeMethods.AkEventKind.InitialMetadata)
       {
         // A Trailers-Only response has no metadata of its own, and `Resolve` answers the headers
@@ -1084,8 +1062,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
                                              thrown)));
       }
 
-      NativeMethods.ak_event_consumed(slot.Payload);
-      tail_++;
+      delivered_.Release();
     }
     finally
     {
@@ -1095,7 +1072,7 @@ internal sealed class NativeCall<TResponse> : ICallSink
                      new Reading(Phase.Idle,
                                  null));
       HandoffToDrain();
-      arrived_.Set();
+      delivered_.Wake();
     }
   }
 
@@ -1181,11 +1158,4 @@ internal sealed class NativeCall<TResponse> : ICallSink
   private static RpcException Failed(string reason)
     => new(new Status(StatusCode.Internal,
                       reason));
-
-  private struct Slot
-  {
-    internal NativeMethods.AkBytes Payload;
-    internal NativeMethods.AkEventKind Kind;
-    internal int Status;
-  }
 }
