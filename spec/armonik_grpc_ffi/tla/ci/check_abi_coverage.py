@@ -2,6 +2,11 @@
 """Checks that every acting ABI function appears in the level-1 mapping table,
 and that every function the table names exists in the ABI.
 
+The ABI is the committed header, not design.md: read from the document the
+table lives in, this gate compared that document to itself and could see
+neither a symbol the header declares and the design forgot, nor a declaration
+the design carries and nothing implements.
+
 An acting function changes state the model carries, so it has a linearization
 point and the table is where that point is recorded - the table calls itself
 the contract between the proof and the code.  A function missing from it is a
@@ -24,7 +29,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TLA = os.path.dirname(HERE)
 SPEC = os.path.dirname(TLA)
+REPO = os.path.dirname(os.path.dirname(SPEC))
 DOC = os.path.join(SPEC, "design.md")
+ABI = os.path.join(REPO, "packages", "rust", "armonik-transport-ffi", "include",
+                   "armonik_transport_ffi.h")
 
 # Functions that read and change nothing: they have no linearization point
 # because they do not linearize.  ak_call_debt_of reports what a call still
@@ -32,9 +40,19 @@ DOC = os.path.join(SPEC, "design.md")
 OBSERVATIONAL = {
     "ak_abi_version",
     "ak_runtime_status",
+    "ak_channel_status",
     "ak_call_debt_of",
     "ak_runtime_memory_usage",
-    "ak_runtime_memory_usage_detailed",
+}
+
+# Functions design.md specifies and the header does not declare yet, with what
+# builds each.  Listed by name for the same reason as the exemptions above: a
+# design that runs ahead of the ABI is a deliberate act, and an entry that
+# stops being true is reported rather than assumed.
+NOT_BUILT = {
+    "ak_error_release": "T4.0, the ABI's error channel",
+    "ak_runtime_memory_usage_detailed":
+        "design.md's own \"What the ABI does not yet implement\"",
 }
 
 TABLE_START = "### Where each level-1 action happens"
@@ -68,7 +86,7 @@ def read(path):
 def declared_functions(doc):
     """Every ak_* function the ABI blocks declare."""
     out = set()
-    for m in re.finditer(r"^(?:ak_status|void|int|ak_runtime_state)\s+(ak_\w+)\s*\(",
+    for m in re.finditer(r"^(?:ak_status|void|int|ak_runtime_state|ak_channel_state)\s+(ak_\w+)\s*\(",
                          doc, re.M):
         out.add(m.group(1))
     return out
@@ -78,7 +96,7 @@ def declared_arguments(doc):
     """function -> the bare names of its parameters."""
     out = {}
     for m in re.finditer(
-            r"^(?:ak_status|void|int|ak_runtime_state)\s+(ak_\w+)\s*\(([^;]*)\);",
+            r"^(?:ak_status|void|int|ak_runtime_state|ak_channel_state)\s+(ak_\w+)\s*\(([^;]*)\);",
             doc, re.M | re.S):
         args = []
         for part in m.group(2).split(","):
@@ -103,7 +121,9 @@ def table_region(doc):
 
 def main():
     doc = read(DOC)
-    declared = declared_functions(doc)
+    abi = read(ABI)
+    declared = declared_functions(abi)
+    designed = declared_functions(doc)
     table = table_region(doc)
     named = set(re.findall(r"ak_\w+", table))
 
@@ -121,7 +141,7 @@ def main():
             break
         rows.append(line)
     args_region = "\n".join(rows)
-    for fn, args in declared_arguments(doc).items():
+    for fn, args in declared_arguments(abi).items():
         if fn in OBSERVATIONAL:
             continue
         for a in args:
@@ -134,7 +154,7 @@ def main():
         ok = False
         print("  %s is declared in the ABI but has no row in the mapping table"
               % fn)
-    for fn in sorted(named - declared):
+    for fn in sorted(named - declared - set(NOT_BUILT)):
         ok = False
         print("  the mapping table names %s, which the ABI does not declare"
               % fn)
@@ -142,6 +162,17 @@ def main():
         ok = False
         print("  %s is listed as observational but the ABI does not declare it"
               % fn)
+    for fn in sorted(designed - declared - set(NOT_BUILT)):
+        ok = False
+        print("  design.md declares %s and the header does not" % fn)
+    for fn in sorted(declared - designed):
+        ok = False
+        print("  the header declares %s and design.md does not describe it"
+              % fn)
+    for fn in sorted(set(NOT_BUILT) & declared):
+        ok = False
+        print("  %s is listed as not built (%s) and the header declares it"
+              % (fn, NOT_BUILT[fn]))
     if ok:
         print("OK: every acting ABI function has a linearization point.")
         return 0

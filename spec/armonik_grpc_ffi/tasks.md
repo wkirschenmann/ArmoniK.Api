@@ -109,6 +109,12 @@ decision, not a gap waiting to be filled, and the consequence is worth stating p
 `ci/check.sh` checks the declarations, the footprints, the parses and the bindings
 between this document and the manifests; nothing checks that the proofs still close.
 
+The nine checks it runs are outside CI for the same reason, decided rather than pending:
+they need a JVM and `tla2tools.jar` on every pull request of a repository whose other
+work never touches this specification. So they are the author's step, run before a change
+to these documents, to the TLA+ modules or to the C header - which is also why each of
+them prints what it counted rather than only whether it passed.
+
 Before merging anything that touches a `*_proofs.tla` or a definition under it, on a
 machine with tlapm:
 

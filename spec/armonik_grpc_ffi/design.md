@@ -716,7 +716,7 @@ refinement.
 
 A function's arguments are as much of the contract as its name, and an argument the model
 drops is a decision rather than an omission. This table is the record, and
-`ci/check_abi_coverage.py` fails the build if an argument of an acting function has no row.
+`ci/check_abi_coverage.py` refuses an argument of an acting function that has no row.
 
 | ABI argument | in the model |
 |---|---|
@@ -726,6 +726,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
 | `ak_get_call_buffer`'s `len` | The model takes the length directly: `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned. The lend sees only a length, exactly as the C function does; the message identity is born at the commit, where `SendMessage` requires `MessageLength[msg] = buffer_length` for the buffer it sends. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two - including that an empty request charges nothing. Level 0 carries no sizes: its send window counts allocations |
+| `ak_channel_create`'s `endpoint` | **not modelled.** The model's channels are identifiers, and what one connects to changes nothing it guarantees. An argument rather than an option because it is the one value a channel cannot be created without, which is also why `TransportOptions` does not carry it |
 | `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
@@ -857,12 +858,19 @@ ak_status ak_runtime_destroy(ak_runtime_handle runtime);
 // connecting is a separate step, so creation fails only on a bad config.
 // Lifecycle: freed by ak_channel_release.
 ak_status ak_channel_create(ak_runtime_handle runtime,
+                            ak_bytes_in endpoint,
                             ak_bytes_in config_json,
                             ak_channel_handle *out);
 
 // Frees the channel. In-progress calls are cancelled (CANCELLED).
 // The handle is no longer valid after this call.
 void ak_channel_release(ak_channel_handle channel);
+
+// How far along a channel's closing is; NONE for a handle this library does not
+// know. Observational: what ends CLOSING is this library's own bookkeeping - the
+// last call of the channel reaching its terminal - so a host following the drain
+// has nothing to do but read.
+ak_channel_state ak_channel_status(ak_channel_handle channel);
 
 // === Call ===
 
@@ -2491,8 +2499,8 @@ State variables:
 #### Safety invariants (to be proved by TLAPS)
 
 Every name below is a conjunct of `SafetyCore` in `AbstractGrpc.tla`, and
-`ci/check_property_manifest.py` fails the build if this list and that conjunction
-diverge in either direction. Safety is required only while no runtime has entered the
+`ci/check_property_manifest.py` refuses this list and that conjunction
+diverging in either direction. Safety is required only while no runtime has entered the
 deliberately unconstrained failed state: `SafetyInvariant == NotFailed => SafetyCore`.
 
 **Event sequencing per call:**
@@ -3205,8 +3213,8 @@ rather than restated.
 #### Level-2 safety invariants (to be proved by TLAPS)
 
 Every name below is a conjunct of `ManagedSafety` in `DotNetBinding_defs.tla`, and
-`ci/check_property_manifest.py` fails the build if this list and that conjunction
-diverge in either direction.  `ManagedTypeOK` is also a conjunct, structural like
+`ci/check_property_manifest.py` refuses this list and that conjunction
+diverging in either direction.  `ManagedTypeOK` is also a conjunct, structural like
 `TypeOK` in level 0's `SafetyCore`, with its own public theorem.
 
 - **TokenPublishedBeforeStart**: no used call without its token - born in the same step
@@ -3724,7 +3732,7 @@ the artefact rather than left to rot:
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| `ci/check_theorem_statements.py` | 72 declarations - 71 theorems and one public lemma - each restated verbatim in its proofs module, across three declaration/proof pairs |
+| `ci/check_theorem_statements.py` | 111 declarations, each restated verbatim in its proofs module, across four declaration/proof pairs - the level-2 pair joined the three when `DotNetBindingTheorems` was declared |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | `ci/check_sketch_actions.py` | Green: 11 action citations in the sketches, all defined. The implementation sketches are normative, and each step names the action it realizes in a `// TLA:` comment; this checks the citations resolve. It does not check the ORDER - nothing short of a proof does - but a citation pointing at nothing is the first sign a sketch and the machine have parted, and it is mechanical where reading prose against prose is not: two reviews called one sketch consistent with the machine while it released a payload before the read's result was decided, a state the machine does not have |
 | `ci/check_state_literals.py` | Green: 16 typed state variables, 2327 literals, all admissible. A retired value neither fails to parse nor fails to type - a comparison against it is simply always false, so a guard becomes dead and a model constraint prunes more than intended while every property still reports clean. A constraint reading `call_dispose_state = "disposed"` after that value became `settled` shrank two configurations that way. Assignments are covered as well as comparisons, and by choice rather than for symmetry: `TypeOK` catches a bad one only in a run that reaches that branch, so an assignment on a rare path can sit wrong indefinitely. The binding comes from the typing conjuncts rather than a table - including the sentinel idiom `var \in OtherIds \union {"none"}`, whose only admissible literal is that sentinel - so a renamed state is caught wherever it is still spelled |
@@ -3839,9 +3847,9 @@ What is still owed:
 
 **What the ABI does not yet implement.** `ak_runtime_memory_usage_detailed` and its
 five-field struct: its three categories need each buffer's position in its lifecycle
-tracked, and it is an observability tool rather than one a retry needs. And no path sets
-`AK_RUNTIME_FAILED_UNQUIESCED`, so the failure model this document describes has no
-implementation - a runtime either reaches quiescence or waits.
+tracked, and it is an observability tool rather than one a retry needs. `AK_RUNTIME_FAILED_UNQUIESCED` has three producers: a status
+that cannot be read, a shutdown task that dies under its guard, and a shutdown that cannot
+get the thread quiescence is defined as.
 
 `ak_error` and `ak_error_release` are specified above and implemented nowhere: every failing
 entry point answers with a status alone, `From<ChannelError> for ak_status` sends everything
