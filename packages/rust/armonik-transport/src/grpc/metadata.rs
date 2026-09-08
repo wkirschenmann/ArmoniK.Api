@@ -115,11 +115,12 @@ impl Metadata {
                 continue;
             }
             // The same alphabet `append` admits, so every key in a `Metadata` is one gRPC names
-            // a header whichever end it came from. `HeaderName` takes the whole HTTP token, so a
-            // peer or a proxy in front of it can answer with `x!y`, and what reads this cannot:
-            // the .NET binding's `Metadata.Add` refuses that key, and a response the peer sent
-            // with OK becomes an error blaming the binding. Dropped rather than refused, as an
-            // undecodable value is: a header this type cannot carry is not the call's failure.
+            // a header whichever end it came from. `HeaderName` takes the whole HTTP token and
+            // gRPC's Header-Name is narrower, so a peer or a proxy in front of it can answer
+            // with `x!y`, which no gRPC consumer of this can carry - a response sent with OK
+            // would become an error naming whoever passed the key on. Dropped rather than
+            // refused, as an undecodable value is: a header this type cannot carry is not the
+            // call's failure.
             if !names_a_header(key) {
                 continue;
             }

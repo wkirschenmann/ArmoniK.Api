@@ -94,6 +94,68 @@ mod tests {
         settings.into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
     }
 
+    /// The bounds below are stated twice - once as a schemars attribute, once as this reader -
+    /// and this is what says the two are the same numbers.
+    ///
+    /// They are stated twice on purpose: nothing obliges a host to have validated its document,
+    /// so the reader checks rather than trusts. What that costs is a copy, and a copy drifts:
+    /// widen the schema alone and a document a validator accepts is refused here.
+    #[test]
+    fn every_bound_the_schema_states_is_one_the_reader_holds_to() {
+        let schema: serde_json::Value = serde_json::from_str(&armonik_transport::options::schema())
+            .expect("the schema renders as JSON");
+        let stated = |pointer: &str| schema.pointer(pointer).and_then(serde_json::Value::as_i64);
+        let admits = |document: String| parse(document.as_bytes()).is_some();
+
+        for option in [
+            "DeliveryCredits",
+            "MaxSendsInFlight",
+            "MaxReceiveMessageSize",
+        ] {
+            let minimum = stated(&format!("/properties/{option}/minimum"))
+                .unwrap_or_else(|| panic!("{option} states no minimum"));
+            assert!(
+                !admits(format!(r#"{{"{option}":{}}}"#, minimum - 1)),
+                "{option} is admitted below the minimum the schema states"
+            );
+            assert!(
+                admits(format!(r#"{{"{option}":{minimum}}}"#)),
+                "{option} is refused at the minimum the schema states"
+            );
+
+            // Absent for the receive size, whose largest value is a channel refusing nothing.
+            if let Some(maximum) = stated(&format!("/properties/{option}/maximum")) {
+                assert!(
+                    admits(format!(r#"{{"{option}":{maximum}}}"#)),
+                    "{option} is refused at the maximum the schema states"
+                );
+                assert!(
+                    !admits(format!(r#"{{"{option}":{}}}"#, maximum + 1)),
+                    "{option} is admitted above the maximum the schema states"
+                );
+            }
+        }
+
+        assert_eq!(stated("/properties/UserAgent/minLength"), Some(1));
+        assert!(!admits(r#"{"UserAgent":""}"#.to_owned()));
+        assert!(admits(r#"{"UserAgent":"a"}"#.to_owned()));
+
+        assert_eq!(
+            schema
+                .pointer(
+                    "/$defs/TransportOptions/properties/ConnectTimeoutSeconds/exclusiveMinimum"
+                )
+                .and_then(serde_json::Value::as_f64),
+            Some(0.0)
+        );
+        assert!(!admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#.to_owned()
+        ));
+        assert!(admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":0.5}}"#.to_owned()
+        ));
+    }
+
     #[test]
     fn a_channel_that_could_receive_no_message_is_refused() {
         // Every other size is a channel that refuses some messages; zero refuses all of them,
