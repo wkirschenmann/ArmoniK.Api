@@ -15,7 +15,7 @@ pub use config::{ClientConfig, ClientConfigArgs, ConfigError};
 pub use connect::{connect, https_connector, ConnectionError};
 #[doc(hidden)]
 pub use connect::{ConfigSnafu, IoSnafu, TlsSnafu, TransportSnafu};
-pub use utils::ReadEnvError;
+pub use utils::{safe_endpoint, ReadEnvError};
 
 pub mod reexports {
     pub use bytes;
@@ -26,5 +26,9 @@ pub mod reexports {
     pub use rustls;
     #[cfg(feature = "serde")]
     pub use serde;
+    /// Needed to read an error's causes: the outer message of a `ConfigError` or a
+    /// `ConnectionError` names the step that failed, and `snafu::Report` is what prints the
+    /// chain under it. Already a public dependency through the error types themselves.
+    pub use snafu;
     pub use tonic;
 }

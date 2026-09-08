@@ -23,12 +23,14 @@ pub(crate) fn read_env(name: &str) -> Result<String, ReadEnvError> {
     }
 }
 
-/// An endpoint as an error may print it: scheme, host and port, and nothing else.
+/// An endpoint as an error or a span may print it: scheme, host and port, and nothing else.
 ///
 /// A URI can carry `user:password@`, and every message that took `{endpoint}` put it in the
 /// caller's log. `http2::dialable` refuses such an endpoint outright, but the tonic path accepts
-/// it, and an error is not the place to find that out.
-pub(crate) fn safe_endpoint(endpoint: &http::Uri) -> String {
+/// it, and an error is not the place to find that out. Public because `ClientConfig::endpoint` is
+/// a public field, so a config built by hand rather than read from the environment never met the
+/// check that refuses userinfo - and its holder needs this to say where it is connecting.
+pub fn safe_endpoint(endpoint: &http::Uri) -> String {
     let scheme = endpoint.scheme_str().unwrap_or("http");
     match (endpoint.host(), endpoint.port_u16()) {
         (Some(host), Some(port)) => format!("{scheme}://{host}:{port}"),
@@ -127,6 +129,36 @@ impl rustls::client::danger::ServerCertVerifier for InsecureCertVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What nine call sites rely on, none of which measured it.
+    #[test]
+    fn a_rendered_endpoint_carries_no_userinfo() {
+        let rendered =
+            |uri: &str| safe_endpoint(&http::Uri::try_from(uri).expect("a uri to render"));
+
+        assert_eq!(
+            rendered("https://alice:s3cret@example.test:5001/path?q=1"),
+            "https://example.test:5001"
+        );
+        assert_eq!(
+            rendered("https://alice:s3cret@example.test"),
+            "https://example.test"
+        );
+        assert_eq!(
+            rendered("http://example.test:5001"),
+            "http://example.test:5001"
+        );
+    }
+
+    /// A URI with no host is rendered rather than passed through: the string is what would be
+    /// printed, and there is nothing in it this can promise is not a secret.
+    #[test]
+    fn an_endpoint_with_no_host_names_the_absence() {
+        assert_eq!(
+            safe_endpoint(&http::Uri::try_from("/only/a/path").expect("a uri")),
+            "http://<no host>"
+        );
+    }
 
     /// A variable name of its own per test, so that a stray value cannot leak between them even though
     /// they are serialised.

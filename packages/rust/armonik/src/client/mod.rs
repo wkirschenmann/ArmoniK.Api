@@ -76,7 +76,9 @@ impl Client<tonic::transport::Channel> {
 
     /// Create a new client with the specified client configuration
     pub async fn with_config(config: ClientConfig) -> Result<Self, ConnectionError> {
-        let endpoint = config.endpoint.to_string();
+        // Rendered rather than printed: `endpoint` is a public field, so a config built by hand
+        // never met the check that refuses `user:password@`, and this span is a log line.
+        let endpoint = armonik_transport::safe_endpoint(&config.endpoint);
         tracing_futures::Instrument::instrument(
             async move {
                 Ok(Self::with_channel(
@@ -405,3 +407,69 @@ macro_rules! impl_call {
 }
 
 pub(crate) use impl_call;
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    use armonik_transport::ClientConfig;
+
+    use crate::Client;
+
+    /// What the span records, on the one path that reaches it with a password.
+    ///
+    /// `ClientConfig::endpoint` is a public field, so a config built here rather than read from
+    /// the environment never met the check that refuses userinfo. The connection is expected to
+    /// fail - the span is created before the dial and is what this reads.
+    #[tokio::test]
+    async fn the_client_span_renders_the_endpoint_rather_than_printing_it() {
+        #[derive(Clone, Default)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+
+        impl Write for Captured {
+            fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("the buffer").extend_from_slice(buffer);
+                Ok(buffer.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+            type Writer = Self;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(captured.clone())
+            .with_max_level(tracing::Level::DEBUG)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
+            .finish();
+
+        let mut config = ClientConfig::default();
+        config.endpoint = hyper::Uri::try_from("http://alice:s3cret@127.0.0.1:1").expect("a uri");
+        config.allow_unsafe_connection = true;
+
+        {
+            let _guard = tracing::subscriber::set_default(subscriber);
+            let _ = Client::with_config(config).await;
+        }
+
+        let said = String::from_utf8(captured.0.lock().expect("the buffer").clone())
+            .expect("what the subscriber wrote");
+
+        assert!(
+            said.contains("127.0.0.1:1"),
+            "the span says nothing: {said}"
+        );
+        assert!(!said.contains("s3cret"), "the span repeats it: {said}");
+        assert!(!said.contains("alice"), "the span repeats it: {said}");
+    }
+}
