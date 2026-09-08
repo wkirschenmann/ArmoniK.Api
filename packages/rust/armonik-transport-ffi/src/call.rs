@@ -523,7 +523,11 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
                 payload,
                 status.code as i32,
             );
-            state.debt.terminal.store(true, Ordering::Release);
+            // Sequentially consistent, not Release: `lend` claims a buffer and then reads this,
+            // `settled` reads this and then the claim, and the argument that one of the two sees
+            // the other's write holds only if every one of those is in the single total order.
+            // A Release store does not join it.
+            state.debt.terminal.store(true, Ordering::SeqCst);
 
             // Inside the callback, so the call has left its channel before it can report
             // itself quiet - which is what `begin_shutdown` waits on for every call before the

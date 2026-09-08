@@ -71,8 +71,7 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
             // Nothing else can finish this shutdown: no SHUTDOWN_COMPLETE went out and no
             // teardown thread was started, so the runtime would answer STOPPED for the life of
             // the process and refuse every destroy. That is what AK_RUNTIME_FAILED_UNQUIESCED
-            // names - "quiescence impossible, destroy refused" - and this is the only path that
-            // reaches it.
+            // names - "quiescence impossible, destroy refused".
             if let Some(runtime) = failed.upgrade() {
                 runtime.set_state(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED);
             }

@@ -183,11 +183,15 @@ impl AkRuntime {
                 runtime.release_threads();
             });
 
-        // A runtime that cannot have a thread stays STOPPED, which refuses `ak_runtime_destroy`
-        // and says so: `AK_RUNTIME_QUIESCENT` would promise the host it may unload a library
-        // whose workers are still running.
-        if let Ok(thread) = thread {
-            *self.teardown.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+        // QUIESCENT is this thread having finished, so a runtime that cannot get one will never
+        // reach it, and the state says so rather than leaving a host to wait for a step nobody
+        // takes. Not QUIESCENT, which would promise it may unload a library whose workers are
+        // still running, and no RESOURCES_RELEASED either: a failure suspends what is owed.
+        match thread {
+            Ok(thread) => {
+                *self.teardown.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+            }
+            Err(_) => self.set_state(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED),
         }
     }
 

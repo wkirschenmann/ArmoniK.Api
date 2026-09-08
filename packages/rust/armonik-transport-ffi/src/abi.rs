@@ -77,7 +77,9 @@ pub struct ak_bytes_in {
 }
 
 impl ak_bytes_in {
-    pub(crate) unsafe fn as_slice<'a>(&self) -> Option<&'a [u8]> {
+    /// The lifetime is the borrow's, so nothing built from this outlives the downcall that was
+    /// handed the pointer - which is as long as the host promises it is there.
+    pub(crate) unsafe fn as_slice(&self) -> Option<&[u8]> {
         if self.len == 0 {
             return Some(&[]);
         }

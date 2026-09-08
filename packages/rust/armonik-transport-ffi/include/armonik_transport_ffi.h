@@ -106,10 +106,12 @@ typedef enum {
     AK_RUNTIME_GRPC_STOPPING     = 2, /* start gate closed, channels closing */
     AK_RUNTIME_GRPC_STOPPED      = 3, /* the gRPC side is done; the host may still hold memory */
     AK_RUNTIME_QUIESCENT         = 4, /* and nothing of it is outstanding either */
-    AK_RUNTIME_FAILED_UNQUIESCED = 5, /* quiescence impossible, destroy refused. Reserved: this
-                                         library reports it only when ak_runtime_status itself
-                                         faults, and nothing else produces it - a shutdown that
-                                         cannot finish stays GRPC_STOPPING */
+    AK_RUNTIME_FAILED_UNQUIESCED = 5, /* quiescence impossible, destroy refused. Reported when
+                                         the status itself cannot be read, when the task driving
+                                         the shutdown dies, and when that shutdown cannot get a
+                                         thread of its own: the three ways the step to QUIESCENT
+                                         stops being reachable. A shutdown that is merely slow
+                                         stays GRPC_STOPPING */
 } ak_runtime_state;
 
 /* Only QUIESCENT permits ak_runtime_destroy or unloading the library. The host reaches it by
