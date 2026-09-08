@@ -1,4 +1,3 @@
-use super::status;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
@@ -108,7 +107,11 @@ impl Metadata {
         let mut entries = Vec::with_capacity(headers.len());
         for (name, raw) in headers {
             let key = name.as_str();
-            if key == status::GRPC_STATUS || key == status::GRPC_MESSAGE {
+            // The channel's own keys, on the way in as on the way out: `content-type` and
+            // `grpc-accept-encoding` describe the transport rather than the call, no other gRPC
+            // client hands them to an application, and a host that copied one into its next call
+            // would be refused by `append` for a key this type gave it.
+            if is_reserved(key) {
                 continue;
             }
             // The same alphabet `append` admits, so every key in a `Metadata` is one gRPC names
@@ -177,10 +180,28 @@ impl Metadata {
     }
 }
 
+/// The keys the channel owns, in both directions: refused from a caller, skipped from a peer.
+///
+/// The five after `user-agent` are RFC 9113 section 8.2.2's connection-specific fields, which
+/// make an HTTP/2 message malformed - the peer resets the stream, and a reset says nothing about
+/// which header caused it. `host` and `content-length` are the channel's for a different reason:
+/// the authority travels as `:authority`, and the length is the body hyper writes.
 fn is_reserved(key: &str) -> bool {
     key.starts_with(':')
         || key.starts_with("grpc-")
-        || matches!(key, "content-type" | "te" | "user-agent")
+        || matches!(
+            key,
+            "content-type"
+                | "te"
+                | "user-agent"
+                | "connection"
+                | "proxy-connection"
+                | "keep-alive"
+                | "transfer-encoding"
+                | "upgrade"
+                | "host"
+                | "content-length"
+        )
 }
 
 fn validate_key(key: &str) -> Result<HeaderName, MetadataError> {
@@ -310,7 +331,22 @@ mod tests {
     #[test]
     fn a_key_the_channel_owns_is_refused() {
         let mut metadata = Metadata::new();
-        for key in [":path", "grpc-timeout", "content-type", "te", "user-agent"] {
+        for key in [
+            ":path",
+            "grpc-timeout",
+            "content-type",
+            "te",
+            "user-agent",
+            // RFC 9113 section 8.2.2: the message would be malformed and the peer would reset
+            // the stream, which names no header.
+            "connection",
+            "proxy-connection",
+            "keep-alive",
+            "transfer-encoding",
+            "upgrade",
+            "host",
+            "content-length",
+        ] {
             assert_eq!(
                 metadata.append_ascii(key, "x"),
                 Err(MetadataError::ReservedKey {
@@ -319,6 +355,57 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    /// The other direction of the same rule.
+    ///
+    /// A response carries the transport's own headers, and handing them to a host is both a
+    /// difference from every other gRPC client and a set of keys `append` would refuse - so
+    /// copying what a call answered into the next call would fail on a key this type supplied.
+    #[test]
+    fn a_key_the_channel_owns_is_skipped_on_the_way_in() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static("application/grpc"));
+        headers.insert("grpc-accept-encoding", HeaderValue::from_static("identity"));
+        headers.insert("connection", HeaderValue::from_static("close"));
+        headers.insert("x-request-id", HeaderValue::from_static("42"));
+
+        let metadata = Metadata::from_headers(&headers);
+
+        assert_eq!(
+            metadata.iter().map(|(key, _)| key).collect::<Vec<_>>(),
+            vec!["x-request-id"]
+        );
+    }
+
+    /// Which is the invariant behind both: what came from a peer can be said again.
+    #[test]
+    fn every_key_a_response_yields_is_one_a_request_may_carry() {
+        let mut headers = HeaderMap::new();
+        for (key, value) in [
+            ("content-type", "application/grpc"),
+            ("grpc-status", "0"),
+            ("grpc-message", "ok"),
+            ("grpc-accept-encoding", "identity"),
+            ("content-length", "7"),
+            ("host", "elsewhere.test"),
+            ("te", "trailers"),
+            ("user-agent", "someone-else/1"),
+            ("x-request-id", "42"),
+            ("trace-bin", "AAEC/w"),
+        ] {
+            headers.insert(key, HeaderValue::from_str(value).expect("a header value"));
+        }
+
+        let answered = Metadata::from_headers(&headers);
+        let mut said_again = Metadata::new();
+        for (key, value) in answered.iter() {
+            said_again
+                .append(key, value.clone())
+                .unwrap_or_else(|refused| panic!("`{key}` came from a response: {refused}"));
+        }
+
+        assert_eq!(said_again, answered);
     }
 
     #[test]
