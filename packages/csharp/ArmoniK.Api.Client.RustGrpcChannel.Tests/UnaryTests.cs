@@ -69,7 +69,7 @@ public class UnaryTests : EchoServerFixture
       var configuration = new ConfigurationBuilder().AddEnvironmentVariables(prefix)
                                                     .Build();
 
-      using var channel = NativeRuntimeFactory.Channel(Endpoint,
+      await using var channel = NativeRuntimeFactory.Channel(Endpoint,
                                                        configuration);
 
       var reply = await Client(channel)
@@ -97,11 +97,11 @@ public class UnaryTests : EchoServerFixture
   ///   instance, a second channel opened from it would inherit the first one's resolution.
   /// </remarks>
   [Test]
-  public void OpeningAChannelLeavesTheCallersOptionsAsTheyWere()
+  public async Task OpeningAChannelLeavesTheCallersOptionsAsTheyWere()
   {
     var options = new ChannelOptions();
 
-    using var channel = NativeRuntimeFactory.Channel(Endpoint,
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint,
                                                      options);
 
     Assert.That(options.DeliveryCredits,
@@ -175,7 +175,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task AUnaryCallReachesTheServerAndComesBack()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     var client = Client(channel);
 
     var headers = new Metadata
@@ -208,7 +208,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task TheResponseHeadArrivesBeforeTheAnswer()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     using var call = Client(channel)
       .SayAsync(new EchoRequest
                 {
@@ -223,9 +223,9 @@ public class UnaryTests : EchoServerFixture
   }
 
   [Test]
-  public void ABlockingCallAnswersTheSameWay()
+  public async Task ABlockingCallAnswersTheSameWay()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var reply = Client(channel)
       .Say(new EchoRequest
@@ -238,9 +238,9 @@ public class UnaryTests : EchoServerFixture
   }
 
   [Test]
-  public void AServerThatRefusesComesBackAsThatStatus()
+  public async Task AServerThatRefusesComesBackAsThatStatus()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var thrown = Assert.Throws<RpcException>(() => Client(channel)
                                                .Refuse(new EchoRequest
@@ -262,7 +262,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task ACancelledCallEndsWithoutWaitingForTheServer()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     using var cancellation = new CancellationTokenSource();
 
     using var call = Client(channel)
@@ -286,9 +286,9 @@ public class UnaryTests : EchoServerFixture
   }
 
   [Test]
-  public void ACallCancelledBeforeItIsSentEndsCancelledAndNotInternal()
+  public async Task ACallCancelledBeforeItIsSentEndsCancelledAndNotInternal()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     using var cancellation = new CancellationTokenSource();
     cancellation.Cancel();
 
@@ -310,7 +310,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task SeveralCallsShareOneChannel()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     var client = Client(channel);
 
     var calls = new AsyncUnaryCall<EchoReply>[8];
@@ -336,7 +336,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task ABinaryMetadataEntryCrossesTheWireAsBytes()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     var headers = new Metadata
                   {
                     {
@@ -373,7 +373,7 @@ public class UnaryTests : EchoServerFixture
                 "no other channel is open");
     NativeRuntimeFactory.Configure(workerThreads: 2,
                                    memoryCeiling: 128 * 1024);
-    using var channel = Channel();
+    await using var channel = Channel();
     var client = Client(channel);
 
     var calls = await Task.WhenAll(Enumerable.Range(0,
@@ -394,7 +394,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint,
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint,
                                                     deliveryCredits: 4);
 
     var reply = await Client(channel)
@@ -434,7 +434,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task ACallIsReadAsASingleResponseOnlyOnce()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var call = channel.StartCall("/armonik.transport.ffi.test.Echo/Say",
                                  null,
@@ -479,9 +479,9 @@ public class UnaryTests : EchoServerFixture
   /// lent, or the runtime never quiesces - which the fixture's own teardown assertion catches.
   /// </summary>
   [Test]
-  public void AMarshallerThatMisbehavesStillReturnsWhatTheEngineLent()
+  public async Task AMarshallerThatMisbehavesStillReturnsWhatTheEngineLent()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     var       invoker = channel.CreateCallInvoker();
 
     // Announces more than it writes: the engine lends a buffer of that size and would send the
@@ -524,9 +524,9 @@ public class UnaryTests : EchoServerFixture
 
   /// <summary>A deserializer that throws owes the engine the payload it was handed.</summary>
   [Test]
-  public void ADeserializerThatThrowsStillConsumesItsPayload()
+  public async Task ADeserializerThatThrowsStillConsumesItsPayload()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     var       invoker = channel.CreateCallInvoker();
 
     var refused = Assert.Throws<RpcException>(() => invoker.BlockingUnaryCall(Say(Marshallers.Create<EchoRequest>(message => message.ToByteArray(),
@@ -551,7 +551,7 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task AMessageOfNoBytesCrossesAndIsGivenBack()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var reply = await Client(channel)
                       .SayAsync(new EchoRequest())
@@ -585,9 +585,9 @@ public class UnaryTests : EchoServerFixture
 
   /// <summary>Metadata the engine refuses, as a caller sees it.</summary>
   [Test]
-  public void AReservedMetadataKeyIsRefusedBeforeTheCallStarts()
+  public async Task AReservedMetadataKeyIsRefusedBeforeTheCallStarts()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var refused = Assert.Throws<RpcException>(() => Client(channel)
                                                 .Say(new EchoRequest(),
@@ -624,9 +624,9 @@ public class UnaryTests : EchoServerFixture
   /// attached fails at the server, or is served anonymously, and neither answer names the
   /// binding that discarded them.</summary>
   [Test]
-  public void CallOptionsThisInvokerCannotHonourAreRefusedRatherThanIgnored()
+  public async Task CallOptionsThisInvokerCannotHonourAreRefusedRatherThanIgnored()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
     var       client  = Client(channel);
 
     var credentials = Assert.Throws<RpcException>(() => client.Say(new EchoRequest
@@ -647,9 +647,9 @@ public class UnaryTests : EchoServerFixture
   /// crosses the ABI once, at the channel. Dropped, it would send the call to a server the caller
   /// did not name and let that server's answer stand for the binding's silence.</remarks>
   [Test]
-  public void APerCallHostIsRefusedRatherThanDropped()
+  public async Task APerCallHostIsRefusedRatherThanDropped()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     // Built here rather than taken from the generated client, which passes no host: reaching the
     // argument means calling the invoker the way a generated stub does.
@@ -681,9 +681,9 @@ public class UnaryTests : EchoServerFixture
   /// also answers for a call that has ended, so the caller was told its call was over. Which
   /// stage the message is in is known here and nowhere else.</remarks>
   [Test]
-  public void ASerializerThatAnnouncesTwiceIsNamedRatherThanTheCall()
+  public async Task ASerializerThatAnnouncesTwiceIsNamedRatherThanTheCall()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var refused = Assert.Throws<RpcException>(() => channel.CreateCallInvoker()
                                                           .BlockingUnaryCall(SayWith(Marshallers.Create<EchoRequest>((request,
@@ -716,9 +716,9 @@ public class UnaryTests : EchoServerFixture
   /// <remarks>The one path that takes two buffers for one message: the first is given back before
   /// the second is asked for, because the engine lends one at a time.</remarks>
   [Test]
-  public void AnArrayReplacesWhateverTheSerializerAnnounced()
+  public async Task AnArrayReplacesWhateverTheSerializerAnnounced()
   {
-    using var channel = Channel();
+    await using var channel = Channel();
 
     var reply = channel.CreateCallInvoker()
                        .BlockingUnaryCall(SayWith(Marshallers.Create<EchoRequest>((request,
@@ -816,10 +816,11 @@ public class UnaryTests : EchoServerFixture
   }
 
   [Test]
-  public void AChannelThatIsReleasedTakesNoNewCall()
+  public async Task AChannelThatIsReleasedTakesNoNewCall()
   {
     var channel = Channel();
-    channel.Dispose();
+    await channel.DisposeAsync()
+                 .ConfigureAwait(false);
 
     var thrown = Assert.Throws<RpcException>(() => Client(channel)
                                               .Say(new EchoRequest

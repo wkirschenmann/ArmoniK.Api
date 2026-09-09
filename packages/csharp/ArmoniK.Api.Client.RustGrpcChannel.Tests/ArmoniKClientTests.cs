@@ -54,7 +54,7 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [Test]
   public async Task TheEventStreamAnswersItsHeadBeforeItIsRead()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    await using var channel = NativeRuntimeFactory.Channel(endpoint_);
 
     using var events = new gRPC.V1.Events.Events.EventsClient(channel).GetEvents(new EventSubscriptionRequest
                                                                                  {
@@ -77,9 +77,9 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   }
 
   [Test]
-  public void AGeneratedArmoniKStubAnswersOverThisInvoker()
+  public async Task AGeneratedArmoniKStubAnswersOverThisInvoker()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    await using var channel = NativeRuntimeFactory.Channel(endpoint_);
 
     var results = new Results.ResultsClient(channel);
 
@@ -90,7 +90,7 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [Test]
   public async Task TheSameStubAnswersAsynchronously()
   {
-    using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    await using var channel = NativeRuntimeFactory.Channel(endpoint_);
 
     var configuration = await new Results.ResultsClient(channel).GetServiceConfigurationAsync(new Empty())
                                                                 .ConfigureAwait(false);

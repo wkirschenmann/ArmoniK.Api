@@ -39,7 +39,7 @@ internal enum ChannelDisposeState
 }
 
 /// <summary>A gRPC channel served by the native engine.</summary>
-public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
+public sealed class NativeChannel : ChannelBase, IAsyncDisposable
 {
   private readonly NativeRuntime runtime_;
   private readonly ulong handle_;
@@ -236,14 +236,6 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable, IDisposable
       throw;
     }
   }
-
-  /// <summary><see cref="DisposeAsync" />, awaited. It blocks until the engine has let go, so
-  /// prefer the asynchronous one wherever there is a choice.</summary>
-  public void Dispose()
-    => DisposeAsync()
-      .AsTask()
-      .GetAwaiter()
-      .GetResult();
 
   /// <summary><see cref="ChannelBase" />'s shutdown, which is this channel's disposal.</summary>
   protected override Task ShutdownAsyncCore()

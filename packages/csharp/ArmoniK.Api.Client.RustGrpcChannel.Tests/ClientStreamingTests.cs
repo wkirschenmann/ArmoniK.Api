@@ -41,7 +41,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task EveryMessageReachesTheServerInOrderAndTheReplyNamesThemAll()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 
@@ -67,7 +67,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task AStreamThatSendsNothingStillReachesItsReply()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 
@@ -87,7 +87,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task AWriteAfterTheCallEndedIsAnRpcException()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .CollectRefused();
 
@@ -121,9 +121,9 @@ public class ClientStreamingTests : EchoServerFixture
   ///   before the message is serialized at all.
   /// </para></remarks>
   [Test]
-  public void ASecondWriteWhileOneIsInFlightIsRefused()
+  public async Task ASecondWriteWhileOneIsInFlightIsRefused()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var serializing = new ManualResetEventSlim(false);
     using var finish = new ManualResetEventSlim(false);
 
@@ -193,9 +193,9 @@ public class ClientStreamingTests : EchoServerFixture
                               EchoReply.Parser.ParseFrom));
 
   [Test]
-  public void AWriteAfterTheStreamIsClosedIsRefused()
+  public async Task AWriteAfterTheStreamIsClosedIsRefused()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 

@@ -49,7 +49,7 @@ public class ServerStreamingTests : EchoServerFixture
   [Test]
   public async Task TheResponseHeadArrivesWithoutAnyRead()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .HeadOnly(new EchoRequest
                 {
@@ -71,7 +71,7 @@ public class ServerStreamingTests : EchoServerFixture
   [Test]
   public async Task EveryMessageComesBackInOrderAndTheStreamThenEnds()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest
            {
@@ -99,7 +99,7 @@ public class ServerStreamingTests : EchoServerFixture
   [Test]
   public async Task AReadPastTheEndKeepsAnsweringFalse()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest
            {
@@ -118,7 +118,7 @@ public class ServerStreamingTests : EchoServerFixture
   [Test]
   public async Task AStreamThatAnswersNothingEndsCleanly()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest());
 
@@ -138,7 +138,7 @@ public class ServerStreamingTests : EchoServerFixture
   [Test]
   public async Task AStreamAbandonedHalfwayStillLetsTheChannelBeDisposed()
   {
-    using (var channel = NativeRuntimeFactory.Channel(Endpoint))
+    await using (var channel = NativeRuntimeFactory.Channel(Endpoint))
     {
       using var call = Client(channel)
         .Fan(new EchoRequest
@@ -157,9 +157,9 @@ public class ServerStreamingTests : EchoServerFixture
   }
 
   [Test]
-  public void ACancelledTokenEndsTheReadAsCancelled()
+  public async Task ACancelledTokenEndsTheReadAsCancelled()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Fan(new EchoRequest
            {

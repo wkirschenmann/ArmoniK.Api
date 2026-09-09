@@ -41,7 +41,7 @@ public class DuplexStreamingTests : EchoServerFixture
   [Test]
   public async Task TheResponseHeadArrivesWithoutAnyRead()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .HeadThenChat();
 
@@ -63,7 +63,7 @@ public class DuplexStreamingTests : EchoServerFixture
   [Test]
   public async Task EachMessageIsAnsweredBeforeTheNextIsSent()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Chat();
 
@@ -99,7 +99,7 @@ public class DuplexStreamingTests : EchoServerFixture
   [Test]
   public async Task EverythingSentBeforeAnythingIsReadStillComesBackInOrder()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Chat();
 
@@ -130,7 +130,7 @@ public class DuplexStreamingTests : EchoServerFixture
   [Test]
   public async Task AConversationWithNothingToSayEndsCleanly()
   {
-    using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
     using var call = Client(channel)
       .Chat();
 
