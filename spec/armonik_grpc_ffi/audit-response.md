@@ -19,6 +19,7 @@ Statuses used here:
 | **answered** | a decision settles it; the decision is in `requirements.md` or `design.md` |
 | **refused** | re-derived and it does not hold; the measurement that says so is given |
 | **deferred** | holds, and belongs to a task that is not this one; the task is named |
+| **open** | holds, and what settles it is a decision nobody has taken; the decision is in design.md's open-decisions table with its cost on both sides |
 
 ## The blockers, at a glance
 
@@ -397,13 +398,81 @@ two refusals.
 
 ---
 
+## Decided in discussion, and written down rather than left there
+
+Six things were settled in conversation and existed nowhere in the repository. They are in
+design.md's open-decisions table and in tasks.md now; the rows below cite them, and this section
+carries the reasoning a table cell cannot hold.
+
+**The premise that dismissed four of the audit's findings was mine.** I had ranked its
+off-the-shelf findings against a rule that the engine avoids tonic. No requirement says that, no
+design section says it and no task says it - `armonik-transport`'s own manifest depends on tonic
+for `channel` and `codegen`, and design.md's T7.1 adapter is typed `type Error = tonic::Status`.
+Withdrawing the premise moves F-002, F-004, F-005 and F-003 from out-of-mandate to real, and
+leaves one argument standing where I had four.
+
+**That argument is the send buffer's owner, and it reaches the codec alone.** The zero-copy send
+has the host serialize straight into a Rust arena allocation, and **that original is the replay
+cache**, not a copy taken from it. tonic's `Encoder` writes into a buffer tonic owns, so adopting
+it means one copy per message into the arena and a replay cache that is either a second copy or
+the wrong bytes. None of that touches the receive side, where `Decoder<Item = Bytes>` is the shape
+`Payload` already carries, nor the metadata map, nor the status decoding, nor the pool. I had the
+direction of that copy backwards - claiming a throughput gain for it - and the direction is the
+whole argument.
+
+**Re-derived, each of the three tonic findings is smaller than it looks, and one is a reason not
+to reuse.** For the metadata map, tonic's two base64 engines and its five-name reserved list are
+both `pub(crate)`, so what reuse buys is `MetadataMap` with `get_bin`/`append_bin` and not the
+constants the finding quotes as duplication - and three behaviours this branch built are absent
+from it. For the status decoding, `Status::from_header_map` **panics** on a
+`grpc-status-details-bin` the peer wrote badly, which is precisely the class of thing this library
+spent a commit removing from its own tasks. For the pool it holds outright, and it is the largest
+of the three. The rows below carry each measurement.
+
+**No correctness objection survives against `System.Threading.Channels`.** I had three and all
+three were wrong. A bounded `Channel<Slot>` does not allocate per payload - the element is a
+reference to a native buffer, not the buffer. A queue that removes the item at the take does not
+lose the release, because `ak_event_consumed` names the payload it frees, so the engine discharges
+whatever comes back; the header caps how many payloads a call may owe and asks for no order among
+them. And level 2's `RingHead`/`RingTail` are not a constraint: that level describes this binding,
+and a refinement needs a mapping, which may be fictional. What is left is a trade with a cost on
+each side, which is why it is an open decision and not a fix or a refusal.
+
+**The ABI stops being transcribed by hand.** Generated from the Rust with the artefact committed
+and verified the way `options.schema.json` is. It was proposed early and argued down, on the
+ground the header's own comment gives - that a hand-written file shows up in review where a
+generated one does not - and the comparison step answers that better than the hand does, because
+review sees the diff either way and only the hand can drift in silence. T3.6 states it and sits
+before T4.0, because T4.0 changes seventeen declarations and two structs at once and making that
+change by hand is the fifth transcription of one contract.
+
+**The binding's diagnostics belong to T10.1** rather than to a fix of their own. That task already
+asks how the engine's `tracing` events cross the ABI, and the host's own surface is the same
+question: a binding with two unrelated diagnostic channels for one call is what deciding twice
+produces.
+
+**And the channel's synchronous `Dispose` goes.** design.md says a synchronous dispose would have
+to block on the network and on host callbacks and that the surface therefore offers none;
+`NativeChannel` implements `IDisposable` all the same, so the path the document rules out is there
+for a caller to find. Dropping it makes `await using` compiler-enforced instead of documented, and
+separating `ShutdownAsync` from disposal goes with it.
+
+---
+
 ## The majors, as they close
 
-Of the 287 the inventory holds that are neither spec drift nor pre-existing: eighteen applied
-(three of them half, with the other half refused and why), two already closed by a blocker's fix,
-eleven refused - one of them by a decision that is the user's - three answered by a requirement
-that now states what they said was unstated, and one deferred to a task that has to exist first.
-Each row's proof is the transcript in the commit that applied it.
+Of the 287 the inventory holds that are neither spec drift nor pre-existing, 55 are
+accounted for below - in 45 rows, because several rows carry two or three findings that share one
+mechanism, one row carries a decision the audit never made, and A3-056 among the ids is the
+blocker whose structural half these refactors closed.
+
+Twenty-four rows are applied, four of them in part with the other part refused and why; six are
+refused outright, one of those by a decision that is the user's; five are deferred to a task that
+is named; four are answered by a requirement or a decision that now states what they said was
+unstated; four are open - they hold, and what settles them is a decision this document does not
+take alone, so it is in design.md's open-decisions table with its cost on both sides; and one was
+already closed by a blocker's fix. Each applied row's proof is the transcript in the commit that
+applied it.
 
 | Finding | What it said | Status |
 |---|---|---|
@@ -444,3 +513,11 @@ Each row's proof is the transcript in the commit that applied it.
 | N-036 | `ConfigError` and `ConnectionError` render only their outermost message, and the `chain` helper that makes them readable is `pub(crate)`, so a caller who logs `{e}` gets a sentence with no cause | **applied differently** - `snafu` is re-exported, with the pointer to `snafu::Report` on the re-export. A `String` formatter is not what a consumer needs made public: the causes are already reachable through `Error::source()`, and `Report` is the renderer snafu's own author supplies. Re-exporting also pins the version, which a consumer adding `snafu` themselves would have to match - and it is already a public dependency through the error types |
 | B-003 | the userinfo guard tests `endpoint.contains('@')` on the raw string, so it also refuses an endpoint whose path or query legally holds `@`, where `http2.rs` scopes the same test to the authority | **refused** - the order is the point, and the code says so: the parse error carries the endpoint (`UriSnafu { uri }`), so parsing first is what would put a password in a message. `http2.rs` can scope to the authority because it is handed a `Uri` that parsed. What the raw test costs is refusing `@` in a path, and the path of a gRPC endpoint is the method's |
 | R-008 | the .NET Framework engine probe picks its directory from `IntPtr.Size` alone, so a 64-bit ARM host is directed at the `x64` folder and loads an x64 DLL | **refused** - that layout is emitted for `.NETFramework` consumers only, and .NET Framework has no ARM64 flavour: on an ARM64 host it runs emulated as x86 or x64, where `IntPtr.Size` names the process's own architecture. `RuntimeInformation.ProcessArchitecture` answers `X64` for that same emulated process, which is the same folder. A .NET consumer never sees these folders at all - it resolves `runtimes/<rid>/native` - so there is no host that can load the x64 engine into an ARM64 process. The reasoning is in the `.targets` comment now, where the question comes up |
+| R-064 | the per-call delivery ring, its mask arithmetic, the `Claim` enum and the arrival signal re-implement a bounded single-producer single-consumer queue that `System.Threading.Channels` provides on netstandard2.0 | **open, and the three objections to it were mine.** A bounded `Channel<Slot>` allocates nothing per element the ring does not, the element being a reference to a native buffer; a queue that removes the item at the take loses no release, since `ak_event_consumed` names the payload it frees and the header caps how many a call may owe rather than fixing an order; and level 2's `RingHead`/`RingTail` bind nothing, that level describing this binding and a refinement needing only a mapping, which may be fictional. What survives is a trade: the swap is mechanical now `DeliveryRing` is one 122-line type and it does not touch the phase machine or the read-versus-token arbiter - which the finding itself concedes have no library answer - and it costs a package reference on .NET Framework and the release rule, which is the invariant that actually matters here: `DeliveryRing.Release()` is the sole releaser of an accepted payload, and a queue that hands the item out cannot hold that - the discipline goes back to the caller, where `ak_event_consumed`'s three call sites are exactly what a reader has to keep straight |
+| F-004 | `Metadata`/`MetadataValue` re-implement `tonic::metadata::MetadataMap`, down to two base64 engines that are byte-for-byte tonic's own | **open, and half of the duplication it names is unreachable.** Measured against tonic 0.14.6: `util::base64::STANDARD`/`STANDARD_NO_PAD` are `pub(crate)`, and so are `GRPC_RESERVED_HEADERS` and `into_sanitized_headers`, so what reuse buys is `MetadataMap` with `get_bin`/`append_bin` - not the constants the finding quotes. `BINARY_OUT` is `STANDARD_NO_PAD` exactly; `BINARY_IN` is `STANDARD` plus `with_decode_allow_trailing_bits(true)`, which the finding calls the one genuine improvement and which is load-bearing: C-core, Go and Java hand such a value over, and without it the header vanishes instead of arriving. Two more behaviours this branch built are not in `MetadataMap` either: a reserved set broader than tonic's five names - pseudo-headers, every `grpc-`, the six connection-specific fields of RFC 9113 8.2.2, `host`, `content-length` - and a **refusal at the key** where `into_sanitized_headers` removes in silence, which is Z-001's whole point. So `MetadataMap` as the storage is defensible and all three come back on top of it |
+| F-002 | `stated_status`, `from_http_status`, `code_of` and `decode_message` re-implement `tonic::Status::from_header_map`, `infer_grpc_status`'s table, `Status::code_from_h2` and `percent_decode` | **open, and the function it recommends would reintroduce a peer-controlled panic.** `tonic::Status::from_header_map` runs `.expect("Invalid status header, expected base64 encoded value")` on `grpc-status-details-bin`, so a server that writes that header badly panics the reader task - the class of fault `guarded` was added to remove, and the one thing an in-process ABI cannot afford. Of the rest: `Code::from_bytes` and the three header-name constants are public and reusable; `infer_grpc_status`, the HTTP-to-gRPC table, is `pub(crate)` and the copy of it here is six match arms; and the finding already concedes `code_from_h2` is behind the `server` feature. So what is genuinely reusable is small, what is recommended is unsafe as it stands, and the useful move is upstream - phase 9's register |
+| F-005 | `Inner::sender`/`Inner::dial`/`Session` hand-roll a one-connection HTTP/2 pool with dial coalescing and reconnect-on-closed, which `hyper_util::client::legacy::Client` already is | **open, and it is the largest of the three.** It holds as stated. Two things bound when: `TransportConfig` carries an endpoint and a connect timeout and nothing else today, so no builder surface blocks the swap - but T4.1 widens it with keepalive, nodelay and the HTTP/2 windows, so the swap either precedes that widening or absorbs it. The finding's own caveat stands, that `close()` must drop the client rather than take a sender out of a slot, and it is what the channel's disposal ordering rests on |
+| F-003 | one C ABI is transcribed by hand five times - `abi.rs`, the header, `NativeMethods.cs`, `tests/layout.rs`, `AbiLayoutTests.cs` - instead of being generated from the Rust | **answered by decision: generated, with the artefact committed.** `cbindgen` for the header, `csbindgen` for the P/Invoke declarations, verified by the same regenerate-and-compare step `ChannelOptions.g.cs` has, and the prose contract moved into `cbindgen.toml`'s `header`. T3.6, before T4.0, because T4.0 changes seventeen declarations and two structs at once and doing that by hand is the fifth transcription. One thing the finding gets wrong: the two layout tests do not both become redundant. `Marshal.SizeOf` and `Marshal.OffsetOf` measure what the CLR does with the declarations, per target framework and per architecture, and a generator proves the declarations agree with the Rust rather than that the runtime lays them out as Rust does - the generated declarations being precisely what has to be verified rather than trusted |
+| R-062, N-046 | the crate has no feature separating the engine from the TLS client stack, so `packages/rust/armonik` links seven engine dependencies to parse a configuration and open a tonic channel | **answered** - design.md's decision is no split and no feature gate: T7.1 puts the client on the engine and T4.1 gives the engine the TLS stack, so both halves converge and a gate would be scaffolding with a demolition date. Two findings for one mechanism, the second naming the seven dependencies the first names by module |
+| A3-030 | the native callback handler swallows every exception with a bare `catch` and the binding has no diagnostics surface at all - no `ILogger`, no `EventSource`, no trace - so a `Publish` that throws strands a call with nothing recorded anywhere | **deferred to T10.1**, which carries the host half of the question now. The swallow itself is not the defect and stays: the callback runs on a tokio thread and an exception crossing back into Rust is undefined behaviour, so the catch is the boundary. What is missing is that it records nothing, and choosing between an `EventSource` and an optional `ILoggerFactory` is the same decision as choosing how the engine's own `tracing` events cross - one surface, decided once |
+| not in the audit | `NativeChannel` implements `IDisposable` beside `IAsyncDisposable`, where design.md says a synchronous dispose would have to block on the network and on host callbacks and that the surface therefore offers none | **decided: it goes.** `await using` was documented and not enforced, so the path the document rules out was there to be taken. Without `IDisposable`, `using var` on the channel does not compile (CS8418) - the compiler saying it rather than a channel that never drains saying it later. Separating `ShutdownAsync` from disposal goes with it, in its own commit with the tests it converts |

@@ -691,7 +691,7 @@ refinement.
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
 | `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
-| `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
+| `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it and no retry may still replay it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's. A replay holds the arena allocation itself, so what a WRITE_DONE ends is the send and not the allocation's life |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
 | `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue |
 | `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE` |
@@ -1424,6 +1424,8 @@ and only then writes.
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
 the writer it wakes can act on it straight away. Retry costs no copy at all: the
 bytes are already Rust's, so a retryable call simply keeps the allocation until it commits.
+**The arena original is the replay cache**, not a copy taken from it - which is why nothing on
+the send path may serialize somewhere else first and hand the bytes over afterwards.
 The slot budget and the replay buffer (`RetryConfig::max_buffer_size`) charge two different
 phases of one buffer's life - the first while it is outstanding, the second once it is retained
 past its WRITE_DONE - so neither is spent on the other's account.
@@ -1629,9 +1631,12 @@ the resurrection window the model forbids.
 `IAsyncDisposable`: the task returned by `DisposeAsync` completes once this channel's
 calls are settled and its handle released - and, when it held the last lease, once
 `ak_runtime_destroy` has returned. A synchronous `Dispose` would have to block on the
-network and on host callbacks, which is why the surface does not offer one. The call
-wrappers keep gRPC's own shape and expose `Dispose`; the binding's extension is the
-channel's asynchronous one, and `await using` is the documented pattern.
+network and on host callbacks, which is why the surface does not offer one - and why the
+channel does not implement `IDisposable` either. That absence is what makes `await using` a rule
+rather than a recommendation: `using var` on a type that is only `IAsyncDisposable` does not
+compile (CS8418), so a caller who forgets is told by the compiler instead of by a channel that
+never drains. The call wrappers keep gRPC's own shape and expose `Dispose`; the binding's
+extension is the channel's asynchronous one.
 
 ### Trampoline
 
@@ -3821,12 +3826,16 @@ architecture, the formal model and its mapping to the code, and a decision log. 
 split happens, read the ABI blocks as normative and the rest as justification.
 
 **The header is the contract; two things it needs are still missing.** The header lives at
-`packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h`, written by hand and
-committed so an ABI change shows up in review. It settles what this section used to list as
-undecided: `ak_bytes_in` as the borrowed mirror of `ak_bytes`, a size prefix on every options
-struct the host fills, `ak_runtime_config` and `ak_call_start_options`, the metadata blob as a
-length-prefixed key/value sequence, and the `AK_EVENT_STATUS` payload as a length-prefixed
-reason followed by the trailing metadata - the code itself is `ak_event.status_code`.
+`packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h` and is committed so an ABI
+change shows up in review; T3.6 makes it generated from `abi.rs` and the commit verified by
+regenerating and comparing, which is the arrangement `options.schema.json` already has - review
+sees the diff either way, and only the hand-written arrangement can go stale in silence.
+
+It settles what this section used to list as undecided: `ak_bytes_in` as the borrowed mirror of
+`ak_bytes`, a size prefix on every options struct the host fills, `ak_runtime_config` and
+`ak_call_start_options`, the metadata blob as a length-prefixed key/value sequence, and the
+`AK_EVENT_STATUS` payload as a length-prefixed reason followed by the trailing metadata - the
+code itself is `ak_event.status_code`.
 
 That prefix is a `uint32_t struct_size` alone, compared for exact equality, so a host
 compiled against any other revision is refused in both directions and no addition can ever be
@@ -3890,6 +3899,9 @@ table above maps the five call shapes and stops there.
 | An error detail channel in the ABI | **`ak_error { kind, ak_bytes detail }` as a nullable out-argument on every fallible entry point, freed by `ak_error_release`.** Nothing is allocated when the host passes NULL, and `detail.owner == NULL` carries a constant message with no allocation at all. The release is a symbol and not a pointer inside the struct: the host would copy a live code pointer into its own memory, and quiescence permits unloading this library. The same version bump carries requirement 13.5 on the two records the host fills and turns their exact-size check into a minimum - free while no host is compiled against version 1, and never free again | Layer 3, decided |
 | Splitting `armonik-transport` | **No split, and no feature gate over the engine.** The client compiles sixteen mandatory dependencies where it compiled eight, for an engine it does not use yet - but T7.1 puts it on that engine and T4.1 gives the engine the TLS stack, so both halves converge and the count stops being paid for nothing. A gate would be scaffolding with a demolition date, and a feature position nothing exercises rots | Layer 1, decided |
 | Which of `connect.rs` and a new TLS path survives | **`connect.rs::https_connector`, which T4.1 already states.** Its five branches - system roots, an explicit PEM CA, `OverrideTargetName` with its IPv6 case, the insecure opt-in, mTLS from a PEM pair - exist and are tested, so the engine takes the connector rather than growing a second one. The public `TransportConnection` alias changes type with it and costs nothing: no crate here has a publication channel, `publish.yml` carrying jobs for C#, Python, C++, Java and npm and none for cargo | Layer 1, decided |
+| How much of `tonic` the engine reuses | **Open, and the rule that used to close it does not exist.** `armonik-transport` already depends on tonic for `channel` and `codegen` and this document's own T7.1 adapter is typed `Error = tonic::Status`, so nothing here obliges the engine to avoid it. Three of its types are re-implemented: `MetadataMap`, `Status::from_header_map` with the HTTP-to-gRPC table and the percent-decoding, and a one-connection pool with dial coalescing that `hyper_util::client::legacy::Client` is. What reuse is worth differs per type and is measured in the audit ledger, not assumed. The one place a hand-written path is defensible on this design's own terms is the **send codec**: tonic's `Encoder` writes into a buffer tonic owns, while the zero-copy send has the host serialize into the arena allocation that *is* the replay cache, so an encoder of tonic's costs a copy per message into the arena and makes the cache either a second copy or the wrong bytes. The receive side has no such objection - `Decoder<Item = Bytes>` is the shape `Payload` already carries. Reuse also couples this crate's semver to tonic 0.14, which is free while `publish.yml` has no cargo job | Layer 1 |
+| The per-call delivery queue on .NET | **Open, and the three objections to `System.Threading.Channels` were wrong.** A bounded `Channel<Slot>` allocates nothing per element that the ring does not, the element being a reference to a native buffer rather than the buffer; a queue that removes the item at the take is no obstacle, because `ak_event_consumed` names the payload it releases, so the engine discharges what comes back rather than what it handed out in order; and level 2's `RingHead`/`RingTail` bind nothing, since that level describes this binding and a refinement needs only a mapping, which may be fictional. What a swap does not touch is the phase machine and the read-versus-token arbiter, which are the actual complexity and have no library answer. What it costs is a package reference on .NET Framework and the release rule: `DeliveryRing.Release()` is the sole releaser of an accepted payload, and a queue that hands the item out cannot hold that invariant - it returns to being the caller's discipline. `DeliveryRing` is one 122-line type, so the swap is mechanical whenever it is wanted | Layer 4 |
+| How the C ABI is kept in five places | **Generated from the Rust, and the artefact committed.** `abi.rs`, the header, `NativeMethods.cs`, `tests/layout.rs` and `AbiLayoutTests.cs` are one contract written out five times by hand. `cbindgen` emits the header and `csbindgen` the P/Invoke declarations, verified by the same regenerate-and-compare step `ChannelOptions.g.cs` already has, and the prose the header carries moves into `cbindgen.toml`'s `header` and the Rust doc comments. What does not become redundant is the .NET layout test: `Marshal.SizeOf` and `Marshal.OffsetOf` measure what the CLR does with the declarations, per target framework and per architecture, and a generator proves the declarations match the Rust rather than that the runtime lays them out as Rust does. T3.6, before T4.0 | Layer 3, decided |
 | One runtime per process: choice or implementation limit | **A choice, and now requirement 14.9.** Several tokio runtimes in one process share the machine's cores without knowing of each other. `static LIVE` and the three `OnceLock` registries enforce it and the header states it at `ak_runtime_create`; what follows is that the first lessee's thread count and memory ceiling are the process's, which `NativeRuntimeFactory.Configure` refuses to overwrite rather than ignoring | Requirement 14, decided |
 
 ---

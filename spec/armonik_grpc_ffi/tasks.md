@@ -380,7 +380,7 @@ What differs between the cardinalities is what they send, not how they read.
 
 ---
 
-## Phase 3 — The option surface, end to end
+## Phase 3 — The option surface, and the artefacts that carry it
 
 The options were planned last, as T6.1 and T6.2. They come first instead: nothing in TLS, in
 proxy or in retry is reachable from a .NET caller until the JSON carries it, and the schema is
@@ -701,6 +701,46 @@ phases 4 to 6 move a name out of `Awaited` rather than quietly leave it there.
 
 It earned itself on the first run, finding `CertP12` - which a grep over `GrpcClient.cs` had
 missed, because the pattern excluded digits.
+
+---
+
+### T3.6: One ABI, generated from the Rust
+
+**Prerequisite**: T3.3, whose arrangement this copies. **Before T4.0.**
+**Commit**: `cbindgen` emits `include/armonik_transport_ffi.h` from `abi.rs` and `csbindgen` emits
+the P/Invoke half of `NativeMethods.cs`; both artefacts stay committed, and the build regenerates
+and compares, so a difference fails it. The prose the header carries - the two rules, the
+ownership sentences, the per-symbol contracts - moves into `cbindgen.toml`'s `header` and into the
+Rust doc comments, which is where a generator can carry it.
+
+One C ABI is written out five times today: `abi.rs`, the header, `NativeMethods.cs`,
+`tests/layout.rs` and `AbiLayoutTests.cs`. It is here rather than after phase 4 because T4.0
+changes seventeen declarations and two structs at once, and making that change by hand is the
+fifth transcription of one contract. Generating first makes the ABI break the generator's first
+proof instead of its first casualty. The header's own comment - "written by hand and committed, so
+an ABI change shows up in review rather than in a generated file nobody reads" - is answered by
+the comparison step and not by the hand: review sees a diff either way, and only one of the two
+arrangements can drift in silence.
+
+The generated declarations are what the binding then loads, so they are verified rather than
+trusted:
+
+- **The .NET layout tests stay.** `Marshal.SizeOf` and `Marshal.OffsetOf` measure what the CLR
+  does with the declarations, per target framework and per architecture. A generator proves the
+  declarations agree with the Rust, not that the runtime lays them out as Rust does.
+  `tests/layout.rs` is the Rust-side half and can be derived; `AbiLayoutTests` is a measurement,
+  and it runs on x64 alone today where requirement 8.1 promises eleven runtime identifiers.
+- **What csbindgen does with the shapes this ABI actually uses**: a struct passed and returned by
+  value, `ak_bytes` as a by-value argument, the delivery callback as a function pointer, and every
+  enum as an `int`. Each is a place where a declaration can be right in the header and wrong in
+  C#.
+- **What is not in the Rust at all**: the calling convention, `SetLastError`, and the netstandard
+  half's `unsafe` signatures. Whatever the generator does not emit is what this repository's own
+  template adds, and the template is then the thing under review.
+
+**Deliverable**: the header and the P/Invoke declarations regenerate byte for byte from `abi.rs`,
+checked by a build step as `CheckGeneratedOptionsMatchTheSchema` is; the layout tests pass
+unchanged on net4.7, net4.8 and net8.0.
 
 ---
 
@@ -1116,6 +1156,18 @@ What to settle:
 - **What a secret must never reach.** The engine holds endpoints, proxy credentials and
   certificate paths. `safe_endpoint` exists because a URI can carry a password; a logging path
   that bypassed it would undo that.
+- **The binding's own surface, which is the same decision.** `ArmoniK.Api.Client.RustGrpcChannel`
+  has no `ILogger`, no `EventSource` and no trace anywhere in it. Most of what it catches it does
+  report - a decode failure reaches the reader, an unreadable header reaches
+  `ResponseHeadersAsync`, a teardown that failed reaches whoever awaits the disposal and is kept
+  in `refused_` - and the two exceptions are both in the trampoline: a context handle that no
+  longer names a target, and a `Publish` that threw. Those two catches do not go, and are not the
+  defect: the trampoline runs on a tokio thread and an exception crossing back into Rust is
+  undefined behaviour, so the catch is the boundary. What is missing is that the boundary says
+  nothing, and a call stranded there is the one failure with no observer at all. Whether that is
+  an `EventSource` or an optional `ILoggerFactory` on `NativeRuntimeFactory.Configure` is chosen
+  with the engine's own crossing rather than beside it - a host with two unrelated diagnostic
+  channels for one call is what deciding twice produces.
 
 **Deliverable**: a decision recorded in the design, and the ABI extension it calls for.
 
@@ -1133,7 +1185,7 @@ T1.1 ─────────────→ T1.2 ←────────
   │                  T2.1, T2.2 → T2.3
   │
   └── T3.1 → T3.2 → T3.3 → T3.4 → T3.5   (the options, and everything waits on them)
-                              └── T4.0   (the ABI break, before any field is added to it)
+                       └── T3.6 → T4.0   (the ABI generated, then broken once)
                                      │
               ┌──────────────────────┼──────────────────────┐
               │                      │                      │
@@ -1145,7 +1197,9 @@ T1.1 ─────────────→ T1.2 ←────────
 T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
 gives the engine. T6.1 decides a ceiling before T6.4 builds what it bounds. T4.0 is upstream of
 both T4.1 and T6.2 for two different reasons: T4.1's failures need a message to be distinguishable
-at all, and T6.2 adds a field to a struct whose size is checked for equality.
+at all, and T6.2 adds a field to a struct whose size is checked for equality. T3.6 is upstream of
+T4.0 and of nothing else: it stands on T3.3 for the arrangement and not on the option surface, so
+it is the one task of phase 3 that runs in parallel with T3.4 and T3.5.
 
 ---
 
@@ -1157,7 +1211,8 @@ at all, and T6.2 adds a field to a struct whose size is checked for equality.
   written spec is enough to start implementation
 - **Phase 3 is the bottleneck and is not parallel with anything.** Every option of phases 4, 5
   and 6 reaches a .NET caller through the schema it produces, so the three phases after it are
-  parallelizable with each other and none of them with it.
+  parallelizable with each other and none of them with it. The exception is T3.6, which touches
+  no option: it needs T3.3's regenerate-and-compare arrangement and T4.0 needs it.
 - **T6.6** (packaging) can start as soon as T4.1, since what it packages is the engine
 - **T6.2** (deadline) stands on T1.1 and T4.0: nothing about a timer waits on the option surface,
   but the field it adds waits on the struct being able to grow
