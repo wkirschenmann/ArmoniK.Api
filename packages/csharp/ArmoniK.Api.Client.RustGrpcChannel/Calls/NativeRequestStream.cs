@@ -54,17 +54,18 @@ internal sealed class NativeRequestStream<TRequest, TResponse> : IClientStreamWr
     }
 
     // The guard above stays synchronous - it names a rule the caller broke, and an `async` method
-    // would deliver it through the task instead.
-    return Written(message);
+    // would deliver it through the task instead. The write is started here for the same reason:
+    // the call refuses a second writer synchronously too, and wrapping the start would hand that
+    // refusal to a task the caller who overlapped two writes may not be awaiting.
+    return Written(call_.WriteAsync(marshaller_,
+                                    message));
   }
 
-  private async Task Written(TRequest message)
+  private async Task Written(Task written)
   {
     try
     {
-      await call_.WriteAsync(marshaller_,
-                             message)
-                 .ConfigureAwait(false);
+      await written.ConfigureAwait(false);
     }
     catch (CallEnded ended)
     {

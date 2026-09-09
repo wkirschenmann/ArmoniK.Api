@@ -194,6 +194,15 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       case NativeMethods.AkStatus.HandleStale:
         throw new CallEnded(status);
 
+      // The send window is full, which means another send of this call is unacquitted. The header
+      // calls it backpressure and names the next WRITE_DONE as its wake-up, which is what a host
+      // pipelining deeper than one message waits on; this binding admits one writer and has it
+      // wait for the acquittal, so reaching this is its own bookkeeping being wrong rather than a
+      // resource to wait for. Named as such, where the message used to read like a shortage.
+      case NativeMethods.AkStatus.SlotBusy:
+        throw new RpcException(new Status(StatusCode.Internal,
+                                          "a send was begun while this call still had one unacquitted"));
+
       default:
         throw new RpcException(new Status(status == NativeMethods.AkStatus.MessageTooLarge
                                             ? StatusCode.ResourceExhausted

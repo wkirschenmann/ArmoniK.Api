@@ -57,10 +57,11 @@ internal sealed class Sender
 
   private readonly ArrivalSignal handedBack_ = new();
 
-  // The write waiting for its acquittal, or null between writes. A write linearizes at its
-  // WRITE_DONE and not at the commit, which is what lets one writer send in a row against a
-  // window of one: the emission that completes a write has already freed the slot the next lend
-  // asks for, so a conformant writer never meets SLOT_BUSY.
+  // The write waiting for its acquittal, or null between writes, and the claim a writer takes
+  // to become the one. A write linearizes at its WRITE_DONE and not at the commit, which is what
+  // lets one writer send in a row against a window of one: the emission that completes a write
+  // has already freed the slot the next lend asks for, so the window is open at every lend a
+  // holder of this claim makes.
   private TaskCompletionSource<bool>? writing_;
 
   internal Sender(ICallState call,
@@ -105,28 +106,61 @@ internal sealed class Sender
   /// caller honouring <c>IClientStreamWriter</c>'s one-writer contract therefore always finds the
   /// window open at its next lend, whatever depth the ABI allows a host that pipelines deeper.
   /// </remarks>
-  internal async Task WriteAsync<TRequest>(Marshaller<TRequest> marshaller,
-                                           TRequest request)
+  /// <exception cref="InvalidOperationException">
+  ///   A write is already waiting for its acquittal. Refused rather than raced: a second writer
+  ///   publishing its own acquittal would leave the first waiting on one nothing completes, so the
+  ///   write that broke no rule would hang until the call ended. Thrown from here rather than
+  ///   through the task, like the closed-stream refusal it sits behind - both name a rule the
+  ///   caller broke, and neither is an outcome of the RPC.
+  /// </exception>
+  internal Task WriteAsync<TRequest>(Marshaller<TRequest> marshaller,
+                                     TRequest request)
   {
     var acquitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    Volatile.Write(ref writing_,
-                   acquitted);
 
-    await Sent(marshaller,
-               request,
-               halfClose: false)
-      .ConfigureAwait(false);
-
-    // The terminal is watched beside the acquittal because a write left pending would hang the
-    // caller. Level 1 emits every acquittal before the terminal, so a call that reaches its
-    // terminal first is an engine that broke that promise, and the caller hears it as the status.
-    var settled = await Task.WhenAny(acquitted.Task,
-                                     call_.TerminalAsync)
-                            .ConfigureAwait(false);
-    if (settled != acquitted.Task)
+    if (Interlocked.CompareExchange(ref writing_,
+                                    acquitted,
+                                    null) is not null)
     {
-      throw new RpcException(await call_.TerminalAsync.ConfigureAwait(false),
-                             call_.Trailers);
+      throw new InvalidOperationException("a write is already in flight on this call");
+    }
+
+    return Writing(marshaller,
+                   request,
+                   acquitted);
+  }
+
+  private async Task Writing<TRequest>(Marshaller<TRequest> marshaller,
+                                       TRequest request,
+                                       TaskCompletionSource<bool> acquitted)
+  {
+    try
+    {
+      await Sent(marshaller,
+                 request,
+                 halfClose: false)
+        .ConfigureAwait(false);
+
+      // The terminal is watched beside the acquittal because a write left pending would hang the
+      // caller. Level 1 emits every acquittal before the terminal, so a call that reaches its
+      // terminal first is an engine that broke that promise, and the caller hears it as the status.
+      var settled = await Task.WhenAny(acquitted.Task,
+                                       call_.TerminalAsync)
+                              .ConfigureAwait(false);
+      if (settled != acquitted.Task)
+      {
+        throw new RpcException(await call_.TerminalAsync.ConfigureAwait(false),
+                               call_.Trailers);
+      }
+    }
+    finally
+    {
+      // Released for the next write, and only if it is still this one's: exchanging on the value
+      // rather than storing null is what keeps a write that gave up its claim from clearing the
+      // claim of the write after it.
+      Interlocked.CompareExchange(ref writing_,
+                                  null,
+                                  acquitted);
     }
   }
 
