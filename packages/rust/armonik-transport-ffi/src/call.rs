@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use armonik_transport::grpc::{
-    CallControl, CallStartOptions, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf, RecvResult,
-    SendHalf,
+    CallControl, CallError, CallStartOptions, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf,
+    RecvResult, SendHalf,
 };
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
@@ -469,7 +469,22 @@ async fn write_until_closed(
             Command::Send(bytes) => {
                 let charged = bytes.len();
                 if let Some(half) = send.as_mut() {
-                    let _ = half.send_message(bytes).await;
+                    // `Ended` is the one refusal a message that came through the ABI can meet, and
+                    // it changes nothing below: WRITE_DONE settles an accepted send and says
+                    // nothing about the network, so a message abandoned because the call ended is
+                    // acquitted like one written and the terminal is what reports the end.
+                    // Withholding it instead would break the header's "exactly once per accepted
+                    // send" and hang a host waiting for its acquittal.
+                    //
+                    // The other refusal, a length no four-byte prefix can carry, is refused at the
+                    // lend: `LARGEST_LENDABLE` caps the ceiling itself, so it cannot reach here to
+                    // be lost behind an acquittal. Asserted rather than argued, because the day
+                    // that stops being true is the day a message goes missing in silence.
+                    let sent = half.send_message(bytes).await;
+                    debug_assert!(
+                        matches!(sent, Ok(()) | Err(CallError::Ended)),
+                        "a send accepted at the lend was refused by the transport: {sent:?}"
+                    );
                 }
                 // Given back inside the callback, so a host that lends again on WRITE_DONE finds the
                 // room the message it just sent freed rather than a refusal it cannot explain.
@@ -483,6 +498,8 @@ async fn write_until_closed(
             }
             Command::EndSend => {
                 if let Some(half) = send.take() {
+                    // Nothing to report: the half-close is this half being dropped, which ends the
+                    // request body, so `end_send` has no wire step a refusal could name.
                     let _ = half.end_send().await;
                 }
             }

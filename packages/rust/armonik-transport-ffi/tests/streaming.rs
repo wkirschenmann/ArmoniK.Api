@@ -11,6 +11,9 @@ use support::{CHAT, COLLECT, FAN};
 /// What the test sends, and what the server answers having read it all.
 const SENT: [&[u8]; 3] = [b"one", b"two", b"three"];
 
+/// One more, accepted and then cancelled under, so it never reaches the server.
+const ABANDONED: &[u8] = b"four";
+
 #[test]
 fn every_message_of_a_client_stream_crosses_the_abi_before_its_one_reply() {
     let fixture = Host::connected();
@@ -33,13 +36,23 @@ fn every_message_of_a_client_stream_crosses_the_abi_before_its_one_reply() {
 
     let seen = host.recorder.await_terminal();
 
+    let kinds = seen.kinds();
     assert_eq!(
-        seen.kinds()
-            .iter()
-            .filter(|kind| **kind == ak_event_kind::AK_EVENT_WRITE_DONE)
-            .count(),
+        acquittals(&kinds).len(),
         SENT.len(),
-        "one acquittal per message, and no more"
+        "one acquittal per message, and no more: {kinds:?}"
+    );
+    assert!(
+        acquittals(&kinds).iter().all(|at| *at < terminal(&kinds)),
+        "every acquittal is in before the terminal: {kinds:?}"
+    );
+    let reply = kinds
+        .iter()
+        .position(|kind| *kind == ak_event_kind::AK_EVENT_MESSAGE)
+        .expect("the server answered");
+    assert!(
+        acquittals(&kinds).iter().all(|at| *at < reply),
+        "and this server answers having read them all, so all three precede its reply: {kinds:?}"
     );
     assert_eq!(seen.status_code(), Some(0), "{}", seen.status_message());
     assert_eq!(
@@ -49,6 +62,72 @@ fn every_message_of_a_client_stream_crosses_the_abi_before_its_one_reply() {
     );
 
     fixture.close();
+}
+
+/// Where the acquittal each side counts on is owed for a message that never reached the wire.
+///
+/// The header settles it: WRITE_DONE settles an accepted send and says nothing about the network -
+/// the message may have been written, or abandoned because the call was cancelled - and it arrives
+/// exactly once per accepted send, always before the terminal. So a send accepted and then
+/// cancelled under is acquitted like one written, and a host waiting on its buffer is not left
+/// waiting for a call that is already over.
+///
+/// The interleaving this reaches depends on whether the writer dequeues before the cancel lands.
+/// Both are the same assertion, which is the point: the count and the order hold either way.
+#[test]
+fn a_send_the_transport_abandoned_is_acquitted_like_one_it_wrote() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    let call = start_call(channel, COLLECT, &[]);
+
+    for (sent, message) in SENT.iter().enumerate() {
+        write_one(host, call, message, sent + 1);
+    }
+
+    // Accepted, and the call ended under it: `SendHalf::send_message` answers `Ended` once the
+    // call's `over` is set, and the queued command is drained rather than dropped so its
+    // acquittal still goes out.
+    let (status, buffer) = lend(call, ABANDONED.len());
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    unsafe { std::ptr::copy_nonoverlapping(ABANDONED.as_ptr(), buffer.ptr, ABANDONED.len()) };
+    assert_eq!(
+        unsafe { ak_call_send_message(call, buffer) },
+        ak_status::AK_STATUS_OK,
+        "the send is accepted while the call is live"
+    );
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+
+    let seen = host.recorder.await_terminal();
+    let kinds = seen.kinds();
+
+    assert_eq!(
+        acquittals(&kinds).len(),
+        SENT.len() + 1,
+        "the abandoned send is acquitted too: {kinds:?}"
+    );
+    assert!(
+        acquittals(&kinds).iter().all(|at| *at < terminal(&kinds)),
+        "and before the terminal, like the others: {kinds:?}"
+    );
+
+    fixture.close();
+}
+
+/// Where each acquittal sits in the sequence the host was handed.
+fn acquittals(kinds: &[ak_event_kind]) -> Vec<usize> {
+    kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, kind)| **kind == ak_event_kind::AK_EVENT_WRITE_DONE)
+        .map(|(at, _)| at)
+        .collect()
+}
+
+fn terminal(kinds: &[ak_event_kind]) -> usize {
+    kinds
+        .iter()
+        .position(|kind| *kind == ak_event_kind::AK_EVENT_STATUS)
+        .expect("the terminal was awaited")
 }
 
 /// Sends and answers interleaved across the ABI, one window and one held event at a time.
