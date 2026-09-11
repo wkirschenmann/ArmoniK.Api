@@ -41,7 +41,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task EveryMessageReachesTheServerInOrderAndTheReplyNamesThemAll()
   {
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = Runtime.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 
@@ -67,7 +67,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task AStreamThatSendsNothingStillReachesItsReply()
   {
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = Runtime.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 
@@ -87,7 +87,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task AWriteAfterTheCallEndedIsAnRpcException()
   {
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = Runtime.Channel(Endpoint);
     using var call = Client(channel)
       .CollectRefused();
 
@@ -123,7 +123,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task ASecondWriteWhileOneIsInFlightIsRefused()
   {
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = Runtime.Channel(Endpoint);
     using var serializing = new ManualResetEventSlim(false);
     using var finish = new ManualResetEventSlim(false);
 
@@ -195,7 +195,7 @@ public class ClientStreamingTests : EchoServerFixture
   [Test]
   public async Task AWriteAfterTheStreamIsClosedIsRefused()
   {
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint);
+    await using var channel = Runtime.Channel(Endpoint);
     using var call = Client(channel)
       .Collect();
 

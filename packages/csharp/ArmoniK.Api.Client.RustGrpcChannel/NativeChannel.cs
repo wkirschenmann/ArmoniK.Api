@@ -33,8 +33,6 @@ internal enum ChannelDisposeState
   Disposing,
 
   Released,
-
-  ReleasedLast,
   Disposed,
 }
 
@@ -59,7 +57,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
     : base(endpoint)
   {
     runtime_ = runtime;
-    // Resolved by the factory, so this and the engine size from one number.
+    // Resolved by the runtime, so this and the engine size from one number.
     deliveryCredits_ = options.DeliveryCredits!.Value;
 
     // The endpoint is its own argument and never an option: it is the one value a channel cannot
@@ -165,8 +163,9 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
     }
   }
 
-  /// <summary>Cancels what is still running, gives the lease back, and waits for the engine to
-  /// be destroyed if this was the last channel.</summary>
+  /// <summary>Cancels what is still running, then releases this channel's handle.</summary>
+  /// <remarks>It does not stop the engine: the runtime is the caller's own object and outlives
+  /// every channel it made, so what ends here ends here.</remarks>
   public async ValueTask DisposeAsync()
   {
     if (Interlocked.Exchange(ref disposing_,
@@ -216,17 +215,9 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
       }
 
       NativeMethods.ak_channel_release(handle_);
+      state_ = ChannelDisposeState.Released;
 
-      var (wasLast, destroyed) = NativeRuntimeFactory.Release();
-      state_ = wasLast
-                 ? ChannelDisposeState.ReleasedLast
-                 : ChannelDisposeState.Released;
-
-      if (wasLast)
-      {
-        await destroyed.ConfigureAwait(false);
-      }
-
+      runtime_.Forget(this);
       state_ = ChannelDisposeState.Disposed;
       disposed_.TrySetResult(true);
     }

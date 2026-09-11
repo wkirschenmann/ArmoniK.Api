@@ -31,7 +31,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 /// so they run wherever the suite runs rather than only where something else has already put a
 /// server on a port and named it in the environment.</remarks>
 [TestFixture]
-public class ArmoniKClientTests : RuntimeLeaseFixture
+public class ArmoniKClientTests : RuntimeFixture
 {
   private MockServerProcess? server_;
   private string             endpoint_ = string.Empty;
@@ -54,7 +54,7 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [Test]
   public async Task TheEventStreamAnswersItsHeadBeforeItIsRead()
   {
-    await using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    await using var channel = Runtime.Channel(endpoint_);
 
     using var events = new gRPC.V1.Events.Events.EventsClient(channel).GetEvents(new EventSubscriptionRequest
                                                                                  {
@@ -79,7 +79,7 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [Test]
   public async Task AGeneratedArmoniKStubAnswersOverThisInvoker()
   {
-    await using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    await using var channel = Runtime.Channel(endpoint_);
 
     var results = new Results.ResultsClient(channel);
 
@@ -90,7 +90,7 @@ public class ArmoniKClientTests : RuntimeLeaseFixture
   [Test]
   public async Task TheSameStubAnswersAsynchronously()
   {
-    await using var channel = NativeRuntimeFactory.Channel(endpoint_);
+    await using var channel = Runtime.Channel(endpoint_);
 
     var configuration = await new Results.ResultsClient(channel).GetServiceConfigurationAsync(new Empty())
                                                                 .ConfigureAwait(false);

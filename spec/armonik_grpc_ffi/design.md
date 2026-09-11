@@ -1603,36 +1603,45 @@ CallInvoker invoker = channel.CreateCallInvoker();
         +-- CreateCallInvoker() -> NativeCallInvoker (a view, no state)
 
 No queue and no thread between the two: the trampoline publishes into the call's own
-ring and the consumer reads it directly.  The RuntimeState is the process's, never a
-channel's: what the channel holds is a lease.
+ring and the consumer reads it directly.  The runtime is the application's own object;
+a channel is made from it and kept by it.
 ```
 
-**Lifecycle: the lease belongs to the channel.** A `CallInvoker` is a stateless view -
-`CreateCallInvoker()` hands one out and owns nothing - so the unit of borrowing is the
-channel, the object an application creates and disposes. The first channel materializes
-the process runtime (the factory allocates the shared `RuntimeState` root, calls
-`ak_runtime_create`, then creates the channel - all before the constructor returns);
-every later channel takes a lease on the materialized runtime and creates only its own
-`ak_channel`. `DisposeAsync` on a channel settles its own calls - and no one else's,
-ownership being `call_channel`, the level-0 relation - releases its `ak_channel`, then
-its lease; the last lease released is what starts the native shutdown, and only then.
-The runtime is reusable: after a full teardown, the next channel materializes a fresh
-generation. The lease count is the implementation's refcount, and the model derives
-"last" from the set of channels not yet settled rather than from a counter. What the code
-must reproduce is not the count but the **latch**: when the count reaches zero, the same
-lock that observed it marks the current generation as no longer acquirable - the model's
-`shutdown_pending` - and only then is the lock released, a strong local reference in hand,
-so shutdown and destroy run outside it. An acquisition arriving afterwards waits for the
-re-arming or creates a fresh generation; it may never take the one whose zero has been
-decided. Deciding the zero and marking it are one step, not two: splitting them is exactly
-the resurrection window the model forbids.
+**Lifecycle: the runtime is an object, and it is the caller's.** `NativeRuntime.Create`
+starts the engine and `DisposeAsync` stops it, so a host declares how long it wants one
+rather than having that derived from something else. A channel is made by
+`runtime.Channel(endpoint)` and the runtime keeps it; a `CallInvoker` is a stateless view
+that `CreateCallInvoker()` hands out and that owns nothing.
 
-**Dispose is asynchronous, and its task means something.** `NativeGrpcChannel` is
-`IAsyncDisposable`: the task returned by `DisposeAsync` completes once this channel's
-calls are settled and its handle released - and, when it held the last lease, once
-`ak_runtime_destroy` has returned. A synchronous `Dispose` would have to block on the
-network and on host callbacks, which is why the surface does not offer one - and why the
-channel does not implement `IDisposable` either. That absence is what makes `await using` a rule
+`DisposeAsync` on a channel settles its own calls - and no one else's, ownership being
+`call_channel`, the level-0 relation - releases its `ak_channel`, and tells the runtime to
+forget it. It stops nothing else. `DisposeAsync` on the runtime disposes every channel it
+still holds and then retires the engine: begin the shutdown, wait for quiescence, destroy.
+Both orders are ordinary - a caller that disposed its channels first finds the set empty,
+one that disposed neither has them disposed for it - because a channel disposed twice is a
+no-op, and because an order a caller has to remember is not a guarantee.
+
+**Why this is not a refcount.** The engine admits one runtime per process (requirement
+14.9) and gives that claim back only on a destroy that succeeded, so an implicit lifetime
+- the first channel materializing a runtime, the last releasing it - forces a decision on
+what a creation does while a destruction is in flight. There is no good answer: refusing
+breaks "dispose everything and start again", and waiting blocks a thread on a teardown
+that needs the thread pool to advance, which is a starvation deadlock under load. Owning
+the runtime dissolves the question rather than answering it. A second `Create` while one
+lives is refused at once, by the engine and on its own authority, and nothing waits.
+
+Membership is a set behind a lock rather than a concurrent one: what has to hold is that a
+channel is never added after the disposal has swept, and under the lock either the creation
+wins and the sweep finds it or the creation reads the disposal and refuses. A concurrent
+set needs a second read afterwards, and a channel added between the two holds a handle
+nobody closes.
+
+**Dispose is asynchronous, and its task means something.** Both are `IAsyncDisposable`:
+a channel's task completes once its calls are settled and its handle released, and the
+runtime's once every channel it made has gone that way and `ak_runtime_destroy` has
+returned. A synchronous `Dispose` would have to block on the
+network and on host callbacks, which is why the surface does not offer one - and why
+neither type implements `IDisposable`. That absence is what makes `await using` a rule
 rather than a recommendation: `using var` on a type that is only `IAsyncDisposable` does not
 compile (CS8418), so a caller who forgets is told by the compiler instead of by a channel that
 never drains. The call wrappers keep gRPC's own shape and expose `Dispose`; the binding's
@@ -2543,9 +2552,9 @@ deliberately unconstrained failed state: `SafetyInvariant == NotFailed => Safety
 **Ownership - everything belongs to a runtime:**
 - **SingleRuntime**: at most one runtime with state ∈ {RUNNING, STOPPING,
   FAILED_UNQUIESCED} at all times. This is a modelling restriction, not an ABI rule:
-  nothing in the C surface forbids two runtimes. The binding keeps a single shared
-  runtime for the process, which every `NativeGrpcChannel` leases rather than owning -
-  the diagram above shows the invoker's view, not a per-invoker runtime. It bounds the
+  nothing in the C surface forbids two runtimes. The binding holds one runtime, the
+  object its caller created, from which every channel is made - the diagram above shows
+  the invoker's view, not a per-invoker runtime. It bounds the
   state space and lets the shutdown chain be stated per runtime without quantifying over
   interleavings; a second runtime would need it lifted and the shutdown proofs redone
 - **ChannelOwnership**: a created channel names a runtime
@@ -2980,11 +2989,19 @@ proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machi
 ### Level 2 — DotNetBinding
 
 `DotNetBinding.tla` refines `FfiGrpc`: the state space, the actions, the fairness and
-the properties below are the specification as written, and they now cover the three
-mechanisms the design promises - the channel-held lease on the reusable shared runtime,
-the write machine, and the managed completions.  No proof exists yet: the modules are
-TLC-vetted (thirty-three of the thirty-four actions fire; the thirty-fourth is dead by
-design, below) and in pre-proof review.
+the properties below are the specification as written, and they cover three mechanisms -
+the shared runtime's lifetime, the write machine, and the managed completions.  No proof
+exists yet: the modules are TLC-vetted (thirty-three of the thirty-four actions fire; the
+thirty-fourth is dead by design, below) and in pre-proof review.
+
+**The lifetime this section models is the one the binding no longer has.** Generations, a
+channel-held lease, `shutdown_pending` and the resurrection window it guards describe a
+runtime materialized by the first channel and released by the last. The binding owns its
+runtime now: the caller creates it, every channel is made from it, and disposing it
+disposes them - so the model's lease is a mechanism with nothing to describe, and the
+questions it answers (what an acquisition does against a destruction in flight, how "last"
+is derived) have no counterpart. Level 2 describes this binding and therefore follows it;
+until it does, read this section as a record of what was built rather than of what is.
 
 **Scope.** The model is the generic bidirectional-streaming call.  The five
 `CallInvoker` methods are refinements of it that fix the number of messages in each
@@ -3654,14 +3671,10 @@ ported, so calling code stays in the `RpcException` world grpc-dotnet callers al
 handle. The model states that nothing is left pending
 (`DisposeLeavesNoManagedWaiter`); which exception carries the failure is this decision.
 
-**The lease refcount is a lock and a counter.** The factory's lock guards one pair - the
-current runtime and the number of leases out - so acquisition and last release are
-decided under the same lock, and `ak_runtime_destroy` is called outside it once the
-counter reached zero. It costs one uncontended lock per channel construction and
-disposal, never anything on a hot path, and it is obviously correct where an
-`Interlocked` counter would need an argument about resurrection that the model does not
-supply: level 2 derives "the last release" from the set of settled channels, and the code
-must reach the same conclusion by counting.
+**There is no refcount, because nothing derives the runtime's lifetime.** It is an object
+its caller creates and disposes, and what its lock guards is one thing: the set of
+channels it made, so that a creation and a sweep cannot pass each other. It costs one
+uncontended lock per channel construction and disposal, never anything on a hot path.
 
 **The write TCS is published before the commit, and rolled back on refusal.** The
 WRITE_DONE callback may run the moment `ak_call_send_message` accepts, so the TCS has to

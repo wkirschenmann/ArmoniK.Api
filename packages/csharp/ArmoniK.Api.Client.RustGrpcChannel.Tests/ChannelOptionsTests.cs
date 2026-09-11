@@ -279,9 +279,8 @@ public class ChannelOptionsTests
                                                                          })
                                                   .Build();
 
-    var refused = Assert.Throws<InvalidOperationException>(() => NativeRuntimeFactory.Channel("http://127.0.0.1:1",
-                                                                                              configuration,
-                                                                                              "Section"));
+    var refused = Assert.Throws<InvalidOperationException>(() => NativeRuntime.OptionsFrom(configuration,
+                                                                                          "Section"));
 
     Assert.That(refused?.Message,
                 Does.Contain("DeliveryCredit"),

@@ -21,9 +21,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 /// <summary>A fixture whose tests call the echo server, started once for all of them.</summary>
 ///
 /// One server per fixture rather than one per test: starting it costs a process, and every test
-/// here opens its own channel over it. A fixture that also reconfigures the factory declares its
-/// own setup, which NUnit runs after this one.
-public abstract class EchoServerFixture : RuntimeLeaseFixture
+/// here opens its own channel over it, on the engine the base fixture gives each test.
+public abstract class EchoServerFixture : RuntimeFixture
 {
   private EchoServerProcess? server_;
 

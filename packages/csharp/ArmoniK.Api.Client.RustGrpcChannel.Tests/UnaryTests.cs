@@ -36,17 +36,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 public class UnaryTests : EchoServerFixture
 {
   /// <summary>Two workers, so a test that reads while another callback runs has a thread for
-  /// both. Set here rather than in the base, which every fixture shares.</summary>
-  [OneTimeSetUp]
-  public void ConfigureTheRuntime()
-    => NativeRuntimeFactory.Configure(workerThreads: 2);
-
-  /// <summary>One test asks for a memory ceiling, and every other one runs without.</summary>
-  protected override void ArmTheNextTest()
-    => NativeRuntimeFactory.Configure(workerThreads: 2);
+  /// both. Here rather than in the base, which every fixture shares.</summary>
+  protected override NativeRuntime Start()
+    => NativeRuntime.Create(workerThreads: 2);
 
   private NativeChannel Channel()
-    => NativeRuntimeFactory.Channel(Endpoint);
+    => Runtime.Channel(Endpoint);
 
   /// <summary>A channel opened from a configuration, and a call over it.</summary>
   /// <remarks>
@@ -69,8 +64,8 @@ public class UnaryTests : EchoServerFixture
       var configuration = new ConfigurationBuilder().AddEnvironmentVariables(prefix)
                                                     .Build();
 
-      await using var channel = NativeRuntimeFactory.Channel(Endpoint,
-                                                       configuration);
+      await using var channel = Runtime.Channel(Endpoint,
+                                                configuration);
 
       var reply = await Client(channel)
                         .SayAsync(new EchoRequest
@@ -101,8 +96,8 @@ public class UnaryTests : EchoServerFixture
   {
     var options = new ChannelOptions();
 
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint,
-                                                     options);
+    await using var channel = Runtime.Channel(Endpoint,
+                                              options);
 
     Assert.That(options.DeliveryCredits,
                 Is.Null,
@@ -116,8 +111,8 @@ public class UnaryTests : EchoServerFixture
   /// </remarks>
   [Test]
   public void AConfigurationWithNoSectionForThisIsRefused()
-    => Assert.That(() => NativeRuntimeFactory.Channel(Endpoint,
-                                                      new ConfigurationBuilder().Build()),
+    => Assert.That(() => Runtime.Channel(Endpoint,
+                                         new ConfigurationBuilder().Build()),
                    Throws.TypeOf<InvalidOperationException>());
 
   /// <summary>Every reply, and every call disposed even if one of them throws.</summary>
@@ -168,7 +163,7 @@ public class UnaryTests : EchoServerFixture
 
   [Test]
   public void TheAbiVersionIsTheOneThisBindingSpeaks()
-    => Assert.That(NativeRuntimeFactory.LibraryAbiVersion,
+    => Assert.That(NativeRuntime.LibraryAbiVersion,
                    Is.EqualTo(1),
                    "the loaded library speaks the ABI this binding was written against");
 
@@ -368,12 +363,11 @@ public class UnaryTests : EchoServerFixture
     var text = new string('x',
                           100_000);
 
-    Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo(RuntimeDisposeState.Absent),
-                "no other channel is open");
-    NativeRuntimeFactory.Configure(workerThreads: 2,
-                                   memoryCeiling: 128 * 1024);
-    await using var channel = Channel();
+    var runtime = await RestartAsync(workerThreads: 2,
+                                     memoryCeiling: 128 * 1024)
+                    .ConfigureAwait(false);
+
+    await using var channel = runtime.Channel(Endpoint);
     var client = Client(channel);
 
     var calls = await Task.WhenAll(Enumerable.Range(0,
@@ -394,8 +388,8 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
   {
-    await using var channel = NativeRuntimeFactory.Channel(Endpoint,
-                                                    deliveryCredits: 4);
+    await using var channel = Runtime.Channel(Endpoint,
+                                              deliveryCredits: 4);
 
     var reply = await Client(channel)
                       .SayAsync(new EchoRequest
@@ -604,8 +598,8 @@ public class UnaryTests : EchoServerFixture
 
   [Test]
   public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()
-    => Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(Endpoint,
-                                                                                     deliveryCredits: 0));
+    => Assert.Throws<ArgumentOutOfRangeException>(() => Runtime.Channel(Endpoint,
+                                                                        deliveryCredits: 0));
 
   /// <summary>Every call of the channel sizes a ring from this, so a window nothing bounds is a
   /// per-call allocation nothing bounds - and, past 2^30, a shift that reaches zero and spins.
@@ -614,10 +608,10 @@ public class UnaryTests : EchoServerFixture
   public void AWindowDeeperThanAnyRingIsRefusedBeforeAnythingIsOpened()
     => Assert.Multiple(() =>
                        {
-                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(Endpoint,
-                                                                                                       NativeRuntimeFactory.MaxDeliveryCredits + 1));
-                         Assert.Throws<ArgumentOutOfRangeException>(() => NativeRuntimeFactory.Channel(Endpoint,
-                                                                                                       int.MaxValue));
+                         Assert.Throws<ArgumentOutOfRangeException>(() => Runtime.Channel(Endpoint,
+                                                                                          NativeRuntime.MaxDeliveryCredits + 1));
+                         Assert.Throws<ArgumentOutOfRangeException>(() => Runtime.Channel(Endpoint,
+                                                                                          int.MaxValue));
                        });
 
   /// <summary>Refused, not dropped: a call that went out without the credentials the caller
@@ -751,21 +745,6 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task TheChannelsTwoHalvesAgreeOnItsState()
   {
-    var keepsAlive = Channel();
-    try
-    {
-      await TheTwoHalves(keepsAlive)
-        .ConfigureAwait(false);
-    }
-    finally
-    {
-      await keepsAlive.DisposeAsync()
-                      .ConfigureAwait(false);
-    }
-  }
-
-  private async Task TheTwoHalves(NativeChannel keepsAlive)
-  {
     var channel = Channel();
     Assert.That(channel.NativeState,
                 Is.EqualTo(NativeMethods.AkChannelState.Open));
@@ -788,31 +767,58 @@ public class UnaryTests : EchoServerFixture
                                   Is.EqualTo(ChannelDisposeState.Disposed));
                     });
 
-    Assert.That(keepsAlive.NativeState,
-                Is.EqualTo(NativeMethods.AkChannelState.Open));
   }
 
+  /// <summary>A second engine is refused while one lives, by the engine and not by this side.</summary>
+  /// <remarks>Requirement 14.9: several tokio runtimes in one process would share the machine's
+  /// cores without knowing of each other. What the caller gets is an answer and not a wait, which
+  /// is what owning the runtime buys - there is no lease whose return it could be waiting for.
+  /// </remarks>
   [Test]
-  public async Task TheLastChannelReleasedIsTheOneThatTearsTheRuntimeDown()
+  public void ASecondRuntimeIsRefusedWhileOneLives()
+    => Assert.That(() => NativeRuntime.Create(),
+                   Throws.TypeOf<InvalidOperationException>(),
+                   "the engine admits one runtime per process and says so");
+
+  /// <summary>A runtime that is going away opens no new channel.</summary>
+  [Test]
+  public async Task AChannelAskedOfARuntimeGoingAwayIsRefused()
   {
-    var first = Channel();
-    var second = Channel();
+    var runtime = Runtime;
 
-    Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo(RuntimeDisposeState.Active),
-                "one generation, two leases");
+    await GiveTheRuntimeBack()
+      .ConfigureAwait(false);
 
-    await first.DisposeAsync()
-               .ConfigureAwait(false);
-    Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo(RuntimeDisposeState.Active),
-                "a lease is still out, so nothing may shut down");
+    Assert.That(() => runtime.Channel(Endpoint),
+                Throws.TypeOf<ObjectDisposedException>());
+  }
 
-    await second.DisposeAsync()
+  /// <summary>Disposing the runtime disposes the channels it made, whatever the caller did.</summary>
+  /// <remarks>Which is the whole reason it keeps them: a channel outliving its engine holds a
+  /// handle into a library that may have been unloaded, and no order of disposal a caller has to
+  /// remember can be relied on to prevent that. One of the two is disposed first here, because a
+  /// caller doing half the work itself is the ordinary case and not a race.</remarks>
+  [Test]
+  public async Task DisposingTheRuntimeDisposesTheChannelsItMade()
+  {
+    var itsOwn = Channel();
+    var left = Channel();
+
+    await itsOwn.DisposeAsync()
                 .ConfigureAwait(false);
-    Assert.That(NativeRuntimeFactory.State,
-                Is.EqualTo(RuntimeDisposeState.Absent),
-                "the last release awaited the destroy before its task completed");
+
+    await GiveTheRuntimeBack()
+      .ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(left.DisposeState,
+                                  Is.EqualTo(ChannelDisposeState.Disposed),
+                                  "the one the caller left behind went with the runtime");
+                      Assert.That(itsOwn.DisposeState,
+                                  Is.EqualTo(ChannelDisposeState.Disposed),
+                                  "and the one it had already disposed is not disposed twice");
+                    });
   }
 
   [Test]
