@@ -303,10 +303,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   {
     await receiving_.Settled.ConfigureAwait(false);
 
+    // Before the wait below and not after. A send parked against the memory ceiling watches this
+    // token, and what it waits for is room to serialize a message into a call that is over - room
+    // other calls have to give up, on a schedule this one does not control. Cancelled afterwards,
+    // the wait for that sender would be waiting on the sender it is there to release.
+    ending_.Cancel();
+
     await sending_.HandedEverythingBackAsync()
                   .ConfigureAwait(false);
-
-    ending_.Cancel();
 
     // Cancelled before the claim, so an invoker that publishes after this reads the cancel and
     // disposes its own copy: in either order the registration is disposed exactly once.

@@ -461,18 +461,18 @@ separating `ShutdownAsync` from disposal goes with it.
 
 ## The majors, as they close
 
-Of the 287 the inventory holds that are neither spec drift nor pre-existing, 67 are
-accounted for below - in 54 rows, because several rows carry two or three findings that share one
+Of the 287 the inventory holds that are neither spec drift nor pre-existing, 70 are
+accounted for below - in 57 rows, because several rows carry two or three findings that share one
 mechanism, one row carries a decision the audit never made, and A3-056 among the ids is the
 blocker whose structural half these refactors closed.
 
-Thirty-three rows are applied, six of them in part - and what became of the other part is named in
+Thirty-four rows are applied, six of them in part - and what became of the other part is named in
 each; seven are refused outright, one of those by a decision that is the user's; five are deferred to a task that
 is named; four are answered by a requirement or a decision that now states what they said was
 unstated; four are open - they hold, and what settles them is a decision this document does not
-take alone, so it is in design.md's open-decisions table with its cost on both sides; and one was
-already closed by a blocker's fix. Each applied row's proof is the transcript in the commit that
-applied it.
+take alone, so it is in design.md's open-decisions table with its cost on both sides; and three were
+already closed by an earlier fix that crossed the audit. Each applied row's proof is the transcript
+in the commit that applied it.
 
 | Finding | What it said | Status |
 |---|---|---|
@@ -530,3 +530,6 @@ applied it.
 | R-044 | the shutdown budget is two unrelated hard-coded timeouts in two languages, five seconds for tokio's own shutdown and thirty for the host's quiescence poll, so the host's wait can succeed against a runtime that gave up | **applied, in two halves and neither of them a timeout.** The engine's five seconds went with the quiescence commit, `release_threads` dropping the tokio runtime rather than deadlining it; the host's thirty go here. So there is no budget on either side and the divergence the finding names cannot exist. Its own fix asked for the host's to be the only one, which would have left the absorbing state A3-022 reports |
 | K-069 | `ArmTheNextTest()` is sequenced after an `Assert.That` that throws, so one leaked lease leaves the memory ceiling configured for every later test in the fixture | **applied by deletion.** There is no factory to reconfigure and no lease to assert on: each test takes a runtime in its setup and gives it back in a teardown that asserts nothing, so a test failing on its subject still leaves the process able to run the next. A fixture whose tests need the engine started differently overrides one method, and a test whose subject is what it was started with restarts it - which is what the memory-ceiling test does |
 | K-071 | only `UnaryTests` configures the process-global runtime, so the other four lease-taking fixtures run on whatever worker-thread count it happened to leave | **applied by deletion**, and the finding's mechanism was exact: the count was process-global and set by whoever ran first. It is an argument of `Create` now, so a fixture states what its tests need - `UnaryTests` two workers, the rest the engine's own - and nothing a fixture does reaches another |
+| A3-004 | `SettlingAsync` cancels `ending_` only after `holding_` reaches zero, so a send parked on `AK_STATUS_BUDGET_BUSY` is never released by the call's own terminal | **applied**, and the order is the whole fix: the cancel moves ahead of the wait it was blocking. A call whose terminal is in has no business waiting for room to serialize a message that can no longer go anywhere - and the room is other calls' to give up, on a schedule this one does not control. The finding's "indefinitely" needs one correction and one addition. The correction: the disposal path it implies was never exposed, because `CancelAndDrain` calls `EndCall()` before it drains, so a cancelled or disposed call already released its parked sender. The addition: what is exposed is the **natural terminal** - the server answered, a reduction consumed it, nobody cancelled anything - which is what the new test drives, with the ceiling held by a serializer on another channel blocked on purpose. Restoring the order: `the parked send hears that its call is over, rather than waiting for room nobody is giving back / Expected: True / But was: False` after 30 s, where unbounded it hangs the run instead of reporting |
+| R-030 | on `AK_STATUS_BUDGET_BUSY` the binding serializes into a managed `byte[]` instead, so the runtime-wide ceiling bounds only which allocator pays | **already closed** by the send-ceiling commit, which is the fix this finding asks for in the words it asks for it: wait for room first and lend afterwards. `spilled_` and the `byte[]` it named are gone - the file holds no such field - and `HoldingABufferAsync` serializes one whole attempt per turn against `WaitForRoomAsync`. Recorded rather than skipped, because the audit and the fix crossed |
+| A2-005 | QUIESCENT is the teardown thread having finished, but that thread finishes via `shutdown_timeout(5s)`, which detaches still-running threads on timeout | **already closed**, by the first of the two answers it offers: drop the timeout and join unconditionally. `release_threads` drops the tokio runtime with no deadline and says why - this thread finishing is what `state` reports as QUIESCENT, and the header promises that state alone permits `ak_runtime_destroy` or unloading the library. `shutdown_timeout` appears nowhere in the crate. The host side lost its own deadline later, for the same reason |
