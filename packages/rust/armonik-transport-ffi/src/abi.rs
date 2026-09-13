@@ -145,19 +145,6 @@ pub enum ak_channel_state {
     AK_CHANNEL_CLOSED = 3,
 }
 
-impl ak_channel_state {
-    pub(crate) fn from_repr(value: i32) -> Option<Self> {
-        [
-            Self::AK_CHANNEL_NONE,
-            Self::AK_CHANNEL_OPEN,
-            Self::AK_CHANNEL_CLOSING,
-            Self::AK_CHANNEL_CLOSED,
-        ]
-        .into_iter()
-        .find(|state| *state as i32 == value)
-    }
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ak_memory_usage {

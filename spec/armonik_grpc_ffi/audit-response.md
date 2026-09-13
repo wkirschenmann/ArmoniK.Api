@@ -461,12 +461,12 @@ separating `ShutdownAsync` from disposal goes with it.
 
 ## The majors, as they close
 
-Of the 287 the inventory holds that are neither spec drift nor pre-existing, 84 are
-accounted for below - in 69 rows, because several rows carry two or three findings that share one
+Of the 287 the inventory holds that are neither spec drift nor pre-existing, 85 are
+accounted for below - in 70 rows, because several rows carry two or three findings that share one
 mechanism, one row carries a decision the audit never made, and A3-056 among the ids is the
 blocker whose structural half these refactors closed.
 
-Thirty-nine rows are applied, eight of them in part - and what became of the other part is named in
+Forty rows are applied, eight of them in part - and what became of the other part is named in
 each; ten are refused outright, one of those by a decision that is the user's; five are deferred to a task that
 is named; four are answered by a requirement or a decision that now states what they said was
 unstated; four are open - they hold, and what settles them is a decision this document does not
@@ -546,3 +546,4 @@ that applied it.
 | I-008 | the gRPC `-bin` convention is re-declared in the .NET binding and re-derived per entry on decode, with a case-insensitive comparison where the Rust side uses an exact one | **applied to the comparison, and it has a sharper edge than the finding gives it.** It is not only that the two sides could disagree: `Grpc.Core`'s own `Metadata.Add` refuses a byte value under a key whose `-bin` suffix does not match **ordinally**, so a looser test here calls a key binary that neither the engine nor `Metadata` does, and then hands `Metadata` bytes it throws on. One word. Unreachable today because every key reaching the blob came from an `http::HeaderName`, which is lowercase - but the rule mirrored was written laxer than the rule. The other half, carrying the entry kind in the blob so no host re-derives it, is an ABI change and belongs to T4.0 |
 | I-004 | the `AkStatus`-to-caller-failure translation is written ad hoc at three call sites with three different answers, and one prints the raw C enum name | **already answered, by two rows above.** Its two halves are each a finding already re-derived here: the raw name is R-022, where it stays because it is the one token in the sentence that says which refusal happened; and the three different answers are F-030, where they are three different questions rather than three copies - a channel going away under a call, a call that has ended, a size refused at the lend. A third finding for the same two mechanisms, and the same answers |
 | C-029 | `NativeCall` is 1036 lines carrying the delivery ring, a five-phase reader arbiter, the writer and its acquittal, the settlement | **already closed** by A3-056's three-way split, which it duplicates: `DeliveryRing`, `Sender` and `Receiver<TResponse>` are types, and what is left in the call is 374 lines of its identity |
+| A2-070 | the channel's (state, call-count) pair is packed into one `AtomicU64` with hand-rolled `parts`/`word`, four free transition functions and a generic `advance` - about a hundred lines of bit-twiddling | **applied.** The pair is a `Phase { state, calls }` behind a `Mutex` now. What the packing bought was one atomic read-modify-write over both halves, which is what every transition needs - a call may join only an open channel, a close finishes only once the last has left - and a lock buys the same thing while letting the pair be a pair rather than a layout. It costs a lock on a channel's open and close and on a call's start and end, never on a message. The four transitions stay as the table they were and keep their tests; what goes is the CAS loop, the shift, and the two tests that existed to check the layout. It also left `ak_channel_state::from_repr` with no caller - its only one was unpacking the word - so that goes too, with the `unwrap_or(CLOSED)` that answered for a state the library never wrote |
