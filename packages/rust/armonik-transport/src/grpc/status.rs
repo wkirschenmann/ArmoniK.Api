@@ -88,6 +88,13 @@ impl GrpcStatus {
             "the peer ended the stream in the middle of a message",
         )
     }
+
+    pub(crate) fn status_in_head_then_message() -> Self {
+        Self::new(
+            GrpcStatusCode::Internal,
+            "the peer stated a grpc-status in the response head and then sent a message",
+        )
+    }
 }
 
 /// What a broken stream means, from the RST_STREAM the peer sent.
@@ -152,20 +159,27 @@ impl std::fmt::Display for GrpcStatus {
     }
 }
 
+/// The head's metadata, and the status it states if it states one.
+///
+/// A status in the head is Trailers-Only, which gRPC defines as one HEADERS frame carrying the
+/// status and ending the stream. So the status is handed back rather than returned: it is the
+/// answer only once the body has ended without a message in it. Believed here, a peer that stated
+/// a status and then sent messages would have its call reported as over with those messages
+/// unread - and the reader would never see them.
+///
+/// Behind an HTTP error it is terminal all the same, and that is not the same case: a non-200
+/// carries no gRPC body, so nothing can arrive to contradict it.
 pub(crate) fn of_response_head(
     status: StatusCode,
     headers: &HeaderMap,
-) -> Result<Metadata, GrpcStatus> {
-    if let Some(stated) = stated_status(headers) {
-        return Err(stated);
-    }
+) -> Result<(Metadata, Option<GrpcStatus>), GrpcStatus> {
     if status != StatusCode::OK {
-        return Err(http_status(status, headers));
+        return Err(stated_status(headers).unwrap_or_else(|| http_status(status, headers)));
     }
     if !speaks_grpc(headers) {
         return Err(GrpcStatus::not_grpc());
     }
-    Ok(Metadata::from_headers(headers))
+    Ok((Metadata::from_headers(headers), stated_status(headers)))
 }
 
 pub(crate) fn stated_status(headers: &HeaderMap) -> Option<GrpcStatus> {

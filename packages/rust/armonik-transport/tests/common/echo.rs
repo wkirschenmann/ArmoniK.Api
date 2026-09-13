@@ -415,6 +415,19 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             ],
         ),
         "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
+        // Trailers-Only is one HEADERS frame carrying the status and nothing after it. This one
+        // states the status and then sends a message, which is neither shape.
+        "StatusInHeadThenMessage" => (
+            grpc_head().header("grpc-status", "0"),
+            vec![Frame::data(grpc_message(0, b"unread if the head is believed"))],
+        ),
+        // And the shape it is mistaken for: the status in the head, and no body at all.
+        "TrailersOnly" => (
+            grpc_head()
+                .header("grpc-status", "5")
+                .header("grpc-message", "no%20such%20method"),
+            vec![],
+        ),
         // A body that fails mid-stream, which is how hyper's server is made to send a
         // RST_STREAM: it resets with INTERNAL_ERROR rather than finishing the response.
         "ResetsMidBody" => (

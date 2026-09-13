@@ -144,12 +144,18 @@ async fn run(
     };
 
     let (head, mut body) = response.into_parts();
-    let metadata = match of_response_head(head.status, &head.headers) {
+    let (metadata, stated_in_head) = match of_response_head(head.status, &head.headers) {
         Err(status) => return status,
-        Ok(metadata) => metadata,
+        Ok(head) => head,
     };
 
-    delivery.head(metadata);
+    // A head that states a status is the Trailers-Only shape, where that one HEADERS frame is the
+    // trailers and not initial metadata. So nothing goes out as a head: the status below carries
+    // those same headers as its own trailing metadata, and delivering them twice would have the
+    // reader see a head no such response has.
+    if stated_in_head.is_none() {
+        delivery.head(metadata);
+    }
 
     let mut deframer = Deframer::new(inner.max_recv_message_size());
     loop {
@@ -159,13 +165,21 @@ async fn run(
 
         let frame = match until_stopped(stop, body.frame()).await {
             None => return GrpcStatus::cancelled(),
-            Some(None) => return GrpcStatus::no_status(),
+            // The body ended with nothing in it, which is what makes a status stated in the head
+            // Trailers-Only rather than a claim the messages contradict.
+            Some(None) => return stated_in_head.unwrap_or_else(GrpcStatus::no_status),
             Some(Some(Err(error))) => return GrpcStatus::stream_broke(&error),
             Some(Some(Ok(frame))) => frame,
         };
 
         let trailers = match frame.into_data() {
             Ok(data) => {
+                // Bytes and not merely a frame: hyper sends an empty DATA frame to end a body it
+                // did not end on the head, and an empty one carries no message to contradict
+                // anything - `Deframer::push` drops it for the same reason.
+                if !data.is_empty() && stated_in_head.is_some() {
+                    return GrpcStatus::status_in_head_then_message();
+                }
                 deframer.push(data);
                 continue;
             }

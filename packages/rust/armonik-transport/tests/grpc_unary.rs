@@ -421,6 +421,28 @@ async fn a_status_the_peer_states_stands_even_behind_an_http_error() {
     assert_eq!(status.message, "no room left");
 }
 
+/// Trailers-Only: one HEADERS frame carrying the status, with no body behind it.
+#[tokio::test]
+async fn a_status_in_the_head_with_no_body_behind_it_is_the_answer() {
+    let (_, messages, status) = call_on("/raw/TrailersOnly", Bytes::from_static(b"x")).await;
+
+    assert_eq!(status.code, GrpcStatusCode::NotFound, "{status}");
+    assert_eq!(status.message, "no such method");
+    assert!(messages.is_empty(), "{messages:?}");
+}
+
+/// And a head that states a status and then sends a message is neither shape, so believing the
+/// head would report the call as over with that message unread.
+#[tokio::test]
+async fn a_status_in_the_head_is_not_believed_over_a_message_behind_it() {
+    let (_, messages, status) =
+        call_on("/raw/StatusInHeadThenMessage", Bytes::from_static(b"x")).await;
+
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert!(status.message.contains("and then sent a message"), "{status}");
+    assert!(messages.is_empty(), "{messages:?}");
+}
+
 #[tokio::test]
 async fn a_two_hundred_that_is_not_grpc_is_an_internal_failure() {
     let (_, _, status) = call_on("/raw/NotGrpc", Bytes::from_static(b"x")).await;
