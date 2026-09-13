@@ -40,9 +40,9 @@ impl TryFrom<Seconds> for Duration {
 
 /// What the transport does, beyond reaching the endpoint it was given.
 ///
-/// The endpoint is not here: it is the one value a channel cannot be created without, so it
-/// crosses the ABI as its own argument rather than as an option that happens to be mandatory.
-/// Everything in this document has a default, and `{}` is a valid configuration.
+/// The endpoint is not here: it is the one value a channel cannot be created without, so it is
+/// passed when the channel is opened rather than set as an option that happens to be mandatory.
+/// Every option has a default, so naming none of them is a valid configuration.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(

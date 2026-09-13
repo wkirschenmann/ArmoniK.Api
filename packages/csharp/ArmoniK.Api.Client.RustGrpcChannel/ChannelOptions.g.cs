@@ -91,7 +91,7 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? UserAgent { get; set; }
 
-  /// <summary>Refuses a value the schema excludes.</summary>
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -144,9 +144,9 @@ public sealed class ChannelOptions
 
 /// <summary>What the transport does, beyond reaching the endpoint it was given.</summary>
 /// <remarks>
-///   The endpoint is not here: it is the one value a channel cannot be created without, so it
-///   crosses the ABI as its own argument rather than as an option that happens to be mandatory.
-///   Everything in this document has a default, and <c>{}</c> is a valid configuration.
+///   The endpoint is not here: it is the one value a channel cannot be created without, so it is
+///   passed when the channel is opened rather than set as an option that happens to be mandatory.
+///   Every option has a default, so naming none of them is a valid configuration.
 /// </remarks>
 public sealed class TransportOptions
 {
@@ -174,7 +174,7 @@ public sealed class TransportOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? ConnectTimeoutSeconds { get; set; }
 
-  /// <summary>Refuses a value the schema excludes.</summary>
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {

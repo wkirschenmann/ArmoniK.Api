@@ -349,7 +349,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       source.Append('\n')
             .Append(Indent)
-            .Append("/// <summary>Refuses a value the schema excludes.</summary>\n")
+            .Append("/// <summary>Refuses an option outside the range this channel accepts.</summary>\n")
             .Append(Indent)
             .Append("/// <exception cref=\"ArgumentOutOfRangeException\">An option is outside its stated bounds.</exception>\n")
             .Append(Indent)

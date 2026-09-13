@@ -43,7 +43,7 @@
       "format": "double"
     },
     "TransportOptions": {
-      "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it\ncrosses the ABI as its own argument rather than as an option that happens to be mandatory.\nEverything in this document has a default, and `{}` is a valid configuration.",
+      "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it is\npassed when the channel is opened rather than set as an option that happens to be mandatory.\nEvery option has a default, so naming none of them is a valid configuration.",
       "type": "object",
       "properties": {
         "ConnectTimeoutSeconds": {

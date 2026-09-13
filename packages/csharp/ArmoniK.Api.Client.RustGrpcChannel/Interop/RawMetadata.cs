@@ -26,6 +26,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 internal static class RawMetadata
 {
+  /// <summary>What makes a key's value bytes rather than text.</summary>
+  /// <remarks>Compared exactly, which is the rule on both sides of it. The engine tests the same
+  /// suffix with `ends_with`, and `Metadata.Add` refuses a byte value under a key whose suffix it
+  /// does not match ordinally - so a looser test here would call a key binary that neither of them
+  /// does, and hand `Metadata` bytes it then throws on.</remarks>
   private const string BinarySuffix = "-bin";
 
   internal static byte[] Encode(Metadata? metadata)
@@ -107,7 +112,7 @@ internal static class RawMetadata
 
       var name = Text(key);
       if (name.EndsWith(BinarySuffix,
-                        StringComparison.OrdinalIgnoreCase))
+                        StringComparison.Ordinal))
       {
         metadata.Add(name,
                      value.ToArray());
