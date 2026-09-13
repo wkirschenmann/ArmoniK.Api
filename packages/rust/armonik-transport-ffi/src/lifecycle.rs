@@ -86,7 +86,15 @@ async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledge
         }
     };
 
-    reached(AkRuntime::close_the_gate);
+    // On the blocking pool rather than on this worker. What it waits for is every host thread to
+    // leave `ak_channel_create` and `ak_call_start`, which is short and is not this thread's to
+    // predict - and a worker parked on a lock is one not driving the calls that have to reach
+    // their terminals before this shutdown can go on.
+    if let Some(runtime) = weak.upgrade() {
+        tokio::task::spawn_blocking(move || runtime.close_the_gate())
+            .await
+            .expect("the runtime is running, so its blocking pool takes this");
+    }
 
     for channel in tables::channels().values() {
         close_channel(&channel);

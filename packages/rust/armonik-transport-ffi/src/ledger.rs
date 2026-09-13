@@ -76,13 +76,25 @@ impl Ledger {
         }
     }
 
+    /// Charges a lend against the ceiling, counted before it is charged.
+    ///
+    /// The count goes up first and comes down last, on both sides, so it is conservative in one
+    /// direction only: it can name a lend that is not charged yet, and never a charge nothing
+    /// counts. That is the direction `empty` needs. Counted after the bytes, a thread preempted
+    /// between the two would leave the ledger holding bytes that nothing was counting - and
+    /// `empty` is what decides whether the shutdown owes RESOURCES_RELEASED and whether it waits
+    /// for the host to give anything back. Answered wrongly there, the runtime reports QUIESCENT
+    /// with a buffer still lent, which is the one thing that state is promised not to mean.
     pub(crate) fn hold_bytes(&self, len: usize) -> Result<(), ak_status> {
+        self.hold();
+
         let mut seen = self.bytes.load(Ordering::Acquire);
         loop {
             let Some(wanted) = seen
                 .checked_add(len as u64)
                 .filter(|wanted| *wanted <= self.limit())
             else {
+                self.release();
                 return Err(ak_status::AK_STATUS_BUDGET_BUSY);
             };
             match self.bytes.compare_exchange_weak(
@@ -91,10 +103,7 @@ impl Ledger {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => {
-                    self.hold();
-                    return Ok(());
-                }
+                Ok(_) => return Ok(()),
                 Err(current) => seen = current,
             }
         }
@@ -111,5 +120,42 @@ impl Ledger {
 
     pub(crate) async fn drained(&self) {
         let _ = self.changed.subscribe().wait_for(|_| self.empty()).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A refused charge leaves the ledger as it found it, count included.
+    ///
+    /// The count is raised before the bytes, so the refusal has an undo - and without it a host
+    /// that met the ceiling once would leave the ledger never empty again, which is a runtime that
+    /// never reaches QUIESCENT and an `ak_runtime_destroy` refused for the life of the process.
+    #[test]
+    fn a_charge_the_ceiling_refuses_leaves_nothing_counted() {
+        let ledger = Ledger::new(64);
+
+        assert!(ledger.empty());
+        assert_eq!(
+            ledger.hold_bytes(65),
+            Err(ak_status::AK_STATUS_BUDGET_BUSY)
+        );
+        assert!(ledger.empty(), "the refusal gave its count back");
+        assert_eq!(ledger.usage().bytes_used, 0);
+    }
+
+    /// And what it counts is raised before the bytes it charges, which is the order `empty` reads.
+    #[test]
+    fn a_charge_is_counted_while_it_is_held() {
+        let ledger = Ledger::new(64);
+
+        assert_eq!(ledger.hold_bytes(40), Ok(()));
+        assert!(!ledger.empty());
+        assert_eq!(ledger.usage().bytes_used, 40);
+
+        ledger.release_bytes(40);
+        assert!(ledger.empty());
+        assert_eq!(ledger.usage().bytes_used, 0);
     }
 }
