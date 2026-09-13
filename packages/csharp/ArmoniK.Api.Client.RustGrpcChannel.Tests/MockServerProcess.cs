@@ -50,8 +50,7 @@ internal sealed class MockServerProcess : IDisposable
   internal static MockServerProcess Start()
   {
     var assembly = BuiltServer.Assembly("MockServerAssembly");
-    var grpcPort = FreePort();
-    var httpPort = FreePort();
+    var (grpcPort, httpPort) = FreePorts();
 
     var process = new Process
                   {
@@ -162,15 +161,33 @@ internal sealed class MockServerProcess : IDisposable
              : Environment.NewLine + reported;
   }
 
-  /// <summary>A port nothing is listening on, as of now.</summary>
-  private static int FreePort()
+  /// <summary>Two ports nothing is listening on as of now, and different from each other.</summary>
+  /// <remarks>
+  ///   Both listeners are held until both ports are read. Taken one at a time, the second call can
+  ///   be handed the first one's port back, and the mock then binds a single listener speaking
+  ///   HTTP/1 and HTTP/2 rather than one of each - which it does on purpose, for a caller that
+  ///   asks for one port twice. This engine cannot use that one: it speaks h2c with prior
+  ///   knowledge, and a cleartext endpoint that also admits HTTP/1 answers it with `the request
+  ///   did not reach the peer: http2 error`.
+  ///   <para>
+  ///     What holding them does not remove is the window between the release below and the mock's
+  ///     own bind, where another process may take either port.
+  ///   </para>
+  /// </remarks>
+  private static (int Grpc, int Http) FreePorts()
   {
-    var listener = new TcpListener(IPAddress.Loopback,
-                                   0);
-    listener.Start();
-    var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-    listener.Stop();
-    return port;
+    var grpc = new TcpListener(IPAddress.Loopback,
+                               0);
+    var http = new TcpListener(IPAddress.Loopback,
+                               0);
+    grpc.Start();
+    http.Start();
+
+    var ports = (((IPEndPoint)grpc.LocalEndpoint).Port, ((IPEndPoint)http.LocalEndpoint).Port);
+
+    grpc.Stop();
+    http.Stop();
+    return ports;
   }
 
   public void Dispose()

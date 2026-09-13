@@ -229,6 +229,20 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   }
 
   /// <summary><see cref="ChannelBase" />'s shutdown, which is this channel's disposal.</summary>
+  /// <remarks>
+  ///   Two things `ChannelBase` tells an implementor it need not do, and this one does: it cancels
+  ///   the calls still running, and it waits for them. Both are the engine's debt model rather
+  ///   than a preference. A channel that let go of its handle while its calls still held payloads
+  ///   and lent buffers would leave the runtime owed them, and a runtime owed anything never
+  ///   reaches QUIESCENT - so there is no shutdown here that is cheaper than a disposal, only one
+  ///   that would hide the cost until the runtime refused to go.
+  ///   <para>
+  ///     It costs a caller nothing the contract promised. That contract makes finishing the calls
+  ///     the caller's own responsibility and says outright that shutting down with calls in flight
+  ///     may change their outcome, so doing it for them narrows the ways to be surprised rather
+  ///     than widening them.
+  ///   </para>
+  /// </remarks>
   protected override Task ShutdownAsyncCore()
     => DisposeAsync()
       .AsTask();
