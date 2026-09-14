@@ -2990,18 +2990,9 @@ proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machi
 
 `DotNetBinding.tla` refines `FfiGrpc`: the state space, the actions, the fairness and
 the properties below are the specification as written, and they cover three mechanisms -
-the shared runtime's lifetime, the write machine, and the managed completions.  No proof
-exists yet: the modules are TLC-vetted (thirty-three of the thirty-four actions fire; the
-thirty-fourth is dead by design, below) and in pre-proof review.
-
-**The lifetime this section models is the one the binding no longer has.** Generations, a
-channel-held lease, `shutdown_pending` and the resurrection window it guards describe a
-runtime materialized by the first channel and released by the last. The binding owns its
-runtime now: the caller creates it, every channel is made from it, and disposing it
-disposes them - so the model's lease is a mechanism with nothing to describe, and the
-questions it answers (what an acquisition does against a destruction in flight, how "last"
-is derived) have no counterpart. Level 2 describes this binding and therefore follows it;
-until it does, read this section as a record of what was built rather than of what is.
+the runtime's lifetime, the write machine, and the managed completions.  The modules are
+TLC-vetted: thirty-five of the thirty-six actions fire, the thirty-sixth being dead by
+design, below.
 
 **Scope.** The model is the generic bidirectional-streaming call.  The five
 `CallInvoker` methods are refinements of it that fix the number of messages in each
@@ -3020,15 +3011,13 @@ action it rides on; a managed-only action leaves `L1!vars` unchanged; the runtim
 actions pass through untouched.  `L2!Spec => L1!Spec` is therefore the only refinement to
 prove - `L0!Spec` follows from level 1's `RefinesSpec` by transitivity.  Ownership needs
 no new relation either: `call_channel` already says which channel a call belongs to, and
-`ChannelIds` is the lease identity space, so no `InvokerIds` and no refcount appear -
-"the last lease released" is `AllLeasesReleased`, every channel unopened, rejected,
-released, `released_last` or disposed. The release that empties that set says so in its
-own step: it marks itself
-`released_last` and latches the manager to `shutdown_pending`, which stops any further
-lease. Without the latch a channel constructed between the zero and the destroy would
-resurrect the generation, and the last channel's `DisposeAsync` would complete without
-the destroy it promised - the counter reaching zero has to be decided and recorded at
-once, under the same lock the implementation holds.
+`ChannelIds` is the channel identity space, so no `InvokerIds` and no refcount appear -
+"the sweep is over" is `EveryChannelSettled`, every channel unopened, rejected, released
+or disposed. Nothing triggers on it: it is the guard `BeginRuntimeShutdown` reads, and no
+step fires because it became true. What keeps a channel from being added behind the sweep
+is the door rather than a count - `BeginCreateChannel` requires an active runtime, and
+the caller's `DisposeAsync` shuts that door in its own step before any channel is
+disposed, which is what the implementation's lock buys.
 
 **The ring has no variables.** The trampoline publishes inside the delivery callback, so
 the published prefix IS `events_delivered` and the head is its length; a release is
@@ -3042,14 +3031,14 @@ reader and the writer are doing.
 Added variables - all discipline, no capacity:
 - `call_token_published`, `call_root_live`, `runtime_root_live`: the GCHandle plumbing -
   token and root born with the start, roots outliving the callbacks
-- `current_runtime`, `runtime_dispose_state`: the shared runtime by generation -
-  `absent` before the first channel and again after a full teardown, so a promise about
-  the destroy attaches to the generation that is current, not to some earlier one
+- `current_runtime`, `runtime_dispose_state`: the caller's runtime by generation -
+  `absent` before the first `Create` and again after a full teardown, so a promise about
+  the destroy attaches to the generation that is current, not to some earlier one;
+  `disposing` is the caller's `DisposeAsync` entered, the door shut and the sweep running
 - `channel_dispose_state`: per channel, `unopened` / `constructing` / `rejected` /
-  `active` / `disposing` / `released` / `released_last` / `disposed`.  The lease is live
-  from the construction to the release; `rejected` is a refused creation, terminal and
-  holding no lease; `released_last` is the release that emptied the set, and the
-  teardown's guard reads this function, never a counter
+  `active` / `disposing` / `released` / `disposed`.  The native half is live from the
+  construction to the release; `rejected` is a refused creation, terminal and holding
+  nothing; and the teardown's guard reads this function, never a counter
 - `consumer_phase`, `reader_state`: which class of consumer has the ring, and what the
   application's read is doing - `idle`, `waiting` (a suspended `MoveNext`, which may be
   suspended on the metadata during the prologue as well as on a message), `parsing`,
@@ -3066,17 +3055,24 @@ Added variables - all discipline, no capacity:
   pending
 - `call_dispose_state`: the call's own machine, driving the drain
 
-**The factory and the channels.** `CreateRuntime(rt, ch)` is the first channel's
-constructor reaching an unmaterialized factory: the shared root and `ak_runtime_create`
-in one step, with that channel now `constructing`.  `AcquireLease(ch)` is a later
-channel taking its lease; `CreateChannel(ch)` is its `ak_channel_create`, after which
-the constructor returns and the object is exposed - binding-owed, a constructor that
-began completes.  `BeginDisposeChannel` remembers the public `DisposeAsync`;
-`DisposeCallForChannel` settles the calls of that channel and no others;
-`FinishDisposeChannel` closes the native channel once they are all disposed and drops
-the lease.  `BeginRuntimeShutdown` fires only when every lease is gone, then
-`FinishDisposeRuntime`, then `FreeRuntimeRoot` - which re-arms the factory to `absent`,
-so the next channel materializes a fresh generation.
+**The runtime and the channels.** `CreateRuntime(rt)` is `NativeRuntime.Create`: the
+shared root and `ak_runtime_create` in one step, and no channel is involved, a runtime
+being asked for by name rather than derived from the first channel that wants one.
+`BeginCreateChannel(ch)` is `runtime.Channel(...)` entering the channel's constructor -
+the door read under the runtime's lock, no native step of its own; `CreateChannel(ch)` is
+its `ak_channel_create`, after which the constructor returns and the object is exposed -
+binding-owed, a constructor that began completes.  `BeginDisposeChannel` remembers the
+public `DisposeAsync`; `DisposeCallForChannel` settles the calls of that channel and no
+others; `FinishDisposeChannel` closes the native channel once they are all disposed, and
+stops nothing else.
+
+The teardown is the same shape one level up.  `BeginDisposeRuntime` is the caller's
+`DisposeAsync` entered, and it shuts the door; `DisposeChannelForRuntime` is the sweep -
+the owner disposing what it owns, by the same public step a caller would take, which is
+why disposing a channel twice has to be a no-op and why both orders are ordinary;
+`BeginRuntimeShutdown` fires only once every channel is settled, then
+`FinishDisposeRuntime`, then `FreeRuntimeRoot` - which returns the runtime to `absent`,
+so a caller may create another.
 
 **A refused channel creation is not a runtime failure.** `ak_channel_create` performs no
 I/O - connecting is a separate step - so it fails only on a bad configuration
@@ -3084,12 +3080,12 @@ I/O - connecting is a separate step - so it fails only on a bad configuration
 or on a genuine allocation failure (`AK_STATUS_INTERNAL`). Only the third is a failure of
 the runtime, and there the `~NotFailed` escape already covers everything - nothing is
 promised past it. The first two must stay local: a typo in an endpoint cannot be allowed
-to kill the process-wide runtime and every other channel leasing it. So the model carries
-a rollback, `RejectChannelCreation`: the lease goes back, the constructor's own
-provisional state is freed - not the runtime root, which outlives every channel and is
-released only after `ak_runtime_destroy` returns - the constructor faults with a configuration error, and if it was the first channel
-the runtime it just materialized is destroyed - its generation retired rather than left
-acquirable. The same principle governs a refused `ak_call_start`: the ABI promises no
+to kill the process-wide runtime and every other channel it serves. So the model carries
+a rollback, `RejectChannelCreation`: the constructor's own provisional state is freed -
+not the runtime root, which outlives every channel and is released only after
+`ak_runtime_destroy` returns - and the constructor faults with a configuration error,
+leaving the runtime exactly as it was. Its lifetime is the caller's and no business of a
+channel that failed to open. The same principle governs a refused `ak_call_start`: the ABI promises no
 callback for a call that failed to start, so the binding frees the `GCHandle` it prepared
 instead of waiting for a terminal that will never come.
 
@@ -3283,12 +3279,15 @@ diverging in either direction.  `ManagedTypeOK` is also a conjunct, structural l
   teardown, so `SHUTDOWN_COMPLETE` finds no host debt and
   `AK_EVENT_RESOURCES_RELEASED` is unreachable at this level - the level-1 machinery
   stays modelled and passed through for the refinement
-- **LiveChannelKeepsRuntimeAlive**: a channel holding a lease keeps the runtime
-  materialized - a channel is never left pointing at a torn-down runtime
-- **NoRuntimeShutdownWhileLeased**: the native shutdown never starts while any lease is
-  out
+- **LiveChannelKeepsRuntimeAlive**: a live channel has an engine under it - the runtime
+  is running, or running and sweeping, both of which admit the native `RUNNING` a
+  downcall of that channel needs.  A channel is never left pointing at a torn-down
+  runtime
+- **NoRuntimeShutdownWhileChannelsLive**: the native shutdown never starts while a
+  channel is still live - from the destroy on, the sweep is over and every channel is
+  settled, which is "a channel cannot outlive its engine" stated where it can be checked
 - **RejectedChannelHasNoNativeHalf**: a channel whose configuration was refused never
-  got its native half - and holds no lease, which `ChannelSettled` covers
+  got its native half - and is settled, which `ChannelSettled` covers
 - **ReadCancelPendingOnlyInFlight**: a cancellation request is armed only on a read that
   is in flight.  That is what makes a late token inert: `MoveNext`'s registration dies
   with the read it belongs to, so a token firing after its own read completed has nothing
@@ -3304,8 +3303,8 @@ diverging in either direction.  `ManagedTypeOK` is also a conjunct, structural l
   managed channel active without its `ak_channel`, none exposed before it
 - **DisposeLeavesNoManagedWaiter**: a settled call has its reader idle, its writer
   settled, its headers resolved and its status resolved
-- **AbsentRuntimeOwesNothing**: whenever the runtime is back to `absent` and no channel
-  holds a lease, nothing is owed - no live generation root, no published call left
+- **AbsentRuntimeOwesNothing**: whenever the runtime is back to `absent` and every
+  channel is settled, nothing is owed - no live generation root, no published call left
   unsettled, and `DisposeLeavesNoManagedWaiter` carries the rest.  The antecedent is
   deliberately that weak: it holds at the initial state and between generations, not only
   once the channel set has been used up.  That is what makes the terminal state of a
@@ -3347,19 +3346,21 @@ way out, and no termination is guaranteed past a failure.
   guarantees before the terminal
 - **ChannelConstructionCompletes**: a constructor that began completes, one way or the
   other - the channel is exposed, or its configuration was refused and it ends in
-  `rejected` with its lease returned.  A rejection is a terminal outcome and a completion,
+  `rejected` holding nothing.  A rejection is a terminal outcome and a completion,
   not a stall, which is why the fairness is on the disjunction of the two issues: what is
   owed is a result, not a success
 - **CallDisposeCompletes**: a draining call settles - the drain reaches the terminal,
   releases everything and resolves the status
-- **ChannelLeaseEventuallyReleased**: a disposing channel gives its lease back - its
-  calls settled, its handle released
-- **ChannelDisposeCompletes**: the public `DisposeAsync` task completes. For a channel
-  that was not the last holder it completes with its own release; for the last one it
-  waits for the destroy it triggered, which is what its task promised - and
-  `LastChannelDisposeAwaitsDestroy`, an action theorem, is that ordering made citable
-- **RuntimeDisposeCompletes**: a teardown that began completes - destroy, then the root,
-  then the factory re-armed
+- **ChannelHandleEventuallyReleased**: a disposing channel gives its native half back -
+  its calls settled, then `ak_channel_release`
+- **ChannelDisposeCompletes**: the public `DisposeAsync` task completes with the
+  channel's own release, which is all it ever waited for: the engine is the caller's
+  object and outlives every channel made from it, so nothing a channel's dispose
+  promised depends on a destroy
+- **RuntimeDisposeCompletes**: a disposal that began completes - the sweep disposes every
+  channel the runtime holds, then the destroy, then the root, then `absent`.  It is the
+  one promise the sweep is load-bearing for, and it rests on the per-channel promise
+  above joined over the finite `ChannelIds`
 - **CallRootEventuallyFreed / RuntimeRootEventuallyFreed**: every allocated root dies -
   the call's at its terminal callback, the generation's after destroy
 - **InFlightPayloadEventuallyReleased**: a parse completes and its slot is released -
@@ -3420,7 +3421,7 @@ actions rather than by induction, and this document must not imply a theorem exi
   application's conformity hypothesis, not a guarantee the binding manufactures
 - **NoDowncallAfterDestroy**: the call downcalls carry `BindingMayDowncall`, the channel
   downcalls their own channel-machine guards, and `BeginRuntimeShutdown` requires every
-  lease released - an ordering on dispose, not a safety net.  Level 1's
+  channel settled - an ordering on dispose, not a safety net.  Level 1's
   `DestroyedRuntimeRejectsHandles` is the runtime's side of the same fact
 - **The second event's unreachability is an invariant, not a construction**:
   `ManagedShutdownHasNoHostDebt` states it in the manifest and carries a theorem, because
@@ -3434,12 +3435,15 @@ actions rather than by induction, and this document must not imply a theorem exi
 
 The public interface, `DotNetBindingTheorems.tla`, declares the obligations the freeze
 requires discharged - `RefinesInit`/`RefinesNext`/`RefinesSpec`, the six host families,
-`ManagedTypeOKHolds`, `ManagedSafetyHolds`, eight action theorems -
+`ManagedTypeOKHolds`, `ManagedSafetyHolds`, six action theorems -
 `ConsumerHandoffPreservesTail`, `ChannelDisposeIsolatesItsCalls`,
-`LastReleaseIsLatched`, `LastChannelDisposeAwaitsDestroy`,
 `ReadCancellationCancelsCall`, `CompletedReadTokenArmsNothing`,
 `LiveRequestOnlyDischargedByReaction` and `CancelledParseReleasesItsSlotOnce` - and one
-theorem per liveness promise plus their aggregate.
+theorem per liveness promise plus their aggregate.  The ordering a channel's dispose
+used to owe a destroy is not among them any more, and not because it stopped mattering:
+with the runtime's lifetime declared rather than derived, "a channel cannot outlive its
+engine" is a fact about every state past the destroy rather than about the one step that
+decided it, so it is `NoRuntimeShutdownWhileChannelsLive` in the manifest.
 
 The six host families - the four callback returns, `HostConsumesEvent` and
 `HostReturnsBuffer`, each as a weak fairness over level 1's own tuple - are corollaries,
@@ -3476,16 +3480,16 @@ collects them.  What the argument cost is a second family of invariants, below.
 
 #### The derived invariants
 
-Thirteen invariants carry the liveness argument and appear in no manifest, because none of
+Twelve invariants carry the liveness argument and appear in no manifest, because none of
 them is a guarantee the library offers: each is a fact about the machine that the safety
-proof never needed and a leads-to edge cannot do without.  Six theorems carry them -
+proof never needed and a leads-to edge cannot do without.  Five theorems carry them -
 `DerivedInvariantsHold`, `DrainInvariantsHold`, `ReaderGlueHolds`,
-`StatusResolutionHolds`, `ServedRootsHold` and `LastHolderHolds` - each of the shape
-`Spec => []Inv`, and all thirteen are defined in `DotNetBinding.tla` beside the published
+`StatusResolutionHolds` and `ServedRootsHold` - each of the shape
+`Spec => []Inv`, and all twelve are defined in `DotNetBinding.tla` beside the published
 ones.  The manifest checker cannot see them, since it binds this document to the
 manifests; `ci/check_derived_invariants.py` binds them to this table instead, by reading
 that shape rather than a list.  It exists because this list was written from one theorem
-and named seven of the thirteen on the day it was added.
+and named seven of them on the day it was added.
 
 | Invariant | What it says | Promises that rest on it |
 |-----------|--------------|--------------------------|
@@ -3495,7 +3499,6 @@ and named seven of the thirteen on the day it was added.
 | `BusyWriterIsOnAStartedCall` | a writer that is not idle is on a call that exists | the hopeless budget wait |
 | `AwaitingWriteDoneHasOneComing` | a writer waiting on its acquittal has a send in flight or the callback on the stack | the pending write |
 | `SerializingWriterHoldsANamedBuffer` | a serializing writer holds a buffer that can be named | the pending write, through `SerializationHasAnExit` |
-| `LastHolderAwaitsItsRuntime` | the last holder's channel keeps its runtime, and while the destroy it triggered has not landed that runtime is the current one, mid-teardown | the channel dispose |
 | `PublishedCallHasStarted` | a call whose token is published exists at level 0 | seven of the seventeen, the call root's release included |
 | `DrainingCallIsCancelled` | a draining call exists and is either cancel-requested or already past active | the call dispose, both read resolutions, the cancelled drain |
 | `InFlightReaderHoldsTheToken` | a read in flight is on a call whose token is published | the read resolutions and the cancellation observation |
@@ -3516,10 +3519,11 @@ warm cache says only that the obligations were once discharged by a text that ma
 have changed.
 
 Refinement mapping, by direct reuse:
-- the first `new NativeGrpcChannel(options)` ↔ `CreateRuntime` then `CreateChannel` -
-  the shared root and `ak_runtime_create`, then this channel's `ak_channel_create`,
-  the constructor returning only afterwards
-- a later channel ↔ `AcquireLease` then `CreateChannel`
+- `NativeRuntime.Create(...)` ↔ `CreateRuntime` - the shared root and
+  `ak_runtime_create`, and nothing of any channel
+- `runtime.Channel(...)` ↔ `BeginCreateChannel` then `CreateChannel` - the door read
+  under the lock, then this channel's `ak_channel_create`, the constructor returning
+  only afterwards
 - the call constructor ↔ `StartCall` - `GCHandle.Alloc`, `ak_call_start` and exposure in
   one step
 - `OnEvent` publishes a slot ↔ `OnEventReturns`; the terminal one is
@@ -3543,11 +3547,13 @@ Refinement mapping, by direct reuse:
   `HandoffToDrain` behind any parse in flight, `DrainRelease` until drained, then
   `FinishDisposeCall`
 - `DisposeAsync` on the channel ↔ `BeginDisposeChannel`, `DisposeCallForChannel` per
-  owned call, `FinishDisposeChannel` - which marks itself `released_last` and latches the
-  manager when it empties the lease set - then `ResolveChannelDispose`, at once for a
-  channel that was not the last, and for the one that was only once
-  `FinishDisposeRuntime` has returned the destroy of the generation it released -
-  `FreeRuntimeRoot` and the factory's re-arming follow, owing it nothing
+  owned call, `FinishDisposeChannel` for `ak_channel_release`, then
+  `ResolveChannelDispose` at once: the task ends at the channel's own release and waits
+  for nothing else
+- `DisposeAsync` on the runtime ↔ `BeginDisposeRuntime`, which shuts the door,
+  `DisposeChannelForRuntime` per channel it still holds - each of which runs the
+  channel's own disposal above - then `BeginRuntimeShutdown` once every channel is
+  settled, `FinishDisposeRuntime` for the destroy, and `FreeRuntimeRoot`
 
 Level 2 re-proves none of the window reasoning: with `Spec => L1!Spec` established the
 same way level 1 established `Spec => L0!Spec`, the send bound, the credit bound, the
@@ -3750,10 +3756,10 @@ the artefact rather than left to rot:
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
-| `ci/check_theorem_statements.py` | 111 declarations, each restated verbatim in its proofs module, across four declaration/proof pairs - the level-2 pair joined the three when `DotNetBindingTheorems` was declared |
+| `ci/check_theorem_statements.py` | 109 declarations, each restated verbatim in its proofs module, across four declaration/proof pairs - the level-2 pair joined the three when `DotNetBindingTheorems` was declared |
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | `ci/check_sketch_actions.py` | Green: 11 action citations in the sketches, all defined. The implementation sketches are normative, and each step names the action it realizes in a `// TLA:` comment; this checks the citations resolve. It does not check the ORDER - nothing short of a proof does - but a citation pointing at nothing is the first sign a sketch and the machine have parted, and it is mechanical where reading prose against prose is not: two reviews called one sketch consistent with the machine while it released a payload before the read's result was decided, a state the machine does not have |
-| `ci/check_state_literals.py` | Green: 16 typed state variables, 2327 literals, all admissible. A retired value neither fails to parse nor fails to type - a comparison against it is simply always false, so a guard becomes dead and a model constraint prunes more than intended while every property still reports clean. A constraint reading `call_dispose_state = "disposed"` after that value became `settled` shrank two configurations that way. Assignments are covered as well as comparisons, and by choice rather than for symmetry: `TypeOK` catches a bad one only in a run that reaches that branch, so an assignment on a rare path can sit wrong indefinitely. The binding comes from the typing conjuncts rather than a table - including the sentinel idiom `var \in OtherIds \union {"none"}`, whose only admissible literal is that sentinel - so a renamed state is caught wherever it is still spelled |
+| `ci/check_state_literals.py` | Green: 16 typed state variables, 2303 literals, all admissible. A retired value neither fails to parse nor fails to type - a comparison against it is simply always false, so a guard becomes dead and a model constraint prunes more than intended while every property still reports clean. A constraint reading `call_dispose_state = "disposed"` after that value became `settled` shrank two configurations that way. Assignments are covered as well as comparisons, and by choice rather than for symmetry: `TypeOK` catches a bad one only in a run that reaches that branch, so an assignment on a rare path can sit wrong indefinitely. The binding comes from the typing conjuncts rather than a table - including the sentinel idiom `var \in OtherIds \union {"none"}`, whose only admissible literal is that sentinel - so a renamed state is caught wherever it is still spelled |
 | SANY, on the twenty-two SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding` and `MemoryWithinCeiling` that the total never passes `Ceiling`. Both are in `IndInv` and proved inductive. The four category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld`, `BytesOutstanding` - are sums over the pairs each state selects, and `CategoriesPartitionTotal` is the snapshot identity the observers must report |
@@ -3915,6 +3921,7 @@ table above maps the five call shapes and stops there.
 | How much of `tonic` the engine reuses | **Open, and the rule that used to close it does not exist.** `armonik-transport` already depends on tonic for `channel` and `codegen` and this document's own T7.1 adapter is typed `Error = tonic::Status`, so nothing here obliges the engine to avoid it. Three of its types are re-implemented: `MetadataMap`, `Status::from_header_map` with the HTTP-to-gRPC table and the percent-decoding, and a one-connection pool with dial coalescing that `hyper_util::client::legacy::Client` is. What reuse is worth differs per type and is measured in the audit ledger, not assumed. The one place a hand-written path is defensible on this design's own terms is the **send codec**: tonic's `Encoder` writes into a buffer tonic owns, while the zero-copy send has the host serialize into the arena allocation that *is* the replay cache, so an encoder of tonic's costs a copy per message into the arena and makes the cache either a second copy or the wrong bytes. The receive side has no such objection - `Decoder<Item = Bytes>` is the shape `Payload` already carries. Reuse also couples this crate's semver to tonic 0.14, which is free while `publish.yml` has no cargo job | Layer 1 |
 | The per-call delivery queue on .NET | **Open, and the three objections to `System.Threading.Channels` were wrong.** A bounded `Channel<Slot>` allocates nothing per element that the ring does not, the element being a reference to a native buffer rather than the buffer; a queue that removes the item at the take is no obstacle, because `ak_event_consumed` names the payload it releases, so the engine discharges what comes back rather than what it handed out in order; and level 2's `RingHead`/`RingTail` bind nothing, since that level describes this binding and a refinement needs only a mapping, which may be fictional. What a swap does not touch is the phase machine and the read-versus-token arbiter, which are the actual complexity and have no library answer. What it costs is a package reference on .NET Framework and the release rule: `DeliveryRing.Release()` is the sole releaser of an accepted payload, and a queue that hands the item out cannot hold that invariant - it returns to being the caller's discipline. `DeliveryRing` is one 122-line type, so the swap is mechanical whenever it is wanted | Layer 4 |
 | How the C ABI is kept in five places | **Generated from the Rust, and the artefact committed.** `abi.rs`, the header, `NativeMethods.cs`, `tests/layout.rs` and `AbiLayoutTests.cs` are one contract written out five times by hand. `cbindgen` emits the header and `csbindgen` the P/Invoke declarations, verified by the same regenerate-and-compare step `ChannelOptions.g.cs` already has, and the prose the header carries moves into `cbindgen.toml`'s `header` and the Rust doc comments. What does not become redundant is the .NET layout test: `Marshal.SizeOf` and `Marshal.OffsetOf` measure what the CLR does with the declarations, per target framework and per architecture, and a generator proves the declarations match the Rust rather than that the runtime lays them out as Rust does. T3.6, before T4.0 | Layer 3, decided |
+| Guarding a buffer or a payload given back twice | **Open.** The header makes exactly-once the host's to keep and calls a second give-back undefined behaviour rather than a refusal - "there is nothing left to refuse with" - and the `LENT_TAG` in the allocation cannot change that, since it is read from the thing being validated: a second return reads eight bytes of freed memory before any check runs. A guard that works has to be out of band, a per-call set of live owner pointers, and it sits on the lend and the return of every message. Behind `cfg(debug_assertions)` it costs a release host nothing and turns a binding author's double return from heap corruption into a panic that names it; it still costs the debug builds the tests run against. What it buys is a bug class the contract assigns to the host, found in this repository's own hosts rather than in a customer's | Layer 3 |
 | One runtime per process: choice or implementation limit | **A choice, and now requirement 14.9.** Several tokio runtimes in one process share the machine's cores without knowing of each other. `static LIVE` and the three `OnceLock` registries enforce it and the header states it at `ak_runtime_create`; what follows is that the first lessee's thread count and memory ceiling are the process's, which `NativeRuntimeFactory.Configure` refuses to overwrite rather than ignoring | Requirement 14, decided |
 
 ---

@@ -33,6 +33,46 @@ internal static class RawMetadata
   /// does, and hand `Metadata` bytes it then throws on.</remarks>
   private const string BinarySuffix = "-bin";
 
+  /// <summary>What a caller may not set, because the channel sets it.</summary>
+  /// <remarks>
+  ///   The engine's own rule, written twice on purpose. It refuses these too, and it is right to -
+  ///   a host is not to be trusted with an invariant of the wire - but it answers with one status
+  ///   for a whole document, so a caller reads that their call could not be started and never
+  ///   which entry was wrong. Named here, where the entry is still in hand.
+  ///   <para>
+  ///     The copy goes when the ABI can carry a sentence: `ak_error` is what would let the engine
+  ///     name the key itself, and this list is what stands in for it until then.
+  ///   </para>
+  /// </remarks>
+  private static readonly HashSet<string> Reserved = new(StringComparer.Ordinal)
+                                                     {
+                                                       "content-type",
+                                                       "te",
+                                                       "user-agent",
+                                                       "connection",
+                                                       "proxy-connection",
+                                                       "keep-alive",
+                                                       "transfer-encoding",
+                                                       "upgrade",
+                                                       "host",
+                                                       "content-length",
+                                                     };
+
+  private static void RefuseAKeyTheChannelSets(string key)
+  {
+    // Lowered first, because `Metadata` admits a key in any case and lowers it on the wire, which
+    // is the form the engine tests.
+    var lowered = key.ToLowerInvariant();
+
+    if (lowered.StartsWith(":", StringComparison.Ordinal)
+        || lowered.StartsWith("grpc-", StringComparison.Ordinal)
+        || Reserved.Contains(lowered))
+    {
+      throw new RpcException(new Status(StatusCode.InvalidArgument,
+                                        $"`{key}` is set by the channel and cannot be sent as call metadata"));
+    }
+  }
+
   internal static byte[] Encode(Metadata? metadata)
   {
     if (metadata is null || metadata.Count == 0)
@@ -48,6 +88,7 @@ internal static class RawMetadata
     var size = 4;
     foreach (var entry in metadata)
     {
+      RefuseAKeyTheChannelSets(entry.Key);
       size += 8 + Encoding.UTF8.GetByteCount(entry.Key);
 
       if (entry.IsBinary)

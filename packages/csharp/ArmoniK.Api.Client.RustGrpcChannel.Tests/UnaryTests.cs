@@ -655,7 +655,8 @@ public class UnaryTests : EchoServerFixture
                                   Is.EqualTo(StatusCode.InvalidArgument),
                                   "what the caller handed over, not a fault of the binding's");
                       Assert.That(refused.Status.Detail,
-                                  Does.Contain("could not be started"));
+                                  Does.Contain("grpc-timeout"),
+                                  "and which entry it was, which one status for a whole document cannot say");
                     });
   }
 
