@@ -1137,30 +1137,34 @@ LEMMA PrologueIsNeverEntered ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedStutter, ManagedTypeOK,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, ManagedTypeOK, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        ManagedStutter, ManagedTypeOK, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, ManagedStutter,
        ManagedTypeOK, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
@@ -1381,8 +1385,8 @@ LEMMA TailMovesOnlyByCarrier ==
        L1!L0!ChannelVars, L1!L0!CallVars, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, RingTail, ManagedTypeOK, L1!TypeOK, L1!vars,
        L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -1390,15 +1394,17 @@ LEMMA TailMovesOnlyByCarrier ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, RingTail, ManagedTypeOK, L1!TypeOK,
@@ -1407,11 +1413,13 @@ LEMMA TailMovesOnlyByCarrier ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -1679,8 +1687,8 @@ LEMMA EventsFrozenAfterStatus ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!L0!HasStatus, L1!L0!StatusKinds,
        ManagedTypeOK, L1!TypeOK, L1!vars, L1!l0_vars, L1!ffi_vars,
@@ -1688,15 +1696,17 @@ LEMMA EventsFrozenAfterStatus ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, L1!L0!HasStatus, L1!L0!StatusKinds,
@@ -1705,11 +1715,13 @@ LEMMA EventsFrozenAfterStatus ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -2023,8 +2035,8 @@ LEMMA FinishedOnlyByTerminal ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, ConsumingTerminal, RingHead, RingTail,
        ManagedTypeOK, L1!TypeOK, L1!L0!HasStatus, L1!vars, L1!l0_vars,
@@ -2033,15 +2045,17 @@ LEMMA FinishedOnlyByTerminal ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, ConsumingTerminal, RingHead, RingTail,
@@ -2051,11 +2065,13 @@ LEMMA FinishedOnlyByTerminal ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -2457,8 +2473,8 @@ LEMMA DrainPhasePersists ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail, ManagedIndInv,
@@ -2469,15 +2485,17 @@ LEMMA DrainPhasePersists ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -2489,11 +2507,13 @@ LEMMA DrainPhasePersists ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -2892,8 +2912,8 @@ LEMMA CancelledParseHoldsUntilItReturns ==
        FinishCancelledParse, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -2904,15 +2924,17 @@ LEMMA CancelledParseHoldsUntilItReturns ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -2924,11 +2946,13 @@ LEMMA CancelledParseHoldsUntilItReturns ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -3340,7 +3364,7 @@ LEMMA LiveChannelPreserved ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3377,7 +3401,7 @@ LEMMA LiveChannelPreserved ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
@@ -3386,57 +3410,61 @@ LEMMA LiveChannelPreserved ==
        ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
        ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, LiveCallHasLiveChannel, ManagedIndInv,
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, LiveCallHasLiveChannel, ManagedIndInv,
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       AllLeasesReleased, L1!TypeOK, L1!IndInv, L1!L0!TypeOK,
+       EveryChannelSettled, L1!TypeOK, L1!IndInv, L1!L0!TypeOK,
        L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
        LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
        ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
        ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-       ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+       ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
        L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
        L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3491,7 +3519,7 @@ LEMMA LiveChannelPreserved ==
            ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
            ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3501,7 +3529,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3513,7 +3541,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3524,7 +3552,7 @@ LEMMA LiveChannelPreserved ==
            ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
            ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3534,7 +3562,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3546,7 +3574,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!vars, L1!l0_vars,
            L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
@@ -3558,7 +3586,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!vars, L1!l0_vars,
            L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
@@ -3570,7 +3598,7 @@ LEMMA LiveChannelPreserved ==
            ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
            ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3580,7 +3608,7 @@ LEMMA LiveChannelPreserved ==
            ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
            ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3591,7 +3619,7 @@ LEMMA LiveChannelPreserved ==
            ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
            ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3602,7 +3630,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!vars, L1!l0_vars,
            L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
@@ -3614,7 +3642,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!vars, L1!l0_vars,
            L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
@@ -3626,7 +3654,7 @@ LEMMA LiveChannelPreserved ==
            ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
            ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3638,7 +3666,7 @@ LEMMA LiveChannelPreserved ==
            ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
            ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3649,7 +3677,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3660,7 +3688,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3671,7 +3699,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3683,7 +3711,7 @@ LEMMA LiveChannelPreserved ==
            ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
            ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3694,7 +3722,7 @@ LEMMA LiveChannelPreserved ==
            ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
            ManagedGlue, ConsumerPhaseMatchesDispose,
            TokenPublishedBeforeStart, ChannelStateMatchesNative,
-           ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+           ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
            L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3705,7 +3733,7 @@ LEMMA LiveChannelPreserved ==
            LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
            ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
            ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-           ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+           ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
            L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
            L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3720,7 +3748,7 @@ LEMMA LiveChannelPreserved ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3733,7 +3761,7 @@ LEMMA LiveChannelPreserved ==
        ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
        ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3745,7 +3773,7 @@ LEMMA LiveChannelPreserved ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3757,7 +3785,7 @@ LEMMA LiveChannelPreserved ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3769,7 +3797,7 @@ LEMMA LiveChannelPreserved ==
        ManagedIndInv, ManagedTypeOK, ManagedMachineInv, LifecycleInv,
        ReaderInv, ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3781,7 +3809,7 @@ LEMMA LiveChannelPreserved ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ReaderInv,
        ManagedGlue, ConsumerPhaseMatchesDispose,
        TokenPublishedBeforeStart, ChannelStateMatchesNative,
-       ChannelSettled, AllLeasesReleased, L1!TypeOK, L1!IndInv,
+       ChannelSettled, EveryChannelSettled, L1!TypeOK, L1!IndInv,
        L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -3791,7 +3819,7 @@ LEMMA LiveChannelPreserved ==
        LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
        ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
        ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
-       ChannelStateMatchesNative, ChannelSettled, AllLeasesReleased,
+       ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
        L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
        L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -3839,8 +3867,8 @@ LEMMA ParsingHoldsUntilItEnds ==
        L1!L0!CallVars, FinishConsumePayload, CancelParsingRead,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -3853,15 +3881,17 @@ LEMMA ParsingHoldsUntilItEnds ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -3875,11 +3905,13 @@ LEMMA ParsingHoldsUntilItEnds ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -4305,8 +4337,8 @@ LEMMA RequestHoldsUntilTheParseEnds ==
        L1!L0!CallVars, FinishConsumePayload, CancelParsingRead,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -4319,15 +4351,17 @@ LEMMA RequestHoldsUntilTheParseEnds ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -4341,11 +4375,13 @@ LEMMA RequestHoldsUntilTheParseEnds ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -4769,8 +4805,8 @@ LEMMA DisposeNeverReturnsToActive ==
        L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -4783,15 +4819,17 @@ LEMMA DisposeNeverReturnsToActive ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -4805,11 +4843,13 @@ LEMMA DisposeNeverReturnsToActive ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -5425,8 +5465,8 @@ LEMMA PrologueHoldsUntilItIsAnswered ==
        L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -5441,15 +5481,17 @@ LEMMA PrologueHoldsUntilItIsAnswered ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -5465,11 +5507,13 @@ LEMMA PrologueHoldsUntilItIsAnswered ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -5954,8 +5998,8 @@ LEMMA WaitingHoldsUntilItIsRetracted ==
        L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -5970,15 +6014,17 @@ LEMMA WaitingHoldsUntilItIsRetracted ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -5994,11 +6040,13 @@ LEMMA WaitingHoldsUntilItIsRetracted ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -6484,8 +6532,8 @@ LEMMA DrainingHoldsUntilTheHandoff ==
        L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail,
@@ -6500,15 +6548,17 @@ LEMMA DrainingHoldsUntilTheHandoff ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -6524,11 +6574,13 @@ LEMMA DrainingHoldsUntilTheHandoff ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -7014,8 +7066,8 @@ LEMMA WaitingHoldsUntilTheParseBegins ==
        BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
@@ -7029,15 +7081,17 @@ LEMMA WaitingHoldsUntilTheParseBegins ==
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -7052,11 +7106,13 @@ LEMMA WaitingHoldsUntilTheParseBegins ==
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -7537,8 +7593,8 @@ LEMMA IdleHoldsUntilTheStreamIsRead ==
        BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, PayloadOwed, L1!HostOwnsSomePayload,
        L1!OwedPayloads, RingDrained, RingHead, RingTail, RingOccupancy,
@@ -7552,15 +7608,17 @@ LEMMA IdleHoldsUntilTheStreamIsRead ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>4, SMT DEF  AcquireLease, BeginDisposeChannel, CreateChannel,
+    BY <1>4, SMT DEF  BeginCreateChannel, BeginDisposeChannel,
+       CreateChannel, DisposeChannelForRuntime,
        FinishDisposeChannel, RejectChannelCreation, ResolveChannelDispose,
-       ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+       ChannelDisposeMayResolve, ChannelSettled,
        L1!ChannelCreate, L1!L0!ChannelCreate, L1!RuntimeFail,
        L1!L0!RuntimeFail, L1!ChannelStartClosing,
        L1!L0!ChannelStartClosing, PayloadOwed, L1!HostOwnsSomePayload,
@@ -7575,11 +7633,13 @@ LEMMA IdleHoldsUntilTheStreamIsRead ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>5, SMT DEF  BeginRuntimeShutdown, FinishDisposeRuntime,
+    BY <1>5, SMT DEF  BeginDisposeRuntime, BeginRuntimeShutdown,
+       FinishDisposeRuntime,
        ResourcesReleasedReturns, ShutdownReturns, L1!RuntimeBeginShutdown,
        L1!L0!ChannelsOf, L1!L0!RuntimeBeginShutdown, L1!RuntimeDestroy,
        L1!ResourcesReleasedCallbackReturns, L1!ShutdownCallbackReturns,
@@ -9304,7 +9364,7 @@ LEMMA CreateChannelKeepsTheChannelsAgreed ==
             = "active"
          /\ channel_state'[chId] = "open"
       \/ /\ channel_dispose_state'[chId]
-            \in {"released", "released_last"}
+            = "released"
          /\ channel_state'[chId]
             \in {"closing", "closed"}
     BY SMT DEF  CreateChannel, ManagedCallVars, ManagedRuntimeVars,
@@ -9315,7 +9375,7 @@ LEMMA CreateChannelKeepsTheChannelsAgreed ==
        ManagedTypeOK, ManagedMachineInv, LifecycleInv, ManagedGlue,
        L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ChannelStateMatchesNative,
        RejectedChannelHasNoNativeHalf, ChannelDisposeStates,
-       IsLastRelease, ChannelSettled
+       ChannelSettled
 <1>q. QED
     BY <1>1, <1>2, SMT DEF ChannelStateMatchesNative,
        RejectedChannelHasNoNativeHalf, ManagedIndInv,
@@ -9330,7 +9390,7 @@ LEMMA FinishDisposeChannelKeepsTheChannelsAgreed ==
           /\ channel_dispose_state'[ch]
                  = channel_dispose_state[ch]
           /\ channel_state'[ch] = channel_state[ch]
-    BY SMT DEF  FinishDisposeChannel, IsLastRelease, ManagedCallVars,
+    BY SMT DEF  FinishDisposeChannel, ManagedCallVars,
        ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
        L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
        L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
@@ -9341,10 +9401,10 @@ LEMMA FinishDisposeChannelKeepsTheChannelsAgreed ==
             = "active"
          /\ channel_state'[chId] = "open"
       \/ /\ channel_dispose_state'[chId]
-            \in {"released", "released_last"}
+            = "released"
          /\ channel_state'[chId]
             \in {"closing", "closed"}
-    BY SMT DEF  FinishDisposeChannel, IsLastRelease, ManagedCallVars,
+    BY SMT DEF  FinishDisposeChannel, ManagedCallVars,
        ManagedRuntimeVars, ManagedChannelVars, ReaderVars, WriterVars,
        L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
        L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
@@ -9352,7 +9412,7 @@ LEMMA FinishDisposeChannelKeepsTheChannelsAgreed ==
        l1_vars, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
        LifecycleInv, ManagedGlue, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
        ChannelStateMatchesNative, RejectedChannelHasNoNativeHalf,
-       ChannelDisposeStates, IsLastRelease, ChannelSettled
+       ChannelDisposeStates, ChannelSettled
 <1>q. QED
     BY <1>1, <1>2, SMT DEF ChannelStateMatchesNative,
        RejectedChannelHasNoNativeHalf, ManagedIndInv,
@@ -9498,7 +9558,7 @@ LEMMA ResolveChannelDisposeKeepsTheChannelsAgreed ==
       /\ channel_dispose_state' =
              [channel_dispose_state EXCEPT ![chId] = "disposed"]
       /\ channel_dispose_state[chId]
-             \in {"released", "released_last"}
+             = "released"
     BY SMT DEF  ResolveChannelDispose, ChannelDisposeMayResolve,
        ManagedCallVars, ManagedRuntimeVars, ManagedChannelVars,
        ReaderVars, WriterVars, l1_vars, L1!vars, L1!ffi_vars, L1!l0_vars,
@@ -9680,11 +9740,11 @@ LEMMA PassesEmitShutdownComplete ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -9731,7 +9791,7 @@ LEMMA PassesEmitShutdownComplete ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -9752,34 +9812,34 @@ LEMMA PassesEmitShutdownComplete ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsReleasedRuntime, L1!IsClosedChannel, L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+           L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
         BY SMT DEF LiveCallHasLiveChannel,
@@ -9801,11 +9861,11 @@ LEMMA PassesEmitResourcesReleased ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -9853,7 +9913,7 @@ LEMMA PassesEmitResourcesReleased ==
            L1!FfiCallInv, L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -9874,34 +9934,34 @@ LEMMA PassesEmitResourcesReleased ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!IsReleasedRuntime, L1!IsClosedChannel
     <1>g7. LiveCallHasLiveChannel'
         BY SMT DEF LiveCallHasLiveChannel,
@@ -9923,11 +9983,11 @@ LEMMA PassesRuntimeRelease ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -9976,7 +10036,7 @@ LEMMA PassesRuntimeRelease ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -9997,39 +10057,39 @@ LEMMA PassesRuntimeRelease ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -10052,11 +10112,11 @@ LEMMA PassesRuntimeFail ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -10105,7 +10165,7 @@ LEMMA PassesRuntimeFail ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -10126,32 +10186,32 @@ LEMMA PassesRuntimeFail ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -10159,7 +10219,7 @@ LEMMA PassesRuntimeFail ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -10182,11 +10242,11 @@ LEMMA PassesRemainFailed ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -10235,7 +10295,7 @@ LEMMA PassesRemainFailed ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -10256,32 +10316,32 @@ LEMMA PassesRemainFailed ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -10289,7 +10349,7 @@ LEMMA PassesRemainFailed ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -10312,11 +10372,11 @@ LEMMA PassesRemainReleased ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -10365,7 +10425,7 @@ LEMMA PassesRemainReleased ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -10386,32 +10446,32 @@ LEMMA PassesRemainReleased ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -10419,7 +10479,7 @@ LEMMA PassesRemainReleased ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -10442,11 +10502,11 @@ LEMMA PassesChannelFinishClosing ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -10555,7 +10615,7 @@ LEMMA PassesChannelFinishClosing ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     \* The close rebuilds three whole functions over CallIds, and carrying
     \* that into a goal about channels is what stops SMT.  So take the two
@@ -10600,7 +10660,7 @@ LEMMA PassesChannelFinishClosing ==
                                 => channel_state'[ch2] \in
                                        {"open", "closing", "closed"}
                             /\ channel_dispose_state'[ch2] \in
-                                   {"released", "released_last", "disposed"}
+                                   {"released", "disposed"}
                                 => channel_state'[ch2] \in
                                        {"closing", "closed"}
           OBVIOUS
@@ -10612,7 +10672,7 @@ LEMMA PassesChannelFinishClosing ==
             /\ channel_dispose_state[ch2] = "disposing"
                 => channel_state[ch2] \in {"open", "closing", "closed"}
             /\ channel_dispose_state[ch2] \in
-                   {"released", "released_last", "disposed"}
+                   {"released", "disposed"}
                 => channel_state[ch2] \in {"closing", "closed"}
           OBVIOUS
       <2>7. QED
@@ -10659,32 +10719,32 @@ LEMMA PassesChannelFinishClosing ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -10692,7 +10752,7 @@ LEMMA PassesChannelFinishClosing ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -10715,11 +10775,11 @@ LEMMA PassesEmitWriteDone ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -10810,7 +10870,7 @@ LEMMA PassesEmitWriteDone ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed DEF StatusMeansTerminal,
@@ -10841,32 +10901,32 @@ LEMMA PassesEmitWriteDone ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -10874,7 +10934,7 @@ LEMMA PassesEmitWriteDone ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -10897,11 +10957,11 @@ LEMMA PassesNetworkSend ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -10950,7 +11010,7 @@ LEMMA PassesNetworkSend ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -10971,32 +11031,32 @@ LEMMA PassesNetworkSend ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -11004,7 +11064,7 @@ LEMMA PassesNetworkSend ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -11027,11 +11087,11 @@ LEMMA PassesReceiveStatus ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -11080,7 +11140,7 @@ LEMMA PassesReceiveStatus ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -11101,32 +11161,32 @@ LEMMA PassesReceiveStatus ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -11134,7 +11194,7 @@ LEMMA PassesReceiveStatus ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -11157,11 +11217,11 @@ LEMMA PassesDeliverInitialMetadata ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -11298,7 +11358,7 @@ LEMMA PassesDeliverInitialMetadata ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed DEF StatusMeansTerminal,
@@ -11361,32 +11421,32 @@ LEMMA PassesDeliverInitialMetadata ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -11394,7 +11454,7 @@ LEMMA PassesDeliverInitialMetadata ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -11417,11 +11477,11 @@ LEMMA PassesDeliverMessage ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -11526,7 +11586,7 @@ LEMMA PassesDeliverMessage ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -11565,32 +11625,32 @@ LEMMA PassesDeliverMessage ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -11598,7 +11658,7 @@ LEMMA PassesDeliverMessage ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -11621,11 +11681,11 @@ LEMMA PassesDeliverStatus ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -11660,8 +11720,12 @@ LEMMA PassesDeliverStatus ==
       <2>t. events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
           BY DEF L1!IndInv,
              L1!TypeOK, L1!L0!TypeOK
+      \* Its own budget rather than the run's: the goal is the ring's
+      \* occupancy carried across an Append, which is long rather than
+      \* hard, and the default limit is where it sits.
       <2>q. QED
-          BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing
+          BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing,
+             SMTT(180)
           DEF L1!L0!EventKinds
     <1>6. WriterInv'
         OBVIOUS
@@ -11743,7 +11807,7 @@ LEMMA PassesDeliverStatus ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -11782,32 +11846,32 @@ LEMMA PassesDeliverStatus ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -11815,7 +11879,7 @@ LEMMA PassesDeliverStatus ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -11838,11 +11902,11 @@ LEMMA PassesDeliverCancelled ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -11962,7 +12026,7 @@ LEMMA PassesDeliverCancelled ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -12001,32 +12065,32 @@ LEMMA PassesDeliverCancelled ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -12034,7 +12098,7 @@ LEMMA PassesDeliverCancelled ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -12057,11 +12121,11 @@ LEMMA PassesReleaseCallHandle ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -12110,7 +12174,7 @@ LEMMA PassesReleaseCallHandle ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -12131,32 +12195,32 @@ LEMMA PassesReleaseCallHandle ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -12164,7 +12228,7 @@ LEMMA PassesReleaseCallHandle ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -12187,11 +12251,11 @@ LEMMA PassesNetworkReceive ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -12240,7 +12304,7 @@ LEMMA PassesNetworkReceive ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -12261,32 +12325,32 @@ LEMMA PassesNetworkReceive ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -12294,7 +12358,7 @@ LEMMA PassesNetworkReceive ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -12317,11 +12381,11 @@ LEMMA PassesFreeReturnedBuffer ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -12370,7 +12434,7 @@ LEMMA PassesFreeReturnedBuffer ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -12391,32 +12455,32 @@ LEMMA PassesFreeReturnedBuffer ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -12424,7 +12488,7 @@ LEMMA PassesFreeReturnedBuffer ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -12450,14 +12514,14 @@ LEMMA ProjectsFreeRuntimeRoot ==
     BY DEF FreeRuntimeRoot
 
 LEMMA ProjectsCreateRuntime ==
-    ASSUME NEW rtId \in RuntimeIds, NEW chId \in ChannelIds, CreateRuntime(rtId, chId)
+    ASSUME NEW rtId \in RuntimeIds, CreateRuntime(rtId)
     PROVE  L1!Next \/ UNCHANGED l1_vars
     BY DEF CreateRuntime, L1!Next
 
-LEMMA ProjectsAcquireLease ==
-    ASSUME NEW chId \in ChannelIds, AcquireLease(chId)
+LEMMA ProjectsBeginCreateChannel ==
+    ASSUME NEW chId \in ChannelIds, BeginCreateChannel(chId)
     PROVE  L1!Next \/ UNCHANGED l1_vars
-    BY DEF AcquireLease
+    BY DEF BeginCreateChannel
 
 LEMMA ProjectsCreateChannel ==
     \* The witness for level 1's runtime is current_runtime, which is in
@@ -12568,6 +12632,17 @@ LEMMA ProjectsDisposeCallForChannel ==
     PROVE  L1!Next \/ UNCHANGED l1_vars
     BY DEF DisposeCallForChannel, BeginDisposeCall, L1!Next
 
+LEMMA ProjectsDisposeChannelForRuntime ==
+    \* Delegates to BeginDisposeChannel, so it projects through it.
+    ASSUME NEW chId \in ChannelIds, DisposeChannelForRuntime(chId)
+    PROVE  L1!Next \/ UNCHANGED l1_vars
+    BY DEF DisposeChannelForRuntime, BeginDisposeChannel
+
+LEMMA ProjectsBeginDisposeRuntime ==
+    ASSUME NEW rtId \in RuntimeIds, BeginDisposeRuntime(rtId)
+    PROVE  L1!Next \/ UNCHANGED l1_vars
+    BY DEF BeginDisposeRuntime
+
 LEMMA ProjectsDrainRelease ==
     ASSUME NEW cId \in CallIds, DrainRelease(cId)
     PROVE  L1!Next \/ UNCHANGED l1_vars
@@ -12664,10 +12739,12 @@ THEOREM RefinesNext == ManagedSafety /\ [Next]_vars => [L1!Next]_l1_vars
     \* nothing changing means level 1's tuple did not change either.
     <1>1. ASSUME ManagedSafety, Next PROVE L1!Next \/ UNCHANGED l1_vars
         BY <1>1, ProjectsFreeRuntimeRoot, ProjectsCreateRuntime,
-           ProjectsAcquireLease, ProjectsCreateChannel,
+           ProjectsBeginCreateChannel, ProjectsCreateChannel,
            ProjectsRejectChannelCreation, ProjectsBeginDisposeChannel,
            ProjectsFinishDisposeChannel, ProjectsResolveChannelDispose,
-           ProjectsBeginRuntimeShutdown, ProjectsFinishDisposeRuntime,
+           ProjectsBeginDisposeRuntime, ProjectsBeginRuntimeShutdown,
+           ProjectsDisposeChannelForRuntime,
+           ProjectsFinishDisposeRuntime,
            ProjectsShutdownReturns, ProjectsResourcesReleasedReturns,
            ProjectsBeginMoveNext, ProjectsBeginParseEvent,
            ProjectsFinishConsumePayload, ProjectsCancelWaiter,
@@ -12756,11 +12833,11 @@ LEMMA KeepsFreeRuntimeRoot ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -12820,7 +12897,7 @@ LEMMA KeepsFreeRuntimeRoot ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -12848,32 +12925,32 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -12881,7 +12958,7 @@ LEMMA KeepsFreeRuntimeRoot ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -12890,7 +12967,7 @@ LEMMA KeepsFreeRuntimeRoot ==
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsCreateRuntime ==
-    ASSUME NEW rtId \in RuntimeIds, NEW chId \in ChannelIds, CreateRuntime(rtId, chId), ManagedIndInv
+    ASSUME NEW rtId \in RuntimeIds, CreateRuntime(rtId), ManagedIndInv
     PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
     <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
            ReaderInv, LifecycleInv, ManagedGlue,
@@ -12903,11 +12980,11 @@ LEMMA KeepsCreateRuntime ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -12956,7 +13033,7 @@ LEMMA KeepsCreateRuntime ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -12974,32 +13051,32 @@ LEMMA KeepsCreateRuntime ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13007,7 +13084,7 @@ LEMMA KeepsCreateRuntime ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -13015,8 +13092,8 @@ LEMMA KeepsCreateRuntime ==
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
-LEMMA KeepsAcquireLease ==
-    ASSUME NEW chId \in ChannelIds, AcquireLease(chId), ManagedIndInv
+LEMMA KeepsBeginCreateChannel ==
+    ASSUME NEW chId \in ChannelIds, BeginCreateChannel(chId), ManagedIndInv
     PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
     <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
            ReaderInv, LifecycleInv, ManagedGlue,
@@ -13029,18 +13106,18 @@ LEMMA KeepsAcquireLease ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
            ManagedStutter, managed_vars,
-           AcquireLease
+           BeginCreateChannel
     <1>t. ManagedTypeOK'
         BY DEF ReaderStates,
            WriterStates, ConsumerPhases, CallDisposeStates,
@@ -13081,7 +13158,7 @@ LEMMA KeepsAcquireLease ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -13101,32 +13178,32 @@ LEMMA KeepsAcquireLease ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13134,7 +13211,7 @@ LEMMA KeepsAcquireLease ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -13156,11 +13233,11 @@ LEMMA KeepsCreateChannel ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13209,7 +13286,7 @@ LEMMA KeepsCreateChannel ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY CreateChannelKeepsTheChannelsAgreed
@@ -13227,28 +13304,28 @@ LEMMA KeepsCreateChannel ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
            L1!L0!RuntimeFail
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
            L1!L0!RuntimeFail
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
            L1!L0!RuntimeFail
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
            L1!L0!RuntimeFail
@@ -13256,7 +13333,7 @@ LEMMA KeepsCreateChannel ==
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed, L1!RuntimeFail, L1!L0!RuntimeFail
@@ -13264,7 +13341,7 @@ LEMMA KeepsCreateChannel ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed, L1!RuntimeFail,
            L1!L0!RuntimeFail
@@ -13288,11 +13365,11 @@ LEMMA KeepsRejectChannelCreation ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13340,7 +13417,7 @@ LEMMA KeepsRejectChannelCreation ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         BY SMT
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -13358,32 +13435,32 @@ LEMMA KeepsRejectChannelCreation ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13391,7 +13468,7 @@ LEMMA KeepsRejectChannelCreation ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -13414,11 +13491,11 @@ LEMMA KeepsBeginDisposeChannel ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13466,7 +13543,7 @@ LEMMA KeepsBeginDisposeChannel ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -13486,32 +13563,32 @@ LEMMA KeepsBeginDisposeChannel ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13519,7 +13596,7 @@ LEMMA KeepsBeginDisposeChannel ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -13541,11 +13618,11 @@ LEMMA KeepsFinishDisposeChannel ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13594,10 +13671,10 @@ LEMMA KeepsFinishDisposeChannel ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         BY SMT DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK, IsLastRelease
-    <1>15. NoRuntimeShutdownWhileLeased'
+           L1!TypeOK, L1!L0!TypeOK
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         BY SMT DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK, IsLastRelease
+           L1!TypeOK, L1!L0!TypeOK
     <1>16. RejectedChannelHasNoNativeHalf'
         BY FinishDisposeChannelKeepsTheChannelsAgreed
     <1>17. ChannelStateMatchesNative'
@@ -13616,32 +13693,32 @@ LEMMA KeepsFinishDisposeChannel ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13649,7 +13726,7 @@ LEMMA KeepsFinishDisposeChannel ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -13671,11 +13748,11 @@ LEMMA KeepsResolveChannelDispose ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13723,7 +13800,7 @@ LEMMA KeepsResolveChannelDispose ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -13740,37 +13817,36 @@ LEMMA KeepsResolveChannelDispose ==
         BY SettledCallOwesNothingIsFramed
     <1>21. AbsentRuntimeOwesNothing'
         BY SMT DEF L1!IndInv,
-           L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve,
-           IsLastRelease
+           L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13778,13 +13854,267 @@ LEMMA KeepsResolveChannelDispose ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
         BY SMT DEF LiveCallHasLiveChannel,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, ChannelDisposeMayResolve,
            ChannelDisposeStates
+    <1>q. QED
+        BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
+LEMMA KeepsDisposeChannelForRuntime ==
+    ASSUME NEW chId \in ChannelIds, DisposeChannelForRuntime(chId), ManagedIndInv
+    PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+           DrainNeverOverlapsApplicationConsumer, ReadCancelPendingOnlyInFlight,
+           ParsingReadOwnsItsSlot, WriterInv, WaitingWriterHoldsNoBuffer,
+           SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+           ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+           TokenPublishedBeforeStart, RootSurvivesCallbacks,
+           RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+           RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+           ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
+           ChannelStateMatchesNative, RuntimeStateMatchesNative,
+           DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+           AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
+           ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
+           L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           ManagedStutter, managed_vars,
+           BeginDisposeChannel, DisposeChannelForRuntime
+    <1>t. ManagedTypeOK'
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
+    <1>1. ConsumerPhaseMatchesDispose'
+        OBVIOUS
+    <1>2. AtMostOneReaderOutstanding'
+        OBVIOUS
+    <1>3. DrainNeverOverlapsApplicationConsumer'
+        OBVIOUS
+    <1>4. ReadCancelPendingOnlyInFlight'
+        OBVIOUS
+    <1>5. ParsingReadOwnsItsSlot'
+        BY ParsingReadOwnsItsSlotIsFramed
+    <1>6. WriterInv'
+        OBVIOUS
+    <1>7. TokenPublishedBeforeStart'
+        BY TokenPublishedBeforeStartIsFramed
+    <1>8. RootSurvivesCallbacks'
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>9. RuntimeRootSurvivesCallbacks'
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
+    <1>10. DisposeAwaitsDestroy'
+        OBVIOUS
+    <1>11. RuntimeManagerCoherent'
+        OBVIOUS
+    <1>12. LiveChannelUsesCurrentRuntime'
+        OBVIOUS
+    <1>13. ManagedShutdownHasNoHostDebt'
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
+    <1>14. LiveChannelKeepsRuntimeAlive'
+        OBVIOUS
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
+        OBVIOUS
+    <1>16. RejectedChannelHasNoNativeHalf'
+        BY ChannelAgreementIsFramed
+    <1>17. ChannelStateMatchesNative'
+        BY ChannelAgreementIsFramed
+    <1>18. RuntimeStateMatchesNative'
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
+    <1>19. DisposeLeavesNoManagedWaiter'
+        OBVIOUS
+    <1>20. SettledCallOwesNothing'
+        BY SettledCallOwesNothingIsFramed
+    <1>21. AbsentRuntimeOwesNothing'
+        OBVIOUS
+    <1>g1. NotInitRuntimeIsUndestroyed'
+        BY SMT DEF NotInitRuntimeIsUndestroyed,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g2. TeardownLeavesCallsSettled'
+        BY SMT DEF TeardownLeavesCallsSettled,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g3. CancelledParseHasNoPendingRequest'
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g4. PrologueReaderOnlyWaits'
+        BY SMT DEF PrologueReaderOnlyWaits,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g5. PastPrologueHeadersAnswered'
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
+    <1>g6. StatusMeansTerminal'
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g7. LiveCallHasLiveChannel'
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+    <1>q. QED
+        BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
+LEMMA KeepsBeginDisposeRuntime ==
+    ASSUME NEW rtId \in RuntimeIds, BeginDisposeRuntime(rtId), ManagedIndInv
+    PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+           DrainNeverOverlapsApplicationConsumer, ReadCancelPendingOnlyInFlight,
+           ParsingReadOwnsItsSlot, WriterInv, WaitingWriterHoldsNoBuffer,
+           SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+           ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+           TokenPublishedBeforeStart, RootSurvivesCallbacks,
+           RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+           RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+           ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
+           ChannelStateMatchesNative, RuntimeStateMatchesNative,
+           DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+           AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
+           ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
+           L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           ManagedStutter, managed_vars,
+           BeginDisposeRuntime
+    <1>t. ManagedTypeOK'
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
+    <1>1. ConsumerPhaseMatchesDispose'
+        OBVIOUS
+    <1>2. AtMostOneReaderOutstanding'
+        OBVIOUS
+    <1>3. DrainNeverOverlapsApplicationConsumer'
+        OBVIOUS
+    <1>4. ReadCancelPendingOnlyInFlight'
+        OBVIOUS
+    <1>5. ParsingReadOwnsItsSlot'
+        BY ParsingReadOwnsItsSlotIsFramed
+    <1>6. WriterInv'
+        OBVIOUS
+    <1>7. TokenPublishedBeforeStart'
+        BY TokenPublishedBeforeStartIsFramed
+    <1>8. RootSurvivesCallbacks'
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>9. RuntimeRootSurvivesCallbacks'
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
+    <1>10. DisposeAwaitsDestroy'
+        OBVIOUS
+    <1>11. RuntimeManagerCoherent'
+        OBVIOUS
+    <1>12. LiveChannelUsesCurrentRuntime'
+        OBVIOUS
+    <1>13. ManagedShutdownHasNoHostDebt'
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean
+    <1>14. LiveChannelKeepsRuntimeAlive'
+        OBVIOUS
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
+        OBVIOUS
+    <1>16. RejectedChannelHasNoNativeHalf'
+        BY ChannelAgreementIsFramed
+    <1>17. ChannelStateMatchesNative'
+        BY ChannelAgreementIsFramed
+    <1>18. RuntimeStateMatchesNative'
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
+    <1>19. DisposeLeavesNoManagedWaiter'
+        OBVIOUS
+    <1>20. SettledCallOwesNothing'
+        BY SettledCallOwesNothingIsFramed
+    <1>21. AbsentRuntimeOwesNothing'
+        OBVIOUS
+    <1>g1. NotInitRuntimeIsUndestroyed'
+        BY SMT DEF NotInitRuntimeIsUndestroyed,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g2. TeardownLeavesCallsSettled'
+        BY SMT DEF TeardownLeavesCallsSettled,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g3. CancelledParseHasNoPendingRequest'
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g4. PrologueReaderOnlyWaits'
+        BY SMT DEF PrologueReaderOnlyWaits,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g5. PastPrologueHeadersAnswered'
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
+    <1>g6. StatusMeansTerminal'
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g7. LiveCallHasLiveChannel'
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 LEMMA KeepsBeginRuntimeShutdown ==
@@ -13801,11 +14131,11 @@ LEMMA KeepsBeginRuntimeShutdown ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13854,7 +14184,7 @@ LEMMA KeepsBeginRuntimeShutdown ==
            L1!UnusedCallsAreFfiClean
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -13874,32 +14204,32 @@ LEMMA KeepsBeginRuntimeShutdown ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -13907,7 +14237,7 @@ LEMMA KeepsBeginRuntimeShutdown ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -13929,11 +14259,11 @@ LEMMA KeepsFinishDisposeRuntime ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -13985,7 +14315,7 @@ LEMMA KeepsFinishDisposeRuntime ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14002,32 +14332,32 @@ LEMMA KeepsFinishDisposeRuntime ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14035,7 +14365,7 @@ LEMMA KeepsFinishDisposeRuntime ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14058,11 +14388,11 @@ LEMMA KeepsShutdownReturns ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14109,7 +14439,7 @@ LEMMA KeepsShutdownReturns ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14129,32 +14459,32 @@ LEMMA KeepsShutdownReturns ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14162,7 +14492,7 @@ LEMMA KeepsShutdownReturns ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14184,11 +14514,11 @@ LEMMA KeepsResourcesReleasedReturns ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14235,7 +14565,7 @@ LEMMA KeepsResourcesReleasedReturns ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14255,32 +14585,32 @@ LEMMA KeepsResourcesReleasedReturns ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14288,7 +14618,7 @@ LEMMA KeepsResourcesReleasedReturns ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14310,11 +14640,11 @@ LEMMA KeepsBeginMoveNext ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14362,7 +14692,7 @@ LEMMA KeepsBeginMoveNext ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14382,32 +14712,32 @@ LEMMA KeepsBeginMoveNext ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14415,7 +14745,7 @@ LEMMA KeepsBeginMoveNext ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14437,11 +14767,11 @@ LEMMA KeepsBeginParseEvent ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14489,7 +14819,7 @@ LEMMA KeepsBeginParseEvent ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14509,32 +14839,32 @@ LEMMA KeepsBeginParseEvent ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14542,7 +14872,7 @@ LEMMA KeepsBeginParseEvent ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14564,11 +14894,11 @@ LEMMA KeepsFinishConsumePayload ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14616,7 +14946,7 @@ LEMMA KeepsFinishConsumePayload ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14636,32 +14966,32 @@ LEMMA KeepsFinishConsumePayload ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14669,7 +14999,7 @@ LEMMA KeepsFinishConsumePayload ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14692,11 +15022,11 @@ LEMMA KeepsCancelWaiter ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14744,7 +15074,7 @@ LEMMA KeepsCancelWaiter ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14764,32 +15094,32 @@ LEMMA KeepsCancelWaiter ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14797,7 +15127,7 @@ LEMMA KeepsCancelWaiter ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14819,11 +15149,11 @@ LEMMA KeepsRequestReadCancellation ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -14871,7 +15201,7 @@ LEMMA KeepsRequestReadCancellation ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -14891,32 +15221,32 @@ LEMMA KeepsRequestReadCancellation ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -14924,7 +15254,7 @@ LEMMA KeepsRequestReadCancellation ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -14946,11 +15276,11 @@ LEMMA KeepsCancelWaitingRead ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15008,7 +15338,7 @@ LEMMA KeepsCancelWaitingRead ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15031,32 +15361,32 @@ LEMMA KeepsCancelWaitingRead ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15064,7 +15394,7 @@ LEMMA KeepsCancelWaitingRead ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15086,11 +15416,11 @@ LEMMA KeepsCancelParsingRead ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15139,7 +15469,7 @@ LEMMA KeepsCancelParsingRead ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15162,32 +15492,32 @@ LEMMA KeepsCancelParsingRead ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15195,7 +15525,7 @@ LEMMA KeepsCancelParsingRead ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15217,11 +15547,11 @@ LEMMA KeepsFinishCancelledParse ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15270,7 +15600,7 @@ LEMMA KeepsFinishCancelledParse ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15290,32 +15620,32 @@ LEMMA KeepsFinishCancelledParse ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15323,7 +15653,7 @@ LEMMA KeepsFinishCancelledParse ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15346,11 +15676,11 @@ LEMMA KeepsHandoffToDrain ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15398,7 +15728,7 @@ LEMMA KeepsHandoffToDrain ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15418,32 +15748,32 @@ LEMMA KeepsHandoffToDrain ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15451,7 +15781,7 @@ LEMMA KeepsHandoffToDrain ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15473,11 +15803,11 @@ LEMMA KeepsConsumeHeader ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15525,7 +15855,7 @@ LEMMA KeepsConsumeHeader ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15545,32 +15875,32 @@ LEMMA KeepsConsumeHeader ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15578,7 +15908,7 @@ LEMMA KeepsConsumeHeader ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15600,11 +15930,11 @@ LEMMA KeepsBeginDisposeCall ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15653,7 +15983,7 @@ LEMMA KeepsBeginDisposeCall ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15676,32 +16006,32 @@ LEMMA KeepsBeginDisposeCall ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15709,7 +16039,7 @@ LEMMA KeepsBeginDisposeCall ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15731,11 +16061,11 @@ LEMMA KeepsDisposeCallForChannel ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15785,7 +16115,7 @@ LEMMA KeepsDisposeCallForChannel ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15805,32 +16135,32 @@ LEMMA KeepsDisposeCallForChannel ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15838,7 +16168,7 @@ LEMMA KeepsDisposeCallForChannel ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15860,11 +16190,11 @@ LEMMA KeepsDrainRelease ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -15912,7 +16242,7 @@ LEMMA KeepsDrainRelease ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -15932,32 +16262,32 @@ LEMMA KeepsDrainRelease ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -15965,7 +16295,7 @@ LEMMA KeepsDrainRelease ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -15988,11 +16318,11 @@ LEMMA KeepsFinishDisposeCall ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16040,7 +16370,7 @@ LEMMA KeepsFinishDisposeCall ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16063,28 +16393,28 @@ LEMMA KeepsFinishDisposeCall ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!ReleaseCallHandle, L1!L0!IsActiveCall
@@ -16092,14 +16422,14 @@ LEMMA KeepsFinishDisposeCall ==
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed, L1!ReleaseCallHandle, L1!L0!IsActiveCall
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
-           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!L0!TypeOK, LiveCallHasLiveChannel,
            L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
            L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
@@ -16124,11 +16454,11 @@ LEMMA KeepsSettleCall ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16177,7 +16507,7 @@ LEMMA KeepsSettleCall ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16199,39 +16529,39 @@ LEMMA KeepsSettleCall ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
-           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!L0!TypeOK, LiveCallHasLiveChannel,
            L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
            L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
@@ -16254,11 +16584,11 @@ LEMMA KeepsCancelWriterWait ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16306,7 +16636,7 @@ LEMMA KeepsCancelWriterWait ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16326,32 +16656,32 @@ LEMMA KeepsCancelWriterWait ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -16359,7 +16689,7 @@ LEMMA KeepsCancelWriterWait ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -16381,11 +16711,11 @@ LEMMA KeepsWriteDoneCompletes ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16431,7 +16761,7 @@ LEMMA KeepsWriteDoneCompletes ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16451,32 +16781,32 @@ LEMMA KeepsWriteDoneCompletes ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -16484,7 +16814,7 @@ LEMMA KeepsWriteDoneCompletes ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -16506,11 +16836,11 @@ LEMMA KeepsCloseWriter ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16559,7 +16889,7 @@ LEMMA KeepsCloseWriter ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16579,32 +16909,32 @@ LEMMA KeepsCloseWriter ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -16612,7 +16942,7 @@ LEMMA KeepsCloseWriter ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -16635,11 +16965,11 @@ LEMMA KeepsOnEventReturns ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16686,7 +17016,7 @@ LEMMA KeepsOnEventReturns ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16706,39 +17036,39 @@ LEMMA KeepsOnEventReturns ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
-           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!L0!TypeOK, LiveCallHasLiveChannel,
            L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
            L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
@@ -16761,11 +17091,11 @@ LEMMA KeepsTerminalCallbackReturns ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16824,7 +17154,7 @@ LEMMA KeepsTerminalCallbackReturns ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16844,39 +17174,39 @@ LEMMA KeepsTerminalCallbackReturns ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
     <1>g6. StatusMeansTerminal'
         BY SMT DEF StatusMeansTerminal,
            L1!L0!IsTerminalCall, L1!L0!StatusKinds, L1!IndInv, L1!TypeOK,
-           L1!L0!TypeOK, LiveCallHasLiveChannel, IsLastRelease,
+           L1!L0!TypeOK, LiveCallHasLiveChannel,
            L1!IsRuntimeQuiescent, L1!IsRuntimeDrained, L1!NoHostDebt,
            L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
@@ -16899,11 +17229,11 @@ LEMMA KeepsStartCall ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -16951,7 +17281,7 @@ LEMMA KeepsStartCall ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -16971,32 +17301,32 @@ LEMMA KeepsStartCall ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17021,11 +17351,11 @@ LEMMA KeepsWriteLendSucceeds ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17074,7 +17404,7 @@ LEMMA KeepsWriteLendSucceeds ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17095,32 +17425,32 @@ LEMMA KeepsWriteLendSucceeds ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17128,7 +17458,7 @@ LEMMA KeepsWriteLendSucceeds ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -17150,11 +17480,11 @@ LEMMA KeepsWriteRefusedBudget ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17204,7 +17534,7 @@ LEMMA KeepsWriteRefusedBudget ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17225,32 +17555,32 @@ LEMMA KeepsWriteRefusedBudget ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17258,7 +17588,7 @@ LEMMA KeepsWriteRefusedBudget ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -17281,11 +17611,11 @@ LEMMA KeepsWriteRefusedTooLarge ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17334,7 +17664,7 @@ LEMMA KeepsWriteRefusedTooLarge ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17354,32 +17684,32 @@ LEMMA KeepsWriteRefusedTooLarge ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17387,7 +17717,7 @@ LEMMA KeepsWriteRefusedTooLarge ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -17409,11 +17739,11 @@ LEMMA KeepsRetryLendSucceeds ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17463,7 +17793,7 @@ LEMMA KeepsRetryLendSucceeds ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17483,32 +17813,32 @@ LEMMA KeepsRetryLendSucceeds ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17516,7 +17846,7 @@ LEMMA KeepsRetryLendSucceeds ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -17538,11 +17868,11 @@ LEMMA KeepsCommitWrite ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17592,7 +17922,7 @@ LEMMA KeepsCommitWrite ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17612,32 +17942,32 @@ LEMMA KeepsCommitWrite ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17645,7 +17975,7 @@ LEMMA KeepsCommitWrite ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -17667,11 +17997,11 @@ LEMMA KeepsWriteAborted ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17720,7 +18050,7 @@ LEMMA KeepsWriteAborted ==
            L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17744,32 +18074,32 @@ LEMMA KeepsWriteAborted ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g5. PastPrologueHeadersAnswered'
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed
@@ -17777,7 +18107,7 @@ LEMMA KeepsWriteAborted ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g7. LiveCallHasLiveChannel'
@@ -17838,11 +18168,11 @@ LEMMA PassesRequestCallCancellation ==
            RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
            RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
            ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
-           NoRuntimeShutdownWhileLeased, RejectedChannelHasNoNativeHalf,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
            ChannelStateMatchesNative, RuntimeStateMatchesNative,
            DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
            AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
-           RingTail, RingDrained, ChannelSettled, AllLeasesReleased,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
            ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
            L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
            L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
@@ -17894,7 +18224,7 @@ LEMMA PassesRequestCallCancellation ==
            L1!UnusedCallsAreFfiClean
     <1>14. LiveChannelKeepsRuntimeAlive'
         OBVIOUS
-    <1>15. NoRuntimeShutdownWhileLeased'
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
         OBVIOUS
     <1>16. RejectedChannelHasNoNativeHalf'
         BY ChannelAgreementIsFramed
@@ -17916,28 +18246,28 @@ LEMMA PassesRequestCallCancellation ==
     <1>g1. NotInitRuntimeIsUndestroyed'
         BY SMT DEF NotInitRuntimeIsUndestroyed,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!L0!RuntimeFail
     <1>g2. TeardownLeavesCallsSettled'
         BY SMT DEF TeardownLeavesCallsSettled,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!L0!RuntimeFail
     <1>g3. CancelledParseHasNoPendingRequest'
         BY SMT DEF CancelledParseHasNoPendingRequest,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!L0!RuntimeFail
     <1>g4. PrologueReaderOnlyWaits'
         BY SMT DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!L0!RuntimeFail
@@ -17945,7 +18275,7 @@ LEMMA PassesRequestCallCancellation ==
         BY SMT DEF PastPrologueHeadersAnswered,
            PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
            HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
-           LiveCallHasLiveChannel, IsLastRelease, L1!IsRuntimeQuiescent,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
            L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
            L1!IsClosedChannel, L1!IsShutdownEventEmitted,
            L1!SecondEventOwed, L1!L0!RuntimeFail
@@ -17953,7 +18283,7 @@ LEMMA PassesRequestCallCancellation ==
         BY SMT DEF StatusMeansTerminal,
            L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
-           IsLastRelease, L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed,
            L1!L0!RuntimeFail
@@ -18000,13 +18330,13 @@ LEMMA ManagedLayerPreserved ==
              RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
              ManagedShutdownHasNoHostDebt,
              LiveChannelKeepsRuntimeAlive,
-             NoRuntimeShutdownWhileLeased,
+             NoRuntimeShutdownWhileChannelsLive,
              RejectedChannelHasNoNativeHalf,
              ChannelStateMatchesNative, RuntimeStateMatchesNative, AdmissibleRuntimeStates,
              DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
              AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy,
              RingHead, RingTail, RingDrained, ChannelSettled,
-             AllLeasesReleased, NoRetryLen, L1!HostOwnsNoPayload,
+             EveryChannelSettled, NoRetryLen, L1!HostOwnsNoPayload,
              L1!HostHoldsNoBuffer, L1!OwedPayloads,
              L1!IsLentBuffer, L1!IsReturnedBuffer,
              L1!L0!IsUnusedCall, L1!L0!HasStatus,
@@ -18019,7 +18349,7 @@ LEMMA ManagedLayerPreserved ==
              CancelledParseHasNoPendingRequest,
              PrologueReaderOnlyWaits, PastPrologueHeadersAnswered,
              StatusMeansTerminal, LiveCallHasLiveChannel,
-             ChannelSettled, AllLeasesReleased, ReadInFlight,
+             ChannelSettled, EveryChannelSettled, ReadInFlight,
              L1!L0!IsUnusedCall, L1!L0!HasStatus,
              L1!L0!StatusKinds, L1!L0!IsTerminalCall,
              managed_vars, l1_vars, L1!vars, L1!l0_vars,
@@ -18081,25 +18411,29 @@ LEMMA ManagedLayerPreserved ==
          Zenon DEF RuntimeSteps
 <1>2. CASE FreeRuntimeRoot
     BY <1>0, <1>2,  KeepsFreeRuntimeRoot, Zenon
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>0, <1>3,  KeepsCreateRuntime, Zenon
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
-    BY <1>0, <1>4,  KeepsAcquireLease, KeepsBeginDisposeChannel,
+    BY <1>0, <1>4,  KeepsBeginCreateChannel, KeepsBeginDisposeChannel,
+       KeepsDisposeChannelForRuntime,
        KeepsCreateChannel, KeepsFinishDisposeChannel,
        KeepsRejectChannelCreation, KeepsResolveChannelDispose, Zenon
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
-    BY <1>0, <1>5,  KeepsBeginRuntimeShutdown, KeepsFinishDisposeRuntime,
+    BY <1>0, <1>5,  KeepsBeginDisposeRuntime, KeepsBeginRuntimeShutdown,
+       KeepsFinishDisposeRuntime,
        KeepsResourcesReleasedReturns, KeepsShutdownReturns, Zenon
 <1>6. CASE \E cId \in CallIds :
              \/ BeginMoveNext(cId)
@@ -18221,105 +18555,105 @@ LEMMA InitEstablishesManagedIndInv == Init => ManagedIndInv
 <1>3c1. /\ TokenPublishedBeforeStart
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, TokenPublishedBeforeStart
 <1>3c2. /\ RootSurvivesCallbacks
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, RootSurvivesCallbacks
 <1>3c3. /\ RuntimeRootSurvivesCallbacks
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, RuntimeRootSurvivesCallbacks
 <1>3c4. /\ DisposeAwaitsDestroy
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, DisposeAwaitsDestroy
 <1>3c5. /\ RuntimeManagerCoherent
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, RuntimeManagerCoherent
 <1>3c6. /\ LiveChannelUsesCurrentRuntime
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, LiveChannelUsesCurrentRuntime
 <1>3c7. /\ ManagedShutdownHasNoHostDebt
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, ManagedShutdownHasNoHostDebt
 <1>3c8. /\ LiveChannelKeepsRuntimeAlive
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, LiveChannelKeepsRuntimeAlive
-<1>3c9. /\ NoRuntimeShutdownWhileLeased
+<1>3c9. /\ NoRuntimeShutdownWhileChannelsLive
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
-       L1!IsReturnedBuffer, NoRuntimeShutdownWhileLeased
+       L1!IsReturnedBuffer, NoRuntimeShutdownWhileChannelsLive
 <1>3c10. /\ RejectedChannelHasNoNativeHalf
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, RejectedChannelHasNoNativeHalf
 <1>3c11. /\ ChannelStateMatchesNative
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, ChannelStateMatchesNative
 <1>3c12. /\ RuntimeStateMatchesNative
     BY <1>0, NoneNotInRuntimeIds, SMT DEF Init, ManagedInit, L1!Init,
        L1!L0!Init, L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, RuntimeStateMatchesNative
 <1>3c13. /\ DisposeLeavesNoManagedWaiter
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, DisposeLeavesNoManagedWaiter
 <1>3c14. /\ SettledCallOwesNothing
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, SettledCallOwesNothing
 <1>3c15. /\ AbsentRuntimeOwesNothing
     BY <1>0, SMT DEF Init, ManagedInit, L1!Init, L1!L0!Init,
        L1!L0!IsUnusedCall, L1!L0!HasStatus, L1!L0!StatusKinds,
-       AdmissibleRuntimeStates, ChannelSettled, AllLeasesReleased,
+       AdmissibleRuntimeStates, ChannelSettled, EveryChannelSettled,
        RingDrained, RingHead, RingTail, L1!HostOwnsNoPayload,
        L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
        L1!IsReturnedBuffer, AbsentRuntimeOwesNothing
@@ -18334,7 +18668,7 @@ LEMMA InitEstablishesManagedIndInv == Init => ManagedIndInv
        NotInitRuntimeIsUndestroyed, TeardownLeavesCallsSettled,
        CancelledParseHasNoPendingRequest, PrologueReaderOnlyWaits,
        PastPrologueHeadersAnswered, StatusMeansTerminal,
-       LiveCallHasLiveChannel, ChannelSettled, AllLeasesReleased,
+       LiveCallHasLiveChannel, ChannelSettled, EveryChannelSettled,
        ReadInFlight, L1!L0!IsUnusedCall, L1!L0!HasStatus,
        L1!L0!StatusKinds, L1!L0!IsTerminalCall
 <1>5. QED BY <1>1, <1>2, <1>3, <1>4 DEF ManagedIndInv
@@ -18759,31 +19093,33 @@ LEMMA CancellationIsLatched ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  cancel_requested'[cId]
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
@@ -18801,8 +19137,10 @@ LEMMA CancellationIsLatched ==
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
@@ -18824,21 +19162,32 @@ LEMMA CancellationIsLatched ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  cancel_requested'[cId]
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-    <3>1. L1!RequestCancellationOfActiveCalls(L1!L0!ChannelsOf(r2))
-        BY <2>0, <2>1 DEF BeginRuntimeShutdown, L1!RuntimeBeginShutdown
-    <3>2. QED BY <3>1, BulkCancellationIsMonotone
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+    <3>1. CASE BeginRuntimeShutdown(r2)
+      <4>1. L1!RequestCancellationOfActiveCalls(L1!L0!ChannelsOf(r2))
+          BY <3>1 DEF BeginRuntimeShutdown, L1!RuntimeBeginShutdown
+      <4>2. QED BY <4>1, BulkCancellationIsMonotone
+    <3>2. CASE BeginDisposeRuntime(r2)
+        BY <2>0, <3>2, SMT DEF  BeginDisposeRuntime, L1!vars, L1!ffi_vars,
+           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+    <3>3. QED BY <2>1, <3>1, <3>2
   <2>2. CASE FinishDisposeRuntime(r2)
           BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, L1!RuntimeDestroy,
            L1!IsRuntimeQuiescent, L1!RuntimeHoldsNoReturnedBytes, L1!vars,
@@ -19110,8 +19459,8 @@ LEMMA StartedCallNeverRestarts ==
        L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -19119,23 +19468,25 @@ LEMMA StartedCallNeverRestarts ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  ~L1!L0!IsActiveCall(cId)' /\ ~L1!L0!IsUnusedCall(cId)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
            L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
@@ -19156,15 +19507,17 @@ LEMMA StartedCallNeverRestarts ==
            L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
            L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -19180,19 +19533,23 @@ LEMMA StartedCallNeverRestarts ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  ~L1!L0!IsActiveCall(cId)' /\ ~L1!L0!IsUnusedCall(cId)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -19497,29 +19854,31 @@ LEMMA RuntimeReturnsToActiveOnlyFromAbsent ==
        RuntimeDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, RuntimeDisposeStates,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (runtime_dispose_state # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK,
            RuntimeDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -19533,13 +19892,15 @@ LEMMA RuntimeReturnsToActiveOnlyFromAbsent ==
            ManagedTypeOK, RuntimeDisposeStates, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            RuntimeDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, RuntimeDisposeStates, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -19550,19 +19911,23 @@ LEMMA RuntimeReturnsToActiveOnlyFromAbsent ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (runtime_dispose_state # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            RuntimeDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -19987,8 +20352,8 @@ LEMMA CallNeverBecomesUnused ==
        L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -19996,23 +20361,25 @@ LEMMA CallNeverBecomesUnused ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  ~L1!L0!IsUnusedCall(cId)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
@@ -20030,14 +20397,16 @@ LEMMA CallNeverBecomesUnused ==
            L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -20053,19 +20422,23 @@ LEMMA CallNeverBecomesUnused ==
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  ~L1!L0!IsUnusedCall(cId)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -20359,8 +20732,8 @@ LEMMA WriterLeavesIdleOnlyOnAStartedCall ==
        L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -20368,23 +20741,25 @@ LEMMA WriterLeavesIdleOnlyOnAStartedCall ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  ~L1!L0!IsUnusedCall(cId)
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
            L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
@@ -20405,15 +20780,17 @@ LEMMA WriterLeavesIdleOnlyOnAStartedCall ==
            L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
            L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -20429,19 +20806,23 @@ LEMMA WriterLeavesIdleOnlyOnAStartedCall ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  ~L1!L0!IsUnusedCall(cId)
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -20931,9 +21312,14 @@ LEMMA ConstructionIsAnswerable ==
 <1>2. ENABLED <<RejectChannelCreation(chId)>>_vars
           => ENABLED <<CreateChannel(chId)
                        \/ RejectChannelCreation(chId)>>_vars
+    \* Zenon rather than SMT: once the two ENABLEDs are existentials over
+    \* the same primed variables, a witness for the refusal is a witness
+    \* for the disjunction, which is disjunction introduction under a
+    \* quantifier - and the level-1 frame that has to be unfolded for
+    \* ExpandENABLED to see the variables is what SMT then searches.
     BY ExpandENABLED, SMT
     DEF CreateChannel, RejectChannelCreation, L1!ChannelCreate,
-       L1!L0!ChannelCreate, ChannelSettled, vars, l1_vars, managed_vars,
+       L1!L0!ChannelCreate, vars, l1_vars, managed_vars,
        L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
        L1!L0!ChannelVars, L1!L0!CallVars
 <1>3. QED BY <1>1, <1>2
@@ -20964,30 +21350,32 @@ LEMMA ConstructionHoldsUntilItAnswers ==
        ChannelDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ChannelIsAnswered, ManagedTypeOK, ChannelDisposeStates,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (channel_dispose_state[chId] = "constructing")'
                         \/ ChannelIsAnswered(chId)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ChannelIsAnswered, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ChannelIsAnswered, ManagedTypeOK,
            ChannelDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -21001,13 +21389,15 @@ LEMMA ConstructionHoldsUntilItAnswers ==
            ChannelIsAnswered, ManagedTypeOK, ChannelDisposeStates, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ChannelIsAnswered, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ChannelDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ChannelIsAnswered, ManagedTypeOK, ChannelDisposeStates, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -21018,20 +21408,24 @@ LEMMA ConstructionHoldsUntilItAnswers ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (channel_dispose_state[chId] = "constructing")'
                         \/ ChannelIsAnswered(chId)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ChannelIsAnswered, ManagedTypeOK,
+           BeginDisposeRuntime,
            ChannelDisposeStates, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -21512,8 +21906,8 @@ LEMMA TheNamedBufferStaysLent ==
        L1!BufferStates, ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -21523,23 +21917,25 @@ LEMMA TheNamedBufferStaysLent ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  L1!IsLentBuffer(c, b)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
            L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
@@ -21565,8 +21961,10 @@ LEMMA TheNamedBufferStaysLent ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
            L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
@@ -21574,7 +21972,7 @@ LEMMA TheNamedBufferStaysLent ==
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -21594,19 +21992,23 @@ LEMMA TheNamedBufferStaysLent ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  L1!IsLentBuffer(c, b)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -21970,8 +22372,8 @@ LEMMA EnteringSerializationNamesABuffer ==
        L1!BufferStates, ManagedTypeOK, WriterStates, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -21981,23 +22383,25 @@ LEMMA EnteringSerializationNamesABuffer ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
            L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
@@ -22024,8 +22428,10 @@ LEMMA EnteringSerializationNamesABuffer ==
            ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsLentBuffer, L1!IsReturnedBuffer,
            L1!IsFreedBuffer, L1!IsFreshBuffer, L1!HostHoldsNoBuffer,
@@ -22034,7 +22440,7 @@ LEMMA EnteringSerializationNamesABuffer ==
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -22054,19 +22460,23 @@ LEMMA EnteringSerializationNamesABuffer ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \E b \in BufferIds : L1!IsLentBuffer(c, b)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -22830,8 +23240,8 @@ LEMMA AcquittalStaysComing ==
        L1!IsWriteDoneCallbackRunning, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -22840,23 +23250,25 @@ LEMMA AcquittalStaysComing ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  AwaitingWriteDoneHasOneComing'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
            L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
@@ -22880,8 +23292,10 @@ LEMMA AcquittalStaysComing ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
            L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
@@ -22889,7 +23303,7 @@ LEMMA AcquittalStaysComing ==
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -22907,19 +23321,23 @@ LEMMA AcquittalStaysComing ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  AwaitingWriteDoneHasOneComing'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -23458,7 +23876,9 @@ LEMMA SerializationHasAnExit ==
             => <<SerializationSettles(cId)>>_vars
       BY DEF SerializationSettles, WriteAbortsSomewhere
   <2>2. QED
-      BY <2>1, ExpandENABLED, SMT
+      \* And its own: the unfolding ExpandENABLED demands here is the
+      \* whole send side, which is long rather than hard.
+      BY <2>1, ExpandENABLED, SMTT(300)
       DEF WriteAborted, SerializationSettles, WriteAbortsSomewhere,
          CommitWrite, L1!HostReturnsBuffer, L1!SendMessage,
          L1!L0!SendMessage, vars, l1_vars, managed_vars, L1!vars,
@@ -23559,9 +23979,10 @@ LEMMA AwaitingHoldsUntilItReturns ==
            \/ (writer_state[cId] = "idle")'
     BY SMT
     DEF Next, Passthrough, RuntimeSteps, BindingDowncalls, ManagedStutter,
-       FreeRuntimeRoot, CreateRuntime, AcquireLease, CreateChannel,
-       RejectChannelCreation, BeginDisposeChannel, FinishDisposeChannel,
-       ResolveChannelDispose, BeginRuntimeShutdown, FinishDisposeRuntime,
+       FreeRuntimeRoot, CreateRuntime, BeginCreateChannel, CreateChannel,
+       RejectChannelCreation, BeginDisposeChannel, DisposeChannelForRuntime,
+       FinishDisposeChannel, ResolveChannelDispose, BeginDisposeRuntime,
+       BeginRuntimeShutdown, FinishDisposeRuntime,
        ShutdownReturns, ResourcesReleasedReturns, BeginMoveNext,
        BeginParseEvent, FinishConsumePayload, CancelWaiter,
        RequestReadCancellation, CancelWaitingRead, CancelParsingRead,
@@ -23592,9 +24013,10 @@ LEMMA SerializingHoldsUntilItSettles ==
 <1>1. QED
     BY SMT
     DEF Next, Passthrough, RuntimeSteps, BindingDowncalls, ManagedStutter,
-       FreeRuntimeRoot, CreateRuntime, AcquireLease, CreateChannel,
-       RejectChannelCreation, BeginDisposeChannel, FinishDisposeChannel,
-       ResolveChannelDispose, BeginRuntimeShutdown, FinishDisposeRuntime,
+       FreeRuntimeRoot, CreateRuntime, BeginCreateChannel, CreateChannel,
+       RejectChannelCreation, BeginDisposeChannel, DisposeChannelForRuntime,
+       FinishDisposeChannel, ResolveChannelDispose, BeginDisposeRuntime,
+       BeginRuntimeShutdown, FinishDisposeRuntime,
        ShutdownReturns, ResourcesReleasedReturns, BeginMoveNext,
        BeginParseEvent, FinishConsumePayload, CancelWaiter,
        RequestReadCancellation, CancelWaitingRead, CancelParsingRead,
@@ -23881,8 +24303,8 @@ LEMMA TrampolineStaysUntilItReturns ==
        L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -23891,24 +24313,26 @@ LEMMA TrampolineStaysUntilItReturns ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (L1!IsWriteDoneCallbackRunning(cId))'
                         \/ (writer_state[cId] = "idle")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsWriteDoneCallbackRunning, ManagedTypeOK,
            L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
@@ -23929,15 +24353,17 @@ LEMMA TrampolineStaysUntilItReturns ==
            ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsWriteDoneCallbackRunning, ManagedTypeOK,
            L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -23955,20 +24381,24 @@ LEMMA TrampolineStaysUntilItReturns ==
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (L1!IsWriteDoneCallbackRunning(cId))'
                         \/ (writer_state[cId] = "idle")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -24454,8 +24884,8 @@ LEMMA EventsGrowOrFreeze ==
        RingHead, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars, RingHead,
@@ -24463,24 +24893,26 @@ LEMMA EventsGrowOrFreeze ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ RingHead(cId) < RingHead(cId)'
                         \/ events_delivered[cId]' = events_delivered[cId]
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, RingHead, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -24500,14 +24932,16 @@ LEMMA EventsGrowOrFreeze ==
            L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, RingHead, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -24523,20 +24957,24 @@ LEMMA EventsGrowOrFreeze ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ RingHead(cId) < RingHead(cId)'
                         \/ events_delivered[cId]' = events_delivered[cId]
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -24832,29 +25270,31 @@ LEMMA StatusIsResolvedForGood ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (status_completion[cId] = "resolved")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, ManagedStutter,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -24866,12 +25306,14 @@ LEMMA StatusIsResolvedForGood ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -24882,19 +25324,23 @@ LEMMA StatusIsResolvedForGood ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (status_completion[cId] = "resolved")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -25245,8 +25691,8 @@ LEMMA PublishedStartsTheCall ==
        L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -25254,23 +25700,25 @@ LEMMA PublishedStartsTheCall ==
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (~L1!L0!IsUnusedCall(cId))'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -25290,14 +25738,16 @@ LEMMA PublishedStartsTheCall ==
            L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!IsUnusedCall, L1!CallStart, L1!L0!CallStart,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -25313,19 +25763,23 @@ LEMMA PublishedStartsTheCall ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (~L1!L0!IsUnusedCall(cId))'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -25633,31 +26087,33 @@ LEMMA TokenIsALatch ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (call_token_published[cId])'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
@@ -25675,14 +26131,16 @@ LEMMA TokenIsALatch ==
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -25696,19 +26154,23 @@ LEMMA TokenIsALatch ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (call_token_published[cId])'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -26034,8 +26496,8 @@ LEMMA DrainBeginsCancelled ==
        L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -26047,25 +26509,27 @@ LEMMA DrainBeginsCancelled ==
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  /\ (~L1!L0!IsUnusedCall(cId))'
                         /\ \/ (L1!IsCancelRequested(cId))'
                            \/ (~L1!L0!IsActiveCall(cId))'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
            L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
@@ -26098,8 +26562,10 @@ LEMMA DrainBeginsCancelled ==
            L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!IsCancelRequested, L1!L0!HasStatus,
            L1!L0!StatusKinds, L1!L0!TerminalStatusEquivalence,
@@ -26110,7 +26576,7 @@ LEMMA DrainBeginsCancelled ==
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -26134,12 +26600,14 @@ LEMMA DrainBeginsCancelled ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -26147,8 +26615,10 @@ LEMMA DrainBeginsCancelled ==
                         /\ \/ (L1!IsCancelRequested(cId))'
                            \/ (~L1!L0!IsActiveCall(cId))'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -26639,30 +27109,32 @@ LEMMA DrainingStaysUntilSettled ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (call_dispose_state[cId] = "draining")'
                         \/ (call_dispose_state[cId] = "settled")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, ManagedStutter,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -26674,12 +27146,14 @@ LEMMA DrainingStaysUntilSettled ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -26690,20 +27164,24 @@ LEMMA DrainingStaysUntilSettled ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (call_dispose_state[cId] = "draining")'
                         \/ (call_dispose_state[cId] = "settled")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -26918,30 +27396,32 @@ LEMMA DrainPhaseStaysUntilSettled ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (consumer_phase[cId] = "drain")'
                         \/ (call_dispose_state[cId] = "settled")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, ManagedStutter,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -26953,12 +27433,14 @@ LEMMA DrainPhaseStaysUntilSettled ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -26969,20 +27451,24 @@ LEMMA DrainPhaseStaysUntilSettled ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (consumer_phase[cId] = "drain")'
                         \/ (call_dispose_state[cId] = "settled")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -27198,29 +27684,31 @@ LEMMA ReaderRestsWhileNotActive ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (reader_state[cId] \in {"idle", "finished"})'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, ManagedStutter,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -27232,12 +27720,14 @@ LEMMA ReaderRestsWhileNotActive ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -27248,19 +27738,23 @@ LEMMA ReaderRestsWhileNotActive ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (reader_state[cId] \in {"idle", "finished"})'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -27473,29 +27967,31 @@ LEMMA WriterRestsWhileNotActive ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, BindingMayDowncall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, BindingMayDowncall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (writer_state[cId] \in {"idle", "closed"})'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK,
            BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -27509,13 +28005,15 @@ LEMMA WriterRestsWhileNotActive ==
            ManagedTypeOK, BindingMayDowncall, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, BindingMayDowncall, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -27526,19 +28024,23 @@ LEMMA WriterRestsWhileNotActive ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (writer_state[cId] \in {"idle", "closed"})'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -28355,66 +28857,6 @@ THEOREM ReadCancellationCancelsCall ==
     BY ReadCancellationDrainsTheCall, PTL
 <1>2. QED BY <1>1, ManagedIndInvHolds, PTL
 
-\* The last release is the one that finds every other channel settled, and
-\* it is the same step that hands the runtime its shutdown: both readings
-\* come off the two assignments, under the same test.
-LEMMA LastReleaseAssignsBoth ==
-    ASSUME NEW chId \in ChannelIds
-    PROVE  ManagedIndInv
-               => [(/\ FinishDisposeChannel(chId)
-                    /\ IsLastRelease(chId))
-                       => /\ channel_dispose_state'[chId] = "released_last"
-                          /\ runtime_dispose_state'
-                                 = "shutdown_pending"]_vars
-    BY ManagedIndInvTypesTheDispose, SMT DEF FinishDisposeChannel
-
-THEOREM LastReleaseIsLatched ==
-    Spec => \A chId \in ChannelIds :
-                [][(/\ FinishDisposeChannel(chId)
-                    /\ IsLastRelease(chId))
-                       => /\ channel_dispose_state'[chId] = "released_last"
-                          /\ runtime_dispose_state'
-                                 = "shutdown_pending"]_vars
-<1>0. SUFFICES ASSUME NEW chId \in ChannelIds
-               PROVE  Spec
-                          => [][(/\ FinishDisposeChannel(chId)
-                                 /\ IsLastRelease(chId))
-                                    => /\ channel_dispose_state'[chId]
-                                              = "released_last"
-                                       /\ runtime_dispose_state'
-                                              = "shutdown_pending"]_vars
-    OBVIOUS
-<1>1. [](ManagedIndInv
-             => [(/\ FinishDisposeChannel(chId)
-                  /\ IsLastRelease(chId))
-                     => /\ channel_dispose_state'[chId] = "released_last"
-                        /\ runtime_dispose_state'
-                               = "shutdown_pending"]_vars)
-    BY LastReleaseAssignsBoth, PTL
-<1>2. QED BY <1>1, ManagedIndInvHolds, PTL
-
-\* A resolution reads its own guard: released_last is not released, so the
-\* only disjunct left is the one that waits on the destroy.
-LEMMA ResolvedLastSawTheDestroy ==
-    ASSUME NEW chId \in ChannelIds
-    PROVE  [(/\ ResolveChannelDispose(chId)
-             /\ channel_dispose_state[chId] = "released_last")
-                => runtime_destroyed[channel_runtime[chId]]]_vars
-    BY SMT DEF ResolveChannelDispose, ChannelDisposeMayResolve
-
-THEOREM LastChannelDisposeAwaitsDestroy ==
-    Spec => \A chId \in ChannelIds :
-                [][(/\ ResolveChannelDispose(chId)
-                    /\ channel_dispose_state[chId] = "released_last")
-                       => runtime_destroyed[channel_runtime[chId]]]_vars
-<1>0. SUFFICES ASSUME NEW chId \in ChannelIds
-               PROVE  [][(/\ ResolveChannelDispose(chId)
-                          /\ channel_dispose_state[chId] = "released_last")
-                             => runtime_destroyed[
-                                    channel_runtime[chId]]]_vars
-    OBVIOUS
-<1>1. QED BY ResolvedLastSawTheDestroy, PTL
-
 \* The channel's sweep disposes one call at a time: BeginDisposeCall names
 \* cId in every assignment it makes, so no other call's managed state can
 \* move in that step.
@@ -28521,29 +28963,31 @@ LEMMA CompletedTokenArmsNothing ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ReadInFlight, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ReadInFlight, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  ~read_cancel_pending'[cId]
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ReadInFlight, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -28555,13 +28999,15 @@ LEMMA CompletedTokenArmsNothing ==
            ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ReadInFlight,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -28572,19 +29018,23 @@ LEMMA CompletedTokenArmsNothing ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  ~read_cancel_pending'[cId]
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ReadInFlight,
+           BeginDisposeRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -28817,31 +29267,33 @@ LEMMA LiveRequestNeedsAReaction ==
        CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, CancelWaitingRead, CancelParsingRead,
        ReadCancellationSettled, CancelledParseHasNoPendingRequest,
        ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  CancelWaitingRead(cId) \/ CancelParsingRead(cId)
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, CancelWaitingRead,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, CancelWaitingRead,
            CancelParsingRead, ReadCancellationSettled,
            CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -28858,14 +29310,16 @@ LEMMA LiveRequestNeedsAReaction ==
            CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, CancelWaitingRead,
+           DisposeChannelForRuntime,
            CancelParsingRead, ReadCancellationSettled,
            CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            CancelWaitingRead, CancelParsingRead, ReadCancellationSettled,
            CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -28879,19 +29333,23 @@ LEMMA LiveRequestNeedsAReaction ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  CancelWaitingRead(cId) \/ CancelParsingRead(cId)
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, CancelWaitingRead,
+           BeginDisposeRuntime,
            CancelParsingRead, ReadCancellationSettled,
            CancelledParseHasNoPendingRequest, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -29481,30 +29939,32 @@ LEMMA InFlightTokenPreserved ==
        ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, InFlightReaderHoldsTheToken,
        ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (ReadInFlight(cId) => call_token_published[cId])'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, InFlightReaderHoldsTheToken,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, InFlightReaderHoldsTheToken,
            ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -29518,13 +29978,15 @@ LEMMA InFlightTokenPreserved ==
            InFlightReaderHoldsTheToken, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel,
+           DisposeChannelForRuntime,
            InFlightReaderHoldsTheToken, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            InFlightReaderHoldsTheToken, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
@@ -29536,19 +29998,23 @@ LEMMA InFlightTokenPreserved ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (ReadInFlight(cId) => call_token_published[cId])'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            InFlightReaderHoldsTheToken, ReadInFlight, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
@@ -29812,8 +30278,8 @@ LEMMA ConsumedTerminalPreserved ==
        ManagedMachineInv, ReaderInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -29825,17 +30291,19 @@ LEMMA ConsumedTerminalPreserved ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  ((/\ call_dispose_state[cId] = "active"
@@ -29844,8 +30312,8 @@ LEMMA ConsumedTerminalPreserved ==
                           /\ RingDrained(cId)) =>
                             reader_state[cId] = "finished")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ConsumedTerminalFinishesTheReader, RingDrained,
            RingHead, RingTail, L1!L0!HasStatus, L1!L0!StatusKinds,
@@ -29877,8 +30345,10 @@ LEMMA ConsumedTerminalPreserved ==
            ManagedMachineInv, ReaderInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ConsumedTerminalFinishesTheReader, RingDrained,
            RingHead, RingTail, L1!L0!HasStatus, L1!L0!StatusKinds,
@@ -29888,7 +30358,7 @@ LEMMA ConsumedTerminalPreserved ==
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -29912,12 +30382,14 @@ LEMMA ConsumedTerminalPreserved ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -29927,8 +30399,10 @@ LEMMA ConsumedTerminalPreserved ==
                           /\ RingDrained(cId)) =>
                             reader_state[cId] = "finished")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -30594,29 +31068,31 @@ LEMMA SettledIsForever ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (call_dispose_state[cId] = "settled")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, ManagedStutter,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -30628,12 +31104,14 @@ LEMMA SettledIsForever ==
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -30644,19 +31122,23 @@ LEMMA SettledIsForever ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (call_dispose_state[cId] = "settled")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -30868,8 +31350,8 @@ LEMMA UnfailedStickyHere ==
        L1!L0!NotFailed, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -30877,23 +31359,25 @@ LEMMA UnfailedStickyHere ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!NotFailed, ManagedTypeOK, L1!TypeOK,
            L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
@@ -30914,15 +31398,17 @@ LEMMA UnfailedStickyHere ==
            L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, L1!L0!NotFailed, ManagedTypeOK, L1!TypeOK,
            L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -30938,19 +31424,23 @@ LEMMA UnfailedStickyHere ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -31250,53 +31740,57 @@ LEMMA DestroyedHoldsUntilTheFree ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (runtime_dispose_state = "destroyed")' \/ (runtime_dispose_state = "absent")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, ManagedStutter,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
     <3>1. channel_dispose_state[ch2] = "constructing"
         BY <2>2 DEF CreateChannel
     <3>2. QED BY <3>1, SMT DEF ManagedIndInv, ManagedMachineInv,
-        LifecycleInv, NoRuntimeShutdownWhileLeased,
-        AllLeasesReleased, ChannelSettled
+        LifecycleInv, NoRuntimeShutdownWhileChannelsLive,
+        EveryChannelSettled, ChannelSettled
   <2>3. CASE RejectChannelCreation(ch2)
     <3>1. channel_dispose_state[ch2] = "constructing"
         BY <2>3 DEF RejectChannelCreation
     <3>2. QED BY <3>1, SMT DEF ManagedIndInv, ManagedMachineInv,
-        LifecycleInv, NoRuntimeShutdownWhileLeased,
-        AllLeasesReleased, ChannelSettled
-  <2>4. CASE BeginDisposeChannel(ch2)
+        LifecycleInv, NoRuntimeShutdownWhileChannelsLive,
+        EveryChannelSettled, ChannelSettled
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
+           DisposeChannelForRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
     <3>1. channel_dispose_state[ch2] = "disposing"
         BY <2>5 DEF FinishDisposeChannel
     <3>2. QED BY <3>1, SMT DEF ManagedIndInv, ManagedMachineInv,
-        LifecycleInv, NoRuntimeShutdownWhileLeased,
-        AllLeasesReleased, ChannelSettled
+        LifecycleInv, NoRuntimeShutdownWhileChannelsLive,
+        EveryChannelSettled, ChannelSettled
   <2>6. CASE ResolveChannelDispose(ch2)
           BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
            ChannelDisposeMayResolve, ManagedTypeOK, ManagedStutter, vars,
@@ -31304,19 +31798,23 @@ LEMMA DestroyedHoldsUntilTheFree ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (runtime_dispose_state = "destroyed")' \/ (runtime_dispose_state = "absent")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
+           BeginDisposeRuntime,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
@@ -31600,31 +32098,33 @@ LEMMA WaitingHoldsWhileDisposing ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (reader_state[cId] = "waiting")'
                            /\ (call_dispose_state[cId] # "active")'
                         \/ <<CancelWaiter(cId)>>_vars
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -31636,13 +32136,15 @@ LEMMA WaitingHoldsWhileDisposing ==
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -31653,12 +32155,14 @@ LEMMA WaitingHoldsWhileDisposing ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -31666,8 +32170,10 @@ LEMMA WaitingHoldsWhileDisposing ==
                            /\ (call_dispose_state[cId] # "active")'
                         \/ <<CancelWaiter(cId)>>_vars
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -31899,23 +32405,25 @@ LEMMA HandoffHoldsWhileDraining ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (consumer_phase[cId] \in {"prologue", "application"})'
@@ -31923,8 +32431,8 @@ LEMMA HandoffHoldsWhileDraining ==
                            /\ (call_dispose_state[cId] = "draining")'
                         \/ <<HandoffToDrain(cId)>>_vars
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -31936,13 +32444,15 @@ LEMMA HandoffHoldsWhileDraining ==
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -31953,12 +32463,14 @@ LEMMA HandoffHoldsWhileDraining ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -31967,8 +32479,10 @@ LEMMA HandoffHoldsWhileDraining ==
                            /\ (call_dispose_state[cId] = "draining")'
                         \/ <<HandoffToDrain(cId)>>_vars
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -32200,31 +32714,33 @@ LEMMA WaitLeavesOnlyIdleWhileDisposing ==
        BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (writer_state[cId] = "waiting_budget")'
                         \/ (writer_state[cId] = "idle")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -32238,13 +32754,15 @@ LEMMA WaitLeavesOnlyIdleWhileDisposing ==
            ManagedIndInv, ManagedTypeOK, BindingMayDowncall, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, BindingMayDowncall, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, BindingMayDowncall, ManagedStutter,
            vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
@@ -32256,20 +32774,24 @@ LEMMA WaitLeavesOnlyIdleWhileDisposing ==
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (writer_state[cId] = "waiting_budget")'
                         \/ (writer_state[cId] = "idle")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, BindingMayDowncall, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -33128,24 +33650,26 @@ LEMMA PendingWaitingHolds ==
        ReadCancellationSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        ReadCancellationSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (read_cancel_pending[cId])'
@@ -33156,8 +33680,8 @@ LEMMA PendingWaitingHolds ==
                            /\ (call_dispose_state[cId] = "active")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            ReadCancellationSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -33171,13 +33695,15 @@ LEMMA PendingWaitingHolds ==
            ManagedIndInv, ManagedTypeOK, ReadCancellationSettled,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ReadCancellationSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, ReadCancellationSettled,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
@@ -33189,12 +33715,14 @@ LEMMA PendingWaitingHolds ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -33206,8 +33734,10 @@ LEMMA PendingWaitingHolds ==
                            /\ (call_dispose_state[cId] = "active")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, ReadCancellationSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -33449,24 +33979,26 @@ LEMMA PendingParsingHolds ==
        ReadCancellationSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        ReadCancellationSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (read_cancel_pending[cId])'
@@ -33474,8 +34006,8 @@ LEMMA PendingParsingHolds ==
                            /\ (call_dispose_state[cId] = "active")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            ReadCancellationSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -33489,13 +34021,15 @@ LEMMA PendingParsingHolds ==
            ManagedIndInv, ManagedTypeOK, ReadCancellationSettled,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ReadCancellationSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, ReadCancellationSettled,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
@@ -33507,12 +34041,14 @@ LEMMA PendingParsingHolds ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -33521,8 +34057,10 @@ LEMMA PendingParsingHolds ==
                            /\ (call_dispose_state[cId] = "active")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, ReadCancellationSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -34049,8 +34587,8 @@ LEMMA WaitingAppOwedHolds ==
        L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -34059,17 +34597,19 @@ LEMMA WaitingAppOwedHolds ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (reader_state[cId] = "waiting")'
@@ -34079,8 +34619,8 @@ LEMMA WaitingAppOwedHolds ==
                         \/ (~(reader_state[cId] = "waiting"))'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
@@ -34103,15 +34643,17 @@ LEMMA WaitingAppOwedHolds ==
            L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -34129,12 +34671,14 @@ LEMMA WaitingAppOwedHolds ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -34145,8 +34689,10 @@ LEMMA WaitingAppOwedHolds ==
                         \/ (~(reader_state[cId] = "waiting"))'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -34588,8 +35134,8 @@ LEMMA WaitingPrologueOwedHolds ==
        L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -34598,17 +35144,19 @@ LEMMA WaitingPrologueOwedHolds ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (reader_state[cId] = "waiting")'
@@ -34621,8 +35169,8 @@ LEMMA WaitingPrologueOwedHolds ==
                         \/ (~(reader_state[cId] = "waiting"))'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
@@ -34645,15 +35193,17 @@ LEMMA WaitingPrologueOwedHolds ==
            L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -34671,12 +35221,14 @@ LEMMA WaitingPrologueOwedHolds ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -34690,8 +35242,10 @@ LEMMA WaitingPrologueOwedHolds ==
                         \/ (~(reader_state[cId] = "waiting"))'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -35191,31 +35745,33 @@ LEMMA AppHoldsWhileActive ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (consumer_phase[cId] = "application")'
                            /\ (call_dispose_state[cId] = "active")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -35227,13 +35783,15 @@ LEMMA AppHoldsWhileActive ==
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -35244,12 +35802,14 @@ LEMMA AppHoldsWhileActive ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -35257,8 +35817,10 @@ LEMMA AppHoldsWhileActive ==
                            /\ (call_dispose_state[cId] = "active")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -35823,8 +36385,8 @@ LEMMA HeadersPendingOwedHolds ==
        L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -35833,17 +36395,19 @@ LEMMA HeadersPendingOwedHolds ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (headers_completion[cId] = "pending")'
@@ -35853,8 +36417,8 @@ LEMMA HeadersPendingOwedHolds ==
                         \/ (headers_completion[cId] # "pending")'
                         \/ <<ConsumeHeader(cId)>>_vars
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
@@ -35877,15 +36441,17 @@ LEMMA HeadersPendingOwedHolds ==
            L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -35903,12 +36469,14 @@ LEMMA HeadersPendingOwedHolds ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -35919,8 +36487,10 @@ LEMMA HeadersPendingOwedHolds ==
                         \/ (headers_completion[cId] # "pending")'
                         \/ <<ConsumeHeader(cId)>>_vars
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -36668,8 +37238,8 @@ LEMMA WaitLeavesOnlyIdleOnDeadCall ==
        L1!L0!ActiveCallStates, BindingMayDowncall, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -36678,24 +37248,26 @@ LEMMA WaitLeavesOnlyIdleOnDeadCall ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (writer_state[cId] = "waiting_budget")'
                         \/ (writer_state[cId] = "idle")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, L1!L0!IsActiveCall,
            L1!L0!ActiveCallStates, BindingMayDowncall, ManagedStutter, vars,
@@ -36716,15 +37288,17 @@ LEMMA WaitLeavesOnlyIdleOnDeadCall ==
            L1!L0!IsActiveCall, L1!L0!ActiveCallStates, BindingMayDowncall,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, L1!L0!IsActiveCall,
            L1!L0!ActiveCallStates, BindingMayDowncall, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -36742,20 +37316,24 @@ LEMMA WaitLeavesOnlyIdleOnDeadCall ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (writer_state[cId] = "waiting_budget")'
                         \/ (writer_state[cId] = "idle")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -37081,8 +37659,8 @@ LEMMA WriterRestsOnDeadCall ==
        L1!L0!ActiveCallStates, BindingMayDowncall, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -37091,23 +37669,25 @@ LEMMA WriterRestsOnDeadCall ==
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (writer_state[cId] \in {"idle", "closed"})'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, L1!L0!IsActiveCall,
            L1!L0!ActiveCallStates, BindingMayDowncall, ManagedStutter, vars,
@@ -37128,15 +37708,17 @@ LEMMA WriterRestsOnDeadCall ==
            L1!L0!IsActiveCall, L1!L0!ActiveCallStates, BindingMayDowncall,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, L1!L0!IsActiveCall,
            L1!L0!ActiveCallStates, BindingMayDowncall, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -37154,19 +37736,23 @@ LEMMA WriterRestsOnDeadCall ==
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (writer_state[cId] \in {"idle", "closed"})'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -37494,30 +38080,32 @@ LEMMA FinishedReaderHoldsWhileActive ==
     BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (reader_state[cId] = "finished")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedIndInv, ManagedTypeOK,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedIndInv, ManagedTypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
@@ -37529,13 +38117,15 @@ LEMMA FinishedReaderHoldsWhileActive ==
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedIndInv,
+           DisposeChannelForRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedIndInv, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
@@ -37546,20 +38136,24 @@ LEMMA FinishedReaderHoldsWhileActive ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (reader_state[cId] = "finished")'
                         \/ (call_dispose_state[cId] # "active")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedIndInv,
+           BeginDisposeRuntime,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -38526,8 +39120,8 @@ LEMMA ServedRootPreserved ==
        L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -38537,17 +39131,19 @@ LEMMA ServedRootPreserved ==
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (call_root_live[cId]
@@ -38555,8 +39151,8 @@ LEMMA ServedRootPreserved ==
                                /\ (L1!L0!HasStatus(cId)
                                       => L1!IsDeliveryCallbackRunning(cId)))'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, LiveRootIsServed, ManagedIndInv, ManagedTypeOK,
            L1!L0!HasStatus, L1!L0!StatusKinds, L1!IsDeliveryCallbackRunning,
@@ -38580,8 +39176,10 @@ LEMMA ServedRootPreserved ==
            L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, LiveRootIsServed, ManagedIndInv, ManagedTypeOK,
            L1!L0!HasStatus, L1!L0!StatusKinds, L1!IsDeliveryCallbackRunning,
@@ -38589,7 +39187,7 @@ LEMMA ServedRootPreserved ==
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -38609,12 +39207,14 @@ LEMMA ServedRootPreserved ==
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -38623,8 +39223,10 @@ LEMMA ServedRootPreserved ==
                                /\ (L1!L0!HasStatus(cId)
                                       => L1!IsDeliveryCallbackRunning(cId)))'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -39121,8 +39723,8 @@ LEMMA RootedStatusHolds ==
        L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -39131,17 +39733,19 @@ LEMMA RootedStatusHolds ==
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (call_root_live[cId])'
@@ -39149,8 +39753,8 @@ LEMMA RootedStatusHolds ==
                            /\ (L1!IsDeliveryCallbackRunning(cId))'
                         \/ (~call_root_live[cId])'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, L1!vars, L1!ffi_vars,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, L1!L0!HasStatus,
            L1!L0!StatusKinds, L1!IsDeliveryCallbackRunning, L1!TypeOK,
@@ -39174,8 +39778,10 @@ LEMMA RootedStatusHolds ==
            L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, L1!vars, L1!ffi_vars,
+           DisposeChannelForRuntime,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, ManagedIndInv, ManagedTypeOK, L1!L0!HasStatus,
            L1!L0!StatusKinds, L1!IsDeliveryCallbackRunning, L1!TypeOK,
@@ -39183,7 +39789,7 @@ LEMMA RootedStatusHolds ==
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            L1!ChannelStartClosing, L1!RequestCancellationOfActiveCalls,
            L1!L0!ChannelStartClosing, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -39201,12 +39807,14 @@ LEMMA RootedStatusHolds ==
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -39215,8 +39823,10 @@ LEMMA RootedStatusHolds ==
                            /\ (L1!IsDeliveryCallbackRunning(cId))'
                         \/ (~call_root_live[cId])'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown,
+           BeginDisposeRuntime,
            L1!RuntimeBeginShutdown, L1!RequestCancellationOfActiveCalls,
            L1!L0!RuntimeBeginShutdown, L1!vars, L1!ffi_vars, L1!l0_vars,
            L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -39843,105 +40453,113 @@ LEMMA DisposingHoldsUntilTheRelease ==
     PROVE  \/ (channel_dispose_state[chId] = "disposing")'
            \/ (ChannelSettled(chId))'
 <1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ChannelSettled, IsLastRelease, ManagedTypeOK,
+    BY <1>0, SMT DEF  ChannelSettled, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ChannelSettled, IsLastRelease,
+    BY <1>1, SMT DEF  Passthrough, ChannelSettled,
        ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, ChannelSettled, IsLastRelease,
+    BY <1>2, SMT DEF  FreeRuntimeRoot, ChannelSettled,
        ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ChannelSettled, IsLastRelease,
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
+    BY <1>3, SMT DEF  CreateRuntime, ChannelSettled,
        ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (channel_dispose_state[chId] = "disposing")'
                         \/ (ChannelSettled(chId))'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ChannelSettled, IsLastRelease,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ChannelSettled,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, SMT DEF  CreateChannel, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           DisposeChannelForRuntime,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ChannelSettled, ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
           BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, ChannelSettled, IsLastRelease,
+           ChannelDisposeMayResolve, ChannelSettled,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (channel_dispose_state[chId] = "disposing")'
                         \/ (ChannelSettled(chId))'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           BeginDisposeRuntime,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
           BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
           BY <2>0, <2>3, SMT DEF  ShutdownReturns, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
           BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
@@ -39992,103 +40610,103 @@ LEMMA DisposingHoldsUntilTheRelease ==
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
           BY <2>0, <2>1, SMT DEF  BeginMoveNext, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE BeginParseEvent(c2)
           BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE FinishConsumePayload(c2)
           BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, ChannelSettled, IsLastRelease,
+           ReadCancellationSettled, ChannelSettled,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, ChannelSettled, IsLastRelease,
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, ChannelSettled,
            ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE RequestReadCancellation(c2)
           BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE CancelWaitingRead(c2)
           BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
           BY <2>0, <2>7, SMT DEF  CancelParsingRead, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
           BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
           BY <2>0, <2>9, SMT DEF  HandoffToDrain, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>10. CASE ConsumeHeader(c2)
           BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
           BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
           BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
           BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>15. CASE SettleCall(c2)
           BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
           BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>17. CASE WriteDoneCompletes(c2)
           BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
           BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+           ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
           BY <2>0, <2>19, SMT DEF  OnEventReturns, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
           BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ChannelSettled,
-           IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+           ManagedTypeOK, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
@@ -40096,42 +40714,42 @@ LEMMA DisposingHoldsUntilTheRelease ==
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ChannelSettled,
-       IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+       ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+       ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+       ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ChannelSettled, IsLastRelease, ManagedTypeOK, ManagedStutter, vars,
+       ChannelSettled, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ChannelSettled,
-       IsLastRelease, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ChannelSettled, IsLastRelease,
+    BY <1>13, SMT DEF  WriteAborted, ChannelSettled,
        ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
@@ -40291,7 +40909,7 @@ LEMMA ReleaseSettlesTheChannel ==
     ASSUME NEW chId \in ChannelIds, ManagedTypeOK,
            <<FinishDisposeChannel(chId)>>_vars
     PROVE  (ChannelSettled(chId))'
-    BY SMT DEF FinishDisposeChannel, IsLastRelease, ChannelSettled,
+    BY SMT DEF FinishDisposeChannel, ChannelSettled,
        ManagedTypeOK, vars, l1_vars, managed_vars
 
 \* The release is enabled once every call of the channel settled: the
@@ -40314,15 +40932,9 @@ LEMMA ReleaseIsEnabled ==
                     /\ L1!ChannelStartClosing(chId)
                     /\ channel_dispose_state' =
                            [channel_dispose_state EXCEPT
-                                ![chId] = IF IsLastRelease(chId)
-                                          THEN "released_last"
-                                          ELSE "released"]
-                    /\ runtime_dispose_state' =
-                           IF IsLastRelease(chId) THEN "shutdown_pending"
-                           ELSE runtime_dispose_state
-                    /\ UNCHANGED <<ManagedCallVars, ReaderVars,
-                               WriterVars, runtime_root_live,
-                               current_runtime>> )>>_vars
+                                ![chId] = "released"]
+                    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars,
+                               ReaderVars, WriterVars>> )>>_vars
     BY <1>2, ExpandENABLED, SMT
     DEF ManagedIndInv, L1!IndInv,
        L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
@@ -40351,15 +40963,9 @@ LEMMA ReleaseIsEnabled ==
                     /\ UNCHANGED l1_vars
                     /\ channel_dispose_state' =
                            [channel_dispose_state EXCEPT
-                                ![chId] = IF IsLastRelease(chId)
-                                          THEN "released_last"
-                                          ELSE "released"]
-                    /\ runtime_dispose_state' =
-                           IF IsLastRelease(chId) THEN "shutdown_pending"
-                           ELSE runtime_dispose_state
-                    /\ UNCHANGED <<ManagedCallVars, ReaderVars,
-                               WriterVars, runtime_root_live,
-                               current_runtime>> )>>_vars
+                                ![chId] = "released"]
+                    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars,
+                               ReaderVars, WriterVars>> )>>_vars
     BY <1>3, ExpandENABLED, SMT
     DEF ManagedIndInv, L1!IndInv,
        ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK,
@@ -40379,12 +40985,12 @@ LEMMA ReleaseIsEnabled ==
        ReaderVars, WriterVars
 <1>4. QED BY <1>1, <1>2, <1>3
 
-THEOREM ChannelLeaseEventuallyReleasedHolds ==
-    Spec => ChannelLeaseEventuallyReleased
+THEOREM ChannelHandleEventuallyReleasedHolds ==
+    Spec => ChannelHandleEventuallyReleased
 <1>0. SUFFICES ASSUME Spec, NEW chId \in ChannelIds
                PROVE  channel_dispose_state[chId] = "disposing" ~>
                           (ChannelSettled(chId) \/ ~L1!L0!NotFailed)
-    BY DEF ChannelLeaseEventuallyReleased
+    BY DEF ChannelHandleEventuallyReleased
 <1>1. /\ []ManagedIndInv
       /\ [][Next]_vars
     BY <1>0, ManagedIndInvHolds, PTL DEF Spec
@@ -40467,84 +41073,92 @@ LEMMA CurrentHoldsWhileDestroying ==
               /\ (current_runtime = rtId)'
            \/ (runtime_dispose_state = "destroyed")'
 <1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+    BY <1>0, SMT DEF  ManagedTypeOK, ChannelSettled,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK, IsLastRelease,
+    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, IsLastRelease,
+    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, IsLastRelease,
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
+    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (runtime_dispose_state = "destroying")'
                            /\ (current_runtime = rtId)'
                         \/ (runtime_dispose_state = "destroyed")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, IsLastRelease,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK, IsLastRelease,
+          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
+  \* A refused creation leaves the runtime exactly as it was, so this is
+  \* the frame and nothing else - where it used to read the lease
+  \* invariant to rule out a latch the refusal could pose.
   <2>3. CASE RejectChannelCreation(ch2)
-    <3>1. channel_dispose_state[ch2] = "constructing"
-        BY <2>0, <2>3 DEF RejectChannelCreation
-    <3>2. QED BY <3>1, SMT DEF ManagedIndInv, ManagedMachineInv,
-        LifecycleInv, NoRuntimeShutdownWhileLeased,
-        AllLeasesReleased, ChannelSettled
-  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           DisposeChannelForRuntime,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
     <3>1. channel_dispose_state[ch2] = "disposing"
         BY <2>0, <2>5 DEF FinishDisposeChannel
     <3>2. QED BY <3>1, SMT DEF ManagedIndInv, ManagedMachineInv,
-        LifecycleInv, NoRuntimeShutdownWhileLeased,
-        AllLeasesReleased, ChannelSettled
+        LifecycleInv, NoRuntimeShutdownWhileChannelsLive,
+        EveryChannelSettled, ChannelSettled
   <2>6. CASE ResolveChannelDispose(ch2)
           BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, ManagedTypeOK, IsLastRelease,
+           ChannelDisposeMayResolve, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -40552,24 +41166,26 @@ LEMMA CurrentHoldsWhileDestroying ==
                            /\ (current_runtime = rtId)'
                         \/ (runtime_dispose_state = "destroyed")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           BeginDisposeRuntime,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
           BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
           BY <2>0, <2>3, SMT DEF  ShutdownReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
           BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
@@ -40620,104 +41236,104 @@ LEMMA CurrentHoldsWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK, IsLastRelease,
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>2. CASE BeginParseEvent(c2)
           BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE FinishConsumePayload(c2)
           BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, ManagedTypeOK, IsLastRelease,
+           ReadCancellationSettled, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK, IsLastRelease,
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE RequestReadCancellation(c2)
           BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE CancelWaitingRead(c2)
           BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
           BY <2>0, <2>7, SMT DEF  CancelParsingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
           BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
           BY <2>0, <2>9, SMT DEF  HandoffToDrain, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>10. CASE ConsumeHeader(c2)
           BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
           BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
           BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
           BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>15. CASE SettleCall(c2)
           BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
           BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>17. CASE WriteDoneCompletes(c2)
           BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
           BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
           BY <2>0, <2>19, SMT DEF  OnEventReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
           BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
@@ -40725,42 +41341,42 @@ LEMMA CurrentHoldsWhileDestroying ==
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+       ChannelSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+       ChannelSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, IsLastRelease,
+    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
@@ -40770,118 +41386,128 @@ LEMMA CurrentHoldsWhileDestroying ==
 LEMMA CurrentHoldsWhilePending ==
     ASSUME NEW rtId, rtId \in RuntimeIds, ManagedIndInv,
            ManagedTypeOK,
-           runtime_dispose_state = "shutdown_pending",
+           runtime_dispose_state = "disposing",
            current_runtime = rtId,
            [Next]_vars
-    PROVE  \/ /\ (runtime_dispose_state = "shutdown_pending")'
+    PROVE  \/ /\ (runtime_dispose_state = "disposing")'
               /\ (current_runtime = rtId)'
            \/ /\ (runtime_dispose_state = "destroying")'
               /\ (current_runtime = rtId)'
 <1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+    BY <1>0, SMT DEF  ManagedTypeOK, ChannelSettled,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK, IsLastRelease,
+    BY <1>1, SMT DEF  Passthrough, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>2. CASE FreeRuntimeRoot
-    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK, IsLastRelease,
+    BY <1>2, SMT DEF  FreeRuntimeRoot, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK, IsLastRelease,
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
+    BY <1>3, SMT DEF  CreateRuntime, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
-                 PROVE  \/ /\ (runtime_dispose_state = "shutdown_pending")'
+                 PROVE  \/ /\ (runtime_dispose_state = "disposing")'
                            /\ (current_runtime = rtId)'
                         \/ /\ (runtime_dispose_state = "destroying")'
                            /\ (current_runtime = rtId)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, SMT DEF  AcquireLease, ManagedTypeOK, IsLastRelease,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, SMT DEF  BeginCreateChannel, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK, IsLastRelease,
+          BY <2>0, <2>2, SMT DEF  CreateChannel, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
+  \* A refused creation leaves the runtime exactly as it was, so this is
+  \* the frame and nothing else - where it used to read the lease
+  \* invariant to rule out a latch the refusal could pose.
   <2>3. CASE RejectChannelCreation(ch2)
-    <3>1. channel_dispose_state[ch2] = "constructing"
-        BY <2>0, <2>3 DEF RejectChannelCreation
-    <3>2. QED BY <3>1, SMT DEF ManagedIndInv, ManagedMachineInv,
-        LifecycleInv, NoRuntimeShutdownWhileLeased,
-        AllLeasesReleased, ChannelSettled
-  <2>4. CASE BeginDisposeChannel(ch2)
+          BY <2>0, <2>3, SMT DEF  RejectChannelCreation, ManagedTypeOK,
+           ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, SMT DEF  BeginDisposeChannel, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           DisposeChannelForRuntime,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel, IsLastRelease,
+          BY <2>0, <2>5, SMT DEF  FinishDisposeChannel,
            ManagedTypeOK, ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
           BY <2>0, <2>6, SMT DEF  ResolveChannelDispose,
-           ChannelDisposeMayResolve, ManagedTypeOK, IsLastRelease,
+           ChannelDisposeMayResolve, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
-                 PROVE  \/ /\ (runtime_dispose_state = "shutdown_pending")'
+                 PROVE  \/ /\ (runtime_dispose_state = "disposing")'
                            /\ (current_runtime = rtId)'
                         \/ /\ (runtime_dispose_state = "destroying")'
                            /\ (current_runtime = rtId)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
           BY <2>0, <2>1, SMT DEF  BeginRuntimeShutdown, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           BeginDisposeRuntime,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE FinishDisposeRuntime(r2)
           BY <2>0, <2>2, SMT DEF  FinishDisposeRuntime, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE ShutdownReturns(r2)
           BY <2>0, <2>3, SMT DEF  ShutdownReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>4. CASE ResourcesReleasedReturns(r2)
           BY <2>0, <2>4, SMT DEF  ResourcesReleasedReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
@@ -40927,110 +41553,110 @@ LEMMA CurrentHoldsWhilePending ==
                         \/ CloseWriter(c2)
                         \/ OnEventReturns(c2)
                         \/ TerminalCallbackReturns(c2)
-                 PROVE  \/ /\ (runtime_dispose_state = "shutdown_pending")'
+                 PROVE  \/ /\ (runtime_dispose_state = "disposing")'
                            /\ (current_runtime = rtId)'
                         \/ /\ (runtime_dispose_state = "destroying")'
                            /\ (current_runtime = rtId)'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK, IsLastRelease,
+          BY <2>0, <2>1, SMT DEF  BeginMoveNext, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>2. CASE BeginParseEvent(c2)
           BY <2>0, <2>2, SMT DEF  BeginParseEvent, RingOccupancy,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>3. CASE FinishConsumePayload(c2)
           BY <2>0, <2>3, SMT DEF  FinishConsumePayload, ConsumingTerminal,
-           ReadCancellationSettled, ManagedTypeOK, IsLastRelease,
+           ReadCancellationSettled, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK, IsLastRelease,
+          BY <2>0, <2>4, SMT DEF  CancelWaiter, ManagedTypeOK,
            ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>5. CASE RequestReadCancellation(c2)
           BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE CancelWaitingRead(c2)
           BY <2>0, <2>6, SMT DEF  CancelWaitingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>7. CASE CancelParsingRead(c2)
           BY <2>0, <2>7, SMT DEF  CancelParsingRead, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>8. CASE FinishCancelledParse(c2)
           BY <2>0, <2>8, SMT DEF  FinishCancelledParse, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>9. CASE HandoffToDrain(c2)
           BY <2>0, <2>9, SMT DEF  HandoffToDrain, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>10. CASE ConsumeHeader(c2)
           BY <2>0, <2>10, SMT DEF  ConsumeHeader, RingTail, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>11. CASE BeginDisposeCall(c2)
           BY <2>0, <2>11, SMT DEF  BeginDisposeCall, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>12. CASE DisposeCallForChannel(c2)
           BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>13. CASE DrainRelease(c2)
           BY <2>0, <2>13, SMT DEF  DrainRelease, ConsumingTerminal,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>14. CASE FinishDisposeCall(c2)
           BY <2>0, <2>14, SMT DEF  FinishDisposeCall, RingDrained,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>15. CASE SettleCall(c2)
           BY <2>0, <2>15, SMT DEF  SettleCall, RingDrained, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>16. CASE CancelWriterWait(c2)
           BY <2>0, <2>16, SMT DEF  CancelWriterWait, WaitIsHopeless,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>17. CASE WriteDoneCompletes(c2)
           BY <2>0, <2>17, SMT DEF  WriteDoneCompletes, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>18. CASE CloseWriter(c2)
           BY <2>0, <2>18, SMT DEF  CloseWriter, BindingMayDowncall,
-           ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+           ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>19. CASE OnEventReturns(c2)
           BY <2>0, <2>19, SMT DEF  OnEventReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>20. CASE TerminalCallbackReturns(c2)
           BY <2>0, <2>20, SMT DEF  TerminalCallbackReturns, ManagedTypeOK,
-           IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+           ChannelSettled, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
@@ -41038,42 +41664,42 @@ LEMMA CurrentHoldsWhilePending ==
          <2>18, <2>19, <2>20
 <1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+       ChannelSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
     BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
              WriteRefusedBudget(cId, len, charge)
     BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
     BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
     BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ManagedTypeOK, IsLastRelease, ChannelSettled, ManagedStutter, vars,
+       ManagedTypeOK, ChannelSettled, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
              CommitWrite(cId, msg, b)
     BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedTypeOK,
-       IsLastRelease, ChannelSettled, ManagedStutter, vars, l1_vars,
+       ChannelSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, IsLastRelease,
+    BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK,
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
@@ -41096,8 +41722,8 @@ LEMMA FreeRuntimeRootEffect ==
     BY SMT DEF  FreeRuntimeRoot, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
 
-LEMMA AcquireLeaseEffect ==
-    ASSUME NEW chId \in ChannelIds, AcquireLease(chId)
+LEMMA BeginCreateChannelEffect ==
+    ASSUME NEW chId \in ChannelIds, BeginCreateChannel(chId)
     PROVE  /\ UNCHANGED l1_vars
            /\ call_token_published' = call_token_published
            /\ call_root_live' = call_root_live
@@ -41112,7 +41738,7 @@ LEMMA AcquireLeaseEffect ==
            /\ headers_completion' = headers_completion
            /\ status_completion' = status_completion
            /\ call_dispose_state' = call_dispose_state
-    BY SMT DEF  AcquireLease, ManagedRuntimeVars, ManagedCallVars,
+    BY SMT DEF  BeginCreateChannel, ManagedRuntimeVars, ManagedCallVars,
        ReaderVars, WriterVars
 
 LEMMA BeginDisposeChannelEffect ==
@@ -41152,11 +41778,14 @@ LEMMA CreateChannelEffect ==
     BY SMT DEF  CreateChannel, ManagedRuntimeVars, ManagedCallVars,
        ReaderVars, WriterVars
 
-LEMMA FinishDisposeChannelEffect ==
-    ASSUME NEW chId \in ChannelIds, FinishDisposeChannel(chId)
-    PROVE  /\ call_token_published' = call_token_published
+LEMMA DisposeChannelForRuntimeEffect ==
+    ASSUME NEW chId \in ChannelIds, DisposeChannelForRuntime(chId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
            /\ call_root_live' = call_root_live
            /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
            /\ consumer_phase' = consumer_phase
            /\ reader_state' = reader_state
            /\ read_cancel_pending' = read_cancel_pending
@@ -41165,8 +41794,45 @@ LEMMA FinishDisposeChannelEffect ==
            /\ headers_completion' = headers_completion
            /\ status_completion' = status_completion
            /\ call_dispose_state' = call_dispose_state
-    BY SMT DEF  FinishDisposeChannel, ManagedCallVars, ReaderVars,
-       WriterVars, IsLastRelease
+    BY SMT DEF  DisposeChannelForRuntime, BeginDisposeChannel,
+       ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars
+
+LEMMA BeginDisposeRuntimeEffect ==
+    ASSUME NEW rtId \in RuntimeIds, BeginDisposeRuntime(rtId)
+    PROVE  /\ UNCHANGED l1_vars
+           /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ channel_dispose_state' = channel_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  BeginDisposeRuntime, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+
+LEMMA FinishDisposeChannelEffect ==
+    ASSUME NEW chId \in ChannelIds, FinishDisposeChannel(chId)
+    PROVE  /\ call_token_published' = call_token_published
+           /\ call_root_live' = call_root_live
+           /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
+           /\ consumer_phase' = consumer_phase
+           /\ reader_state' = reader_state
+           /\ read_cancel_pending' = read_cancel_pending
+           /\ writer_state' = writer_state
+           /\ retry_len' = retry_len
+           /\ headers_completion' = headers_completion
+           /\ status_completion' = status_completion
+           /\ call_dispose_state' = call_dispose_state
+    BY SMT DEF  FinishDisposeChannel, ManagedRuntimeVars,
+       ManagedCallVars, ReaderVars, WriterVars
 
 LEMMA RejectChannelCreationEffect ==
     ASSUME NEW chId \in ChannelIds, RejectChannelCreation(chId)
@@ -41174,6 +41840,8 @@ LEMMA RejectChannelCreationEffect ==
            /\ call_token_published' = call_token_published
            /\ call_root_live' = call_root_live
            /\ runtime_root_live' = runtime_root_live
+           /\ current_runtime' = current_runtime
+           /\ runtime_dispose_state' = runtime_dispose_state
            /\ consumer_phase' = consumer_phase
            /\ reader_state' = reader_state
            /\ read_cancel_pending' = read_cancel_pending
@@ -41182,8 +41850,8 @@ LEMMA RejectChannelCreationEffect ==
            /\ headers_completion' = headers_completion
            /\ status_completion' = status_completion
            /\ call_dispose_state' = call_dispose_state
-    BY SMT DEF  RejectChannelCreation, ManagedCallVars, ReaderVars,
-       WriterVars, ChannelSettled
+    BY SMT DEF  RejectChannelCreation, ManagedRuntimeVars,
+       ManagedCallVars, ReaderVars, WriterVars
 
 LEMMA ResolveChannelDisposeEffect ==
     ASSUME NEW chId \in ChannelIds, ResolveChannelDispose(chId)
@@ -42386,8 +43054,8 @@ LEMMA ReleasedHoldsWhileDestroying ==
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
        L1!RuntimeHoldsNoReturnedBytes
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -42399,26 +43067,28 @@ LEMMA ReleasedHoldsWhileDestroying ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (L1!IsReleasedRuntime(rtId))'
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
@@ -42442,8 +43112,10 @@ LEMMA ReleasedHoldsWhileDestroying ==
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
            L1!RuntimeHoldsNoReturnedBytes
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
@@ -42451,7 +43123,7 @@ LEMMA ReleasedHoldsWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
@@ -42470,12 +43142,14 @@ LEMMA ReleasedHoldsWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -42483,8 +43157,11 @@ LEMMA ReleasedHoldsWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -42908,8 +43585,8 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
        L1!RuntimeHoldsNoReturnedBytes
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -42921,26 +43598,28 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (~L1!IsShutdownCallbackRunning(rtId))'
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
@@ -42964,8 +43643,10 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
            L1!RuntimeHoldsNoReturnedBytes
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
@@ -42973,7 +43654,7 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
@@ -42992,12 +43673,14 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -43005,8 +43688,11 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -43426,8 +44112,8 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
        L1!RuntimeHoldsNoReturnedBytes
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -43439,17 +44125,19 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (~L1!IsResourcesReleasedCallbackRunning(rtId))'
@@ -43458,9 +44146,9 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
@@ -43484,8 +44172,10 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
            L1!RuntimeHoldsNoReturnedBytes
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
@@ -43493,7 +44183,7 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
@@ -43512,12 +44202,14 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -43527,8 +44219,11 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -43949,8 +44644,8 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
        L1!RuntimeHoldsNoReturnedBytes
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -43962,26 +44657,28 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (L1!NoHostDebt(rtId))'
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
@@ -44005,8 +44702,10 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
            L1!RuntimeHoldsNoReturnedBytes
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
@@ -44014,7 +44713,7 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
@@ -44033,12 +44732,14 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -44046,8 +44747,11 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -44454,8 +45158,8 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
        L1!RuntimeHoldsNoReturnedBytes
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -44467,26 +45171,28 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (L1!RuntimeHoldsNoReturnedBytes(rtId))'
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
@@ -44510,8 +45216,10 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
            L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
            L1!RuntimeHoldsNoReturnedBytes
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, AccountingAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel, L1!IsRuntimeQuiescent, L1!IsReleasedRuntime,
            L1!IsShutdownCallbackRunning,
            L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
@@ -44519,7 +45227,7 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
@@ -44538,12 +45246,14 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
            L1!RuntimeHoldsNoReturnedBytes
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -44551,8 +45261,11 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
                         \/ (runtime_dispose_state = "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -44948,14 +45661,14 @@ LEMMA ProbeQuiescenceStrip ==
 \* The teardown states pin the current runtime and its native face.
 LEMMA SpHasCurrent ==
     ASSUME ManagedIndInv,
-           runtime_dispose_state \in {"shutdown_pending", "destroying"}
+           runtime_dispose_state \in {"disposing", "destroying"}
     PROVE  current_runtime \in RuntimeIds
     BY SMT DEF ManagedIndInv, ManagedMachineInv, LifecycleInv,
        RuntimeManagerCoherent
 
 LEMMA SpRunsOrFails ==
     ASSUME NEW rtId \in RuntimeIds, ManagedIndInv,
-           runtime_dispose_state = "shutdown_pending",
+           runtime_dispose_state = "disposing",
            current_runtime = rtId
     PROVE  \/ runtime_state[rtId] = "RUNNING"
            \/ runtime_state[rtId] = "FAILED_UNQUIESCED"
@@ -45007,8 +45720,9 @@ LEMMA ReleasedSpelled ==
 \* native stop.
 LEMMA BeginShutdownIsEnabled ==
     ASSUME NEW rtId \in RuntimeIds, ManagedIndInv,
-           runtime_dispose_state = "shutdown_pending",
+           runtime_dispose_state = "disposing",
            current_runtime = rtId,
+           EveryChannelSettled,
            runtime_state[rtId] = "RUNNING"
     PROVE  ENABLED <<\E r \in RuntimeIds : BeginRuntimeShutdown(r)>>_vars
 <1>1. ENABLED <<BeginRuntimeShutdown(rtId)>>_vars
@@ -45019,7 +45733,8 @@ LEMMA BeginShutdownIsEnabled ==
        L1!TypeOK, L1!L0!TypeOK, vars, l1_vars, managed_vars, L1!vars,
        L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
+       EveryChannelSettled, ChannelSettled
 <1>2. QED
     BY <1>1, ExpandENABLED, SMT
     DEF BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
@@ -45066,10 +45781,824 @@ LEMMA DestroyReachesDestroyed ==
     PROVE  (runtime_dispose_state = "destroyed")'
     BY DEF FinishDisposeRuntime
 
+\* A channel the runtime still holds leaves "active" only into its
+\* own disposal - by the caller's step or by the sweep, which are the
+\* same step under a further guard.
+LEMMA ActiveChannelLandsOnTheDispose ==
+    ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
+           channel_dispose_state[chId] = "active",
+           [Next]_vars
+    PROVE  \/ (channel_dispose_state[chId] = "active")'
+           \/ (channel_dispose_state[chId] = "disposing")'
+<1> USE DEF  ManagedTypeOK, ChannelSettled,
+       ChannelDisposeMayResolve
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  ManagedTypeOK, ChannelSettled,
+       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
+    BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ BeginCreateChannel(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           BeginCreateChannel(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  \/ (channel_dispose_state[chId] = "active")'
+                        \/ (channel_dispose_state[chId] = "disposing")'
+      BY <1>4
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
+           BeginDisposeChannel
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  \/ (channel_dispose_state[chId] = "active")'
+                        \/ (channel_dispose_state[chId] = "disposing")'
+      BY <1>5
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
+           BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  \/ (channel_dispose_state[chId] = "active")'
+                        \/ (channel_dispose_state[chId] = "disposing")'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, BeginParseEventEffect, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, FinishDisposeCallEffect, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, CancelWriterWaitEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+\* A settled channel stays settled while the sweep runs: the one step
+\* that unsettles one is a creation, and the door is shut.
+LEMMA SettledStaysWhileDisposing ==
+    ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
+           ChannelSettled(chId),
+           runtime_dispose_state = "disposing",
+           [Next]_vars
+    PROVE  (ChannelSettled(chId))'
+<1> USE DEF  ManagedTypeOK, ChannelSettled,
+       ChannelDisposeMayResolve
+<1>0. CASE UNCHANGED vars
+    BY <1>0, SMT DEF  ManagedTypeOK, ChannelSettled,
+       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>1. CASE Passthrough
+    BY <1>1, SMT DEF  Passthrough, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>2. CASE FreeRuntimeRoot
+    BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
+       FreeRuntimeRoot
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
+    BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>4. CASE \E chId \in ChannelIds :
+             \/ BeginCreateChannel(chId)
+             \/ CreateChannel(chId)
+             \/ RejectChannelCreation(chId)
+             \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
+             \/ FinishDisposeChannel(chId)
+             \/ ResolveChannelDispose(chId)
+  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
+                           BeginCreateChannel(ch2)
+                        \/ CreateChannel(ch2)
+                        \/ RejectChannelCreation(ch2)
+                        \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
+                        \/ FinishDisposeChannel(ch2)
+                        \/ ResolveChannelDispose(ch2)
+                 PROVE  (ChannelSettled(chId))'
+      BY <1>4
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
+  <2>2. CASE CreateChannel(ch2)
+          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>3. CASE RejectChannelCreation(ch2)
+          BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
+           RejectChannelCreation
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
+          BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
+           BeginDisposeChannel
+  <2>5. CASE FinishDisposeChannel(ch2)
+          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
+           FinishDisposeChannel, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>6. CASE ResolveChannelDispose(ch2)
+          BY <2>0, <2>6, ResolveChannelDisposeEffect, GlobalAtomsFrozen, SMT DEF
+           ResolveChannelDispose
+  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
+<1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
+             \/ BeginRuntimeShutdown(rtId)
+             \/ FinishDisposeRuntime(rtId)
+             \/ ShutdownReturns(rtId)
+             \/ ResourcesReleasedReturns(rtId)
+  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
+                           BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
+                        \/ FinishDisposeRuntime(r2)
+                        \/ ShutdownReturns(r2)
+                        \/ ResourcesReleasedReturns(r2)
+                 PROVE  (ChannelSettled(chId))'
+      BY <1>5
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
+           BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>2. CASE FinishDisposeRuntime(r2)
+          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
+           FinishDisposeRuntime, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>3. CASE ShutdownReturns(r2)
+          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE ResourcesReleasedReturns(r2)
+          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
+           ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
+<1>6. CASE \E cId \in CallIds :
+             \/ BeginMoveNext(cId)
+             \/ BeginParseEvent(cId)
+             \/ FinishConsumePayload(cId)
+             \/ CancelWaiter(cId)
+             \/ RequestReadCancellation(cId)
+             \/ CancelWaitingRead(cId)
+             \/ CancelParsingRead(cId)
+             \/ FinishCancelledParse(cId)
+             \/ HandoffToDrain(cId)
+             \/ ConsumeHeader(cId)
+             \/ BeginDisposeCall(cId)
+             \/ DisposeCallForChannel(cId)
+             \/ DrainRelease(cId)
+             \/ FinishDisposeCall(cId)
+             \/ SettleCall(cId)
+             \/ CancelWriterWait(cId)
+             \/ WriteDoneCompletes(cId)
+             \/ CloseWriter(cId)
+             \/ OnEventReturns(cId)
+             \/ TerminalCallbackReturns(cId)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
+                           BeginMoveNext(c2)
+                        \/ BeginParseEvent(c2)
+                        \/ FinishConsumePayload(c2)
+                        \/ CancelWaiter(c2)
+                        \/ RequestReadCancellation(c2)
+                        \/ CancelWaitingRead(c2)
+                        \/ CancelParsingRead(c2)
+                        \/ FinishCancelledParse(c2)
+                        \/ HandoffToDrain(c2)
+                        \/ ConsumeHeader(c2)
+                        \/ BeginDisposeCall(c2)
+                        \/ DisposeCallForChannel(c2)
+                        \/ DrainRelease(c2)
+                        \/ FinishDisposeCall(c2)
+                        \/ SettleCall(c2)
+                        \/ CancelWriterWait(c2)
+                        \/ WriteDoneCompletes(c2)
+                        \/ CloseWriter(c2)
+                        \/ OnEventReturns(c2)
+                        \/ TerminalCallbackReturns(c2)
+                 PROVE  (ChannelSettled(chId))'
+      BY <1>6
+  <2>1. CASE BeginMoveNext(c2)
+          BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
+           BeginMoveNext
+  <2>2. CASE BeginParseEvent(c2)
+          BY <2>0, <2>2, BeginParseEventEffect, GlobalAtomsFrozen, SMT DEF
+           BeginParseEvent
+  <2>3. CASE FinishConsumePayload(c2)
+          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
+           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>4. CASE CancelWaiter(c2)
+          BY <2>0, <2>4, CancelWaiterEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWaiter
+  <2>5. CASE RequestReadCancellation(c2)
+          BY <2>0, <2>5, RequestReadCancellationEffect, GlobalAtomsFrozen, SMT DEF
+           RequestReadCancellation
+  <2>6. CASE CancelWaitingRead(c2)
+          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>7. CASE CancelParsingRead(c2)
+          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>8. CASE FinishCancelledParse(c2)
+          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
+           FinishCancelledParse, ConsumingTerminal, ManagedStutter, vars,
+           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>9. CASE HandoffToDrain(c2)
+          BY <2>0, <2>9, HandoffToDrainEffect, GlobalAtomsFrozen, SMT DEF
+           HandoffToDrain
+  <2>10. CASE ConsumeHeader(c2)
+          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
+           RingTail, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>11. CASE BeginDisposeCall(c2)
+          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>12. CASE DisposeCallForChannel(c2)
+          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>13. CASE DrainRelease(c2)
+          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
+           ConsumingTerminal, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>14. CASE FinishDisposeCall(c2)
+          BY <2>0, <2>14, FinishDisposeCallEffect, GlobalAtomsFrozen, SMT DEF
+           FinishDisposeCall
+  <2>15. CASE SettleCall(c2)
+          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>16. CASE CancelWriterWait(c2)
+          BY <2>0, <2>16, CancelWriterWaitEffect, GlobalAtomsFrozen, SMT DEF
+           CancelWriterWait
+  <2>17. CASE WriteDoneCompletes(c2)
+          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
+           WriteDoneCompletes, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>18. CASE CloseWriter(c2)
+          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
+           BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
+           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+           ReaderVars, WriterVars
+  <2>19. CASE OnEventReturns(c2)
+          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
+           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>20. CASE TerminalCallbackReturns(c2)
+          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
+           TerminalCallbackReturns, ManagedStutter, vars, l1_vars,
+           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+           ManagedCallVars, ReaderVars, WriterVars
+  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
+         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
+         <2>18, <2>19, <2>20
+<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
+    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>8. CASE \E cId \in CallIds, b \in BufferIds,
+           len \in L1!Sizes, charge \in L1!Sizes :
+             WriteLendSucceeds(cId, b, len, charge)
+    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
+             WriteRefusedBudget(cId, len, charge)
+    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
+             WriteRefusedTooLarge(cId, len)
+    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
+             RetryLendSucceeds(cId, b, charge)
+    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
+             CommitWrite(cId, msg, b)
+    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
+<1>q. QED
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+
+LEMMA NotDisposingSplits ==
+    runtime_dispose_state # "disposing"
+        <=> ~(runtime_dispose_state = "disposing")
+    OBVIOUS
+
+LEMMA EveryChannelSettledSpelled ==
+    EveryChannelSettled <=> (\A c \in ChannelIds : ChannelSettled(c))
+    BY DEF EveryChannelSettled
+
+\* The sweep, and what it reads.  The runtime cannot leave the sweep
+\* behind: the shutdown's guard is every channel settled, so from
+\* "disposing" the only exit is the destroy, and it has swept first.
+LEMMA SweptBeforeTheDestroy ==
+    ASSUME NEW chId \in ChannelIds, ManagedIndInv,
+           runtime_dispose_state = "destroying"
+    PROVE  ChannelSettled(chId)
+    BY SMT DEF ManagedIndInv, ManagedMachineInv, LifecycleInv,
+       NoRuntimeShutdownWhileChannelsLive, EveryChannelSettled
+
+LEMMA DisposingLeavesOnlyToDestroying ==
+    ASSUME ManagedIndInv, ManagedTypeOK,
+           runtime_dispose_state = "disposing",
+           [Next]_vars
+    PROVE  \/ (runtime_dispose_state = "disposing")'
+           \/ (runtime_dispose_state = "destroying")'
+<1>1. current_runtime \in RuntimeIds
+    BY SpHasCurrent
+<1>2. PICK rtId \in RuntimeIds : current_runtime = rtId
+    BY <1>1
+<1>3. QED
+    BY <1>2, CurrentHoldsWhilePending
+
+\* An unsettled channel is one of the three in-flight states, which is
+\* what makes the rungs below exhaustive.
+LEMMA UnsettledChannelIsInFlight ==
+    ASSUME NEW chId \in ChannelIds, ManagedTypeOK, ~ChannelSettled(chId)
+    PROVE  \/ channel_dispose_state[chId] = "constructing"
+           \/ channel_dispose_state[chId] = "active"
+           \/ channel_dispose_state[chId] = "disposing"
+    BY SMT DEF ManagedTypeOK, ChannelSettled, ChannelDisposeStates
+
+LEMMA RejectedIsSettled ==
+    ASSUME NEW chId, channel_dispose_state[chId] = "rejected"
+    PROVE  ChannelSettled(chId)
+    BY DEF ChannelSettled
+
+\* The sweep is enabled on a channel the runtime still holds, and it
+\* lands that channel in its own disposal.
+LEMMA SweepIsEnabled ==
+    ASSUME NEW chId \in ChannelIds, ManagedTypeOK,
+           runtime_dispose_state = "disposing",
+           channel_dispose_state[chId] = "active"
+    PROVE  ENABLED <<DisposeChannelForRuntime(chId)>>_vars
+    BY ExpandENABLED, SMT
+    DEF DisposeChannelForRuntime, BeginDisposeChannel, ManagedTypeOK,
+       vars, l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
+
+LEMMA SweepReachesTheDispose ==
+    ASSUME NEW chId \in ChannelIds, ManagedTypeOK,
+           <<DisposeChannelForRuntime(chId)>>_vars
+    PROVE  (channel_dispose_state[chId] = "disposing")'
+    BY SMT DEF DisposeChannelForRuntime, BeginDisposeChannel, ManagedTypeOK
+
+\* One channel, swept: from a runtime that began disposing, this channel
+\* reaches a settled state - unless the runtime left the sweep behind,
+\* which it can only do having swept, or unless the native side failed.
+THEOREM ChannelSweptWhileDisposing ==
+    ASSUME NEW chId \in ChannelIds, Spec
+    PROVE  [](runtime_dispose_state = "disposing"
+                  => <>(\/ ChannelSettled(chId)
+                        \/ runtime_dispose_state # "disposing"
+                        \/ ~L1!L0!NotFailed))
+<1>1. /\ []ManagedIndInv
+      /\ [][Next]_vars
+    BY ManagedIndInvHolds, PTL DEF Spec
+<1>2. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+<1>3. WF_vars(DisposeChannelForRuntime(chId))
+    BY Isa DEF Spec, Fairness, BindingOwedFairness
+\* The construction answers, and both answers are states the sweep can
+\* read: a refusal is settled outright, an exposure is what it takes.
+<1>4. [](channel_dispose_state[chId] = "constructing"
+             => <>(\/ channel_dispose_state[chId] = "active"
+                   \/ ChannelSettled(chId)
+                   \/ ~L1!L0!NotFailed))
+  <2>1. ChannelConstructionCompletes
+      BY ChannelConstructionCompletesHolds, Zenon
+  <2>2. channel_dispose_state[chId] = "constructing" ~>
+            ChannelIsAnswered(chId)
+      BY <2>1, Isa DEF ChannelConstructionCompletes
+  <2>3. [](channel_dispose_state[chId] = "rejected"
+               => ChannelSettled(chId))
+      BY RejectedIsSettled, PTL
+  <2>4. QED
+      BY <2>2, <2>3, PTL DEF ChannelIsAnswered
+\* The channel's own disposal settles it, which is the promise one level
+\* down and the whole of what the sweep delegates to.
+<1>5. [](channel_dispose_state[chId] = "disposing"
+             => <>(ChannelSettled(chId) \/ ~L1!L0!NotFailed))
+  <2>1. ChannelHandleEventuallyReleased
+      BY ChannelHandleEventuallyReleasedHolds, Zenon
+  <2>2. channel_dispose_state[chId] = "disposing" ~>
+            (ChannelSettled(chId) \/ ~L1!L0!NotFailed)
+      BY <2>1, Isa DEF ChannelHandleEventuallyReleased
+  <2>3. QED
+      BY <2>2, PTL
+<1>6. [](chId \in ChannelIds /\ ManagedTypeOK
+             /\ runtime_dispose_state = "disposing"
+             /\ channel_dispose_state[chId] = "active"
+             => ENABLED <<DisposeChannelForRuntime(chId)>>_vars)
+    BY SweepIsEnabled, PTL
+<1>7. [](chId \in ChannelIds /\ ManagedTypeOK
+             /\ <<DisposeChannelForRuntime(chId)>>_vars
+             => (channel_dispose_state[chId] = "disposing")')
+    BY SweepReachesTheDispose, PTL
+<1>8. [](chId \in ChannelIds /\ ManagedTypeOK
+             /\ channel_dispose_state[chId] = "active" /\ [Next]_vars
+             => \/ (channel_dispose_state[chId] = "active")'
+                \/ (channel_dispose_state[chId] = "disposing")')
+    BY ActiveChannelLandsOnTheDispose, PTL
+<1>9. [](ManagedIndInv /\ ManagedTypeOK
+             /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+             => \/ (runtime_dispose_state = "disposing")'
+                \/ (runtime_dispose_state = "destroying")')
+    BY DisposingLeavesOnlyToDestroying, PTL
+<1>10. [](chId \in ChannelIds /\ ManagedIndInv
+              /\ runtime_dispose_state = "destroying"
+              => ChannelSettled(chId))
+    BY SweptBeforeTheDestroy, PTL
+<1>11. [](chId \in ChannelIds /\ ManagedTypeOK /\ ~ChannelSettled(chId)
+              => \/ channel_dispose_state[chId] = "constructing"
+                 \/ channel_dispose_state[chId] = "active"
+                 \/ channel_dispose_state[chId] = "disposing")
+    BY UnsettledChannelIsInFlight, PTL
+<1>12. [](runtime_dispose_state # "disposing"
+              <=> ~(runtime_dispose_state = "disposing"))
+    BY NotDisposingSplits, PTL
+<1>13. QED
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10,
+       <1>11, <1>12, PTL
+
+\* The join over the finite ChannelIds, one channel at a time.
+LEMMA SweptJoins ==
+    ASSUME NEW T, NEW chId
+    PROVE  (\A c \in T \union {chId} : ChannelSettled(c))
+               <=> /\ (\A c \in T : ChannelSettled(c))
+                   /\ ChannelSettled(chId)
+    OBVIOUS
+
+LEMMA NothingUnsettledInTheEmptySet ==
+    \A c \in {} : ChannelSettled(c)
+    OBVIOUS
+
+LEMMA SettledSetStaysWhileDisposing ==
+    ASSUME NEW T, T \subseteq ChannelIds, ManagedTypeOK,
+           \A c \in T : ChannelSettled(c),
+           runtime_dispose_state = "disposing",
+           [Next]_vars
+    PROVE  (\A c \in T : ChannelSettled(c))'
+<1>1. ASSUME NEW c \in T PROVE (ChannelSettled(c))'
+    BY <1>1, SettledStaysWhileDisposing
+<1>2. QED BY <1>1
+
+\* The two stabilities under a box, put there where the context holds
+\* nothing but constants: a theorem with a parameter is instantiated
+\* before it can be necessitated, and inside the induction below there is
+\* no point at which that has happened.
+LEMMA SettledStaysBoxed ==
+    ASSUME NEW chId
+    PROVE  [](chId \in ChannelIds /\ ManagedTypeOK /\ ChannelSettled(chId)
+                  /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+                  => (ChannelSettled(chId))')
+<1>1. chId \in ChannelIds /\ ManagedTypeOK /\ ChannelSettled(chId)
+          /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+          => (ChannelSettled(chId))'
+    BY SettledStaysWhileDisposing
+<1>2. QED BY <1>1, PTL
+
+LEMMA SettledSetStaysBoxed ==
+    ASSUME NEW T
+    PROVE  [](T \in SUBSET ChannelIds /\ ManagedTypeOK
+                  /\ (\A c \in T : ChannelSettled(c))
+                  /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+                  => (\A c \in T : ChannelSettled(c))')
+<1>1. T \in SUBSET ChannelIds /\ ManagedTypeOK
+          /\ (\A c \in T : ChannelSettled(c))
+          /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+          => (\A c \in T : ChannelSettled(c))'
+    BY SettledSetStaysWhileDisposing
+<1>2. QED BY <1>1, PTL
+
+LEMMA EveryChannelStaysSettledWhileDisposing ==
+    ASSUME ManagedTypeOK, EveryChannelSettled,
+           runtime_dispose_state = "disposing",
+           [Next]_vars
+    PROVE  (EveryChannelSettled)'
+<1>1. ASSUME NEW c \in ChannelIds PROVE (ChannelSettled(c))'
+    BY <1>1, SettledStaysWhileDisposing DEF EveryChannelSettled
+<1>2. QED BY <1>1 DEF EveryChannelSettled
+
+\* The sweep completes: every channel the runtime holds is settled, or
+\* the runtime already left the sweep - which it does only having swept.
+THEOREM SweepReachesEveryChannel ==
+    Spec => [](runtime_dispose_state = "disposing"
+                   => <>(\/ EveryChannelSettled
+                         \/ runtime_dispose_state # "disposing"
+                         \/ ~L1!L0!NotFailed))
+<1>0. SUFFICES ASSUME Spec
+               PROVE  [](runtime_dispose_state = "disposing"
+                             => <>(\/ EveryChannelSettled
+                                   \/ runtime_dispose_state # "disposing"
+                                   \/ ~L1!L0!NotFailed))
+    OBVIOUS
+<1>1. /\ []ManagedIndInv
+      /\ [][Next]_vars
+    BY <1>0, ManagedIndInvHolds, PTL DEF Spec
+<1>2. []ManagedTypeOK /\ []L1!TypeOK
+    BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
+<1>3. [](ManagedTypeOK /\ L1!TypeOK /\ ~L1!L0!NotFailed /\ [Next]_vars
+             => (~L1!L0!NotFailed)')
+    BY UnfailedStickyHere, PTL
+<1>3b. [](runtime_dispose_state # "disposing"
+               <=> ~(runtime_dispose_state = "disposing"))
+    BY NotDisposingSplits, PTL
+<1>4. DEFINE P(S) ==
+          [](runtime_dispose_state = "disposing"
+                 => <>(\/ (\A c \in S : ChannelSettled(c))
+                       \/ runtime_dispose_state # "disposing"
+                       \/ ~L1!L0!NotFailed))
+<1>5. P({})
+  <2>1. [](\A c \in {} : ChannelSettled(c))
+    BY NothingUnsettledInTheEmptySet, PTL
+  <2>2. QED BY <2>1, PTL
+<1>6. ASSUME NEW T \in SUBSET ChannelIds, IsFiniteSet(T), P(T),
+             NEW chId \in ChannelIds \ T
+      PROVE  P(T \union {chId})
+  <2>0. chId \in ChannelIds
+      BY <1>6
+  <2>1. [](runtime_dispose_state = "disposing"
+               => <>(\/ ChannelSettled(chId)
+                     \/ runtime_dispose_state # "disposing"
+                     \/ ~L1!L0!NotFailed))
+      BY <1>0, <2>0, ChannelSweptWhileDisposing
+  <2>2. [](T \in SUBSET ChannelIds /\ ManagedTypeOK
+               /\ (\A c \in T : ChannelSettled(c))
+               /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+               => (\A c \in T : ChannelSettled(c))')
+      BY SettledSetStaysBoxed
+  <2>3. [](chId \in ChannelIds /\ ManagedTypeOK /\ ChannelSettled(chId)
+               /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+               => (ChannelSettled(chId))')
+      BY SettledStaysBoxed
+  <2>4. []((\A c \in T \union {chId} : ChannelSettled(c))
+               <=> /\ (\A c \in T : ChannelSettled(c))
+                   /\ ChannelSettled(chId))
+      BY SweptJoins, PTL
+  <2>5. QED
+      BY <1>1, <1>2, <1>3, <1>3b, <1>6, <2>1, <2>2, <2>3, <2>4, PTL
+<1>7. HIDE DEF P
+<1>8. P(ChannelIds)
+    BY <1>5, <1>6, FS_Induction, FiniteChannelIds, IsaT(600)
+<1>9. [](EveryChannelSettled
+              <=> (\A c \in ChannelIds : ChannelSettled(c)))
+    BY EveryChannelSettledSpelled, PTL
+<1>10. QED
+    BY <1>8, <1>9, PTL DEF P
+
 \* The atoms of the teardown states and the empty current.
 LEMMA TeardownSplits ==
-    runtime_dispose_state \in {"shutdown_pending", "destroying"}
-        <=> \/ runtime_dispose_state = "shutdown_pending"
+    runtime_dispose_state \in {"disposing", "destroying"}
+        <=> \/ runtime_dispose_state = "disposing"
             \/ runtime_dispose_state = "destroying"
     OBVIOUS
 
@@ -45148,8 +46677,12 @@ THEOREM TeardownRungAt ==
            /\ (L1!L0!ShutdownWaiting(rtId) ~> L1!L0!ShutdownSettled(rtId))
            /\ (L1!IsReleasedRuntime(rtId) ~>
                    (L1!IsRuntimeQuiescent(rtId) \/ ~L1!L0!NotFailed))
+           /\ [](runtime_dispose_state = "disposing"
+                     => <>(\/ EveryChannelSettled
+                           \/ runtime_dispose_state # "disposing"
+                           \/ ~L1!L0!NotFailed))
            => [](runtime_dispose_state
-                     \in {"shutdown_pending", "destroying"}
+                     \in {"disposing", "destroying"}
                  /\ current_runtime = rtId
                  => <>(\/ runtime_dispose_state = "destroyed"
                        \/ ~L1!L0!NotFailed))
@@ -45158,33 +46691,52 @@ THEOREM TeardownRungAt ==
              WF_vars(\E r \in RuntimeIds : FinishDisposeRuntime(r)),
              L1!L0!ShutdownWaiting(rtId) ~> L1!L0!ShutdownSettled(rtId),
              L1!IsReleasedRuntime(rtId) ~>
-                 (L1!IsRuntimeQuiescent(rtId) \/ ~L1!L0!NotFailed)
+                 (L1!IsRuntimeQuiescent(rtId) \/ ~L1!L0!NotFailed),
+             [](runtime_dispose_state = "disposing"
+                    => <>(\/ EveryChannelSettled
+                          \/ runtime_dispose_state # "disposing"
+                          \/ ~L1!L0!NotFailed))
       PROVE  [](runtime_dispose_state
-                    \in {"shutdown_pending", "destroying"}
+                    \in {"disposing", "destroying"}
                 /\ current_runtime = rtId
                 => <>(\/ runtime_dispose_state = "destroyed"
                       \/ ~L1!L0!NotFailed))
   <2>t. []ManagedTypeOK /\ []L1!TypeOK
     BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
-  <2>1. [](ManagedIndInv /\ runtime_dispose_state = "shutdown_pending"
+  <2>1. [](ManagedIndInv /\ runtime_dispose_state = "disposing"
                /\ current_runtime = rtId
                => \/ runtime_state[rtId] = "RUNNING"
                   \/ runtime_state[rtId] = "FAILED_UNQUIESCED")
     BY SpRunsOrFails, PTL
   <2>2. [](rtId \in RuntimeIds /\ ManagedIndInv
-               /\ runtime_dispose_state = "shutdown_pending"
+               /\ runtime_dispose_state = "disposing"
                /\ current_runtime = rtId
+               /\ EveryChannelSettled
                /\ runtime_state[rtId] = "RUNNING"
                => ENABLED <<\E r \in RuntimeIds :
                                 BeginRuntimeShutdown(r)>>_vars)
     BY BeginShutdownIsEnabled, PTL
+  <2>2a. [](ManagedTypeOK /\ EveryChannelSettled
+                /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+                => (EveryChannelSettled)')
+    <3>1. ManagedTypeOK /\ EveryChannelSettled
+              /\ runtime_dispose_state = "disposing" /\ [Next]_vars
+              => (EveryChannelSettled)'
+        BY EveryChannelStaysSettledWhileDisposing
+    <3>2. QED BY <3>1, PTL
+  <2>2b. [](runtime_dispose_state # "disposing"
+                <=> ~(runtime_dispose_state = "disposing"))
+    <3>1. runtime_dispose_state # "disposing"
+              <=> ~(runtime_dispose_state = "disposing")
+        OBVIOUS
+    <3>2. QED BY <3>1, PTL
   <2>3. [](<<\E r \in RuntimeIds : BeginRuntimeShutdown(r)>>_vars
                => (runtime_dispose_state = "destroying")')
     BY BeginShutdownReachesDestroying, PTL
   <2>4. [](rtId \in RuntimeIds /\ ManagedIndInv /\ ManagedTypeOK
-               /\ runtime_dispose_state = "shutdown_pending"
+               /\ runtime_dispose_state = "disposing"
                /\ current_runtime = rtId /\ [Next]_vars
-               => \/ /\ (runtime_dispose_state = "shutdown_pending")'
+               => \/ /\ (runtime_dispose_state = "disposing")'
                      /\ (current_runtime = rtId)'
                   \/ /\ (runtime_dispose_state = "destroying")'
                      /\ (current_runtime = rtId)')
@@ -45239,24 +46791,24 @@ THEOREM TeardownRungAt ==
   <2>13. [](ManagedTypeOK /\ L1!TypeOK /\ ~L1!L0!NotFailed /\ [Next]_vars
                 => (~L1!L0!NotFailed)')
     BY UnfailedStickyHere, PTL
-  <2>14. [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
-                <=> \/ runtime_dispose_state = "shutdown_pending"
+  <2>14. [](runtime_dispose_state \in {"disposing", "destroying"}
+                <=> \/ runtime_dispose_state = "disposing"
                     \/ runtime_dispose_state = "destroying")
     BY TeardownSplits, PTL
   <2>z. QED
-    BY <1>1, <2>t, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9,
-       <2>10, <2>11, <2>12, <2>13, <2>14, PTL
+    BY <1>1, <2>t, <2>1, <2>2, <2>2a, <2>2b, <2>3, <2>4, <2>5, <2>6, <2>7,
+       <2>8, <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, PTL
 <1>2. QED BY <1>1, PTL
 
 \* The teardown's first half: a teardown that began reaches the destroy,
 \* by cases on the current runtime over the finite RuntimeIds.
 THEOREM RuntimeReachesDestroyed ==
-    Spec => [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
+    Spec => [](runtime_dispose_state \in {"disposing", "destroying"}
                    => <>(\/ runtime_dispose_state = "destroyed"
                          \/ ~L1!L0!NotFailed))
 <1>0. SUFFICES ASSUME Spec
                PROVE  [](runtime_dispose_state
-                             \in {"shutdown_pending", "destroying"}
+                             \in {"disposing", "destroying"}
                              => <>(\/ runtime_dispose_state = "destroyed"
                                    \/ ~L1!L0!NotFailed))
     OBVIOUS
@@ -45266,8 +46818,14 @@ THEOREM RuntimeReachesDestroyed ==
 <1>2. /\ WF_vars(\E rtId \in RuntimeIds : BeginRuntimeShutdown(rtId))
       /\ WF_vars(\E rtId \in RuntimeIds : FinishDisposeRuntime(rtId))
     BY <1>0, Isa DEF Spec, Fairness, BindingOwedFairness
+\* What the shutdown waits for: the sweep, joined over every channel.
+<1>2b. [](runtime_dispose_state = "disposing"
+              => <>(\/ EveryChannelSettled
+                    \/ runtime_dispose_state # "disposing"
+                    \/ ~L1!L0!NotFailed))
+    BY <1>0, SweepReachesEveryChannel
 <1>3. DEFINE P(S) ==
-          [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
+          [](runtime_dispose_state \in {"disposing", "destroying"}
                  /\ current_runtime \in S
                  => <>(\/ runtime_dispose_state = "destroyed"
                        \/ ~L1!L0!NotFailed))
@@ -45290,11 +46848,11 @@ THEOREM RuntimeReachesDestroyed ==
   <2>2. L1!IsReleasedRuntime(rtId) ~>
             (L1!IsRuntimeQuiescent(rtId) \/ ~L1!L0!NotFailed)
     BY <1>0, <2>0, ProbeQuiescenceStrip, IsaT(600)
-  <2>3. [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
+  <2>3. [](runtime_dispose_state \in {"disposing", "destroying"}
                /\ current_runtime = rtId
                => <>(\/ runtime_dispose_state = "destroyed"
                      \/ ~L1!L0!NotFailed))
-    BY <1>1, <1>2, <2>0, <2>1, <2>2, TeardownRungAt, IsaT(600)
+    BY <1>1, <1>2, <1>2b, <2>0, <2>1, <2>2, TeardownRungAt, IsaT(600)
   <2>4. [](current_runtime \in T \union {rtId}
                <=> current_runtime \in T \/ current_runtime = rtId)
     BY CurrentJoins, PTL
@@ -45302,14 +46860,14 @@ THEOREM RuntimeReachesDestroyed ==
 <1>6. HIDE DEF P
 <1>7. P(RuntimeIds)
     BY <1>4, <1>5, FS_Induction, FiniteRuntimeIds, IsaT(600)
-<1>8. [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
+<1>8. [](runtime_dispose_state \in {"disposing", "destroying"}
              /\ current_runtime \in RuntimeIds
              => <>(\/ runtime_dispose_state = "destroyed"
                    \/ ~L1!L0!NotFailed))
     BY <1>7 DEF P
 <1>9. [](ManagedIndInv
              /\ runtime_dispose_state
-                    \in {"shutdown_pending", "destroying"}
+                    \in {"disposing", "destroying"}
              => current_runtime \in RuntimeIds)
     BY SpHasCurrent, PTL
 <1>10. QED
@@ -46520,34 +48078,36 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (~L1!IsDeliveryCallbackRunning(cId))'
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
@@ -46558,12 +48118,14 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -46574,12 +48136,14 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -46587,8 +48151,11 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -46874,34 +48441,36 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (~L1!IsWriteDoneCallbackRunning(cId))'
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
@@ -46912,12 +48481,14 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, CallAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -46928,12 +48499,14 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -46941,8 +48514,11 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -47228,34 +48804,36 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (~L1!IsShutdownCallbackRunning(rtId))'
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
@@ -47266,12 +48844,14 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -47282,12 +48862,14 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -47295,8 +48877,11 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -47586,25 +49171,27 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ /\ (~L1!IsResourcesReleasedCallbackRunning(rtId))'
@@ -47612,9 +49199,9 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
@@ -47625,12 +49212,14 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -47641,12 +49230,14 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
@@ -47655,8 +49246,11 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
                         \/ (runtime_dispose_state # "destroyed")'
                         \/ (~L1!L0!NotFailed)'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -47903,12 +49497,12 @@ LEMMA ResourcesArmingEmits ==
            [Next]_vars
     PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
 <1> USE DEF  ManagedTypeOK, L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
+       L1!IsResourcesReleasedEmitted, ChannelSettled,
        L1!TypeOK, L1!L0!TypeOK
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK,
        L1!IsResourcesReleasedCallbackRunning,
-       L1!IsResourcesReleasedEmitted, IsLastRelease, ChannelSettled,
+       L1!IsResourcesReleasedEmitted, ChannelSettled,
        L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars, L1!vars, L1!ffi_vars,
@@ -47919,32 +49513,34 @@ LEMMA ResourcesArmingEmits ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
@@ -47955,12 +49551,14 @@ LEMMA ResourcesArmingEmits ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -47971,19 +49569,24 @@ LEMMA ResourcesArmingEmits ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  (L1!IsResourcesReleasedEmitted(rtId))'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -48227,11 +49830,11 @@ LEMMA ResourcesEmittedIsALatch ==
            [Next]_vars
     PROVE  \/ (L1!IsResourcesReleasedEmitted(rtId))'
            \/ (runtime_dispose_state # "destroyed")'
-<1> USE DEF  ManagedTypeOK, L1!IsResourcesReleasedEmitted, IsLastRelease,
+<1> USE DEF  ManagedTypeOK, L1!IsResourcesReleasedEmitted,
        ChannelSettled, L1!TypeOK, L1!L0!TypeOK
 <1>0. CASE UNCHANGED vars
     BY <1>0, SMT DEF  ManagedTypeOK, L1!IsResourcesReleasedEmitted,
-       IsLastRelease, ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
+       ChannelSettled, L1!TypeOK, L1!L0!TypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
        L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -48241,33 +49844,35 @@ LEMMA ResourcesEmittedIsALatch ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
        L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (L1!IsResourcesReleasedEmitted(rtId))'
                         \/ (runtime_dispose_state # "destroyed")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
@@ -48278,12 +49883,14 @@ LEMMA ResourcesEmittedIsALatch ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
+           FinishDisposeChannel, L1!ChannelStartClosing,
            L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
            L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
@@ -48294,20 +49901,25 @@ LEMMA ResourcesEmittedIsALatch ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (L1!IsResourcesReleasedEmitted(rtId))'
                         \/ (runtime_dispose_state # "destroyed")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
            L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
            L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
@@ -48989,490 +50601,16 @@ LEMMA RuntimeStepsFreezeTheLatch ==
        <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, Zenon
     DEF RuntimeSteps
 
-\* The last-holder invariant reads only managed state and the latch, and
-\* one passthrough moves neither.
-LEMMA PassthroughHoldsTheLastHolder ==
-    ASSUME NEW chId, chId \in ChannelIds,
-           LastHolderAwaitsItsRuntime,
-           Passthrough
-    PROVE  (channel_dispose_state[chId] = "released_last"
-                => /\ channel_runtime[chId] \in RuntimeIds
-                   /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                           /\ channel_runtime[chId] = current_runtime
-                           /\ runtime_dispose_state \in {"shutdown_pending",
-                                                         "destroying"}))'
-<1>0. CASE BindingDowncalls
-    BY <1>0, SMT
-    DEF Passthrough, ManagedStutter, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
-       BindingDowncalls, BindingMayDowncall, L1!RequestCallCancellation,
-       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-       L1!L0!CallVars,
-       LastHolderAwaitsItsRuntime, L1!IsRuntimeDestroyed
-<1>1. CASE RuntimeSteps
-  <2>1. UNCHANGED <<channel_runtime, runtime_destroyed>>
-      BY <1>1, RuntimeStepsFreezeTheLatch
-  <2>2. QED
-      BY <2>1, SMT
-      DEF Passthrough, ManagedStutter, managed_vars, ManagedRuntimeVars,
-         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
-         LastHolderAwaitsItsRuntime, L1!IsRuntimeDestroyed
-<1>q. QED
-    BY <1>0, <1>1, Zenon DEF Passthrough
-
-\* A released-last channel whose runtime is destroyed keeps both.
-LEMMA PassthroughCarriesTheDestroy ==
-    ASSUME NEW chId, chId \in ChannelIds,
-           channel_dispose_state[chId] = "released_last",
-           L1!IsRuntimeDestroyed(channel_runtime[chId]),
-           Passthrough
-    PROVE  /\ (channel_dispose_state[chId] = "released_last")'
-           /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-<1>0. CASE BindingDowncalls
-    BY <1>0, SMT
-    DEF Passthrough, ManagedStutter, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
-       BindingDowncalls, BindingMayDowncall, L1!RequestCallCancellation,
-       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-       L1!L0!CallVars,
-       L1!IsRuntimeDestroyed
-<1>1. CASE RuntimeSteps
-  <2>1. UNCHANGED <<channel_runtime, runtime_destroyed>>
-      BY <1>1, RuntimeStepsFreezeTheLatch
-  <2>2. QED
-      BY <2>1, SMT
-      DEF Passthrough, ManagedStutter, managed_vars, ManagedRuntimeVars,
-         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
-         L1!IsRuntimeDestroyed
-<1>q. QED
-    BY <1>0, <1>1, Zenon DEF Passthrough
-
-LEMMA LastHolderPreserved ==
-    ASSUME NEW chId, chId \in ChannelIds, ManagedIndInv,
-           LastHolderAwaitsItsRuntime,
-           [Next]_vars
-    PROVE  (channel_dispose_state[chId] = "released_last"
-                => /\ channel_runtime[chId] \in RuntimeIds
-                   /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                           /\ channel_runtime[chId] = current_runtime
-                           /\ runtime_dispose_state \in {"shutdown_pending",
-                                                         "destroying"}))'
-<1> USE DEF  LastHolderAwaitsItsRuntime, ManagedIndInv, ManagedTypeOK,
-       L1!IsRuntimeDestroyed, IsLastRelease, ChannelSettled, L1!TypeOK,
-       L1!L0!TypeOK
-<1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  LastHolderAwaitsItsRuntime, ManagedIndInv,
-       ManagedTypeOK, L1!IsRuntimeDestroyed, IsLastRelease,
-       ChannelSettled, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars, L1!vars, L1!ffi_vars,
-       L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-       L1!L0!CallVars
-<1>1. CASE Passthrough
-    BY <1>1, PassthroughHoldsTheLastHolder, Zenon
-<1>2. CASE FreeRuntimeRoot
-    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-       FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
-       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
-             \/ CreateChannel(chId)
-             \/ RejectChannelCreation(chId)
-             \/ BeginDisposeChannel(chId)
-             \/ FinishDisposeChannel(chId)
-             \/ ResolveChannelDispose(chId)
-  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
-                        \/ CreateChannel(ch2)
-                        \/ RejectChannelCreation(ch2)
-                        \/ BeginDisposeChannel(ch2)
-                        \/ FinishDisposeChannel(ch2)
-                        \/ ResolveChannelDispose(ch2)
-                 PROVE  (channel_dispose_state[chId] = "released_last"
-                             => /\ channel_runtime[chId] \in RuntimeIds
-                                /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                                        /\ channel_runtime[chId] = current_runtime
-                                        /\ runtime_dispose_state \in {"shutdown_pending",
-                                                                      "destroying"}))'
-      BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
-  <2>2. CASE CreateChannel(ch2)
-    <3>a. CASE chId = ch2
-      <4>1. (channel_dispose_state[chId])' = "active"
-          BY <2>0, <2>2, <3>a, SMT
-          DEF CreateChannel, ManagedIndInv, ManagedTypeOK
-      <4>2. QED
-          BY <4>1, SMT
-    <3>b. CASE chId # ch2
-      <4>1. /\ (channel_dispose_state[chId])'
-                 = channel_dispose_state[chId]
-            /\ (channel_runtime[chId])' = channel_runtime[chId]
-            /\ (runtime_destroyed)' = runtime_destroyed
-            /\ (current_runtime)' = current_runtime
-            /\ (runtime_dispose_state)' = runtime_dispose_state
-          BY <2>0, <2>2, <3>b, SMT
-          DEF CreateChannel, L1!ChannelCreate, L1!L0!ChannelCreate,
-             ManagedIndInv, L1!IndInv,
-             ManagedRuntimeVars, L1!ffi_vars,
-             L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars,
-             ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK
-      <4>2. QED
-          BY <4>1, SMT
-          DEF LastHolderAwaitsItsRuntime, L1!IsRuntimeDestroyed
-    <3>q. QED
-        BY <3>a, <3>b, Zenon
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           BeginDisposeChannel
-  <2>5. CASE FinishDisposeChannel(ch2)
-    <3>a. CASE chId = ch2
-      <4>1. /\ channel_runtime[chId] = current_runtime
-            /\ current_runtime \in RuntimeIds
-            /\ (channel_runtime[chId])' = channel_runtime[chId]
-            /\ (current_runtime)' = current_runtime
-            /\ (runtime_destroyed)' = runtime_destroyed
-          BY <2>0, <2>5, <3>a, SMT
-          DEF FinishDisposeChannel, ManagedIndInv, L1!IndInv, ManagedMachineInv,
-             LifecycleInv, LiveChannelUsesCurrentRuntime,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             l1_vars, L1!vars,
-             L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK
-      <4>2. QED
-          BY <4>1, <2>0, <2>5, <3>a, SMT
-          DEF FinishDisposeChannel, IsLastRelease, ChannelSettled,
-             ManagedIndInv, ManagedTypeOK, L1!IsRuntimeDestroyed
-    <3>b. CASE chId # ch2
-      <4>1. /\ (channel_dispose_state[chId])'
-                 = channel_dispose_state[chId]
-            /\ (channel_runtime[chId])' = channel_runtime[chId]
-            /\ (runtime_destroyed)' = runtime_destroyed
-            /\ (current_runtime)' = current_runtime
-          BY <2>0, <2>5, <3>b, SMT
-          DEF FinishDisposeChannel, ManagedIndInv, L1!IndInv, ManagedTypeOK,
-             L1!ChannelStartClosing, L1!L0!ChannelStartClosing,
-             l1_vars, L1!vars,
-             L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK
-      <4>2. CASE channel_dispose_state[chId] = "released_last"
-        <5>1. L1!IsRuntimeDestroyed(channel_runtime[chId])
-            BY <2>0, <2>5, <4>2, SMT
-            DEF FinishDisposeChannel, LastHolderAwaitsItsRuntime,
-               ManagedIndInv, ManagedMachineInv, LifecycleInv,
-               LiveChannelKeepsRuntimeAlive
-        <5>2. QED
-            BY <4>1, <4>2, <5>1, SMT
-            DEF LastHolderAwaitsItsRuntime, L1!IsRuntimeDestroyed
-      <4>3. CASE ~(channel_dispose_state[chId] = "released_last")
-          BY <4>1, <4>3, SMT
-      <4>q. QED
-          BY <4>2, <4>3, Zenon
-    <3>q. QED
-        BY <3>a, <3>b, Zenon
-  <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           ResolveChannelDispose
-  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
-<1>5. CASE \E rtId \in RuntimeIds :
-             \/ BeginRuntimeShutdown(rtId)
-             \/ FinishDisposeRuntime(rtId)
-             \/ ShutdownReturns(rtId)
-             \/ ResourcesReleasedReturns(rtId)
-  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
-                           BeginRuntimeShutdown(r2)
-                        \/ FinishDisposeRuntime(r2)
-                        \/ ShutdownReturns(r2)
-                        \/ ResourcesReleasedReturns(r2)
-                 PROVE  (channel_dispose_state[chId] = "released_last"
-                             => /\ channel_runtime[chId] \in RuntimeIds
-                                /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                                        /\ channel_runtime[chId] = current_runtime
-                                        /\ runtime_dispose_state \in {"shutdown_pending",
-                                                                      "destroying"}))'
-      BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
-           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
-           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>2. CASE FinishDisposeRuntime(r2)
-    <3>a. CASE ~(channel_dispose_state[chId] = "released_last")
-        BY <2>2, <3>a, SMT
-        DEF FinishDisposeRuntime, ManagedChannelVars
-    <3>b. CASE channel_dispose_state[chId] = "released_last"
-      <4>1. /\ (channel_dispose_state[chId])'
-                 = channel_dispose_state[chId]
-            /\ (channel_runtime[chId])' = channel_runtime[chId]
-            /\ channel_runtime[chId] \in RuntimeIds
-          BY <2>0, <2>2, <3>b, SMT
-          DEF FinishDisposeRuntime, ManagedChannelVars,
-             ManagedIndInv, L1!IndInv, ManagedTypeOK,
-             LastHolderAwaitsItsRuntime, L1!RuntimeDestroy,
-             L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-             L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK
-      <4>2. (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-          BY <2>0, <2>2, <3>b, <4>1, SMT
-          DEF FinishDisposeRuntime, L1!RuntimeDestroy,
-             ManagedIndInv, L1!IndInv, ManagedTypeOK,
-             L1!IsRuntimeDestroyed, LastHolderAwaitsItsRuntime,
-             L1!TypeOK, L1!L0!TypeOK
-      <4>3. QED
-          BY <4>1, <4>2, SMT
-          DEF LastHolderAwaitsItsRuntime, L1!IsRuntimeDestroyed
-    <3>q. QED
-        BY <3>a, <3>b, Zenon
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
-           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
-           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
-<1>6. CASE \E cId \in CallIds :
-             \/ BeginMoveNext(cId)
-             \/ BeginParseEvent(cId)
-             \/ FinishConsumePayload(cId)
-             \/ CancelWaiter(cId)
-             \/ RequestReadCancellation(cId)
-             \/ CancelWaitingRead(cId)
-             \/ CancelParsingRead(cId)
-             \/ FinishCancelledParse(cId)
-             \/ HandoffToDrain(cId)
-             \/ ConsumeHeader(cId)
-             \/ BeginDisposeCall(cId)
-             \/ DisposeCallForChannel(cId)
-             \/ DrainRelease(cId)
-             \/ FinishDisposeCall(cId)
-             \/ SettleCall(cId)
-             \/ CancelWriterWait(cId)
-             \/ WriteDoneCompletes(cId)
-             \/ CloseWriter(cId)
-             \/ OnEventReturns(cId)
-             \/ TerminalCallbackReturns(cId)
-  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
-                           BeginMoveNext(c2)
-                        \/ BeginParseEvent(c2)
-                        \/ FinishConsumePayload(c2)
-                        \/ CancelWaiter(c2)
-                        \/ RequestReadCancellation(c2)
-                        \/ CancelWaitingRead(c2)
-                        \/ CancelParsingRead(c2)
-                        \/ FinishCancelledParse(c2)
-                        \/ HandoffToDrain(c2)
-                        \/ ConsumeHeader(c2)
-                        \/ BeginDisposeCall(c2)
-                        \/ DisposeCallForChannel(c2)
-                        \/ DrainRelease(c2)
-                        \/ FinishDisposeCall(c2)
-                        \/ SettleCall(c2)
-                        \/ CancelWriterWait(c2)
-                        \/ WriteDoneCompletes(c2)
-                        \/ CloseWriter(c2)
-                        \/ OnEventReturns(c2)
-                        \/ TerminalCallbackReturns(c2)
-                 PROVE  (channel_dispose_state[chId] = "released_last"
-                             => /\ channel_runtime[chId] \in RuntimeIds
-                                /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                                        /\ channel_runtime[chId] = current_runtime
-                                        /\ runtime_dispose_state \in {"shutdown_pending",
-                                                                      "destroying"}))'
-      BY <1>6
-  <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           BeginMoveNext
-  <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           BeginParseEvent
-  <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
-           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           CancelWaiter
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           RequestReadCancellation
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
-           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           HandoffToDrain
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
-           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>12. CASE DisposeCallForChannel(c2)
-          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
-           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           FinishDisposeCall
-  <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
-           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           CancelWriterWait
-  <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
-           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
-           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
-           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
-         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
-         <2>18, <2>19, <2>20
-<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
-    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
-       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>8. CASE \E cId \in CallIds, b \in BufferIds,
-           len \in L1!Sizes, charge \in L1!Sizes :
-             WriteLendSucceeds(cId, b, len, charge)
-    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
-             WriteRefusedBudget(cId, len, charge)
-    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
-             WriteRefusedTooLarge(cId, len)
-    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
-             RetryLendSucceeds(cId, b, charge)
-    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
-             CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
-       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
-       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
-
 LEMMA ReleasedHoldsUntilTheResolve ==
     ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
            channel_dispose_state[chId] = "released",
            [Next]_vars
     PROVE  \/ (channel_dispose_state[chId] = "released")'
            \/ (channel_dispose_state[chId] = "disposed")'
-<1> USE DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+<1> USE DEF  ManagedTypeOK, ChannelSettled,
        ChannelDisposeMayResolve
 <1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+    BY <1>0, SMT DEF  ManagedTypeOK, ChannelSettled,
        ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
@@ -49483,31 +50621,33 @@ LEMMA ReleasedHoldsUntilTheResolve ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (channel_dispose_state[chId] = "released")'
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -49515,12 +50655,14 @@ LEMMA ReleasedHoldsUntilTheResolve ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, ManagedStutter, vars, l1_vars,
+           FinishDisposeChannel, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
@@ -49528,20 +50670,25 @@ LEMMA ReleasedHoldsUntilTheResolve ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (channel_dispose_state[chId] = "released")'
                         \/ (channel_dispose_state[chId] = "disposed")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -49725,279 +50872,16 @@ LEMMA ReleasedHoldsUntilTheResolve ==
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
 
-LEMMA ReleasedLastHoldsUntilTheResolve ==
-    ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
-           channel_dispose_state[chId] = "released_last",
-           [Next]_vars
-    PROVE  \/ (channel_dispose_state[chId] = "released_last")'
-           \/ (channel_dispose_state[chId] = "disposed")'
-<1> USE DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve
-<1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
-       ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>1. CASE Passthrough
-    BY <1>1, SMT DEF  Passthrough, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>2. CASE FreeRuntimeRoot
-    BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
-       FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
-             \/ CreateChannel(chId)
-             \/ RejectChannelCreation(chId)
-             \/ BeginDisposeChannel(chId)
-             \/ FinishDisposeChannel(chId)
-             \/ ResolveChannelDispose(chId)
-  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
-                        \/ CreateChannel(ch2)
-                        \/ RejectChannelCreation(ch2)
-                        \/ BeginDisposeChannel(ch2)
-                        \/ FinishDisposeChannel(ch2)
-                        \/ ResolveChannelDispose(ch2)
-                 PROVE  \/ (channel_dispose_state[chId] = "released_last")'
-                        \/ (channel_dispose_state[chId] = "disposed")'
-      BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
-  <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
-           RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
-           BeginDisposeChannel
-  <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, ResolveChannelDisposeEffect, GlobalAtomsFrozen, SMT DEF
-           ResolveChannelDispose
-  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
-<1>5. CASE \E rtId \in RuntimeIds :
-             \/ BeginRuntimeShutdown(rtId)
-             \/ FinishDisposeRuntime(rtId)
-             \/ ShutdownReturns(rtId)
-             \/ ResourcesReleasedReturns(rtId)
-  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
-                           BeginRuntimeShutdown(r2)
-                        \/ FinishDisposeRuntime(r2)
-                        \/ ShutdownReturns(r2)
-                        \/ ResourcesReleasedReturns(r2)
-                 PROVE  \/ (channel_dispose_state[chId] = "released_last")'
-                        \/ (channel_dispose_state[chId] = "disposed")'
-      BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
-           BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>2. CASE FinishDisposeRuntime(r2)
-          BY <2>0, <2>2, FinishDisposeRuntimeEffect, SMT DEF
-           FinishDisposeRuntime, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
-           ResourcesReleasedReturns, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
-<1>6. CASE \E cId \in CallIds :
-             \/ BeginMoveNext(cId)
-             \/ BeginParseEvent(cId)
-             \/ FinishConsumePayload(cId)
-             \/ CancelWaiter(cId)
-             \/ RequestReadCancellation(cId)
-             \/ CancelWaitingRead(cId)
-             \/ CancelParsingRead(cId)
-             \/ FinishCancelledParse(cId)
-             \/ HandoffToDrain(cId)
-             \/ ConsumeHeader(cId)
-             \/ BeginDisposeCall(cId)
-             \/ DisposeCallForChannel(cId)
-             \/ DrainRelease(cId)
-             \/ FinishDisposeCall(cId)
-             \/ SettleCall(cId)
-             \/ CancelWriterWait(cId)
-             \/ WriteDoneCompletes(cId)
-             \/ CloseWriter(cId)
-             \/ OnEventReturns(cId)
-             \/ TerminalCallbackReturns(cId)
-  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
-                           BeginMoveNext(c2)
-                        \/ BeginParseEvent(c2)
-                        \/ FinishConsumePayload(c2)
-                        \/ CancelWaiter(c2)
-                        \/ RequestReadCancellation(c2)
-                        \/ CancelWaitingRead(c2)
-                        \/ CancelParsingRead(c2)
-                        \/ FinishCancelledParse(c2)
-                        \/ HandoffToDrain(c2)
-                        \/ ConsumeHeader(c2)
-                        \/ BeginDisposeCall(c2)
-                        \/ DisposeCallForChannel(c2)
-                        \/ DrainRelease(c2)
-                        \/ FinishDisposeCall(c2)
-                        \/ SettleCall(c2)
-                        \/ CancelWriterWait(c2)
-                        \/ WriteDoneCompletes(c2)
-                        \/ CloseWriter(c2)
-                        \/ OnEventReturns(c2)
-                        \/ TerminalCallbackReturns(c2)
-                 PROVE  \/ (channel_dispose_state[chId] = "released_last")'
-                        \/ (channel_dispose_state[chId] = "disposed")'
-      BY <1>6
-  <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
-           BeginMoveNext
-  <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, BeginParseEventEffect, GlobalAtomsFrozen, SMT DEF
-           BeginParseEvent
-  <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
-           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, CancelWaiterEffect, GlobalAtomsFrozen, SMT DEF
-           CancelWaiter
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, RequestReadCancellationEffect, GlobalAtomsFrozen, SMT DEF
-           RequestReadCancellation
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
-           FinishCancelledParse, ConsumingTerminal, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, HandoffToDrainEffect, GlobalAtomsFrozen, SMT DEF
-           HandoffToDrain
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
-           RingTail, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>12. CASE DisposeCallForChannel(c2)
-          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
-           ConsumingTerminal, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, FinishDisposeCallEffect, GlobalAtomsFrozen, SMT DEF
-           FinishDisposeCall
-  <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, CancelWriterWaitEffect, GlobalAtomsFrozen, SMT DEF
-           CancelWriterWait
-  <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
-           WriteDoneCompletes, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
-           BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
-           TerminalCallbackReturns, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
-         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
-         <2>18, <2>19, <2>20
-<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
-    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, ManagedStutter, vars,
-       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>8. CASE \E cId \in CallIds, b \in BufferIds,
-           len \in L1!Sizes, charge \in L1!Sizes :
-             WriteLendSucceeds(cId, b, len, charge)
-    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
-             WriteRefusedBudget(cId, len, charge)
-    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
-             WriteRefusedTooLarge(cId, len)
-    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
-             RetryLendSucceeds(cId, b, charge)
-    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
-             CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
-
-LEMMA DisposingLandsOnTheReleasePair ==
+LEMMA DisposingLandsOnTheRelease ==
     ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
            channel_dispose_state[chId] = "disposing",
            [Next]_vars
     PROVE  \/ (channel_dispose_state[chId] = "disposing")'
            \/ (channel_dispose_state[chId] = "released")'
-           \/ (channel_dispose_state[chId] = "released_last")'
-<1> USE DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+<1> USE DEF  ManagedTypeOK, ChannelSettled,
        ChannelDisposeMayResolve
 <1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ManagedTypeOK, IsLastRelease, ChannelSettled,
+    BY <1>0, SMT DEF  ManagedTypeOK, ChannelSettled,
        ChannelDisposeMayResolve, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
@@ -50008,32 +50892,33 @@ LEMMA DisposingLandsOnTheReleasePair ==
 <1>2. CASE FreeRuntimeRoot
     BY <1>2, FreeRuntimeRootEffect, GlobalAtomsFrozen, SMT DEF
        FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
+<1>3. CASE \E rtId \in RuntimeIds :
+             CreateRuntime(rtId)
     BY <1>3, SMT DEF  CreateRuntime, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
 <1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
+             \/ BeginCreateChannel(chId)
              \/ CreateChannel(chId)
              \/ RejectChannelCreation(chId)
              \/ BeginDisposeChannel(chId)
+             \/ DisposeChannelForRuntime(chId)
              \/ FinishDisposeChannel(chId)
              \/ ResolveChannelDispose(chId)
   <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
+                           BeginCreateChannel(ch2)
                         \/ CreateChannel(ch2)
                         \/ RejectChannelCreation(ch2)
                         \/ BeginDisposeChannel(ch2)
+                        \/ DisposeChannelForRuntime(ch2)
                         \/ FinishDisposeChannel(ch2)
                         \/ ResolveChannelDispose(ch2)
                  PROVE  \/ (channel_dispose_state[chId] = "disposing")'
                         \/ (channel_dispose_state[chId] = "released")'
-                        \/ (channel_dispose_state[chId] = "released_last")'
       BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
+  <2>1. CASE BeginCreateChannel(ch2)
+          BY <2>0, <2>1, BeginCreateChannelEffect, GlobalAtomsFrozen, SMT DEF
+           BeginCreateChannel
   <2>2. CASE CreateChannel(ch2)
           BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -50041,12 +50926,14 @@ LEMMA DisposingLandsOnTheReleasePair ==
   <2>3. CASE RejectChannelCreation(ch2)
           BY <2>0, <2>3, RejectChannelCreationEffect, GlobalAtomsFrozen, SMT DEF
            RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
+  <2>4. CASE \/ BeginDisposeChannel(ch2)
+             \/ DisposeChannelForRuntime(ch2)
           BY <2>0, <2>4, BeginDisposeChannelEffect, GlobalAtomsFrozen, SMT DEF
+           DisposeChannelForRuntime,
            BeginDisposeChannel
   <2>5. CASE FinishDisposeChannel(ch2)
           BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, ManagedStutter, vars, l1_vars,
+           FinishDisposeChannel, ManagedStutter, vars, l1_vars,
            managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE ResolveChannelDispose(ch2)
@@ -50054,21 +50941,25 @@ LEMMA DisposingLandsOnTheReleasePair ==
            ResolveChannelDispose
   <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
 <1>5. CASE \E rtId \in RuntimeIds :
+             \/ BeginDisposeRuntime(rtId)
              \/ BeginRuntimeShutdown(rtId)
              \/ FinishDisposeRuntime(rtId)
              \/ ShutdownReturns(rtId)
              \/ ResourcesReleasedReturns(rtId)
   <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
                            BeginRuntimeShutdown(r2)
+                        \/ BeginDisposeRuntime(r2)
                         \/ FinishDisposeRuntime(r2)
                         \/ ShutdownReturns(r2)
                         \/ ResourcesReleasedReturns(r2)
                  PROVE  \/ (channel_dispose_state[chId] = "disposing")'
                         \/ (channel_dispose_state[chId] = "released")'
-                        \/ (channel_dispose_state[chId] = "released_last")'
       BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
+  <2>1. CASE \/ BeginRuntimeShutdown(r2)
+             \/ BeginDisposeRuntime(r2)
+          BY <2>0, <2>1, BeginRuntimeShutdownEffect,
+             BeginDisposeRuntimeEffect, SMT DEF
+           BeginDisposeRuntime,
            BeginRuntimeShutdown, ManagedStutter, vars, l1_vars, managed_vars,
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
@@ -50131,7 +51022,6 @@ LEMMA DisposingLandsOnTheReleasePair ==
                         \/ TerminalCallbackReturns(c2)
                  PROVE  \/ (channel_dispose_state[chId] = "disposing")'
                         \/ (channel_dispose_state[chId] = "released")'
-                        \/ (channel_dispose_state[chId] = "released_last")'
       BY <1>6
   <2>1. CASE BeginMoveNext(c2)
           BY <2>0, <2>1, BeginMoveNextEffect, GlobalAtomsFrozen, SMT DEF
@@ -50252,373 +51142,6 @@ LEMMA DisposingLandsOnTheReleasePair ==
        ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
-
-LEMMA ReleasedLastCarriesTheDestroy ==
-    ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
-           L1!TypeOK,
-           LastHolderAwaitsItsRuntime,
-           channel_dispose_state[chId] = "released_last",
-           L1!IsRuntimeDestroyed(channel_runtime[chId]),
-           [Next]_vars
-    PROVE  \/ /\ (channel_dispose_state[chId] = "released_last")'
-              /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-           \/ (channel_dispose_state[chId] = "disposed")'
-<1> USE DEF  ManagedTypeOK, LastHolderAwaitsItsRuntime, IsLastRelease,
-       ChannelSettled, ChannelDisposeMayResolve, L1!IsRuntimeDestroyed,
-       L1!TypeOK, L1!L0!TypeOK
-<1>0. CASE UNCHANGED vars
-    BY <1>0, SMT DEF  ManagedTypeOK, LastHolderAwaitsItsRuntime,
-       IsLastRelease, ChannelSettled, ChannelDisposeMayResolve,
-       L1!IsRuntimeDestroyed, L1!TypeOK, L1!L0!TypeOK, ManagedStutter,
-       vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
-       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars
-<1>1. CASE Passthrough
-    BY <1>1, PassthroughCarriesTheDestroy, Zenon
-<1>2. CASE FreeRuntimeRoot
-    BY <1>2, FreeRuntimeRootEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-       FreeRuntimeRoot
-<1>3. CASE \E rtId \in RuntimeIds, chId \in ChannelIds :
-             CreateRuntime(rtId, chId)
-    BY <1>3, SMT DEF  CreateRuntime, L1!RuntimeCreate,
-       L1!L0!RuntimeCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>4. CASE \E chId \in ChannelIds :
-             \/ AcquireLease(chId)
-             \/ CreateChannel(chId)
-             \/ RejectChannelCreation(chId)
-             \/ BeginDisposeChannel(chId)
-             \/ FinishDisposeChannel(chId)
-             \/ ResolveChannelDispose(chId)
-  <2>0. SUFFICES ASSUME NEW ch2 \in ChannelIds,
-                           AcquireLease(ch2)
-                        \/ CreateChannel(ch2)
-                        \/ RejectChannelCreation(ch2)
-                        \/ BeginDisposeChannel(ch2)
-                        \/ FinishDisposeChannel(ch2)
-                        \/ ResolveChannelDispose(ch2)
-                 PROVE  \/ /\ (channel_dispose_state[chId] = "released_last")'
-                           /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-                        \/ (channel_dispose_state[chId] = "disposed")'
-      BY <1>4
-  <2>1. CASE AcquireLease(ch2)
-          BY <2>0, <2>1, AcquireLeaseEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           AcquireLease
-  <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, CreateChannelEffect, SMT DEF  CreateChannel,
-           L1!ChannelCreate, L1!L0!ChannelCreate, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!RuntimeFail, L1!L0!RuntimeFail, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>3. CASE RejectChannelCreation(ch2)
-          BY <2>0, <2>3, RejectChannelCreationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           RejectChannelCreation
-  <2>4. CASE BeginDisposeChannel(ch2)
-          BY <2>0, <2>4, BeginDisposeChannelEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           BeginDisposeChannel
-  <2>5. CASE FinishDisposeChannel(ch2)
-          BY <2>0, <2>5, FinishDisposeChannelEffect, SMT DEF
-           FinishDisposeChannel, IsLastRelease, L1!ChannelStartClosing,
-           L1!RequestCancellationOfActiveCalls, L1!L0!ChannelStartClosing,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>6. CASE ResolveChannelDispose(ch2)
-          BY <2>0, <2>6, ResolveChannelDisposeEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           ResolveChannelDispose
-  <2>7. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6
-<1>5. CASE \E rtId \in RuntimeIds :
-             \/ BeginRuntimeShutdown(rtId)
-             \/ FinishDisposeRuntime(rtId)
-             \/ ShutdownReturns(rtId)
-             \/ ResourcesReleasedReturns(rtId)
-  <2>0. SUFFICES ASSUME NEW r2 \in RuntimeIds,
-                           BeginRuntimeShutdown(r2)
-                        \/ FinishDisposeRuntime(r2)
-                        \/ ShutdownReturns(r2)
-                        \/ ResourcesReleasedReturns(r2)
-                 PROVE  \/ /\ (channel_dispose_state[chId] = "released_last")'
-                           /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-                        \/ (channel_dispose_state[chId] = "disposed")'
-      BY <1>5
-  <2>1. CASE BeginRuntimeShutdown(r2)
-          BY <2>0, <2>1, BeginRuntimeShutdownEffect, SMT DEF
-           BeginRuntimeShutdown, L1!RuntimeBeginShutdown,
-           L1!RequestCancellationOfActiveCalls, L1!L0!RuntimeBeginShutdown,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>2. CASE FinishDisposeRuntime(r2)
-    <3>0. channel_runtime[chId] \in RuntimeIds
-        BY Zenon DEF LastHolderAwaitsItsRuntime
-    <3>1. (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-        BY <2>0, <2>2, <3>0, SMT
-        DEF FinishDisposeRuntime, L1!RuntimeDestroy,
-           L1!IsRuntimeDestroyed,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!TypeOK, L1!L0!TypeOK
-    <3>2. (channel_dispose_state[chId] = "released_last")'
-        BY <2>2, SMT DEF FinishDisposeRuntime, ManagedChannelVars
-    <3>3. QED
-        BY <3>1, <3>2, Zenon
-  <2>3. CASE ShutdownReturns(r2)
-          BY <2>0, <2>3, ShutdownReturnsEffect, SMT DEF  ShutdownReturns,
-           L1!ShutdownCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>4. CASE ResourcesReleasedReturns(r2)
-          BY <2>0, <2>4, ResourcesReleasedReturnsEffect, SMT DEF
-           ResourcesReleasedReturns, L1!ResourcesReleasedCallbackReturns,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>5. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4
-<1>6. CASE \E cId \in CallIds :
-             \/ BeginMoveNext(cId)
-             \/ BeginParseEvent(cId)
-             \/ FinishConsumePayload(cId)
-             \/ CancelWaiter(cId)
-             \/ RequestReadCancellation(cId)
-             \/ CancelWaitingRead(cId)
-             \/ CancelParsingRead(cId)
-             \/ FinishCancelledParse(cId)
-             \/ HandoffToDrain(cId)
-             \/ ConsumeHeader(cId)
-             \/ BeginDisposeCall(cId)
-             \/ DisposeCallForChannel(cId)
-             \/ DrainRelease(cId)
-             \/ FinishDisposeCall(cId)
-             \/ SettleCall(cId)
-             \/ CancelWriterWait(cId)
-             \/ WriteDoneCompletes(cId)
-             \/ CloseWriter(cId)
-             \/ OnEventReturns(cId)
-             \/ TerminalCallbackReturns(cId)
-  <2>0. SUFFICES ASSUME NEW c2 \in CallIds,
-                           BeginMoveNext(c2)
-                        \/ BeginParseEvent(c2)
-                        \/ FinishConsumePayload(c2)
-                        \/ CancelWaiter(c2)
-                        \/ RequestReadCancellation(c2)
-                        \/ CancelWaitingRead(c2)
-                        \/ CancelParsingRead(c2)
-                        \/ FinishCancelledParse(c2)
-                        \/ HandoffToDrain(c2)
-                        \/ ConsumeHeader(c2)
-                        \/ BeginDisposeCall(c2)
-                        \/ DisposeCallForChannel(c2)
-                        \/ DrainRelease(c2)
-                        \/ FinishDisposeCall(c2)
-                        \/ SettleCall(c2)
-                        \/ CancelWriterWait(c2)
-                        \/ WriteDoneCompletes(c2)
-                        \/ CloseWriter(c2)
-                        \/ OnEventReturns(c2)
-                        \/ TerminalCallbackReturns(c2)
-                 PROVE  \/ /\ (channel_dispose_state[chId] = "released_last")'
-                           /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-                        \/ (channel_dispose_state[chId] = "disposed")'
-      BY <1>6
-  <2>1. CASE BeginMoveNext(c2)
-          BY <2>0, <2>1, BeginMoveNextEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           BeginMoveNext
-  <2>2. CASE BeginParseEvent(c2)
-          BY <2>0, <2>2, BeginParseEventEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           BeginParseEvent
-  <2>3. CASE FinishConsumePayload(c2)
-          BY <2>0, <2>3, FinishConsumePayloadEffect, SMT DEF
-           FinishConsumePayload, ConsumingTerminal, ReadCancellationSettled,
-           L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>4. CASE CancelWaiter(c2)
-          BY <2>0, <2>4, CancelWaiterEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           CancelWaiter
-  <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, RequestReadCancellationEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           RequestReadCancellation
-  <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, CancelWaitingReadEffect, SMT DEF  CancelWaitingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>7. CASE CancelParsingRead(c2)
-          BY <2>0, <2>7, CancelParsingReadEffect, SMT DEF  CancelParsingRead,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>8. CASE FinishCancelledParse(c2)
-          BY <2>0, <2>8, FinishCancelledParseEffect, SMT DEF
-           FinishCancelledParse, ConsumingTerminal, L1!HostConsumesEvent,
-           L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>9. CASE HandoffToDrain(c2)
-          BY <2>0, <2>9, HandoffToDrainEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           HandoffToDrain
-  <2>10. CASE ConsumeHeader(c2)
-          BY <2>0, <2>10, ConsumeHeaderEffect, SMT DEF  ConsumeHeader,
-           RingTail, L1!HostConsumesEvent, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>11. CASE BeginDisposeCall(c2)
-          BY <2>0, <2>11, BeginDisposeCallEffect, SMT DEF  BeginDisposeCall,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>12. CASE DisposeCallForChannel(c2)
-          BY <2>0, <2>12, SMT DEF  DisposeCallForChannel, BeginDisposeCall,
-           L1!RequestCallCancellation, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!IsActiveCall, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>13. CASE DrainRelease(c2)
-          BY <2>0, <2>13, DrainReleaseEffect, SMT DEF  DrainRelease,
-           ConsumingTerminal, L1!HostConsumesEvent, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>14. CASE FinishDisposeCall(c2)
-          BY <2>0, <2>14, FinishDisposeCallEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           FinishDisposeCall
-  <2>15. CASE SettleCall(c2)
-          BY <2>0, <2>15, SettleCallEffect, SMT DEF  SettleCall, RingDrained,
-           L1!HostHoldsNoBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!HostOwnsNoPayload, L1!L0!IsTerminalCall, ManagedStutter, vars,
-           l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>16. CASE CancelWriterWait(c2)
-          BY <2>0, <2>16, CancelWriterWaitEffect, RuntimeAtomsFrozen, GlobalAtomsFrozen, SMT DEF
-           CancelWriterWait
-  <2>17. CASE WriteDoneCompletes(c2)
-          BY <2>0, <2>17, WriteDoneCompletesEffect, SMT DEF
-           WriteDoneCompletes, L1!WriteDoneReturns, L1!vars, L1!ffi_vars,
-           L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
-           L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>18. CASE CloseWriter(c2)
-          BY <2>0, <2>18, CloseWriterEffect, SMT DEF  CloseWriter,
-           BindingMayDowncall, L1!EndSend, L1!L0!EndSend, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-           managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-           ManagedCallVars, ReaderVars, WriterVars
-  <2>19. CASE OnEventReturns(c2)
-          BY <2>0, <2>19, OnEventReturnsEffect, SMT DEF  OnEventReturns,
-           L1!DeliveryCallbackReturns, L1!vars, L1!ffi_vars, L1!l0_vars,
-           L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-           L1!L0!HasStatus, ManagedStutter, vars, l1_vars, managed_vars,
-           ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-           ReaderVars, WriterVars
-  <2>20. CASE TerminalCallbackReturns(c2)
-          BY <2>0, <2>20, TerminalCallbackReturnsEffect, SMT DEF
-           TerminalCallbackReturns, L1!DeliveryCallbackReturns, L1!vars,
-           L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-           L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!HasStatus, ManagedStutter,
-           vars, l1_vars, managed_vars, ManagedRuntimeVars,
-           ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-  <2>21. QED BY <2>0,  <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8,
-         <2>9, <2>10, <2>11, <2>12, <2>13, <2>14, <2>15, <2>16, <2>17,
-         <2>18, <2>19, <2>20
-<1>7. CASE \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
-    BY <1>7, SMT DEF  StartCall, BindingMayDowncall, L1!CallStart,
-       L1!L0!CallStart, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>8. CASE \E cId \in CallIds, b \in BufferIds,
-           len \in L1!Sizes, charge \in L1!Sizes :
-             WriteLendSucceeds(cId, b, len, charge)
-    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
-       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>9. CASE \E cId \in CallIds, len \in L1!Sizes, charge \in L1!CandidateCharges :
-             WriteRefusedBudget(cId, len, charge)
-    BY <1>9, SMT DEF  WriteRefusedBudget, BindingMayDowncall,
-       L1!RefuseLendForBudget, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
-             WriteRefusedTooLarge(cId, len)
-    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
-       L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
-             RetryLendSucceeds(cId, b, charge)
-    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
-       L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>12. CASE \E cId \in CallIds, msg \in Messages, b \in BufferIds :
-             CommitWrite(cId, msg, b)
-    BY <1>12, SMT DEF  CommitWrite, BindingMayDowncall, L1!SendMessage,
-       L1!L0!SendMessage, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
-       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
-       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
-<1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
-    BY <1>13, SMT DEF  WriteAborted, L1!HostReturnsBuffer, L1!vars,
-       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
-       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
-       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
-       ManagedCallVars, ReaderVars, WriterVars
-<1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
-
-(***************************************************************************)
-(* THE RUNTIME TEARDOWN, SECOND HALF, AND THE LAST THREE PROMISES          *)
-(***************************************************************************)
-
-\* The last-holder invariant, boxed on the derived pattern.
-LEMMA InitHoldsNoLast ==
-    Init => LastHolderAwaitsItsRuntime
-    BY SMT DEF Init, ManagedInit, LastHolderAwaitsItsRuntime
-
-THEOREM LastHolderHolds == Spec => []LastHolderAwaitsItsRuntime
-<1>1. Init => LastHolderAwaitsItsRuntime
-    BY InitHoldsNoLast
-<1>2. ManagedIndInv /\ LastHolderAwaitsItsRuntime /\ [Next]_vars
-          => LastHolderAwaitsItsRuntime'
-  <2>1. SUFFICES ASSUME ManagedIndInv, LastHolderAwaitsItsRuntime,
-                        [Next]_vars, NEW chId \in ChannelIds
-                 PROVE  (channel_dispose_state[chId] = "released_last"
-                        => /\ channel_runtime[chId] \in RuntimeIds
-                           /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                                   /\ channel_runtime[chId] = current_runtime
-                                   /\ runtime_dispose_state \in {"shutdown_pending",
-                                                                 "destroying"}))'
-      BY DEF LastHolderAwaitsItsRuntime
-  <2>2. QED
-      BY <2>1, LastHolderPreserved
-<1>3. QED
-    BY <1>1, <1>2, ManagedIndInvHolds, PTL DEF Spec
 
 \* The four callback families rest together, joined over their finite
 \* domains inside any destroyed suffix.
@@ -50794,14 +51317,13 @@ LEMMA AbsentUnroots ==
     BY SMT DEF ManagedIndInv, ManagedMachineInv, LifecycleInv,
        RuntimeManagerCoherent
 
-\* The settled set, spelled as its five atoms.
+\* The settled set, spelled as its four atoms.
 LEMMA SettledSplits ==
     ASSUME NEW chId
     PROVE  ChannelSettled(chId)
                <=> \/ channel_dispose_state[chId] = "unopened"
                    \/ channel_dispose_state[chId] = "rejected"
                    \/ channel_dispose_state[chId] = "released"
-                   \/ channel_dispose_state[chId] = "released_last"
                    \/ channel_dispose_state[chId] = "disposed"
     BY DEF ChannelSettled
 
@@ -50814,48 +51336,6 @@ LEMMA ChannelStateExcludes ==
                   /\ ~(channel_dispose_state[chId] = "disposed")
     OBVIOUS
 
-\* The lease chain, re-aimed: from disposing, the exit is one of the two
-\* release states, because the only step out of disposing lands there.
-THEOREM ChannelLeaseLandsTheRelease ==
-    ASSUME NEW chId, chId \in ChannelIds, Spec
-    PROVE  [](channel_dispose_state[chId] = "disposing"
-                  => <>(\/ channel_dispose_state[chId] = "released"
-                        \/ channel_dispose_state[chId] = "released_last"
-                        \/ ~L1!L0!NotFailed))
-<1>1. /\ []ManagedIndInv
-      /\ [][Next]_vars
-    BY ManagedIndInvHolds, PTL DEF Spec
-<1>2. []ManagedTypeOK
-    BY <1>1, PTL DEF ManagedIndInv
-<1>3. channel_dispose_state[chId] = "disposing" ~>
-          (ChannelSettled(chId) \/ ~L1!L0!NotFailed)
-  <2>1. ChannelLeaseEventuallyReleased
-      BY ChannelLeaseEventuallyReleasedHolds, Zenon
-  <2>2. QED
-      BY <2>1, Isa DEF ChannelLeaseEventuallyReleased
-<1>4. [](ChannelSettled(chId)
-             <=> \/ channel_dispose_state[chId] = "unopened"
-                 \/ channel_dispose_state[chId] = "rejected"
-                 \/ channel_dispose_state[chId] = "released"
-                 \/ channel_dispose_state[chId] = "released_last"
-                 \/ channel_dispose_state[chId] = "disposed")
-    BY SettledSplits, PTL
-\* A disposing channel never re-enters unopened, rejected or disposed in
-\* one step: the only writers land on the release pair.
-<1>6. [](chId \in ChannelIds /\ ManagedTypeOK
-             /\ channel_dispose_state[chId] = "disposing" /\ [Next]_vars
-             => \/ (channel_dispose_state[chId] = "disposing")'
-                \/ (channel_dispose_state[chId] = "released")'
-                \/ (channel_dispose_state[chId] = "released_last")')
-    BY DisposingLandsOnTheReleasePair, PTL
-<1>5. [](channel_dispose_state[chId] = "disposing"
-             => /\ ~(channel_dispose_state[chId] = "unopened")
-                /\ ~(channel_dispose_state[chId] = "rejected")
-                /\ ~(channel_dispose_state[chId] = "disposed"))
-    BY ChannelStateExcludes, PTL
-<1>7. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, PTL
-
 \* The resolve: enabled on a plain release outright, and on the last one
 \* once its runtime is destroyed.
 LEMMA PlainReleaseMayResolve ==
@@ -50864,19 +51344,6 @@ LEMMA PlainReleaseMayResolve ==
     PROVE  ENABLED <<ResolveChannelDispose(chId)>>_vars
     BY ExpandENABLED, SMT
     DEF ResolveChannelDispose, ChannelDisposeMayResolve, ManagedTypeOK,
-       vars, l1_vars, managed_vars, L1!vars, L1!ffi_vars, L1!l0_vars,
-       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
-       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
-       ReaderVars, WriterVars
-
-LEMMA LastReleaseMayResolve ==
-    ASSUME NEW chId \in ChannelIds, ManagedTypeOK,
-           channel_dispose_state[chId] = "released_last",
-           L1!IsRuntimeDestroyed(channel_runtime[chId])
-    PROVE  ENABLED <<ResolveChannelDispose(chId)>>_vars
-    BY ExpandENABLED, SMT
-    DEF ResolveChannelDispose, ChannelDisposeMayResolve,
-       L1!IsRuntimeDestroyed, ManagedTypeOK,
        vars, l1_vars, managed_vars, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
@@ -50895,7 +51362,7 @@ LEMMA RootedIsTearingDown ==
     ASSUME ManagedIndInv, runtime_root_live,
            runtime_dispose_state # "active"
     PROVE  \/ runtime_dispose_state
-                  \in {"shutdown_pending", "destroying"}
+                  \in {"disposing", "destroying"}
            \/ runtime_dispose_state = "destroyed"
 <1>1. runtime_dispose_state \in RuntimeDisposeStates
     BY SMT DEF ManagedIndInv, ManagedTypeOK
@@ -50903,20 +51370,6 @@ LEMMA RootedIsTearingDown ==
     BY AbsentUnroots, Zenon
 <1>3. QED
     BY <1>1, <1>2, SMT DEF RuntimeDisposeStates
-
-LEMMA LastHolderReads ==
-    ASSUME NEW chId, chId \in ChannelIds, LastHolderAwaitsItsRuntime,
-           channel_dispose_state[chId] = "released_last",
-           ~L1!IsRuntimeDestroyed(channel_runtime[chId])
-    PROVE  runtime_dispose_state \in {"shutdown_pending", "destroying"}
-    BY Zenon DEF LastHolderAwaitsItsRuntime
-
-LEMMA LastHolderIsAnswered ==
-    ASSUME NEW chId, chId \in ChannelIds, LastHolderAwaitsItsRuntime,
-           channel_dispose_state[chId] = "released_last",
-           runtime_dispose_state = "destroyed"
-    PROVE  L1!IsRuntimeDestroyed(channel_runtime[chId])
-    BY Zenon DEF LastHolderAwaitsItsRuntime
 
 \* The free: enabled once the flags rest on a rooted destroyed runtime,
 \* and it lands the dispose on absent with the root gone.
@@ -51004,7 +51457,7 @@ THEOREM RuntimeDisposeCompletesHolds ==
     Spec => RuntimeDisposeCompletes
 <1>0. SUFFICES ASSUME Spec
                PROVE  (runtime_dispose_state
-                           \in {"shutdown_pending", "destroying"}) ~>
+                           \in {"disposing", "destroying"}) ~>
                           (runtime_dispose_state = "absent"
                                \/ ~L1!L0!NotFailed)
     BY DEF RuntimeDisposeCompletes
@@ -51013,7 +51466,7 @@ THEOREM RuntimeDisposeCompletesHolds ==
     BY <1>0, ManagedIndInvHolds, PTL DEF Spec
 <1>2. []ManagedTypeOK /\ []L1!TypeOK
     BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
-<1>3. [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
+<1>3. [](runtime_dispose_state \in {"disposing", "destroying"}
              => <>(\/ runtime_dispose_state = "destroyed"
                    \/ ~L1!L0!NotFailed))
     BY <1>0, RuntimeReachesDestroyed, PTL
@@ -51044,10 +51497,10 @@ THEOREM RuntimeRootEventuallyFreedHolds ==
 <1>3. [](ManagedIndInv /\ runtime_root_live
              /\ runtime_dispose_state # "active"
              => \/ runtime_dispose_state
-                       \in {"shutdown_pending", "destroying"}
+                       \in {"disposing", "destroying"}
                 \/ runtime_dispose_state = "destroyed")
     BY RootedIsTearingDown, PTL
-<1>4. [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
+<1>4. [](runtime_dispose_state \in {"disposing", "destroying"}
              => <>(\/ runtime_dispose_state = "destroyed"
                    \/ ~L1!L0!NotFailed))
     BY <1>0, RuntimeReachesDestroyed, PTL
@@ -51064,12 +51517,10 @@ THEOREM RuntimeRootEventuallyFreedHolds ==
 <1>8. QED
     BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, PTL
 
-\* The channel's public dispose completes: the lease chain lands the
-\* release, a released channel resolves at once, and the last one waits
-\* only for the destroy its own release triggered.
-\* The channel's public dispose completes: the lease chain lands the
-\* release, a released channel resolves at once, and the last one waits
-\* only for the destroy its own release triggered.
+\* The channel's public dispose completes: the release lands, and a
+\* released channel resolves at once - it waits for nothing else, the
+\* engine being the caller's object rather than something this channel's
+\* task has to see destroyed.
 THEOREM ChannelDisposeCompletesHolds ==
     Spec => ChannelDisposeCompletes
 <1>0. SUFFICES ASSUME Spec, NEW chId \in ChannelIds
@@ -51082,15 +51533,21 @@ THEOREM ChannelDisposeCompletesHolds ==
     BY <1>0, ManagedIndInvHolds, PTL DEF Spec
 <1>2. []ManagedTypeOK /\ []L1!TypeOK
     BY <1>1, PTL DEF ManagedIndInv, L1!IndInv
-<1>3. []LastHolderAwaitsItsRuntime
-    BY <1>0, LastHolderHolds, PTL
-<1>4. WF_vars(ResolveChannelDispose(chId))
+<1>3. WF_vars(ResolveChannelDispose(chId))
     BY <1>0, Isa DEF Spec, Fairness, BindingOwedFairness
-<1>5. [](channel_dispose_state[chId] = "disposing"
-             => <>(\/ channel_dispose_state[chId] = "released"
-                   \/ channel_dispose_state[chId] = "released_last"
-                   \/ ~L1!L0!NotFailed))
-    BY <1>0, ChannelLeaseLandsTheRelease, PTL
+\* The release itself, and the two facts that turn it into the resolve:
+\* disposing leaves only into released, and released only into disposed.
+<1>4. channel_dispose_state[chId] = "disposing" ~>
+          (ChannelSettled(chId) \/ ~L1!L0!NotFailed)
+  <2>1. ChannelHandleEventuallyReleased
+      BY <1>0, ChannelHandleEventuallyReleasedHolds, Zenon
+  <2>2. QED
+      BY <2>1, Isa DEF ChannelHandleEventuallyReleased
+<1>5. [](chId \in ChannelIds /\ ManagedTypeOK
+             /\ channel_dispose_state[chId] = "disposing" /\ [Next]_vars
+             => \/ (channel_dispose_state[chId] = "disposing")'
+                \/ (channel_dispose_state[chId] = "released")')
+    BY DisposingLandsOnTheRelease, PTL
 <1>6. [](chId \in ChannelIds /\ ManagedTypeOK
              /\ channel_dispose_state[chId] = "released"
              => ENABLED <<ResolveChannelDispose(chId)>>_vars)
@@ -51104,47 +51561,26 @@ THEOREM ChannelDisposeCompletesHolds ==
              => \/ (channel_dispose_state[chId] = "released")'
                 \/ (channel_dispose_state[chId] = "disposed")')
     BY ReleasedHoldsUntilTheResolve, PTL
-<1>9. [](chId \in ChannelIds /\ LastHolderAwaitsItsRuntime
-             /\ channel_dispose_state[chId] = "released_last"
-             /\ ~L1!IsRuntimeDestroyed(channel_runtime[chId])
-             => runtime_dispose_state
-                    \in {"shutdown_pending", "destroying"})
-    BY LastHolderReads, PTL
-<1>10. [](runtime_dispose_state \in {"shutdown_pending", "destroying"}
-              => <>(\/ runtime_dispose_state = "destroyed"
-                    \/ ~L1!L0!NotFailed))
-    BY <1>0, RuntimeReachesDestroyed, PTL
-<1>11. [](chId \in ChannelIds /\ LastHolderAwaitsItsRuntime
-              /\ channel_dispose_state[chId] = "released_last"
-              /\ runtime_dispose_state = "destroyed"
-              => L1!IsRuntimeDestroyed(channel_runtime[chId]))
-    BY LastHolderIsAnswered, PTL
-<1>12. [](chId \in ChannelIds /\ ManagedTypeOK
-              /\ channel_dispose_state[chId] = "released_last"
-              /\ L1!IsRuntimeDestroyed(channel_runtime[chId])
-              => ENABLED <<ResolveChannelDispose(chId)>>_vars)
-    BY LastReleaseMayResolve, PTL
-<1>13. [](chId \in ChannelIds /\ ManagedTypeOK
-              /\ channel_dispose_state[chId] = "released_last"
-              /\ [Next]_vars
-              => \/ (channel_dispose_state[chId] = "released_last")'
-                 \/ (channel_dispose_state[chId] = "disposed")')
-    BY ReleasedLastHoldsUntilTheResolve, PTL
-<1>14. [](chId \in ChannelIds /\ ManagedTypeOK /\ L1!TypeOK
-              /\ LastHolderAwaitsItsRuntime
-              /\ channel_dispose_state[chId] = "released_last"
-              /\ L1!IsRuntimeDestroyed(channel_runtime[chId])
-              /\ [Next]_vars
-              => \/ /\ (channel_dispose_state[chId] = "released_last")'
-                    /\ (L1!IsRuntimeDestroyed(channel_runtime[chId]))'
-                 \/ (channel_dispose_state[chId] = "disposed")')
-    BY ReleasedLastCarriesTheDestroy, PTL
-<1>15. [](ManagedTypeOK /\ L1!TypeOK /\ ~L1!L0!NotFailed /\ [Next]_vars
+\* The settled states a disposing channel can land in are the two the
+\* resolve reads; the other two it cannot reach from here.
+<1>9. [](chId \in ChannelIds /\ ManagedTypeOK
+             /\ channel_dispose_state[chId] = "disposing"
+             => /\ ~(channel_dispose_state[chId] = "unopened")
+                /\ ~(channel_dispose_state[chId] = "rejected")
+                /\ ~(channel_dispose_state[chId] = "disposed"))
+    BY ChannelStateExcludes, PTL
+<1>10. [](ChannelSettled(chId)
+              <=> \/ channel_dispose_state[chId] = "unopened"
+                  \/ channel_dispose_state[chId] = "rejected"
+                  \/ channel_dispose_state[chId] = "released"
+                  \/ channel_dispose_state[chId] = "disposed")
+    BY SettledSplits, PTL
+<1>11. [](ManagedTypeOK /\ L1!TypeOK /\ ~L1!L0!NotFailed /\ [Next]_vars
               => (~L1!L0!NotFailed)')
     BY UnfailedStickyHere, PTL
-<1>16. QED
+<1>12. QED
     BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10,
-       <1>11, <1>12, <1>13, <1>14, <1>15, PTL
+       <1>11, PTL
 
 \* The aggregate: every managed promise, holding together.
 THEOREM ManagedLivenessTheorem == Spec => ManagedLiveness
@@ -51154,7 +51590,7 @@ THEOREM ManagedLivenessTheorem == Spec => ManagedLiveness
     BY <1>1, BudgetWaitEndsWhenHopelessHolds,
        PendingWriteEventuallySettledHolds, CallDisposeCompletesHolds,
        ChannelConstructionCompletesHolds,
-       ChannelLeaseEventuallyReleasedHolds, ChannelDisposeCompletesHolds,
+       ChannelHandleEventuallyReleasedHolds, ChannelDisposeCompletesHolds,
        RuntimeDisposeCompletesHolds, CallRootEventuallyFreedHolds,
        RuntimeRootEventuallyFreedHolds,
        InFlightPayloadEventuallyReleasedHolds,

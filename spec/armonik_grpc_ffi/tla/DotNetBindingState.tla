@@ -9,8 +9,8 @@
 (*                                                                         *)
 (* No new constants.  The managed side adds discipline, not capacity: the  *)
 (* pipelining depths, the byte ceiling and the identity spaces are the     *)
-(* ABI's and arrived at level 1.  Generations of the reusable runtime are  *)
-(* bounded by the finite RuntimeIds and reopened channels by the finite    *)
+(* ABI's and arrived at level 1.  Generations of the runtime are bounded   *)
+(* by the finite RuntimeIds and the channels made from one by the finite   *)
 (* ChannelIds - modelling bounds, like BufferIds.                          *)
 (*                                                                         *)
 (* The ring is deliberately NOT here.  Both of its indexes are level-1     *)
@@ -21,8 +21,8 @@
 (* oldest, which is release order held by representation.                  *)
 (*                                                                         *)
 (* Call ownership is not here either: call_channel, the level-0 relation,  *)
-(* already says which channel a call belongs to, and the channel is the    *)
-(* unit of borrowing - a CallInvoker is a stateless view over it.          *)
+(* already says which channel a call belongs to, and the channel is what   *)
+(* the runtime keeps - a CallInvoker is a stateless view over it.          *)
 (***************************************************************************)
 
 EXTENDS FfiGrpcState
@@ -39,36 +39,38 @@ VARIABLES
     runtime_root_live,      \* BOOLEAN: the shared RuntimeState's GC root
 
     (***********************************************************************)
-    (* The shared runtime, by generation.  The factory materializes it     *)
-    (* with the first channel, tears it down when the last lease goes,     *)
-    (* and may materialize a fresh generation afterwards: the identity of  *)
-    (* the current one is state, so teardown promises attach to it and    *)
-    (* not to some earlier destroyed generation.                           *)
+    (* The runtime the caller owns, by generation.  Create starts one and  *)
+    (* DisposeAsync stops it; a caller that disposed one may create        *)
+    (* another, so the identity of the current generation is state and a   *)
+    (* teardown promise attaches to it rather than to some earlier         *)
+    (* destroyed one.                                                      *)
     (***********************************************************************)
     current_runtime,        \* RuntimeIds \union {"none"}
-    runtime_dispose_state,  \* {"absent", "active", "shutdown_pending",
+    runtime_dispose_state,  \* {"absent", "active", "disposing",
                             \*  "destroying",
                             \*  "destroyed"} - absent means no runtime is
-                            \* materialized; FreeRuntimeRoot re-arms to it
+                            \* running; disposing is the caller's
+                            \* DisposeAsync entered, the door shut and the
+                            \* sweep running; FreeRuntimeRoot re-arms to
+                            \* absent
 
     (***********************************************************************)
-    (* The channels, each holding a lease on the runtime.  A channel is    *)
-    (* the object the application creates and disposes; constructing       *)
-    (* covers the window between the factory's materialization and the     *)
+    (* The channels the runtime made and has not yet seen go.  A channel   *)
+    (* is the object the application asks the runtime for and disposes;    *)
+    (* constructing covers the window between that request and the         *)
     (* channel's own ak_channel_create, invisible outside the constructor. *)
-    (* "Last lease released" is derived: no channel still holds a lease -  *)
-    (* each is unopened, rejected, released, released_last or disposed.    *)
+    (* The teardown's guard reads this function: the sweep is over when    *)
+    (* every channel is settled - unopened, rejected, released or          *)
+    (* disposed.                                                           *)
     (***********************************************************************)
     channel_dispose_state,  \* [ChannelIds -> {"unopened", "constructing",
                             \*                 "rejected",
                             \*                 "active", "disposing",
                             \*                 "released",
-                            \*                 "released_last",
                             \*                 "disposed"}]: rejected is a
                             \* refused creation, terminal and holding no
-                            \* lease; released gave the lease back,
-                            \* released_last was the one that emptied the
-                            \* set, disposed completed the public task
+                            \* native half; released gave the handle back,
+                            \* disposed completed the public task
 
     (***********************************************************************)
     (* The ring's consumer.  The phase says which class of consumer has    *)

@@ -64,7 +64,11 @@ THEOREM HostReturnsBufferDischarged ==
                 WF_l1_vars(L1!HostReturnsBuffer(cId, b))
 
 (***************************************************************************)
-(* MANAGED SAFETY                                                          *)
+(* MANAGED SAFETY.  The channel-cannot-outlive-its-engine ordering is a    *)
+(* conjunct of ManagedSafety - NoRuntimeShutdownWhileChannelsLive - rather *)
+(* than an action theorem: with the runtime's lifetime declared rather     *)
+(* than derived, what has to hold is a fact about every state past the     *)
+(* destroy, not about one step that decided it.                            *)
 (***************************************************************************)
 
 THEOREM ManagedTypeOKHolds == Spec => []ManagedTypeOK
@@ -138,29 +142,6 @@ THEOREM CancelledReadEventuallyDrainsCallHolds ==
 THEOREM ReadInFlightEventuallyResolvedHolds ==
     Spec => ReadInFlightEventuallyResolved
 
-\* The latch is posed by the release that empties the set: this is the
-\* half the ordering theorem below cannot carry, and without it a
-\* regression that stopped marking released_last would leave that theorem
-\* vacuously true.
-THEOREM LastReleaseIsLatched ==
-    Spec => \A chId \in ChannelIds :
-                [][(/\ FinishDisposeChannel(chId)
-                    /\ IsLastRelease(chId))
-                       => /\ channel_dispose_state'[chId] = "released_last"
-                          /\ runtime_dispose_state' = "shutdown_pending"]_vars
-
-\* The last releaser's public task never completes early.  Which channel
-\* emptied the lease set is latched at its release, so the claim is about
-\* that channel and not about whatever the set holds later: a channel
-\* that was the last resolves its DisposeAsync only once the generation
-\* IT released was destroyed.  An action theorem, the fact being about a
-\* step rather than about a state.
-THEOREM LastChannelDisposeAwaitsDestroy ==
-    Spec => \A chId \in ChannelIds :
-                [][(/\ ResolveChannelDispose(chId)
-                    /\ channel_dispose_state[chId] = "released_last")
-                       => runtime_destroyed[channel_runtime[chId]]]_vars
-
 \* A channel's dispose settles its own calls and no one else's, stated
 \* per call because that is where the content is: the step belongs to a
 \* channel that is disposing, and it leaves every other call exactly as
@@ -193,8 +174,8 @@ THEOREM CallDisposeCompletesHolds == Spec => CallDisposeCompletes
 THEOREM ChannelConstructionCompletesHolds ==
     Spec => ChannelConstructionCompletes
 
-THEOREM ChannelLeaseEventuallyReleasedHolds ==
-    Spec => ChannelLeaseEventuallyReleased
+THEOREM ChannelHandleEventuallyReleasedHolds ==
+    Spec => ChannelHandleEventuallyReleased
 
 THEOREM ChannelDisposeCompletesHolds == Spec => ChannelDisposeCompletes
 

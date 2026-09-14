@@ -33,7 +33,7 @@ ManagedSafety ==
     /\ LiveChannelUsesCurrentRuntime
     /\ ManagedShutdownHasNoHostDebt
     /\ LiveChannelKeepsRuntimeAlive
-    /\ NoRuntimeShutdownWhileLeased
+    /\ NoRuntimeShutdownWhileChannelsLive
     /\ RejectedChannelHasNoNativeHalf
     /\ ReadCancelPendingOnlyInFlight
     /\ ParsingReadOwnsItsSlot
@@ -73,7 +73,7 @@ LifecycleInv ==
     /\ LiveChannelUsesCurrentRuntime
     /\ ManagedShutdownHasNoHostDebt
     /\ LiveChannelKeepsRuntimeAlive
-    /\ NoRuntimeShutdownWhileLeased
+    /\ NoRuntimeShutdownWhileChannelsLive
     /\ RejectedChannelHasNoNativeHalf
     /\ ChannelStateMatchesNative
     /\ RuntimeStateMatchesNative
@@ -110,7 +110,7 @@ ManagedLiveness ==
     /\ PendingWriteEventuallySettled
     /\ CallDisposeCompletes
     /\ ChannelConstructionCompletes
-    /\ ChannelLeaseEventuallyReleased
+    /\ ChannelHandleEventuallyReleased
     /\ ChannelDisposeCompletes
     /\ RuntimeDisposeCompletes
     /\ CallRootEventuallyFreed

@@ -11,10 +11,10 @@
 (*  2. The six host fairness conjuncts of L1!Fairness become theorems.     *)
 (*     The other thirteen - the runtime's and the FFI dispatch's - are     *)
 (*     taken verbatim into Fairness below.                                 *)
-(*  3. The managed-side contract: the channel-held lease on the shared     *)
-(*     runtime and its generations, the single reader, the single writer   *)
-(*     completing at WRITE_DONE, the managed completions, the roots, and   *)
-(*     the dispose ordering.                                               *)
+(*  3. The managed-side contract: the caller-owned runtime and its         *)
+(*     generations, the single reader, the single writer completing at     *)
+(*     WRITE_DONE, the managed completions, the roots, and the dispose     *)
+(*     ordering.                                                           *)
 (*                                                                         *)
 (* Scope.  The model is the generic bidirectional-streaming call: the      *)
 (* five CallInvoker methods are refinements of it that fix the number of   *)
@@ -24,8 +24,8 @@
 (* run elsewhere - RunContinuationsAsynchronously is an implementation     *)
 (* rule verified by review and tests, not a theorem.  The memory model of  *)
 (* the ring stays a coding rule for review, outside every level.  The     *)
-(* lease refcount is derived, never counted: "last" is the set of          *)
-(* channels not yet settled being empty.                                   *)
+(* runtime counts nothing: it holds what it made, and the teardown's       *)
+(* guard is that every channel is settled.                                 *)
 (*                                                                         *)
 (* The application owes one progression fact per call, and only while the  *)
 (* response stream is readable: begin the next read, or dispose the call   *)
@@ -88,9 +88,8 @@ WriterStates == {"idle", "serializing", "waiting_budget",
                  "awaiting_write_done", "closed"}
 CallDisposeStates == {"active", "draining", "settled"}
 ChannelDisposeStates == {"unopened", "constructing", "rejected", "active",
-                         "disposing", "released", "released_last",
-                         "disposed"}
-RuntimeDisposeStates == {"absent", "active", "shutdown_pending",
+                         "disposing", "released", "disposed"}
+RuntimeDisposeStates == {"absent", "active", "disposing",
                          "destroying", "destroyed"}
 HeadersCompletions == {"pending", "succeeded", "failed"}
 StatusCompletions == {"pending", "resolved"}
@@ -100,33 +99,23 @@ StatusCompletions == {"pending", "resolved"}
 \* heterogeneous, which TLC cannot compare.
 NoRetryLen == Ceiling + 2
 
-\* A settled channel holds no lease: it never opened, or it released.
-\* Releasing the lease and completing the public DisposeAsync are two
-\* steps, and which channel drove the count to zero is remembered rather
-\* than recomputed: the release itself decides it, under the same lock
-\* the implementation holds, and latches the manager to shutdown_pending
-\* so no later lease can resurrect the generation between the zero and
-\* the destroy.
+\* A settled channel holds no native half: it never opened, its creation
+\* was refused, or it released.  Releasing the handle and completing the
+\* public DisposeAsync are two steps, and both of the last two states are
+\* past the release.
 ChannelSettled(chId) ==
     channel_dispose_state[chId] \in
-        {"unopened", "rejected", "released", "released_last", "disposed"}
+        {"unopened", "rejected", "released", "disposed"}
 
-AllLeasesReleased == \A chId \in ChannelIds : ChannelSettled(chId)
+\* The sweep is over.  A fact the teardown's guard reads, and nothing
+\* triggers: no step fires because this became true.
+EveryChannelSettled == \A chId \in ChannelIds : ChannelSettled(chId)
 
-\* This release is the one that empties the set: every other channel is
-\* already settled.  Read inside FinishDisposeChannel, so the decision
-\* and the latch are one step.
-IsLastRelease(chId) ==
-    \A other \in ChannelIds : other # chId => ChannelSettled(other)
-
-\* A released channel's task may complete.  One that was not the last
-\* owes nothing more.  The last one waits for the destroy of the
-\* generation IT released - channel_runtime, not whichever runtime
-\* happens to be current later.
+\* A released channel's task may complete, and it waits for nothing else:
+\* a channel's DisposeAsync ends at its own release, the engine being the
+\* caller's object and outliving every channel made from it.
 ChannelDisposeMayResolve(chId) ==
-    \/ channel_dispose_state[chId] = "released"
-    \/ /\ channel_dispose_state[chId] = "released_last"
-       /\ runtime_destroyed[channel_runtime[chId]]
+    channel_dispose_state[chId] = "released"
 
 \* The binding downcalls on a call only while neither the call nor the
 \* runtime is being torn down.  The channel downcalls carry their own
@@ -180,30 +169,33 @@ ManagedInit ==
 Init == L1!Init /\ ManagedInit
 
 (***************************************************************************)
-(* THE FACTORY AND THE CHANNELS.  The first channel materializes the       *)
-(* shared runtime; every later one takes a lease; the last release starts  *)
-(* the teardown; a fresh generation may follow.  Construction is atomic    *)
-(* with exposure at each scope: the constructor returns only after its     *)
-(* native create, and the constructing window is invisible outside it.     *)
+(* THE RUNTIME AND THE CHANNELS.  The caller starts the runtime and stops  *)
+(* it; every channel is made from it and kept by it, and disposing it      *)
+(* disposes them.  A fresh generation may follow a completed teardown.     *)
+(* Construction is atomic with exposure at each scope: the constructor     *)
+(* returns only after its native create, and the constructing window is    *)
+(* invisible outside it.                                                   *)
 (***************************************************************************)
 
-\* The first channel's constructor reaches the factory with no runtime
-\* materialized: the shared RuntimeState's root and ak_runtime_create in
-\* one step, the channel's construction now pending.
-CreateRuntime(rtId, chId) ==
+\* NativeRuntime.Create: the caller's own step, the shared RuntimeState's
+\* root and ak_runtime_create in one.  No channel is involved - a runtime
+\* is asked for by name, not derived from the first channel that wants
+\* one - and the engine refuses a second while this one lives, which is
+\* the absent guard.
+CreateRuntime(rtId) ==
     /\ runtime_dispose_state = "absent"
-    /\ channel_dispose_state[chId] = "unopened"
     /\ L1!RuntimeCreate(rtId)
     /\ runtime_root_live' = TRUE
     /\ current_runtime' = rtId
     /\ runtime_dispose_state' = "active"
-    /\ channel_dispose_state' =
-           [channel_dispose_state EXCEPT ![chId] = "constructing"]
-    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars>>
+    /\ UNCHANGED <<ManagedChannelVars, ManagedCallVars, ReaderVars,
+               WriterVars>>
 
-\* A later channel's constructor borrows the materialized runtime: the
-\* lease is taken under the factory's lock, no native step.
-AcquireLease(chId) ==
+\* runtime.Channel(...) enters the channel's constructor: the door is
+\* read under the runtime's lock and the construction begins, no native
+\* step of its own.  A runtime already going away opens no new channel,
+\* which is the guard and the whole of what the lock decides.
+BeginCreateChannel(chId) ==
     /\ runtime_dispose_state = "active"
     /\ channel_dispose_state[chId] = "unopened"
     /\ channel_dispose_state' =
@@ -225,23 +217,22 @@ CreateChannel(chId) ==
 \* ak_channel_create refused the configuration.  It performs no I/O, so it
 \* fails only on a bad config or a stale runtime handle - local errors,
 \* not runtime failures: a typo in an endpoint may not kill the
-\* process-wide runtime every other channel leases.  The lease goes back,
-\* and a first channel that fails takes its just-materialized generation
-\* with it, retired rather than left acquirable - the constructor's own
-\* local resources go, while the shared RuntimeState's root lives until
-\* that destroy.  Only an allocation
-\* failure is a runtime failure, and that is L1!RuntimeFail's business.
+\* process-wide runtime every other channel is served by.  The
+\* constructor's own provisional state goes and the runtime is left
+\* exactly as it was, its lifetime being the caller's and no business of
+\* a channel that failed to open.  Only an allocation failure is a
+\* runtime failure, and that is L1!RuntimeFail's business.
 RejectChannelCreation(chId) ==
     /\ channel_dispose_state[chId] = "constructing"
     /\ channel_dispose_state' =
            [channel_dispose_state EXCEPT ![chId] = "rejected"]
-    /\ IF \A other \in ChannelIds :
-              other # chId => ChannelSettled(other)
-       THEN runtime_dispose_state' = "shutdown_pending"
-       ELSE UNCHANGED runtime_dispose_state
     /\ UNCHANGED l1_vars
-    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars, runtime_root_live,
-               current_runtime>>
+    \* The runtime's three named one at a time rather than as their
+    \* perimeter: this action's enabledness is what the constructor's
+    \* completion rests on, and a witness for a tuple equality is one a
+    \* solver has to take apart before it can offer it.
+    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars,
+               runtime_root_live, current_runtime, runtime_dispose_state>>
 
 \* GrpcChannel.DisposeAsync: remembered at once; the binding then settles
 \* this channel's own calls and no one else's.
@@ -252,9 +243,22 @@ BeginDisposeChannel(chId) ==
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars>>
 
+\* A disposing runtime disposes the channels it holds, one at a time and
+\* by the same public step a caller would take: a channel disposed twice
+\* is a no-op, so a caller that disposed its own first finds the sweep
+\* with nothing to do rather than a race.  The shape is
+\* DisposeCallForChannel's one level down - the owner settles what it
+\* owns - and the fairness is the same: the sweep is the runtime's own
+\* loop, so it is owed.
+DisposeChannelForRuntime(chId) ==
+    /\ runtime_dispose_state = "disposing"
+    /\ BeginDisposeChannel(chId)
+
 \* ak_channel_release once every owned call is settled: the channel's
-\* native half closes and the lease is gone.  A channel the runtime
-\* already latched to closing needs no downcall of its own.
+\* native half closes, and that is the whole of what this step does - the
+\* runtime is the caller's object and nothing here decides its lifetime.
+\* A channel the runtime already latched to closing needs no downcall of
+\* its own.
 FinishDisposeChannel(chId) ==
     /\ channel_dispose_state[chId] = "disposing"
     /\ \A c \in CallIds :
@@ -264,18 +268,12 @@ FinishDisposeChannel(chId) ==
        \/ /\ channel_state[chId] \in {"closing", "closed"}
           /\ UNCHANGED l1_vars
     /\ channel_dispose_state' =
-           [channel_dispose_state EXCEPT
-                ![chId] = IF IsLastRelease(chId) THEN "released_last"
-                          ELSE "released"]
-    /\ runtime_dispose_state' =
-           IF IsLastRelease(chId) THEN "shutdown_pending"
-           ELSE runtime_dispose_state
-    /\ UNCHANGED <<ManagedCallVars, ReaderVars, WriterVars, runtime_root_live,
-               current_runtime>>
+           [channel_dispose_state EXCEPT ![chId] = "released"]
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars,
+               WriterVars>>
 
-\* The public DisposeAsync completes.  For a channel that was not the
-\* last it completes with its own release; for the last one it waits for
-\* the destroy it triggered, which is what its task promised.
+\* The public DisposeAsync completes: the channel's own release is all it
+\* ever waited for.
 ResolveChannelDispose(chId) ==
     /\ ChannelDisposeMayResolve(chId)
     /\ channel_dispose_state' =
@@ -283,11 +281,27 @@ ResolveChannelDispose(chId) ==
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedCallVars, ReaderVars, WriterVars>>
 
-\* The latch is set: the factory begins the native shutdown.  No lease
-\* can have been taken since, AcquireLease requiring an active manager.
-BeginRuntimeShutdown(rtId) ==
-    /\ runtime_dispose_state = "shutdown_pending"
+\* NativeRuntime.DisposeAsync entered: the caller's own step, and the one
+\* that shuts the door.  No channel opens past it - BeginCreateChannel
+\* requires an active runtime - so the sweep that follows cannot be
+\* outrun by a creation, which is what the lock buys the implementation.
+BeginDisposeRuntime(rtId) ==
+    /\ runtime_dispose_state = "active"
     /\ rtId = current_runtime
+    /\ runtime_dispose_state' = "disposing"
+    /\ UNCHANGED l1_vars
+    /\ UNCHANGED <<ManagedChannelVars, ManagedCallVars, ReaderVars,
+               WriterVars, runtime_root_live, current_runtime>>
+
+\* The sweep is over and the engine is retired: ak_runtime_begin_shutdown.
+\* Every channel is settled, which is what the sweep was for and what a
+\* channel outliving its engine would be a handle into an unloaded
+\* library.  Nothing can be constructing either, since that state is not
+\* settled.
+BeginRuntimeShutdown(rtId) ==
+    /\ runtime_dispose_state = "disposing"
+    /\ rtId = current_runtime
+    /\ EveryChannelSettled
     /\ L1!RuntimeBeginShutdown(rtId)
     /\ runtime_dispose_state' = "destroying"
     /\ UNCHANGED <<ManagedChannelVars, ManagedCallVars, ReaderVars,
@@ -303,7 +317,7 @@ FinishDisposeRuntime(rtId) ==
                WriterVars, runtime_root_live, current_runtime>>
 
 \* The generation's root dies after destroy, later than every callback of
-\* every kind - and the factory re-arms: a fresh generation may follow.
+\* every kind - and the door reopens: a caller may create another runtime.
 FreeRuntimeRoot ==
     /\ runtime_root_live
     /\ runtime_dispose_state = "destroyed"
@@ -785,16 +799,18 @@ Passthrough == (RuntimeSteps \/ BindingDowncalls) /\ ManagedStutter
 Next ==
     \/ Passthrough
     \/ FreeRuntimeRoot
-    \/ \E rtId \in RuntimeIds, chId \in ChannelIds :
-           CreateRuntime(rtId, chId)
+    \/ \E rtId \in RuntimeIds :
+           CreateRuntime(rtId)
     \/ \E chId \in ChannelIds :
-           \/ AcquireLease(chId)
+           \/ BeginCreateChannel(chId)
            \/ CreateChannel(chId)
            \/ RejectChannelCreation(chId)
            \/ BeginDisposeChannel(chId)
+           \/ DisposeChannelForRuntime(chId)
            \/ FinishDisposeChannel(chId)
            \/ ResolveChannelDispose(chId)
     \/ \E rtId \in RuntimeIds :
+           \/ BeginDisposeRuntime(rtId)
            \/ BeginRuntimeShutdown(rtId)
            \/ FinishDisposeRuntime(rtId)
            \/ ShutdownReturns(rtId)
@@ -930,7 +946,7 @@ RuntimeOwedFairness ==
     /\ \A rtId \in RuntimeIds : WF_vars(PassEmitShutdownComplete(rtId))
     \* the second event when owed - never at this level, kept for the lift
     /\ \A rtId \in RuntimeIds : WF_vars(PassEmitResourcesReleased(rtId))
-    \* a closing channel closes, so its calls end and its lease can go
+    \* a closing channel closes, so its calls end and its handle can go
     /\ \A chId \in ChannelIds : WF_vars(PassChannelFinishClosing(chId))
 
 \* What the binding owes: steps whose only wait is on the binding's own
@@ -972,7 +988,7 @@ BindingOwedFairness ==
     \* gives the drain the ring, without which a dispose cannot end;
     \* true: the binding's own step once no read is outstanding
     /\ \A cId \in CallIds : WF_vars(HandoffToDrain(cId))
-    \* the call reaches settled, so its channel may release its lease;
+    \* the call reaches settled, so its channel may release its handle;
     \* true: the binding's own step once the drain and writer are settled
     /\ \A cId \in CallIds : WF_vars(FinishDisposeCall(cId))
     \* a finished call settles with no user step: the .NET API does not
@@ -980,6 +996,9 @@ BindingOwedFairness ==
     /\ \A cId \in CallIds : WF_vars(SettleCall(cId))
     \* a disposing channel settles the calls it owns; true: its own loop
     /\ \A cId \in CallIds : WF_vars(DisposeCallForChannel(cId))
+    \* a disposing runtime disposes the channels it holds; true: its own
+    \* loop, and the same promise one level up
+    /\ \A chId \in ChannelIds : WF_vars(DisposeChannelForRuntime(chId))
     \* resolves a writer caught by a cancel or a dispose; true: the
     \* binding faults the pending write, it waits for nothing
     /\ \A cId \in CallIds : WF_vars(CancelWriterWait(cId))
@@ -988,20 +1007,21 @@ BindingOwedFairness ==
     \* is an answer, and the constructor's task ends either way
     /\ \A chId \in ChannelIds :
            WF_vars(CreateChannel(chId) \/ RejectChannelCreation(chId))
-    \* the lease goes back, without which no teardown starts; true: the
+    \* the handle goes back, without which no teardown starts; true: the
     \* binding's own step once the channel's calls are settled
     /\ \A chId \in ChannelIds : WF_vars(FinishDisposeChannel(chId))
     \* the public DisposeAsync task completes; true: the binding's own
     \* step as soon as its guard holds
     /\ \A chId \in ChannelIds : WF_vars(ResolveChannelDispose(chId))
-    \* the teardown starts at the latch, and the destroy returns; true:
-    \* the binding's own downcalls.  On the existential rather than per
-    \* generation, because both pin their argument to current_runtime -
-    \* at most one is ever enabled - and the promise they drive names no
-    \* generation at all, runtime_dispose_state being one variable
+    \* the teardown starts once the sweep is done, and the destroy
+    \* returns; true: the binding's own downcalls.  On the existential
+    \* rather than per generation, because both pin their argument to
+    \* current_runtime - at most one is ever enabled - and the promise
+    \* they drive names no generation at all, runtime_dispose_state being
+    \* one variable
     /\ WF_vars(\E rtId \in RuntimeIds : BeginRuntimeShutdown(rtId))
     /\ WF_vars(\E rtId \in RuntimeIds : FinishDisposeRuntime(rtId))
-    \* the root dies and the factory re-arms; true: the binding's own step
+    \* the root dies and the door reopens; true: the binding's own step
     \* once no callback of any kind is in flight
     /\ WF_vars(FreeRuntimeRoot)
 
@@ -1155,7 +1175,7 @@ DisposeAwaitsDestroy ==
         /\ current_runtime # "none"
         /\ runtime_destroyed[current_runtime]
 
-\* The manager's own state is coherent: a materialized generation has an
+\* The runtime's own state is coherent: a running generation has an
 \* identity and a root, an absent one has neither.
 RuntimeManagerCoherent ==
     /\ (runtime_dispose_state = "absent")
@@ -1171,25 +1191,27 @@ LiveChannelUsesCurrentRuntime ==
             /\ current_runtime \in RuntimeIds
             /\ channel_runtime[chId] = current_runtime
 
-\* The level-2 dispose discipline settles every debt before the last
-\* release, so the shutdown never owes the second event: the runtime
-\* finds no host debt when it latches the tag.
+\* The level-2 dispose discipline settles every debt before the sweep
+\* ends, so the shutdown never owes the second event: the engine finds no
+\* host debt when it latches the tag.
 ManagedShutdownHasNoHostDebt ==
     \A rtId \in RuntimeIds :
         shutdown_event_emitted[rtId] => ~second_event_owed[rtId]
 
-\* A channel with a live lease keeps the runtime alive.
+\* A live channel has an engine under it: the runtime is running, or it
+\* is running and sweeping.  Both admit the native RUNNING state, which
+\* is what a downcall of that channel needs.
 LiveChannelKeepsRuntimeAlive ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] \in
             {"constructing", "active", "disposing"} =>
-                runtime_dispose_state = "active"
+                runtime_dispose_state \in {"active", "disposing"}
 
-\* The native shutdown never starts while any lease is out.
-NoRuntimeShutdownWhileLeased ==
-    runtime_dispose_state \in
-        {"shutdown_pending", "destroying", "destroyed"} =>
-            AllLeasesReleased
+\* The native shutdown never starts while a channel is still live: from
+\* the destroy on, the sweep is over and every channel is settled.
+NoRuntimeShutdownWhileChannelsLive ==
+    runtime_dispose_state \in {"destroying", "destroyed"} =>
+        EveryChannelSettled
 
 \* The channel machine and the native channel agree, state by state: an
 \* unbuilt channel has no native half, an exposed one is open, a
@@ -1205,11 +1227,10 @@ ChannelStateMatchesNative ==
                channel_state[chId] = "open"
         /\ channel_dispose_state[chId] = "disposing" =>
                channel_state[chId] \in {"open", "closing", "closed"}
-        /\ channel_dispose_state[chId] \in
-               {"released", "released_last", "disposed"} =>
-                   channel_state[chId] \in {"closing", "closed"}
+        /\ channel_dispose_state[chId] \in {"released", "disposed"} =>
+               channel_state[chId] \in {"closing", "closed"}
 
-\* A rejected channel never got its native half, and holds no lease -
+\* A rejected channel never got its native half, and is settled -
 \* ChannelSettled says the second, this says the first.
 RejectedChannelHasNoNativeHalf ==
     \A chId \in ChannelIds :
@@ -1217,13 +1238,14 @@ RejectedChannelHasNoNativeHalf ==
             channel_state[chId] = "none"
 
 \* Which native states the manager's own state admits for the generation it
-\* names.  The manager walks absent, active, shutdown_pending, destroying,
+\* names.  The manager walks absent, active, disposing, destroying,
 \* destroyed and back to absent, and at each stop the native runtime is
-\* where the previous downcall left it: still running while the latch is
-\* only set, because ak_shutdown is BeginRuntimeShutdown's own step and it
-\* leaves the latch as it fires; stopping or already released while the
-\* destroy is in flight; released once it has returned, ak_runtime_destroy
-\* demanding quiescence and quiescence demanding RELEASED.
+\* where the previous downcall left it: still running while the sweep
+\* runs, because ak_shutdown is BeginRuntimeShutdown's own step and the
+\* sweep reaches nothing but channels; stopping or already released while
+\* the destroy is in flight; released once it has returned,
+\* ak_runtime_destroy demanding quiescence and quiescence demanding
+\* RELEASED.
 \*
 \* FAILED_UNQUIESCED is admitted at every stop and so is added once below
 \* rather than listed four times - a failure is nobody's step.  An
@@ -1234,11 +1256,11 @@ RejectedChannelHasNoNativeHalf ==
 \* which is the point of a total CASE.  Every slot but the generation
 \* the manager names is the first conjunct's business.
 AdmissibleRuntimeStates(managed) ==
-    CASE managed = "active"           -> {"RUNNING"}
-      [] managed = "shutdown_pending" -> {"RUNNING"}
-      [] managed = "destroying"       -> {"STOPPING", "RELEASED"}
-      [] managed = "destroyed"        -> {"RELEASED"}
-      [] OTHER                        -> {}
+    CASE managed = "active"     -> {"RUNNING"}
+      [] managed = "disposing"  -> {"RUNNING"}
+      [] managed = "destroying" -> {"STOPPING", "RELEASED"}
+      [] managed = "destroyed"  -> {"RELEASED"}
+      [] OTHER                  -> {}
 
 \* The manager's state and the native runtime agree: the generation the
 \* manager names sits where the table says, its destroy has returned
@@ -1321,8 +1343,8 @@ ChannelIsAnswered(chId) ==
 
 \* A constructor that began completes, one way or the other: the channel
 \* is exposed, or the configuration was refused and it ends in rejected
-\* with its lease returned - a terminal outcome, and a completion rather
-\* than a stall.  Unless the runtime failed under it.
+\* with nothing of the runtime's held - a terminal outcome, and a
+\* completion rather than a stall.  Unless the runtime failed under it.
 ChannelConstructionCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "constructing" ~>
@@ -1335,25 +1357,28 @@ CallDisposeCompletes ==
         call_dispose_state[cId] = "draining" ~>
             (call_dispose_state[cId] = "settled" \/ ~L1!L0!NotFailed)
 
-ChannelLeaseEventuallyReleased ==
+\* A disposing channel releases its native half: its calls settled, then
+\* ak_channel_release.
+ChannelHandleEventuallyReleased ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "disposing" ~>
             (ChannelSettled(chId) \/ ~L1!L0!NotFailed)
 
-\* The public task completes: for the last releaser only after the
-\* destroy it triggered returned, which is the contract DisposeAsync
-\* states.
+\* The public task completes with the channel's own release, which is all
+\* it ever waited for.
 ChannelDisposeCompletes ==
     \A chId \in ChannelIds :
         channel_dispose_state[chId] = "disposing" ~>
             (channel_dispose_state[chId] = "disposed" \/ ~L1!L0!NotFailed)
 
+\* A disposal that began completes: the sweep disposes every channel the
+\* runtime holds, then the engine is retired and the root freed.
 RuntimeDisposeCompletes ==
-    (runtime_dispose_state \in {"shutdown_pending", "destroying"}) ~>
+    (runtime_dispose_state \in {"disposing", "destroying"}) ~>
         (runtime_dispose_state = "absent" \/ ~L1!L0!NotFailed)
 
 \* Every allocated root dies: the call's at its terminal callback, the
-\* generation's after destroy - the factory then re-arms.
+\* generation's after destroy - the door then reopens.
 CallRootEventuallyFreed ==
     \A cId \in CallIds :
         call_root_live[cId] ~>
@@ -1385,14 +1410,13 @@ NotInitRuntimeIsUndestroyed ==
     \A rtId \in RuntimeIds :
         runtime_state[rtId] = "NOT_INIT" => ~runtime_destroyed[rtId]
 
-\* The teardown starts only once every lease is back, every channel is
-\* then settled, and a settled channel settled its calls first - so from
-\* the shutdown on, no published call is left unsettled.  FreeRuntimeRoot
+\* The teardown starts only once the sweep is over, every channel is then
+\* settled, and a settled channel settled its calls first - so from the
+\* destroy on, no published call is left unsettled.  FreeRuntimeRoot
 \* carries this fact across destroyed -> absent, where the public
 \* AbsentRuntimeOwesNothing takes over.
 TeardownLeavesCallsSettled ==
-    runtime_dispose_state \in {"shutdown_pending", "destroying",
-                               "destroyed"} =>
+    runtime_dispose_state \in {"destroying", "destroyed"} =>
         \A cId \in CallIds :
             call_token_published[cId] =>
                 call_dispose_state[cId] = "settled"
@@ -1518,20 +1542,6 @@ AwaitingWriteDoneHasOneComing ==
             \/ L1!IsAwaitingWriteDone(cId)
             \/ L1!IsWriteDoneCallbackRunning(cId)
 
-\* The last holder waits on its own runtime: while the destroy it
-\* triggered has not landed, the channel's runtime is the current one and
-\* the teardown is in flight.  The destroy latches runtime_destroyed
-\* forever, so past it the wait is answered no matter what the factory
-\* does next.
-LastHolderAwaitsItsRuntime ==
-    \A chId \in ChannelIds :
-        channel_dispose_state[chId] = "released_last" =>
-            /\ channel_runtime[chId] \in RuntimeIds
-            /\ (~L1!IsRuntimeDestroyed(channel_runtime[chId]) =>
-                    /\ channel_runtime[chId] = current_runtime
-                    /\ runtime_dispose_state \in {"shutdown_pending",
-                                                  "destroying"})
-
 \* A live root is served: its call was published, and once the status is
 \* on the ring the terminal callback that frees the root is still in
 \* flight - the only return the trampoline admits past the status is the
@@ -1553,7 +1563,7 @@ BusyWriterIsOnAStartedCall ==
         writer_state[cId] # "idle" => ~L1!L0!IsUnusedCall(cId)
 
 \* A published call that has not settled still has a live channel: a
-\* channel releases its lease only once every call it owns is settled, so
+\* channel releases its handle only once every call it owns is settled, so
 \* an unsettled call keeps its channel out of the released states.  This is
 \* what names the call's runtime - a live channel uses the current one -
 \* and so what says the runtime a downcall would reach is not destroyed.
@@ -1587,19 +1597,19 @@ StatusMeansTerminal ==
         ~L1!L0!IsUnusedCall(cId) =>
             (L1!L0!HasStatus(cId) <=> L1!L0!IsTerminalCall(cId))
 
-\* No manager, no lease, no debt.  Whenever the runtime is back to absent
-\* and no channel holds a lease, nothing is owed: no live generation root,
+\* No runtime, no channel, no debt.  Whenever the runtime is back to
+\* absent and every channel is settled, nothing is owed: no live root,
 \* and no published call left unsettled - DisposeLeavesNoManagedWaiter
 \* then carries the rest, since a settled call has its reader, its writer
 \* and its public objects resolved.  This holds at the initial state and
 \* between generations, not only at the end of a run: the antecedent is
-\* "absent and unleased", which is deliberately weaker than "the channel
+\* "absent and swept", which is deliberately weaker than "the channel
 \* set is spent".  It is what makes the legitimate terminal state of a
 \* configuration whose finite channel set IS spent recognizable as
 \* quiescence rather than a stall, and a stall with work outstanding
 \* breaks it - as it breaks the liveness properties besides.
 AbsentRuntimeOwesNothing ==
-    (/\ AllLeasesReleased
+    (/\ EveryChannelSettled
      /\ runtime_dispose_state = "absent")
         => /\ ~runtime_root_live
            /\ \A cId \in CallIds :
