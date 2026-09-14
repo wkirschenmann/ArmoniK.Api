@@ -1,3 +1,11 @@
+//! HTTP/2 to one endpoint, in cleartext.
+//!
+//! The dial and the connection are hyper's; what this module adds is the endpoint check and the
+//! connector shape the gRPC layer drives. There is no TLS here - `dialable` refuses every scheme
+//! but `http://` - which is why [`TransportConfig`] holds an endpoint and a timeout and nothing
+//! a certificate would go in. [`crate::ClientConfig`] configures the other path and never
+//! reaches this one.
+
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -14,6 +22,11 @@ use tower_service::Service;
 
 use crate::utils::{chain, safe_endpoint};
 
+/// What this connector needs in order to dial: where, and how long to wait.
+///
+/// Not [`crate::ClientConfig`], which configures [`crate::connect`] and carries the TLS identity
+/// and the keepalives tonic reads. The two are separate types because they drive separate
+/// engines, and nothing converts between them.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct TransportConfig {

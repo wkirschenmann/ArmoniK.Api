@@ -1,3 +1,19 @@
+//! Two ways to reach an ArmoniK server, with no configuration in common.
+//!
+//! [`connect`] builds a `tonic` channel over `hyper-rustls` from a [`ClientConfig`]: TLS, mTLS,
+//! the keepalives and every timeout, read from the `GrpcClient__*` environment. It is what the
+//! Rust client dials with.
+//!
+//! [`grpc`] over [`http2`] is the engine the C ABI drives. Cleartext `http://` only, configured
+//! by an [`options::ChannelOptions`] document rather than by the environment, and carrying its
+//! own HTTP/2 and gRPC framing rather than reaching for tonic's.
+//!
+//! Nothing converts one configuration into the other, and that is the point: seventeen fields
+//! answer to fourteen the engine has no use for, so a conversion would drop them and leave a
+//! caller no way to see which of its settings survived. A setting reaches the engine by being
+//! named in [`options`], where the schema states its bounds and the generated .NET class its
+//! spelling.
+
 mod config;
 // The readers wait for the option units of T3.2; the vocabulary they interpret does not, because
 // `read_env_bool` already interprets it and there is no reason for two lists of the same

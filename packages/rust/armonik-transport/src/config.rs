@@ -5,6 +5,10 @@ use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use snafu::{ResultExt, Snafu};
 
 /// Options for creating a gRPC Client
+///
+/// Read by [`crate::connect`] alone, which is the `tonic` path. The engine behind the C ABI is
+/// configured by [`crate::options::ChannelOptions`] instead, and nothing carries a value from
+/// here to there.
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ClientConfig {
