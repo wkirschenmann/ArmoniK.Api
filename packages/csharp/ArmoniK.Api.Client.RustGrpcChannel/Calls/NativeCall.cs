@@ -132,13 +132,19 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
         {
           call.self_.Free();
 
-          // A channel that has begun closing, or a handle whose generation is spent, is the
-          // channel going away under a call that raced its disposal. That is the same answer
-          // `NativeChannel.StartCall` gives when it sees the disposal first.
-          throw new RpcException(new Status(status is NativeMethods.AkStatus.InvalidState
-                                                   or NativeMethods.AkStatus.HandleStale
-                                              ? StatusCode.Unavailable
-                                              : StatusCode.Internal,
+          // Three answers to three questions. A channel that has begun closing, or a handle
+          // whose generation is spent, is the channel going away under a call that raced its
+          // disposal - which is the same answer `NativeChannel.StartCall` gives when it sees the
+          // disposal first. `InvalidArg` is what the caller handed over: a method that is not a
+          // path, or metadata the engine reserves, refused before anything left this process, and
+          // gRPC's own table maps a caller's error to INVALID_ARGUMENT. Anything else is this
+          // binding's fault to own.
+          throw new RpcException(new Status(status switch
+                                            {
+                                              NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale => StatusCode.Unavailable,
+                                              NativeMethods.AkStatus.InvalidArg => StatusCode.InvalidArgument,
+                                              _ => StatusCode.Internal,
+                                            },
                                             $"the call could not be started ({status})"));
         }
       }

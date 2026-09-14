@@ -17,6 +17,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,6 +43,9 @@ public class UnaryTests : EchoServerFixture
 
   private NativeChannel Channel()
     => Runtime.Channel(Endpoint);
+
+  /// <summary>Room for one of the messages the ceiling test sends, and not two.</summary>
+  private const ulong Ceiling = 128 * 1024;
 
   /// <summary>A channel opened from a configuration, and a call over it.</summary>
   /// <remarks>
@@ -150,15 +154,24 @@ public class UnaryTests : EchoServerFixture
     file.Seek(reader.ReadUInt32() + 4,
               SeekOrigin.Begin);
 
-    // The Machine field of the PE COFF header, two bytes past the PE signature: 0x8664 is x64 and
-    // 0x014c is x86. A mismatch here is the engine of the wrong architecture beside this host, and
-    // it would otherwise surface as a DllNotFoundException that names nothing.
+    // The Machine field of the PE COFF header, two bytes past the PE signature. Read against the
+    // process's architecture and not its pointer width, which names two of the three: an arm64
+    // host is eight bytes wide like an x64 one and wants a different engine, and requirement 8.1
+    // ships win-arm64. A mismatch here is the engine of the wrong architecture beside this host,
+    // and it would otherwise surface as a DllNotFoundException that names nothing.
     var machine = reader.ReadUInt16();
+    var wanted = RuntimeInformation.ProcessArchitecture switch
+                 {
+                   Architecture.X64   => 0x8664,
+                   Architecture.X86   => 0x014c,
+                   Architecture.Arm64 => 0xaa64,
+                   Architecture.Arm   => 0x01c4,
+                   var other          => throw new InconclusiveException($"no PE machine is recorded here for {other}"),
+                 };
+
     Assert.That(machine,
-                Is.EqualTo(IntPtr.Size == 8
-                             ? 0x8664
-                             : 0x014c),
-                $"a {IntPtr.Size * 8}-bit host beside a 0x{machine:x4} engine");
+                Is.EqualTo(wanted),
+                $"a {RuntimeInformation.ProcessArchitecture} host beside a 0x{machine:x4} engine");
   }
 
   [Test]
@@ -364,25 +377,65 @@ public class UnaryTests : EchoServerFixture
                           100_000);
 
     var runtime = await RestartAsync(workerThreads: 2,
-                                     memoryCeiling: 128 * 1024)
+                                     memoryCeiling: Ceiling)
                     .ConfigureAwait(false);
 
     await using var channel = runtime.Channel(Endpoint);
     var client = Client(channel);
 
-    var calls = await Task.WhenAll(Enumerable.Range(0,
-                                                    16)
-                                             .Select(_ => Task.Run(() => client.SayAsync(new EchoRequest
-                                                                                         {
-                                                                                           Text = text,
-                                                                                         }))))
-                          .ConfigureAwait(false);
+    // Sampled while they run, because what the ceiling promises is about the middle of this and
+    // not its end: that the bytes lent at once never pass it. Read at the end alone, every call
+    // has given everything back and the reading is zero whether the ceiling held or not.
+    using var over = new CancellationTokenSource();
+    var high = 0UL;
+    var watching = Task.Run(() =>
+                            {
+                              while (!over.IsCancellationRequested)
+                              {
+                                if (NativeMethods.ak_runtime_memory_usage(runtime.Handle,
+                                                                          out var usage) == NativeMethods.AkStatus.Ok)
+                                {
+                                  high = Math.Max(high,
+                                                  usage.BytesUsed);
+                                }
 
-    var replies = await RepliesOf(calls)
+                                // Yielded rather than spun: the peak lasts as long as a lend
+                                // does, so this samples often enough without holding a core
+                                // against the calls it is watching.
+                                Thread.Yield();
+                              }
+                            });
+
+    var running = Task.WhenAll(Enumerable.Range(0,
+                                                16)
+                                         .Select(_ => Task.Run(() => client.SayAsync(new EchoRequest
+                                                                                     {
+                                                                                       Text = text,
+                                                                                     }))));
+
+    // Bounded, because a regression in the credit accounting is a wait and not a fault: sixteen
+    // calls that never get their room would hold the run rather than report.
+    Assert.That(running.Wait(TimeSpan.FromSeconds(60)),
+                Is.True,
+                "every call found its room");
+
+    var replies = await RepliesOf(await running.ConfigureAwait(false))
                     .ConfigureAwait(false);
 
-    Assert.That(replies,
-                Has.All.Matches<EchoReply>(reply => reply.Text == text));
+    over.Cancel();
+    await watching.ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(replies,
+                                  Has.All.Matches<EchoReply>(reply => reply.Text == text));
+                      Assert.That(high,
+                                  Is.GreaterThanOrEqualTo((ulong)text.Length),
+                                  "the ceiling was reached, so a call did wait for room");
+                      Assert.That(high,
+                                  Is.LessThanOrEqualTo(Ceiling),
+                                  "and nothing was lent past it");
+                    });
   }
 
   [Test]
@@ -578,6 +631,10 @@ public class UnaryTests : EchoServerFixture
   }
 
   /// <summary>Metadata the engine refuses, as a caller sees it.</summary>
+  /// <remarks>`InvalidArgument` and not `Internal`: nothing left this process, and what was wrong
+  /// is what the caller handed over. gRPC's own table maps a caller's error to INVALID_ARGUMENT,
+  /// and `Internal` is what this binding says when the fault is its own - so pinning `Internal`
+  /// here would have made a caller's mistake indistinguishable from a bug in the binding.</remarks>
   [Test]
   public async Task AReservedMetadataKeyIsRefusedBeforeTheCallStarts()
   {
@@ -592,8 +649,14 @@ public class UnaryTests : EchoServerFixture
                                                        },
                                                      }));
 
-    Assert.That(refused!.StatusCode,
-                Is.EqualTo(StatusCode.Internal));
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(refused!.StatusCode,
+                                  Is.EqualTo(StatusCode.InvalidArgument),
+                                  "what the caller handed over, not a fault of the binding's");
+                      Assert.That(refused.Status.Detail,
+                                  Does.Contain("could not be started"));
+                    });
   }
 
   [Test]
