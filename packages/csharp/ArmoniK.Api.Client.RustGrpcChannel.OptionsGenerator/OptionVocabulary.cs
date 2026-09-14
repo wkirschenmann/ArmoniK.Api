@@ -251,21 +251,35 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       Collect(document.RootElement,
               "#");
 
+      // Followed through what a target contains, not only through what it is. An edge is recorded
+      // at the node holding the `$ref` - `#/$defs/A/properties/B` - so a walk that looked the
+      // target up as a key would find a step only where the target is itself a bare `$ref`. That
+      // is the rare shape. The ordinary one is a type that reaches itself through its own
+      // properties, which is what a recursive schema has, and it was going through unseen.
       foreach (var (from, _) in references)
       {
-        var followed = new HashSet<string>(StringComparer.Ordinal);
-        var at       = from;
+        Follow(from,
+               new HashSet<string>(StringComparer.Ordinal));
+      }
 
-        while (references.TryGetValue(at,
-                                      out var next))
+      void Follow(string from,
+                  ISet<string> seen)
+      {
+        var target = references[from];
+
+        if (!seen.Add(target))
         {
-          if (!followed.Add(at))
-          {
-            throw new NotSupportedException($"`{from}` is reached by a cycle of `$ref` through `{at}`, which names no type.");
-          }
-
-          at = next;
+          throw new NotSupportedException($"`{from}` is reached by a cycle of `$ref` through `{target}`, which names no type.");
         }
+
+        foreach (var under in references.Keys.Where(held => held == target || held.StartsWith(target + "/", StringComparison.Ordinal))
+                                        .ToList())
+        {
+          Follow(under,
+                 seen);
+        }
+
+        seen.Remove(target);
       }
 
       void Collect(JsonElement element,

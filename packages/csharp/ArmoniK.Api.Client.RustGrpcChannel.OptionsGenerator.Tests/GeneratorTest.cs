@@ -271,6 +271,60 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("cycle"));
 
+    /// <summary>And a cycle that goes through a type's properties, which is what a recursive one
+    /// has.</summary>
+    /// <remarks>
+    ///   An edge is recorded at the node holding the `$ref` - `#/$defs/A/properties/B` - so a walk
+    ///   that looked its target up as a key would find one only where the target is itself a bare
+    ///   `$ref`. That shape is the test above; this one is the shape a schema actually gets, and
+    ///   the guard has to reach it through what the target contains.
+    /// </remarks>
+    [Test]
+    public void ACycleThroughPropertiesIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""X"": {{ {Documented}""$ref"": ""#/$defs/A"" }}",
+                                                   @",
+  ""$defs"": {
+    ""A"": {
+      ""description"": ""A."", ""type"": ""object"", ""additionalProperties"": false,
+      ""properties"": { ""B"": { ""description"": ""To B."", ""$ref"": ""#/$defs/B"" } }
+    },
+    ""B"": {
+      ""description"": ""B."", ""type"": ""object"", ""additionalProperties"": false,
+      ""properties"": { ""A"": { ""description"": ""Back."", ""$ref"": ""#/$defs/A"" } }
+    }
+  }"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("cycle"));
+
+    /// <summary>A bound stated on a node the chain passes through is checked like the ends'.</summary>
+    /// <remarks>
+    ///   Draft 2020-12 applies the keywords of every node a `$ref` chain reaches, so a value has
+    ///   to satisfy all of them. This generator reads the property's node and the chain's far end
+    ///   and no hop between - which holds only because the far end it is handed is Corvus's
+    ///   reduction of the whole chain, carrying every hop's keywords already. That is the fact
+    ///   this test pins: `maximum` is stated on the middle node alone and `minimum` on the last,
+    ///   and both have to survive.
+    /// </remarks>
+    [Test]
+    public async Task ABoundOnAHopOfTheChainIsCheckedToo()
+    {
+      var rendered = await Render(Wrap($@"""Credits"": {{ {Documented}""$ref"": ""#/$defs/Middle"" }}",
+                                       @",
+  ""$defs"": {
+    ""Middle"": { ""description"": ""Through here."", ""$ref"": ""#/$defs/End"", ""maximum"": 900 },
+    ""End"": { ""description"": ""The end."", ""type"": ""integer"", ""format"": ""int32"", ""minimum"": 1 }
+  }"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("(credits < 1 || credits > 900)"),
+                                    "the end's minimum and the hop's maximum, both");
+                      });
+    }
+
     /// <summary>The document the engine reads is rendered here too, root only.</summary>
     /// <remarks>The document is one object, so a group of it gets neither.</remarks>
     [Test]
