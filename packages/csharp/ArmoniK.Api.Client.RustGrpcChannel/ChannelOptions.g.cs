@@ -178,11 +178,11 @@ public sealed class TransportOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (ConnectTimeoutSeconds is double connectTimeoutSeconds && (connectTimeoutSeconds <= 0 || double.IsNaN(connectTimeoutSeconds) || double.IsInfinity(connectTimeoutSeconds)))
+    if (ConnectTimeoutSeconds is double connectTimeoutSeconds && (connectTimeoutSeconds <= 0 || connectTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(connectTimeoutSeconds) || double.IsInfinity(connectTimeoutSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(ConnectTimeoutSeconds),
                                             connectTimeoutSeconds,
-                                            "ConnectTimeoutSeconds has to be greater than 0 and finite.");
+                                            "ConnectTimeoutSeconds has to be greater than 0 and less than 1.8446744073709552E+19 and finite.");
     }
   }
 }

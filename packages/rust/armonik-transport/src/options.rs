@@ -21,10 +21,19 @@ pub const LARGEST_WINDOW: i32 = 536_870_910;
 /// Seconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory
 /// layout rather than anything a document would write. A number carries no unit, so every
 /// option of this type names one: `connect_timeout_seconds`, not `connect_timeout`.
+///
+/// The ceiling is the type's own and not any one option's: every `Seconds` becomes a `Duration`,
+/// and `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here
+/// rather than left to the conversion, which refuses correctly but names no option when it does -
+/// a caller then reads that their configuration was refused and not which line of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "schema",
+    schemars(extend("exclusiveMaximum" = 18446744073709551616.0))
+)]
 pub struct Seconds(pub f64);
 
 impl TryFrom<Seconds> for Duration {

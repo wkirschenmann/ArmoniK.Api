@@ -38,9 +38,10 @@
   "additionalProperties": false,
   "$defs": {
     "Seconds": {
-      "description": "A duration, in seconds.\n\nSeconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory\nlayout rather than anything a document would write. A number carries no unit, so every\noption of this type names one: `connect_timeout_seconds`, not `connect_timeout`.",
+      "description": "A duration, in seconds.\n\nSeconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory\nlayout rather than anything a document would write. A number carries no unit, so every\noption of this type names one: `connect_timeout_seconds`, not `connect_timeout`.\n\nThe ceiling is the type's own and not any one option's: every `Seconds` becomes a `Duration`,\nand `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here\nrather than left to the conversion, which refuses correctly but names no option when it does -\na caller then reads that their configuration was refused and not which line of it.",
       "type": "number",
-      "format": "double"
+      "format": "double",
+      "exclusiveMaximum": 1.8446744073709552e+19
     },
     "TransportOptions": {
       "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it is\npassed when the channel is opened rather than set as an option that happens to be mandatory.\nEvery option has a default, so naming none of them is a valid configuration.",

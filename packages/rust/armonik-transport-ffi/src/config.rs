@@ -154,6 +154,22 @@ mod tests {
         assert!(admits(
             r#"{"Transport":{"ConnectTimeoutSeconds":0.5}}"#.to_owned()
         ));
+
+        // The ceiling is the type's rather than the option's, so it is read off `Seconds`: every
+        // duration becomes a `Duration`, which holds `u64::MAX` seconds, and 2^64 is the first
+        // value none can be. The value below it is the largest a `f64` can name.
+        assert_eq!(
+            schema
+                .pointer("/$defs/Seconds/exclusiveMaximum")
+                .and_then(serde_json::Value::as_f64),
+            Some(18446744073709551616.0)
+        );
+        assert!(!admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":18446744073709551616.0}}"#.to_owned()
+        ));
+        assert!(admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":18446744073709549568.0}}"#.to_owned()
+        ));
     }
 
     #[test]
