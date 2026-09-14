@@ -200,6 +200,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <param name="endpoint">Where the channel connects.</param>
   /// <param name="deliveryCredits">How many events the engine may hold for an unread call.</param>
   /// <exception cref="ArgumentOutOfRangeException">The window is outside what is admitted.</exception>
+  /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
+  /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
+  /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
   public NativeChannel Channel(string endpoint,
                                int deliveryCredits = DefaultDeliveryCredits)
     => Channel(endpoint,
@@ -213,7 +216,11 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <param name="options">What the channel is opened with, read once and never written to.</param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
+  /// <exception cref="ArgumentException">
+  ///   The engine dials no such endpoint, or refuses an option given with it.
+  /// </exception>
   /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
+  /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
   public NativeChannel Channel(string endpoint,
                                ChannelOptions options)
   {

@@ -81,7 +81,23 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                                      out handle_);
         if (status != NativeMethods.AkStatus.Ok)
         {
-          throw new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status})");
+          // Three answers, because this door means three things by a refusal, and the caller can
+          // act on which. `InvalidArg` is what was handed over: an endpoint that is not UTF-8,
+          // not a URI, or not one this engine dials, or a document it re-checks and refuses - a
+          // different endpoint is worth trying. A stale or closed runtime is the runtime going
+          // away under a creation that passed `RefuseIfGoingAway`, since the engine also stops
+          // for reasons of its own, and retrying that is worth nothing. The status is named in
+          // every message for whoever reads the trace rather than for the caller, who has the
+          // type: a gate closed by a shutdown and a handle spent by a destroy are one answer here
+          // and two different bugs to go and find.
+          throw status switch
+                {
+                  NativeMethods.AkStatus.InvalidArg => new ArgumentException($"`{Safely(endpoint)}` or an option given with it was refused ({status})"),
+                  NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale =>
+                    new ObjectDisposedException(nameof(NativeRuntime),
+                                                $"the runtime was gone before `{Safely(endpoint)}` could be opened ({status})"),
+                  _ => new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status})"),
+                };
         }
       }
     }

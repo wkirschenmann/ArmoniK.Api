@@ -660,6 +660,18 @@ public class UnaryTests : EchoServerFixture
                     });
   }
 
+  /// <summary>An endpoint the engine will not dial is the caller's argument, not a state this
+  /// binding lost its footing in.</summary>
+  /// <remarks>
+  ///   The distinction is the one a caller can act on, and it is what the two exception types
+  ///   say: a different endpoint is worth trying, a runtime that has gone is not. One
+  ///   `InvalidOperationException` for both would say neither - and `Channel` already documents
+  ///   the second, so it was a published contract the code did not keep.
+  /// </remarks>
+  [Test]
+  public void AnEndpointTheEngineWillNotDialIsTheCallersArgument()
+    => Assert.Throws<ArgumentException>(() => Runtime.Channel("https://127.0.0.1:1"));
+
   [Test]
   public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()
     => Assert.Throws<ArgumentOutOfRangeException>(() => Runtime.Channel(Endpoint,
