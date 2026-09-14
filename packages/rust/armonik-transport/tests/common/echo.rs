@@ -419,7 +419,10 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
         // states the status and then sends a message, which is neither shape.
         "StatusInHeadThenMessage" => (
             grpc_head().header("grpc-status", "0"),
-            vec![Frame::data(grpc_message(0, b"unread if the head is believed"))],
+            vec![Frame::data(grpc_message(
+                0,
+                b"unread if the head is believed",
+            ))],
         ),
         // And the shape it is mistaken for: the status in the head, and no body at all.
         "TrailersOnly" => (

@@ -137,10 +137,7 @@ mod tests {
         let ledger = Ledger::new(64);
 
         assert!(ledger.empty());
-        assert_eq!(
-            ledger.hold_bytes(65),
-            Err(ak_status::AK_STATUS_BUDGET_BUSY)
-        );
+        assert_eq!(ledger.hold_bytes(65), Err(ak_status::AK_STATUS_BUDGET_BUSY));
         assert!(ledger.empty(), "the refusal gave its count back");
         assert_eq!(ledger.usage().bytes_used, 0);
     }

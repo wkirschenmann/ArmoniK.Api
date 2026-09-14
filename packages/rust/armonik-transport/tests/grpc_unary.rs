@@ -439,7 +439,10 @@ async fn a_status_in_the_head_is_not_believed_over_a_message_behind_it() {
         call_on("/raw/StatusInHeadThenMessage", Bytes::from_static(b"x")).await;
 
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
-    assert!(status.message.contains("and then sent a message"), "{status}");
+    assert!(
+        status.message.contains("and then sent a message"),
+        "{status}"
+    );
     assert!(messages.is_empty(), "{messages:?}");
 }
 

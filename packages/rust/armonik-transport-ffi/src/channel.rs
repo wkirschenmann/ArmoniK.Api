@@ -201,7 +201,15 @@ mod tests {
     fn the_close_finishes_only_once_the_last_call_has_left() {
         assert_eq!(step((CLOSING, 0), Phase::closed), Some((CLOSED, 0)));
         assert_eq!(step((CLOSING, 1), Phase::closed), None);
-        assert_eq!(step((OPEN, 0), Phase::closed), None, "a channel nobody released");
-        assert_eq!(step((CLOSED, 0), Phase::closed), None, "and it finishes once");
+        assert_eq!(
+            step((OPEN, 0), Phase::closed),
+            None,
+            "a channel nobody released"
+        );
+        assert_eq!(
+            step((CLOSED, 0), Phase::closed),
+            None,
+            "and it finishes once"
+        );
     }
 }
