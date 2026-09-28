@@ -1,6 +1,7 @@
 use std::ffi::c_void;
 use std::mem::{align_of, offset_of, size_of};
 
+use armonik_transport::grpc::GrpcStatusCode;
 use armonik_transport_ffi::*;
 
 const PTR: usize = size_of::<usize>();
@@ -154,6 +155,51 @@ fn without_comments(header: &str) -> String {
     }
     kept.push_str(rest);
     kept
+}
+
+/// The header calls `ak_event.status_code` a gRPC status, and the library fills it by casting a
+/// `GrpcStatusCode` straight to `i32` - a dependency's discriminants, published under a promise
+/// about the specification's. Written out rather than derived, for the reason the enum list below
+/// is: two statements of the same numbering are what make a comparison, and reading them from one
+/// place would compare a thing to itself.
+///
+/// Exhaustive on purpose. A variant added to that set, or renamed, does not compile here, which
+/// is the last moment before a host reads a number nothing checked.
+#[test]
+fn every_grpc_status_the_abi_publishes_is_the_number_the_specification_gives_it() {
+    fn specified(code: GrpcStatusCode) -> i32 {
+        match code {
+            GrpcStatusCode::Ok => 0,
+            GrpcStatusCode::Cancelled => 1,
+            GrpcStatusCode::Unknown => 2,
+            GrpcStatusCode::InvalidArgument => 3,
+            GrpcStatusCode::DeadlineExceeded => 4,
+            GrpcStatusCode::NotFound => 5,
+            GrpcStatusCode::AlreadyExists => 6,
+            GrpcStatusCode::PermissionDenied => 7,
+            GrpcStatusCode::ResourceExhausted => 8,
+            GrpcStatusCode::FailedPrecondition => 9,
+            GrpcStatusCode::Aborted => 10,
+            GrpcStatusCode::OutOfRange => 11,
+            GrpcStatusCode::Unimplemented => 12,
+            GrpcStatusCode::Internal => 13,
+            GrpcStatusCode::Unavailable => 14,
+            GrpcStatusCode::DataLoss => 15,
+            GrpcStatusCode::Unauthenticated => 16,
+        }
+    }
+
+    // Every number the specification assigns, so the set is covered without a second list of the
+    // variants to keep in step with the match.
+    for number in 0..=16 {
+        let code = GrpcStatusCode::from_i32(number);
+        assert_eq!(
+            specified(code),
+            number,
+            "{number} names {code:?} on the way in"
+        );
+        assert_eq!(code as i32, number, "{code:?} goes out as {}", code as i32);
+    }
 }
 
 #[test]
