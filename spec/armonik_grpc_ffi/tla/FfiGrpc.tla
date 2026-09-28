@@ -146,7 +146,7 @@ CarriesNoUnacquittedSend(cId, b) ==
 \* The per-buffer lifecycle.  Monotone along none -> lent -> returned ->
 \* freed, and an identity is never reused, which is what makes the states
 \* a chain rather than a cycle.  "returned" is the host's step, "freed" is
-\* the runtime's: the replay buffer may keep the bytes past the return.
+\* the runtime's: the transport may still read the bytes past the return.
 BufferStates == {"none", "lent", "returned", "freed"}
 IsFreshBuffer(cId, b) == buffer_state[cId][b] = "none"
 IsLentBuffer(cId, b) == buffer_state[cId][b] = "lent"
@@ -889,15 +889,14 @@ HostReturnsBuffer(cId, b) ==
 
 \* The runtime releases the bytes of a buffer the host has given back.
 \* Not an ABI event at all: when the allocation actually goes is Rust's
-\* business, and a call still inside its replay buffer keeps the bytes so
-\* it can send them again.  This is the step that makes "returned" and
+\* business.  This is the step that makes "returned" and
 \* "freed" two states rather than one, and it is the runtime's own, so it
 \* carries fairness where the return does not.
 FreeReturnedBuffer(cId, b) ==
     /\ IsReturnedBuffer(cId, b)
     \* The bytes of a send are not released while the send is unacquitted:
-    \* the transport may still be reading them, and the replay buffer may
-    \* still want them.  A buffer given back unused carries no send, so it
+    \* the transport may still be reading them.  A buffer given back unused
+    \* carries no send, so it
     \* is free to go at once.
     /\ CarriesNoUnacquittedSend(cId, b)
     /\ buffer_state' = [buffer_state EXCEPT ![cId][b] = "freed"]
@@ -1241,7 +1240,7 @@ ResourcesReleasedCallbacksReturn ==
 \* Every buffer the arena lends out is given back and then released.  The
 \* first half is the host's obligation, per buffer because returns are
 \* unordered; the second is the runtime's, and the gap between them is the
-\* replay buffer.
+\* transport's.
 BufferEventuallyFreed ==
     \A cId \in CallIds, b \in BufferIds :
         IsLentBuffer(cId, b) ~> IsFreedBuffer(cId, b)

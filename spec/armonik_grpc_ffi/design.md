@@ -392,21 +392,22 @@ impl tower::Service<http::Request<BoxBody>> for TonicAdapter {
 }
 ```
 
-**Open, and it is a boundary decision rather than a detail.** A `tower::Service` speaks HTTP
-bodies; `GrpcChannel` speaks messages. An adapter between the two is not thin: it has to take
-the request body apart into messages and put the response messages back together as a body,
-including trailers, compression flags and the length-prefixed framing. That is a second
-implementation of the gRPC wire format layered on the first. Two coherent answers exist and
-V1 must pick one, because the middle is where the framing gets implemented twice:
+A `tower::Service` speaks HTTP bodies; `GrpcChannel` speaks messages. An adapter between the
+two is not thin: it has to take the request body apart into messages and put the response
+messages back together as a body, including trailers, compression flags and the length-prefixed
+framing - a second implementation of the gRPC wire format layered on the first. The middle is
+where the framing gets implemented twice, and there are two coherent answers either side of it:
 
 - the Rust engine exposes an HTTP/2 service that Tonic consumes directly, and the
   message-level API is what the FFI is built on;
 - or the ArmoniK Rust clients use message-level stubs generated against `GrpcChannel`, and
   Tonic is not in the picture at all.
 
-The .NET binding is unaffected either way: it consumes the message-level API through the FFI.
-Both paths share the same engine - retry, deadline, pool, flow control. T7.1 assumes the
-first and has to say so explicitly.
+**Decided (2026-09-28): the first**, and the engine already has its shape - tonic's client over an
+HTTP/2 service of the channel's own. What it means for the Rust client work already under way
+elsewhere is analysed when T7.1 starts. The .NET binding is unaffected either way: it consumes the
+message-level API through the FFI, and both paths share the same engine - retry, deadline, pool,
+flow control.
 
 ### Retry — commitment point
 
@@ -691,7 +692,7 @@ refinement.
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
 | `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
-| `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it and no retry may still replay it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's. A replay holds the arena allocation itself, so what a WRITE_DONE ends is the send and not the allocation's life |
+| `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's. A replay reads the engine's own copy of a message and never the arena, so nothing past the send keeps the allocation |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
 | `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue |
 | `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE` |
@@ -912,10 +913,9 @@ ak_status ak_get_call_buffer(ak_call_handle call, size_t len, ak_buffer *out);
 // reads it in place. Refused once cancellation has been requested or the trailers
 // have been received - the buffer must then go back through
 // ak_return_call_buffer.
-// When the allocation is freed is Rust's business and is not observable here: a
-// call still within its replay buffer keeps the bytes so it can send them again,
-// and frees them when it commits. WRITE_DONE therefore says the slot is free,
-// nothing about the memory.
+// When the allocation is freed is Rust's business and is not observable here: the
+// engine copies the message out when it encodes it, and the allocation goes then.
+// WRITE_DONE therefore says the slot is free, nothing about the memory.
 // AK_EVENT_WRITE_DONE settles an accepted send and frees its slot, from the moment
 // the event is emitted - not when the callback returns. It says nothing about the
 // network: the message may have been written to the transport, or abandoned because
@@ -1422,25 +1422,15 @@ writer is needed: the generated marshaller calls `context.SetPayloadLength(messa
 and only then writes.
 
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
-the writer it wakes can act on it straight away. Retry costs no copy at all: the
-bytes are already Rust's, so a retryable call simply keeps the allocation until it commits.
-**The arena original is the replay cache**, not a copy taken from it - which is why nothing on
-the send path may serialize somewhere else first and hand the bytes over afterwards.
-The slot budget and the replay buffer (`RetryConfig::max_buffer_size`) charge two different
-phases of one buffer's life - the first while it is outstanding, the second once it is retained
-past its WRITE_DONE - so neither is spent on the other's account.
+the writer it wakes can act on it straight away. The bytes leave the arena once, when tonic's
+encoder copies the message into the request body, and the allocation is released there. **The
+replay cache is the engine's copy**, not the arena original: a retry resends what the engine
+holds, which is a copy it needs whatever the send path does.
 
-**They are not independent in effect, though, and the window has to be the larger.** A replay
-sends the retained bytes again, so it passes back through the send window: a window of one
-replays a retained message per round trip, which spends the memory the cache costs without
-buying the speed it exists for. The window is the parallelism a replay can use and the cache is
-the work a replay has to do, so a cache that retains more messages than the window admits
-retains what cannot be replayed any faster than re-serializing it would have been.
-
-The two are denominated differently - the window in buffers, the cache in bytes - so the
-constraint cannot be checked as written until one of them changes unit or the pair is related
-through a message size. That is T6.1's to settle, and it is why neither value can be chosen
-alone.
+So the slot budget and the replay buffer (`RetryConfig::max_buffer_size`) charge two different
+buffers - the arena allocation while it is lent or queued, the engine's copy while a retry may
+still send it - and they do not constrain each other: a replay takes no slot in the send window,
+which bounds what the host serializes at once and nothing a replay does.
 
 **Receive (Rust → host)**:
 - `ak_event.payload` is an owned `ak_bytes` (reference-counted Rust buffer)
@@ -1452,9 +1442,11 @@ alone.
 - Send side: every send buffer comes out of the call's arena, bounded by
   `MaxSendsInFlight` buffers at a time, and the arena is dropped in one piece when the call
   is released - which the release precondition guarantees is safe. Retained replay bytes are
-  the same allocations, held past their WRITE_DONE and bounded separately by
-  `max_buffer_size`. Arenas are a natural fit for a pool held by the channel, so the same
-  memory serves every call the channel carries and the steady-state fast path allocates nothing the binding controls - no payload, no event object - which is a budget to measure, not an absolute: task completions, scheduling, exception paths and arbitrary marshallers allocate.
+  not these allocations but the engine's copies, bounded separately by `max_buffer_size`.
+  Arenas are a natural fit for a pool held by the channel, so the same memory serves every call
+  the channel carries and the steady-state fast path allocates nothing the binding controls - no
+  payload, no event object - which is a budget to measure, not an absolute: task completions,
+  scheduling, exception paths and arbitrary marshallers allocate.
 - Receive side: Rust buffers are allocated by Hyper (similar size classes,
   well-managed by jemalloc/system allocator). If fragmentation is measured in production,
   a pool of pre-allocated buffers can be added without ABI change.
@@ -2682,7 +2674,7 @@ nineteen FFI variables:
   `buffers_held_by_host` by `LentCountMatchesBufferStates`, which is what keeps every
   proof that reads the counter standing. `returned` and `freed` are two states because
   they are two events: giving the buffer back is the host's, releasing the memory is the
-  runtime's, and the replay buffer is the gap
+  runtime's, and the transport still reading the bytes is the gap
 - `buffer_send`: per call and per buffer, the index of the send living in that
   allocation, zero for none. Keyed by the buffer because that is how
   `ak_call_send_message` keys it, so both questions the model asks are lookups - may
@@ -2902,7 +2894,7 @@ New liveness guarantees:
 - **BufferEventuallyFreed**: every buffer the arena lends out is given back and then
   released. Two rungs with two owners: the host returns it, per buffer because returns are
   unordered, and the runtime releases the bytes once the send they carry is acquitted. The
-  replay buffer is the gap between the two
+  transport still reading them is the gap between the two
 - **CallEventuallyReclaimed**: a terminal call is reclaimed - handle retired, arena gone -
   without the host doing anything beyond giving back what it holds. This is what removing
   `ak_call_release` from the ABI buys: the guarantee is unconditional where a downcall the
@@ -3904,7 +3896,7 @@ table above maps the five call shapes and stops there.
 |----------|---------|--------|
 | Crate for X509Store Windows | Direct native APIs / `schannel` crate / `windows` crate | Layer 1 |
 | Exact handle format | **Slot map: index plus generation.** A stale handle is refused with a status instead of dereferenced, which is what makes runtime-driven reclamation safe: the host may still hold a token for a call already reclaimed | Layer 3, decided |
-| Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes an arena retains past their WRITE_DONE, which is the one knob between replayability and memory held. **Not choosable alone**: a replay re-enters the send window, so the window has to admit at least what the cache retains or the retained bytes cannot be replayed any faster than re-serializing them. T6.1 settles the pair, and the differing units - buffers against bytes - with it |
+| Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes the engine keeps a copy of for a replay, which is the one knob between replayability and memory held. Choosable alone: a replay resends the engine's copy and takes no slot in the send window, so the window does not bound it |
 | Host queue signal mechanism | **Moot: there is no host queue.** The per-call ring replaces it, and its signal must be latched auto-reset - never `SemaphoreSlim`, whose `Release` can run a waiter inline on the callback's thread | Layer 4, decided |
 | Generator for the C# options | **A build-time tool reading the schema with `Corvus.Json.CodeGeneration`.** A Roslyn generator cannot carry `System.Text.Json`: an analyzer loads inside the compiler, and the documented failure is green under `dotnet build` and red under Visual Studio, which is the one shape no CI can catch. Corvus's own generator has no such problem but emits `readonly struct` readers over a `JsonElement`, which is the wrong shape for a class `IConfiguration` binds and would need a hand-written mutable facade anyway. So its `TypeDeclaration` model does the reading - `$ref`, `$defs`, draft 2020-12 - and this repository decides the C#. The tool runs at build time, so none of Corvus reaches a consumer | Layer 4, decided |
 | Connection pool management (idle eviction) | Internal timer vs lazy check | Layer 2 |
@@ -3918,7 +3910,7 @@ table above maps the five call shapes and stops there.
 | An error detail channel in the ABI | **`ak_error { kind, ak_bytes detail }` as a nullable out-argument on every fallible entry point, freed by `ak_error_release`.** Nothing is allocated when the host passes NULL, and `detail.owner == NULL` carries a constant message with no allocation at all. The release is a symbol and not a pointer inside the struct: the host would copy a live code pointer into its own memory, and quiescence permits unloading this library. The same version bump carries requirement 13.5 on the two records the host fills and turns their exact-size check into a minimum - free while no host is compiled against version 1, and never free again | Layer 3, decided |
 | Splitting `armonik-transport` | **No split, and no feature gate over the engine.** The client compiles sixteen mandatory dependencies where it compiled eight, for an engine it does not use yet - but T7.1 puts it on that engine and T4.1 gives the engine the TLS stack, so both halves converge and the count stops being paid for nothing. A gate would be scaffolding with a demolition date, and a feature position nothing exercises rots | Layer 1, decided |
 | Which of `connect.rs` and a new TLS path survives | **`connect.rs::https_connector`, which T4.1 already states.** Its five branches - system roots, an explicit PEM CA, `OverrideTargetName` with its IPv6 case, the insecure opt-in, mTLS from a PEM pair - exist and are tested, so the engine takes the connector rather than growing a second one. The public `TransportConnection` alias changes type with it and costs nothing: no crate here has a publication channel, `publish.yml` carrying jobs for C#, Python, C++, Java and npm and none for cargo | Layer 1, decided |
-| How much of `tonic` the engine reuses | **Open, and the rule that used to close it does not exist.** `armonik-transport` already depends on tonic for `channel` and `codegen` and this document's own T7.1 adapter is typed `Error = tonic::Status`, so nothing here obliges the engine to avoid it. Three of its types are re-implemented: `MetadataMap`, `Status::from_header_map` with the HTTP-to-gRPC table and the percent-decoding, and a one-connection pool with dial coalescing that `hyper_util::client::legacy::Client` is. What reuse is worth differs per type and is measured in the audit ledger, not assumed. The one place a hand-written path is defensible on this design's own terms is the **send codec**: tonic's `Encoder` writes into a buffer tonic owns, while the zero-copy send has the host serialize into the arena allocation that *is* the replay cache, so an encoder of tonic's costs a copy per message into the arena and makes the cache either a second copy or the wrong bytes. The receive side has no such objection - `Decoder<Item = Bytes>` is the shape `Payload` already carries. Reuse also couples this crate's semver to tonic 0.14, which is free while `publish.yml` has no cargo job | Layer 1 |
+| How much of `tonic` the engine reuses | **Decided (2026-09-28): the client, on both sides.** A call runs through `tonic::client::Grpc` over the channel's own HTTP/2 session, with a codec that carries the caller's bytes as they are: the length-prefixed framing both ways, the status in the head and in the trailers, the Trailers-Only shape and the percent-decoding are tonic's. The copy tonic's encoder makes out of the arena is accepted, because a retry needs a copy the engine owns anyway. What stays the engine's is what tonic does not do, or does against the gRPC documents, and T9.2 lists each with the test that pins it: the RST_STREAM table, which tonic compiles only under its `server` feature; refusing an HTTP answer that is not gRPC before its body is read as messages; UNKNOWN for a message behind a status the head states, where tonic takes that head for Trailers-Only; INTERNAL for trailers that arrive inside a message, where tonic reports their status and drops the partial message; RESOURCE_EXHAUSTED for a message past the limit, where tonic answers OUT_OF_RANGE; removing `grpc-status-details-bin`, which tonic decodes with a panic; and a decoding limit held under what the target can address. A stream that ends with no status is UNKNOWN, as tonic answers it. The session itself - one connection, dial coalescing - is still the channel's, and the metadata type is still this crate's own | Layer 1 |
 | The per-call delivery queue on .NET | **Open, and the three objections to `System.Threading.Channels` were wrong.** A bounded `Channel<Slot>` allocates nothing per element that the ring does not, the element being a reference to a native buffer rather than the buffer; a queue that removes the item at the take is no obstacle, because `ak_event_consumed` names the payload it releases, so the engine discharges what comes back rather than what it handed out in order; and level 2's `RingHead`/`RingTail` bind nothing, since that level describes this binding and a refinement needs only a mapping, which may be fictional. What a swap does not touch is the phase machine and the read-versus-token arbiter, which are the actual complexity and have no library answer. What it costs is a package reference on .NET Framework and the release rule: `DeliveryRing.Release()` is the sole releaser of an accepted payload, and a queue that hands the item out cannot hold that invariant - it returns to being the caller's discipline. `DeliveryRing` is one 122-line type, so the swap is mechanical whenever it is wanted | Layer 4 |
 | How the C ABI is kept in five places | **Generated from the Rust, and the artefact committed.** `abi.rs`, the header, `NativeMethods.cs`, `tests/layout.rs` and `AbiLayoutTests.cs` are one contract written out five times by hand. `cbindgen` emits the header and `csbindgen` the P/Invoke declarations, verified by the same regenerate-and-compare step `ChannelOptions.g.cs` already has, and the prose the header carries moves into `cbindgen.toml`'s `header` and the Rust doc comments. What does not become redundant is the .NET layout test: `Marshal.SizeOf` and `Marshal.OffsetOf` measure what the CLR does with the declarations, per target framework and per architecture, and a generator proves the declarations match the Rust rather than that the runtime lays them out as Rust does. T3.6, before T4.0 | Layer 3, decided |
 | Guarding a buffer or a payload given back twice | **Not built, and if it ever is, behind a feature of its own rather than `cfg(debug_assertions)`.** The `LENT_TAG` in the allocation does not guard this and cannot: it is read from the thing being validated, so a second give-back reads eight bytes of freed memory before any check runs, and no in-allocation scheme fixes that. A guard that works is out of band - a per-call set of live owner pointers, on the lend and the return of every message - and what it would protect is a rule the header already assigns to the host outright, calling a second give-back undefined behaviour rather than a refusal because "there is nothing left to refuse with". The debug build is the wrong home for it twice over: it is the build this repository's own tests run against, so the cost lands on the work rather than on the question, and a guard that exists only where nobody deploys is one no host can ask for when it wants it. A feature flag is the shape - off by default, named, and switched on by whoever is bringing up a host | Layer 3, decided |

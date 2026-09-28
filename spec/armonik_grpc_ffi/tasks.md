@@ -157,8 +157,7 @@ the crate already carries:
 
 **Prerequisite**: T1.1, T0.2 (FFI spec proved or at least written)
 **Source**: from scratch per the design. The crate of that name on `wip/rust-all` is not the
-source: it delegates every gRPC semantic to tonic and exposes a polling ABI, where the design
-calls for an engine that owns its framing under a callback ABI.
+source: it exposes a polling ABI, where the design calls for a callback ABI.
 **Commit**: Create `packages/rust/armonik-transport-ffi/`:
 - `ak_runtime_create`, `ak_runtime_status`, `ak_runtime_begin_shutdown`, `ak_runtime_destroy`
 - `ak_channel_create` (minimal JSON config: just endpoint), `ak_channel_release`
@@ -903,16 +902,11 @@ Changing it is three artefacts in this order: that layer-4 decision, then level 
 multi-slot and its refinement proof is redone, then the binding returns at the commit instead of the
 acquittal and `LentBuffer`'s default branch becomes a wait.
 
-**Decided, and it is why this belongs here rather than beside it: the window has to be larger than
-the replay cache.** A replay sends the retained bytes again, so it passes back through the window -
-a window of one replays a retained message per round trip, which spends the memory the cache costs
-without buying the speed it exists for. So the two values are chosen together, not in sequence, and
-design.md's claim that they never trade against each other now says what is true of it: they charge
-different phases of a buffer's life, and they still constrain each other in effect.
-
-The first thing this study owes is therefore a unit. The window counts buffers and the cache counts
-bytes, so "larger than" is not checkable as the two are spelled today - either the cache gains a
-message count, or the pair is related through a message size the configuration states.
+**The window and the replay cache do not constrain each other** (2026-09-28, superseding the
+decision that the window had to be the larger). That decision rested on a replay resending the
+arena original through the send window. The engine takes tonic's encoder instead, which copies
+each message out of the arena, and a replay resends that copy: it takes no slot in the window, so
+the two values are chosen independently and no unit relates them.
 
 ### T6.2: Deadline
 
@@ -1070,6 +1064,10 @@ it. Dead code removed.
 
 ### T7.1: Adapt the Rust ArmoniK client to use the `grpc` module
 
+**To revisit before it starts** (2026-09-28): design.md decides that the client drives the
+engine's HTTP/2 service directly, so the adapter the commit line below describes is not the plan.
+What that decision means for the Rust client code on Florian's branch is to be analysed first.
+
 **Prerequisite**: T1.1, T2.3 (functional Rust channel with all 4 cardinalities)
 **Commit**: Replace the direct Tonic dependency in the Rust ArmoniK client with an adapter
 that consumes `armonik-transport`'s `grpc` module. The generated Tonic stubs work via a
@@ -1081,8 +1079,8 @@ gRPC engine.
 Tonic directly. Same functional behavior.
 
 This is also where the crate stops carrying two disjoint stacks. Until here the Rust client
-compiles sixteen mandatory dependencies where it compiled eight - `h2`, `http`, `http-body-util`,
-`bytes`, `base64`, `tokio` with five features, `tower-service` and `secrecy` - for an engine it
+compiles fifteen mandatory dependencies where it compiled eight - `h2`, `http`, `http-body-util`,
+`bytes`, `base64`, `tokio` with five features and `tower-service` - for an engine it
 does not use, and the only code the two stacks share is `chain` and `safe_endpoint`. That is paid
 deliberately rather than gated: a feature gate over the engine would be removed by this task, and
 a feature position nothing exercises rots before then.
@@ -1120,6 +1118,44 @@ another project's review cycle, and neither its schedule nor its outcome is ours
 waits on it: the tripwires are what makes waiting safe.
 
 **Deliverable**: a pull request per defect, or a stated reason for not carrying one.
+
+### T9.2: What tonic's client answers against the gRPC documents
+
+**Prerequisite**: none
+**Commit**: open a tracking issue in this repository, as #702 is for T9.1, then carry upstream
+what this repository has measured and pinned.
+
+The engine is tonic's client over an HTTP/2 session of the channel's own, and tonic 0.14.6 gets
+seven cases wrong for a client. Each is worked around in `grpc/channel.rs` or `grpc/driver.rs`, and
+each workaround is pinned by a test that fails without it:
+
+- **A message past the receive limit is OUT_OF_RANGE.** The gRPC status table gives
+  RESOURCE_EXHAUSTED, and lists OUT_OF_RANGE among the codes the library never generates.
+  Remapped by matching tonic's message, the only thing telling it from a status the peer sent.
+- **Trailers that arrive inside a message end the call with their status**, so a message the peer
+  cut short is dropped under an OK. Answered with INTERNAL by following the length prefixes.
+- **Any status in the response head is taken for Trailers-Only**, so messages behind it are
+  dropped under that status. Answered with UNKNOWN by reading the body to its end first.
+- **A non-200 answer's body is decoded as gRPC**, so a proxy's HTML error page is reported as an
+  invalid compression flag rather than through PROTOCOL-HTTP2's HTTP-to-gRPC table.
+- **A malformed `grpc-status-details-bin` panics.** `Status::from_header_map` decodes it with an
+  `expect`, which ends the task driving the call. The header is removed before tonic reads it.
+- **An announced length is reserved before the limit can refuse it**, so on a 32-bit target with
+  no limit a peer's length past what an address spans panics the reserve. The limit tonic is given
+  is held under half the address space.
+- **The RST_STREAM reason is read only under tonic's `server` feature**, so a client built without
+  it reports every reset as UNKNOWN. The engine keeps its own table.
+
+The last one is also a trap here: the Rust test build links tonic with `server` through a
+dev-dependency, so the Rust suite cannot see whether the engine's table is needed. The .NET suite
+loads the library as it ships, and `AStreamThePeerResetsCarriesTheReasonItWasResetWith` is what
+pins it.
+
+The workarounds are what makes waiting safe, so nothing here waits on upstream, and a pull request
+to tonic is not this project's work of the moment.
+
+**Deliverable**: an upstream issue or pull request per defect, or a stated reason for not carrying
+one - and, as each is fixed in a release, the workaround it made unnecessary removed.
 
 ---
 
