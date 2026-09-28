@@ -307,6 +307,11 @@ reading the transport source code.
    against its ceiling (`ak_runtime_memory_usage`). These two are the whole of what the ABI
    offers for observation; logs and traces are T10.1's.
 
+**Status**: 7 is met. 1, 2, 5 and 6 are T4.0's: the ABI answers with a status alone, so a refused
+option reaches the host unnamed. 3 and 4 hold of the messages the .NET binding writes: none carries
+a secret or a source location, and the one that names an endpoint gives its scheme, host and port
+only.
+
 ---
 
 ## Requirement 12: Public connector contract (ArmoniK team)
