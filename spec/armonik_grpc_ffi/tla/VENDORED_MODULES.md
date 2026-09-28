@@ -2,7 +2,8 @@
 
 `Folds.tla` and `Functions.tla` are copies of the modules shipped with TLAPS,
 taken verbatim from the standard library of the prover this specification is
-verified with (fork `qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil/lib/tlaps`).
+verified with, `/root/tlapm-upstream-proposal/bin/tlapm`
+(`/root/tlapm-upstream-proposal/lib/tlapm/stdlib/`).
 
 They are here for one reason: **tlapm resolves them, SANY does not.** `FfiGrpc`
 extends `Functions` for `SumFunctionOnSet`, which carries the byte accounting;

@@ -7,7 +7,7 @@ Each task is a functional commit that adds a tested capability. The existing PR 
 (#711–#747) is a source of code to pick from, not a prerequisite to integrate in bulk.
 
 The deliverable is a functional PR stack. Nothing is merged into main before complete
-end-to-end validation. Small bugfix PRs directly on main are possible.
+end-to-end validation, except a bug fix that stands on its own, which may go to main directly.
 
 The TLA+ proof comes before the FFI implementation.
 
@@ -16,9 +16,8 @@ The TLA+ proof comes before the FFI implementation.
 ## Context: existing PRs
 
 The stack (#711 → #747) builds `armonik-transport` incrementally. **It is discarded**, and
-what is wanted is taken from it first: the option machinery (`config_utils`, the units, the
-schema, the `Secret` type), the proxy, the TLS beyond what this crate already carries, and
-their tests. It was organized for the old architecture - an FFI transport over HTTP/2 with no
+what is wanted is taken from it by the task that needs it, when it needs it: the option units,
+the proxy, the TLS beyond what this crate already carries, and their tests. It was organized for the old architecture - an FFI transport over HTTP/2 with no
 gRPC layer - so nothing of its shape survives, only its code.
 
 Phase 3 is where most of that harvest happens, because the options are what the stack is
@@ -151,7 +150,10 @@ the crate already carries:
 - Executor trait
 
 **Deliverable**: Rust integration test: unary call to a local gRPC server (plain HTTP/2).
-**Status**: done.  The crate also gains the `http2` module this task assumed it already had.
+**Status**: done.  The crate also gains the `http2` module this task assumed it already had. Two
+items of the list above did not survive: there is no executor trait - a `Spawner` puts a runtime
+handle in the shape hyper asks for, and design.md says why - and the framing written here is
+tonic's client since 2026-09-28.
 
 ### T1.2: Create `armonik-transport-ffi` — minimal unary ABI
 
@@ -250,8 +252,10 @@ processes. That is a scope addition rather than a detail of T1.3, so it gets its
 **Deliverable**: the unary E2E test green from a .NET Framework 4.7.2, a 4.8 and a .NET 8.0 process,
 on x86 and x64, with arm64 built and packaged.
 
-**Status**: done, apart from arm64, which has no runner here to build or run on - the mapping and
-the packaging carry it, and the first CI job on an arm host will say whether that is enough. The
+**Status**: done, apart from arm64, which has no runner here to build or run on. The mapping
+carries it; the packaging packs its engine only if one was built, and silently leaves it out
+otherwise, since each asset is packed under an `Exists()` condition. The first CI job on an arm
+host will say whether the mapping is enough. The
 matrix is 15 tests over three runtimes and two architectures, and `test.yml` runs seven
 combinations of runtime, architecture and operating system.
 
@@ -299,7 +303,7 @@ Two questions the model settled rather than the code:
 
 **Deliberately left, and why:**
 
-- arm64 is mapped and packaged but has never been executed. There is no runner here; the first CI
+- arm64 is mapped, but has never been built, packaged or executed. There is no runner here; the first CI
   job on an arm host is what will say whether the packaging is enough.
 - The happy-eyeballs behaviour that motivated adopting `hyper_util`'s connector has no test:
   nothing in the suite presents a dual-stack host with one dead address family.
@@ -375,7 +379,7 @@ What differs between the cardinalities is what they send, not how they read.
   contracts.  `ArmoniK.Api.Mock` implements three streaming RPCs - `Events.GetEvents`,
   `Results.DownloadResultData` and `Results.UploadResultData` - and `ArmoniKClientTests` already
   starts it, so exercising the generated stubs of those is available and not yet done.
-- arm64 is unchanged from phase 1: mapped and packaged, never executed.
+- arm64 is unchanged from phase 1: mapped, never built or executed.
 
 ---
 
@@ -400,10 +404,9 @@ structured and typed: units nest as objects, a boolean is a JSON boolean and not
 `"true"`, a number is a number. That is the shape a generated C# type serializes to and the shape
 that says the most about what a value is, so it is the one the boundary carries. An environment
 variable has no structure and no type at all, so there the same options are flat names under a
-prefix - `GrpcClient__TcpKeepAliveInterval` - and every value is text. `embed_prefixed!` and
-`schema_with_prefix` serve that second shape: they are how a unit is read under a prefix and how
-its schema is rewritten to match, and on the FFI path neither is needed because nothing is
-flattened there. Producing the flat shape for a .NET caller is .NET's, which binds its own
+prefix - `GrpcClient__TcpKeepaliveInterval` - and every value is text. Reading a unit under a
+prefix, and rewriting its schema to match, is that second shape's work, and the FFI path needs
+neither because nothing is flattened there. Producing the flat shape for a .NET caller is .NET's, which binds its own
 configuration sources; producing it for a Rust caller is `from_env`'s, which stays.
 
 **And the two shapes are read with different strictness, on purpose.** The JSON is typed by its
@@ -415,7 +418,7 @@ The wide spellings belong to the sources that carry no type at all - the command
 environment variables, and any configuration file the Rust side may read one day. `1`, `True`,
 `on`, `y` and their opposites are what a shell, a C++ program, a Python script or an INI file
 writes, and refusing them would make an option unusable from whichever of those a deployment
-happens to use. `config_utils::boolean` is that vocabulary and `read_env_bool` its first reader.
+happens to use. `read_env_bool` reads that vocabulary.
 
 So one set of types is read two ways, and how is an open question rather than a settled one:
 serde attributes are fixed on the type, and the lenient readers cannot simply be attached to
@@ -440,14 +443,12 @@ directory move.
 
 **Deliverable**: the module in place with its tests, and no domain option inside it.
 
-**Status**: done as stated, and ahead of its consumers. The module is in place with its tests, but
-T3.2 declared the channel's options with plain derives, so one of its five hundred lines' worth of
-readers is called - `boolean`, from `utils.rs`. `mod config_utils` therefore carries
-`#[allow(dead_code, unused_macros, unused_imports)]`, which reads as the crate declaring the module
-dead. It is not: the from-string readers, `strip_rust_details`, `schema_with_prefix` and
-`embed_prefixed!` are how the prefixed units of T4.1 and T5.1 get declared, and the #7xx stack
-lands on them. The `allow` is the marker of a harvest that precedes its use, and nothing but this
-line said so.
+**Status**: done, then undone on 2026-09-28. The module landed with its tests ahead of its
+consumers - T3.2 declared the channel's options with plain derives, and of its five hundred lines
+one reader was ever called, the boolean vocabulary `read_env_bool` reads. The rule since is that
+what is used once is written where it is used: that vocabulary is `read_env_bool`'s own, and the
+module is gone with the three dependencies it alone held. What T4.1 and T5.1 need of it they write
+when they need it.
 
 ### T3.2: The channel's own options, as the first unit
 
@@ -472,6 +473,11 @@ question T3.1 left open does not arise here. Names come from the mechanism, fiel
 
 **Deliverable**: the FFI crate's hand-written settings type is gone, the engine's options travel
 as structured JSON, and `grep -c rename` on the unit answers 1, the container attribute.
+
+**Status**: done in 5ee33e44, and two items of the deliverable read differently from what shipped.
+The FFI crate keeps a `ChannelSettings`, now a wrapper over the typed `ChannelOptions` that checks
+again the bounds a host may not have validated. And `grep -c rename` answers one container
+attribute per struct - two, `ChannelOptions` and `TransportOptions` - and no per-field rename.
 
 ### T3.3: The schema, and the C# type, as build artefacts
 
@@ -864,8 +870,8 @@ contract and not an implementation detail, and choosing it once per-call buffers
 retrofitting rather than designing.
 
 Two of its four questions are already answered: the ceilings are configuration, and there are two
-of them - one for a call that answers once, one for a stream - which T3.2 declares. What is left
-is what they mean.
+of them - one for a call that answers once, one for a stream. Neither is declared yet: they arrive
+with the `retry` unit T6.3 brings. What is left is what they mean.
 
 - **What happens at the ceiling.** Refusing a `send_message` and quietly making a call
   non-retryable are two different contracts, and the second changes what a caller may conclude
@@ -967,7 +973,7 @@ rather than only mapped and packed.
 repositories - `ubuntu-24.04-arm` and `windows-11-arm` - and this workspace uses `ubuntu-latest` and
 `windows-latest` and nothing else. Where those runners are available, win-arm64, linux-arm64 and
 linux-musl-arm64 are built and executed natively with no cross toolchain at all, which closes the
-oldest gap this document carries: T1.5's arm64, mapped and packaged and never once run. `osx-x64`
+oldest gap this document carries: T1.5's arm64, mapped and never once built or run. `osx-x64`
 and `osx-arm64` have hosted runners too. What no hosted runner covers is 32-bit armv7 - `linux-arm`
 and `linux-musl-arm` are cross-compiled and stay unexecuted, and that is the honest tier boundary.
 
