@@ -39,11 +39,17 @@ pub fn safe_endpoint(endpoint: &http::Uri) -> String {
     }
 }
 
+/// Trimmed, case-folded and wide, because the environment is written from more than one language
+/// and each spells a boolean its own way: `True` is C#'s and Python's, `1` what a shell or C++
+/// prints, `on` an INI file's and systemd's, `y` and `t` YAML 1.1's.
 pub(crate) fn read_env_bool(name: &str) -> Result<bool, ReadEnvError> {
     let value = read_env(name)?;
-    match crate::config_utils::boolean(&value) {
-        Some(read) => Ok(read),
-        None => NotBooleanSnafu {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "0" | "f" | "n" | "no" | "off" | "false" | "disable" | "disallow" | "forbid" => {
+            Ok(false)
+        }
+        "1" | "t" | "y" | "on" | "yes" | "true" | "enable" | "allow" | "authorize" => Ok(true),
+        _ => NotBooleanSnafu {
             name: name.to_owned(),
             value,
         }
