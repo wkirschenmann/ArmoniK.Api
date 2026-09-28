@@ -147,6 +147,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         var node = property.ReducedPropertyType;
         var target = Resolve(node);
 
+        // The property's own, then the one its reference states: a `$defs` entry describes what it
+        // is, and a property describes what it is for here. Read unreduced, because a property
+        // that states nothing beside its `$ref` but a description reduces to what it references.
+        var description = Described(Description(property.UnreducedPropertyType) ?? Description(target),
+                                    $"`{property.JsonPropertyName}`");
+
         var type = Keyword(target,
                            "type")
                    ?.GetString();
@@ -171,22 +177,18 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
           options.Add(new Option
                       {
-                        Name = property.JsonPropertyName,
-                        Description = Described(Description(node) ?? Description(target),
-                                                $"`{property.JsonPropertyName}`"),
-                        Type    = groupName,
-                        IsGroup = true,
+                        Name        = property.JsonPropertyName,
+                        Description = description,
+                        Type        = groupName,
+                        IsGroup     = true,
                       });
           continue;
         }
 
         options.Add(new Option
                     {
-                      Name = property.JsonPropertyName,
-                      // The property's own, then the one its reference states: a `$defs` entry
-                      // describes what it is, and a property describes what it is for here.
-                      Description = Described(Description(node) ?? Description(target),
-                                              $"`{property.JsonPropertyName}`"),
+                      Name        = property.JsonPropertyName,
+                      Description = description,
                       Type = CSharpType(type,
                                         Keyword(target,
                                                 "format")

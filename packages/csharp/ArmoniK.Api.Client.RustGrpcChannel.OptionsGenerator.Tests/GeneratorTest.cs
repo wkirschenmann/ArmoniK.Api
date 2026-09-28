@@ -134,6 +134,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                   Does.Contain("public sealed class TransportOptions"));
       Assert.That(rendered,
                   Does.Contain("Transport?.Validate();"));
+      Assert.That(rendered,
+                  Does.Contain("<summary>What this option does.</summary>"),
+                  "the option is documented by what it states, not by what its group states");
     }
 
     /// <summary>A description is documentation, and its paragraphs are the XML's two elements.</summary>
