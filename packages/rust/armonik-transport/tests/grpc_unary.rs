@@ -306,7 +306,8 @@ async fn a_caller_that_gives_up_leaves_the_dial_to_whoever_else_is_waiting() {
     let together = started.elapsed();
     assert!(
         together < budget.mul_f32(1.4),
-        "the two took {together:?} against a budget of {budget:?}, so the second dialled again          after the first gave up instead of waiting on what it had started"
+        "the two took {together:?} against a budget of {budget:?}, so the second dialled again \
+         after the first gave up instead of waiting on what it had started"
     );
 }
 

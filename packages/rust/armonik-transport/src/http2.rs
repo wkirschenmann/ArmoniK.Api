@@ -72,7 +72,8 @@ impl TransportConfig {
         // `host()` is a prefix of `as_str()` for the port check.
         if authority.as_str().contains('@') {
             return refuse(
-                "the endpoint carries `user:password@`, which HTTP/2 forbids in `:authority` and                  which this connector would otherwise put on the wire and in its errors"
+                "the endpoint carries `user:password@`, which HTTP/2 forbids in `:authority` and \
+                 which this connector would otherwise put on the wire and in its errors"
                     .to_owned(),
             );
         }
@@ -92,14 +93,16 @@ impl TransportConfig {
         // Neither reaches the wire: a call is addressed by its method path, which replaces both.
         if self.endpoint.query().is_some() || !matches!(self.endpoint.path(), "" | "/") {
             return refuse(
-                "the endpoint carries a path or a query, and a call is addressed by its method,                  so neither would be sent"
+                "the endpoint carries a path or a query, and a call is addressed by its method, \
+                 so neither would be sent"
                     .to_owned(),
             );
         }
 
         if self.connect_timeout.is_zero() {
             return refuse(
-                "a `connect_timeout` of zero elapses before a dial can finish, so every call                  would report a timeout"
+                "a `connect_timeout` of zero elapses before a dial can finish, so every call \
+                 would report a timeout"
                     .to_owned(),
             );
         }
@@ -297,6 +300,22 @@ mod tests {
     #[test]
     fn a_path_is_refused_because_the_method_replaces_it() {
         assert!(dialable("http://h:1/prefix").is_err());
+    }
+
+    #[test]
+    fn a_refusal_reads_as_one_sentence() {
+        // A string continued onto the next line without its `\` carries the indentation.
+        let mut timeless = TransportConfig::new("http://h:1".parse().expect("a uri"));
+        timeless.connect_timeout = Duration::ZERO;
+        let refusals = [
+            dialable("http://alice:s3cret@h:1").expect_err("credentials"),
+            dialable("http://h:1/prefix").expect_err("a path"),
+            timeless.dialable().expect_err("a timeout of zero"),
+        ];
+        for refused in refusals {
+            let said = refused.to_string();
+            assert!(!said.contains("  "), "{said}");
+        }
     }
 
     #[test]
