@@ -1642,64 +1642,60 @@ extension is the channel's asynchronous one.
 ### Trampoline
 
 ```csharp
-// Rooted for the runtime's lifetime. Runs on a Tokio thread: it publishes
-// one ring slot and returns. No user code, no binding-managed payload allocation on
-// the measured fast path, and no path that
-// can throw - which is what makes it total.
-[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-private static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* evt)
+// Rooted for the runtime's lifetime as a static delegate: netstandard2.0 has no
+// UnmanagedCallersOnly. Runs on a Tokio thread, hands the event to whoever it
+// names, and returns. No user code, and no binding-managed payload allocation on
+// the measured fast path.
+private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
+
+internal static unsafe void OnEvent(IntPtr runtimeCtx, IntPtr callCtx, IntPtr eventPtr)
 {
-    // Both runtime events carry runtime_ctx and no call_ctx. Neither frees the
-    // root: every callback of every kind carries runtime_ctx, so the root is
-    // released after ak_runtime_destroy returns, where nothing can be in
-    // flight. Freeing it here on the shutdown event would be a use-after-free
-    // whenever host_debt said the host must return something.
-    if (evt->kind == AK_EVENT_SHUTDOWN_COMPLETE)
+    var evt = (NativeMethods.AkEvent*)eventPtr;
+
+    // A call's events carry its call_ctx; the runtime's two carry runtime_ctx alone.
+    // A root that resolves to nothing is an event nobody can take.
+    object? target;
+    try { target = GCHandle.FromIntPtr(callCtx != IntPtr.Zero ? callCtx : runtimeCtx).Target; }
+    catch { NativeMethods.ak_event_consumed(evt->Payload); return; }
+
+    var call  = target as ICallSink;
+    var taken = false;
+    try
     {
-        var rt = RuntimeState.From(runtimeCtx);
-        rt.ShutdownTcs.TrySetResult(evt->host_debt);   // Dispose needs the tag
-        return;
+        if (call is not null)
+            // Metadata, message, terminal: the next ring slot, published with a
+            // release store on the head. WRITE_DONE: the armed write's acquittal,
+            // which takes no slot and must not queue behind a data callback.
+            taken = call.Publish(evt->Kind, evt->Payload, evt->StatusCode);
+        else if (target is NativeRuntime runtime)
+            // SHUTDOWN_COMPLETE or RESOURCES_RELEASED: a wake-up, and the waiter
+            // reads the state again. Neither frees the runtime's root.
+            runtime.announced_.Set();
     }
-
-    if (evt->kind == AK_EVENT_RESOURCES_RELEASED)
+    catch
     {
-        var rt = RuntimeState.From(runtimeCtx);
-        rt.ResourcesReleasedSignal.Set();
-        return;
+        // Nothing may unwind into the engine.
     }
-
-    var s = CallState.From(callCtx);
-
-    if (evt->kind == AK_EVENT_WRITE_DONE)
+    finally
     {
-        // No payload, and the ABI says it may arrive in parallel with a data
-        // callback for the same call: it must not queue behind one.  This is
-        // where the pending write completes: TrySetResult only signals, the
-        // continuation runs elsewhere.  One writer per call, and a task
-        // created only after the previous one completed, make this WRITE_DONE
-        // unambiguously that write's.
-        Interlocked.Exchange(ref s.WriteTcs, null)?.TrySetResult();
-        return;
+        // What the ring did not take is given back here, and only here.
+        if (!taken)
+            NativeMethods.ak_event_consumed(evt->Payload);
+
+        // The call's last callback: its root goes, whatever the publish did.
+        // Managed references keep the object alive, so this collects nothing -
+        // it stops the ABI from resolving a call_ctx that no longer names anything.
+        if (call is not null && evt->Kind == NativeMethods.AkEventKind.Status)
+            call.TerminalReturned();
     }
-
-    // Metadata, message, terminal: every event that carries a payload takes
-    // the next slot. The slot index is the delivery order, so the consumer
-    // releases in that order with nothing to arrange.
-    ref var slot = ref s.Ring[(int)(s.Head & s.Mask)];
-    slot.Payload = evt->payload;
-    slot.Kind    = evt->kind;
-    slot.Status  = evt->status_code;
-    Volatile.Write(ref s.Head, s.Head + 1);   // publishes the slot with it
-    s.RingSignal.Set();
-
-    // Last callback of the call, and this is its last access: the native
-    // root goes here. Managed references keep the object alive, so this
-    // collects nothing - it just stops the ABI from resolving a call_ctx
-    // that no longer names anything.
-    if (evt->kind == AK_EVENT_STATUS)
-        s.SelfHandle.Free();
 }
 ```
+
+The acquittal completes the armed write without taking it out of its field, because the
+same field is the one-write claim and the writer releases it itself. That the acquittal is
+that write's, and not a later one's, is the ABI's promise rather than the binding's
+check: WRITE_DONE arrives exactly once per accepted send, in send order, and a caller
+honouring the one-writer contract has no second write armed until the first returned.
 
 The trampoline is the level-1 callback boundary: it runs on a native thread, and its
 return is what the model calls `DeliveryCallbackReturns` (or `WriteDoneReturns`). Keeping
@@ -1710,8 +1706,10 @@ returns, and nothing else.
 Treating metadata as an ordinary payload is what makes that literal. Decoding it here
 would allocate, and it would need a `finally` to avoid leaking the payload on a malformed
 header blob - a failure path across the FFI boundary, which is the worst place to have
-one. Publishing a slot cannot fail, so the trampoline has no exception path at all and
-the whole leak-on-throw class disappears rather than being handled.
+one. Publishing a slot cannot fail. The trampoline catches everything all the same,
+because nothing may unwind into the engine, and what a throw would have leaked its
+`finally` gives back regardless: a payload the ring did not take, and on the terminal the
+call's root.
 
 The trampoline never copies a payload. It publishes the owned `ak_bytes` and the consumer
 releases it after parsing, on a managed thread.
@@ -3590,7 +3588,7 @@ race. Ordered by what a defect would cost.
 | GCHandle on a refused start, or a terminal arriving at once | a root leaked, or freed twice | root before the start; local rollback if the start refuses (no callback is promised); after acceptance the terminal callback is the only releaser |
 | Lease reaching zero beside a concurrent construction | a generation reused after its zero, or two live runtimes | decide the zero and mark the generation non-acquirable under one lock; a strongly concurrent create/dispose test |
 | The ring's memory ordering | a slot published half-visible, a lost wake-up - and only on ARM64 | documented `Volatile`/acquire-release pairs, padding, an ARM64 stress test, latched signals |
-| An exception crossing an `UnmanagedCallersOnly` callback | the process terminates, or native state is never acquitted | catch-all at the trampoline, no user code inside it, an explicit fatal policy for the impossible |
+| An exception crossing the reverse P/Invoke into the engine | undefined on the engine's side, which it would unwind through | catch-all at the trampoline, no user code inside it, and a `finally` that gives back the payload and the call's root a throw would have kept |
 | A continuation running inline on the callback thread | arbitrary reentrancy, the Tokio thread blocked by user code | `RunContinuationsAsynchronously` everywhere, signals never inline, a test capturing the thread identity |
 | Dispose called twice or concurrently | a double cancel, two drains, or two different tasks for one dispose | decide idempotence and share one completion; a test with N concurrent calls |
 | A cancellation registration or timer outliving the terminal | a stale downcall, a root held, operational noise | disarm atomically at the terminal; the callback tolerates a stale handle |

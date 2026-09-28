@@ -452,9 +452,9 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
   }
 
-  private static unsafe void OnEvent(IntPtr runtimeCtx,
-                                     IntPtr callCtx,
-                                     IntPtr eventPtr)
+  internal static unsafe void OnEvent(IntPtr runtimeCtx,
+                                      IntPtr callCtx,
+                                      IntPtr eventPtr)
   {
     var @event = (NativeMethods.AkEvent*)eventPtr;
 
@@ -472,19 +472,15 @@ public sealed class NativeRuntime : IAsyncDisposable
       return;
     }
 
+    var call  = target as ICallSink;
     var taken = false;
     try
     {
-      if (target is ICallSink call)
+      if (call is not null)
       {
         taken = call.Publish(@event->Kind,
                              @event->Payload,
                              @event->StatusCode);
-
-        if (@event->Kind == NativeMethods.AkEventKind.Status)
-        {
-          call.TerminalReturned();
-        }
       }
 
       else if (target is NativeRuntime runtime)
@@ -497,6 +493,8 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
     catch
     {
+      // Nothing may unwind into the engine: an exception crossing this callback is undefined on
+      // its side of the ABI.
     }
     finally
     {
@@ -507,6 +505,13 @@ public sealed class NativeRuntime : IAsyncDisposable
       if (!taken)
       {
         NativeMethods.ak_event_consumed(@event->Payload);
+      }
+
+      // The terminal is the call's last callback, so its root goes with it whatever the publish
+      // did: kept, it would hold the call for the life of the process.
+      if (call is not null && @event->Kind == NativeMethods.AkEventKind.Status)
+      {
+        call.TerminalReturned();
       }
     }
   }
