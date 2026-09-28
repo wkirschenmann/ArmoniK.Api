@@ -769,14 +769,15 @@ stops answering with an `Option`, which is where the reason for a refusal is dis
 `snafu::Location` leaves the message that crosses the ABI - requirement 11.4 - and stays in the
 tracing record.
 
-In the same version bump, because a second one is not free: `ak_runtime_config` and
+In the same change, while it is still free: `ak_runtime_config` and
 `ak_call_start_options` gain `version`, `flags` and reserved fields validated to zero, and their
 size check becomes a minimum instead of an equality. That is what makes T6.2's deadline field an
 addition rather than a break of every host compiled before it, and it is why this task precedes
 T6.2 as well.
 
-`AK_ABI_VERSION` becomes 2 and `tests/layout.rs` follows it. Free exactly once: no host is compiled
-against version 1 outside this repository, and that stops being true the day one ships.
+`AK_ABI_VERSION` stays 1. The ABI is not published, so no host outside this repository is
+compiled against it and a change is not yet a new version. That stops being true the day the
+library ships, and so does changing a record's layout for free.
 
 **Deliverable**: a configuration document refused over a named key produces that key's name in the
 message, read from C and from .NET; a host passing NULL for `out_error` causes no allocation; and a
