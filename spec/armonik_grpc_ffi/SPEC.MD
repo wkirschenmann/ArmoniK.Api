@@ -4,9 +4,9 @@
 
 1. Replace the managed gRPC channel (`Grpc.Net.Client` / `WinHttpHandler`) with a native Rust
    gRPC channel, exposed to .NET through a thin C ABI.
-2. **Unify client behavior** whatever the .NET runtime (Framework 4.7.2 and 4.8, .NET 6 and
-   .NET 8): one transport removes the divergences between `WinHttpHandler`,
-   `SocketsHttpHandler`, `GrpcWebHandler` and their conditional fallbacks.
+2. **Unify client behavior** whatever the .NET runtime (Framework 4.7.2 and 4.8, .NET 8): one
+   transport removes the divergences between `WinHttpHandler`, `SocketsHttpHandler`,
+   `GrpcWebHandler` and their conditional fallbacks.
 3. Make the options that are inoperative today (`RequestTimeout`, `OverrideTargetName`)
    effective.
 4. Preserve the client's public API: the same generated stubs, over another `CallInvoker`.

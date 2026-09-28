@@ -9,7 +9,7 @@ Today, the gRPC transport relies on managed .NET components (`Grpc.Net.Client`,
 `WinHttpHandler`, `SocketsHttpHandler`, `GrpcWebHandler`). This choice creates three problems:
 
 1. **Divergent behavior depending on the .NET runtime.** .NET Framework 4.7.2/4.8 uses WinHTTP
-   (with a gRPC-Web fallback), while .NET 6+ uses SocketsHttpHandler. Timings, errors and
+   (with a gRPC-Web fallback), while .NET 8 uses SocketsHttpHandler. Timings, errors and
    capabilities differ silently.
 2. **Inoperative options.** `RequestTimeout` and `OverrideTargetName` are declared but have
    no effect (warning only).
@@ -213,13 +213,13 @@ efficient, so that I do not have to manually manage HTTP/2 connections.
 ## Requirement 7: Unified cross-runtime behavior
 
 **User Story:** As an application developer, I want my application to have the same network
-behavior whether I deploy it on .NET Framework 4.7.2, 4.8, .NET 6 or .NET 8, so that I can
+behavior whether I deploy it on .NET Framework 4.7.2, 4.8 or .NET 8, so that I can
 eliminate platform-specific bugs.
 
 ### Acceptance Criteria
 
 1. The same application binary (netstandard2.0) produces the same network behavior on .NET
-   Framework 4.7.2, 4.8, .NET 6 and .NET 8.
+   Framework 4.7.2, 4.8 and .NET 8.
 2. Configuration options produce the same effect regardless of the .NET platform.
 3. The native transport does not depend on `WinHttpHandler`, `SocketsHttpHandler` or
    `GrpcWebHandler`.
