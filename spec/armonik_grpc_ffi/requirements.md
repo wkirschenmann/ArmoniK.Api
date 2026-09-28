@@ -51,10 +51,10 @@ This document formalizes the V1 requirements for this project, structured by per
 | Deadline | Maximum duration for a call, applied locally and transmitted to the server via the `grpc-timeout` header. |
 | Runtime (FFI) | Tokio instance owned by the FFI layer, which executes network tasks and manages the lifecycle (shutdown, quiescence). |
 | Quiescence | State in which no task, callback or native thread is in flight. Necessary and sufficient condition for unload. |
-| Trampoline | Minimal C callback function that copies a payload and publishes it to a host queue while executing as little code as possible. |
+| Trampoline | The host's callback for every event: it publishes the event to its call without copying the payload, and returns, executing as little code as possible. |
 | Host | The calling process (here the .NET runtime) that loads the native library and consumes its events. |
 | Consumer token | Identifier chosen by the binding, published in its registry before `call_start`, used to route events. |
-| Demand-driven | The client controls the reception rate of messages by explicitly requesting the next ones (`request_messages`). |
+| Demand-driven | The client controls the reception rate of messages: the engine delivers no more than the call's delivery credits, and a credit comes back when the host releases a payload with `ak_event_consumed`. |
 
 ---
 
@@ -112,6 +112,9 @@ impose a timeout, so that my application is not blocked on a server that is not 
 6. The existing client's `RequestTimeout` option produces an effective deadline (no longer just
    a warning).
 
+**Status**: 1 and 2 are met. 3 to 6 are T6.2's, and until then the binding refuses a call that
+sets a deadline.
+
 ---
 
 ## Requirement 3: Automatic retry
@@ -137,6 +140,9 @@ retried automatically, so that resilience is improved without additional applica
 9. The replay buffer size is configurable (per channel). A buffer of 0 makes streaming calls
    non-retryable as soon as the first message is sent.
 
+**Status**: none is met. T6.3 and T6.4 carry them, after T6.1 settles what the replay ceiling
+means.
+
 ---
 
 ## Requirement 4: TLS and authentication
@@ -160,6 +166,8 @@ infrastructure's security policy.
 7. A TLS error produces a diagnosable error message (without exposing secrets: private key paths,
    passwords).
 
+**Status**: none is met: the engine dials plain `http://` only. T4.1 to T4.4 carry them.
+
 ---
 
 ## Requirement 5: Proxy
@@ -178,6 +186,8 @@ configuration, so that my gRPC calls can traverse enterprise network infrastruct
 5. Basic proxy authentication is supported.
 6. Windows system proxy resolution does not block the calling thread (async with timeout).
 
+**Status**: none is met. T5.1 to T5.3 carry them.
+
 ---
 
 ## Requirement 6: Connection and pool
@@ -195,7 +205,8 @@ efficient, so that I do not have to manually manage HTTP/2 connections.
 4. The connection pool manages TCP keepalive and idle timeout.
 5. A connect timeout is configurable and applied to connection establishment.
 6. A single process can create multiple channels to different endpoints.
-7. Channels share a single native runtime (one Tokio thread pool per process).
+7. Channels share a single native runtime (one Tokio thread pool per process), whose worker count
+   its creator may set, up to `AK_MAX_WORKER_THREADS`; zero leaves the choice to the runtime.
 
 ---
 
@@ -265,7 +276,8 @@ deterministic, so that I can avoid resource leaks or crashes at shutdown.
    calls (or cancel them), wait for quiescence.
 3. After dispose, no native thread or callback is in flight.
 4. A dispose during active calls cancels them cleanly (CANCELLED status).
-5. Unloading the native DLL is safe after dispose (certified by `AK_RELEASED` state).
+5. Unloading the native DLL is safe after dispose (certified by the `AK_RUNTIME_QUIESCENT` state,
+   level 0's RELEASED).
 6. A dispose timeout does not force unload — it leaves the runtime in a non-quiescent state
    rather than risking corruption.
 
@@ -291,6 +303,9 @@ reading the transport source code.
 6. Every criterion above is met at the ABI, not only at the .NET surface: a failing entry point
    reports the category and the message to any host. A status code alone cannot carry criteria 1,
    2 and 5, so the entry points that can fail take a detail argument.
+7. A host can observe what a call still holds (`ak_call_debt_of`) and what a runtime has lent
+   against its ceiling (`ak_runtime_memory_usage`). These two are the whole of what the ABI
+   offers for observation; logs and traces are T10.1's.
 
 ---
 
@@ -308,9 +323,13 @@ develop the two crates independently.
 3. The connector does not depend on any gRPC notion (no status, no retry, no deadline).
 4. The channel does not reinterpret transport options (no double endpoint/TLS resolution).
 5. The contract is tested: an incompatible change in the connector breaks an upstream test.
-6. The Rust ArmoniK client (`armonik::Client`) uses `armonik-transport`'s `grpc` module as its transport
-   (via a Tonic adapter or directly), sharing the same gRPC engine that the FFI exposes to
+6. The Rust ArmoniK client (`armonik::Client`) uses `armonik-transport`'s `grpc` module as its
+   transport, with its generated Tonic stubs driving the engine's HTTP/2 service directly (design.md,
+   "Consumption by the Rust ArmoniK client"), and so shares the gRPC engine the FFI exposes to
    bindings.
+
+**Status**: 6 is not met, and is deferred by decision to T7.1: adapting the client to a surface
+three phases are still moving would mean adapting it twice.
 
 ---
 
@@ -351,14 +370,20 @@ undefined behavior when used from .NET.
 4. Each accepted call produces exactly one terminal event.
 5. No event is delivered after a call's terminal event.
 6. After runtime shutdown, no resource creation (channel, call) is accepted.
-7. Unloading the native library is only allowed after certified quiescence (`AK_RELEASED`).
+7. Unloading the native library is only allowed after certified quiescence
+   (`AK_RUNTIME_QUIESCENT`).
 8. A panic on the Rust side does not propagate to the host — it is contained and converted to
    an error.
-9. One runtime exists per process, and one channel factory per runtime: a second create before
-   the first is destroyed is refused. Several tokio runtimes in one process share the machine's
-   cores without knowing of each other, which is what this forbids. The first lessee's
-   worker-thread count and memory ceiling are the process's, and a later caller that sets them
-   is refused rather than ignored.
+9. One runtime exists per process: a second create before the first is destroyed is refused.
+   Several tokio runtimes in one process share the machine's cores without knowing of each other,
+   which is what this forbids. The worker-thread count and memory ceiling its creator sets are
+   the process's.
+10. A runtime bounds what it lends for messages at once by a ceiling its creator sets; zero
+   leaves it to the library. A lend it cannot grant is refused, never blocked:
+   `AK_STATUS_MESSAGE_TOO_LARGE` when the message alone exceeds the ceiling, which no retry
+   changes, and `AK_STATUS_BUDGET_BUSY` when the lends in flight leave no room, which is
+   transient and calls for a retry. The ceiling bounds lending: the engine's copy of a message
+   being sent and what the receive path buffers are outside it.
 
 ---
 
@@ -379,8 +404,8 @@ design before implementation.
    dispose.
 5. Safety properties (unique terminal, no late event, no stale dereference) are verified
    without fairness assumptions.
-6. Liveness properties (progress toward terminal, progress toward `AK_RELEASED`) are
-   conditional on the declared fairness assumptions.
+6. Liveness properties (progress toward terminal, progress toward quiescence) are conditional
+   on the declared fairness assumptions.
 7. Safety properties are proved by TLAPS (TLA+ Proof System) rather than verified by TLC model
    checking. TLC may serve as an exploratory tool but the target is formal proof.
 
@@ -388,7 +413,8 @@ design before implementation.
 backoff, no replay buffer, no retryable status codes.  It is a policy over calls the models
 already describe rather than a mechanism of the FFI protocol, and it is verified by that
 requirement's own tests instead.  The retry the level-2 model does carry is the buffer
-lending retry - `BudgetWaitEndsWhenHopeless`, `MessageTooLargeIsNotRetried` - which is the
+lending retry - `BudgetWaitEndsWhenHopeless`, and the permanence of `MESSAGE_TOO_LARGE`, which
+no action can undo - which is the
 binding's own scheduling and a different mechanism that shares the word.
 
 ---
@@ -407,6 +433,8 @@ whether optimizations are needed.
 4. Benchmarks are reproducible in CI (same server, same load, same network).
 5. Results are documented and serve as a baseline for future evolutions.
 6. The campaign covers at minimum .NET Framework 4.8 and .NET 8.
+
+**Status**: none is met. T6.7 carries them.
 
 ---
 
@@ -442,7 +470,7 @@ The following items are explicitly excluded from this version:
 - Generic interceptors
 - gRPC-Web
 - Bindings Java, Python, C++
-- Connectivity state API publique
-- Rate limiting public configurable
-- Retry policy par method name ou par call (V1 = default channel uniquement ; override par call
-  et config par method name sont prévus juste après V1)
+- A public connectivity-state API
+- Publicly configurable rate limiting
+- A retry policy per method name or per call: V1 has the channel's default only, and a per-call
+  override and per-method configuration come right after it
