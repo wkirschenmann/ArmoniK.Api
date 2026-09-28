@@ -21,6 +21,8 @@ using System.Threading.Tasks;
 
 using Grpc.Core;
 
+using Microsoft.AspNetCore.Http.Features;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 public class EchoService : Echo.EchoBase
@@ -113,6 +115,26 @@ public class EchoService : Echo.EchoBase
   public override async Task<EchoReply> Never(EchoRequest request,
                                               ServerCallContext context)
   {
+    await Task.Delay(Timeout.Infinite,
+                     context.CancellationToken)
+              .ConfigureAwait(false);
+    return new EchoReply();
+  }
+
+  public override async Task<EchoReply> Reset(EchoRequest request,
+                                              ServerCallContext context)
+  {
+    if (request.Text == "after the head")
+    {
+      await context.WriteResponseHeadersAsync(new Metadata())
+                   .ConfigureAwait(false);
+    }
+
+    const int enhanceYourCalm = 0xb;
+    context.GetHttpContext()
+           .Features.Get<IHttpResetFeature>()!
+           .Reset(enhanceYourCalm);
+
     await Task.Delay(Timeout.Infinite,
                      context.CancellationToken)
               .ConfigureAwait(false);

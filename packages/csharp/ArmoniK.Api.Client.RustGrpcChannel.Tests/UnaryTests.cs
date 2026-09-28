@@ -245,6 +245,30 @@ public class UnaryTests : EchoServerFixture
                 Is.EqualTo("blocking"));
   }
 
+  /// <summary>A stream the peer resets carries the reason it was reset with.</summary>
+  /// <remarks>
+  ///   ENHANCE_YOUR_CALM, because its code, RESOURCE_EXHAUSTED, is one no default reading of a
+  ///   reset lands on. Here and not only in the engine's own suite, which links tonic with its
+  ///   `server` feature and so with a reset table of tonic's: the library this package ships is
+  ///   built without it, and reads the reason only through the engine's.
+  /// </remarks>
+  [TestCase("before the head")]
+  [TestCase("after the head")]
+  public async Task AStreamThePeerResetsCarriesTheReasonItWasResetWith(string when)
+  {
+    await using var channel = Channel();
+
+    var thrown = Assert.Throws<RpcException>(() => Client(channel)
+                                               .Reset(new EchoRequest
+                                                      {
+                                                        Text = when,
+                                                      }));
+
+    Assert.That(thrown!.StatusCode,
+                Is.EqualTo(StatusCode.ResourceExhausted),
+                thrown.Status.Detail);
+  }
+
   [Test]
   public async Task AServerThatRefusesComesBackAsThatStatus()
   {

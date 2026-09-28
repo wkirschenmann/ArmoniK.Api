@@ -1,17 +1,14 @@
-use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 
-use bytes::buf::Chain;
 use bytes::Bytes;
-use hyper::body::{Body, Frame};
 use tokio::sync::{mpsc, oneshot, watch};
+use tonic::codegen::tokio_stream::Stream;
 
 use super::driver::Driving;
 use super::error::CallError;
-use super::frame::frame;
 use super::metadata::Metadata;
 use super::status::GrpcStatus;
 
@@ -57,23 +54,27 @@ impl GrpcCall {
 
 #[derive(Debug)]
 pub struct SendHalf {
-    messages: mpsc::Sender<Chain<Bytes, Bytes>>,
+    messages: mpsc::Sender<Bytes>,
     over: watch::Receiver<bool>,
 }
 
 impl SendHalf {
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
-        let framed = frame(message)?;
+        // Here and not in the encoder, which would fail the whole call later and far from the send
+        // that caused it.
+        if u32::try_from(message.len()).is_err() {
+            return Err(CallError::MessageTooLong { len: message.len() });
+        }
         let Self { messages, over } = self;
 
         if *over.borrow() {
             return Err(CallError::Ended);
         }
 
-        let framed = match messages.try_send(framed) {
+        let message = match messages.try_send(message) {
             Ok(()) => return Ok(()),
             Err(mpsc::error::TrySendError::Closed(_)) => return Err(CallError::Ended),
-            Err(mpsc::error::TrySendError::Full(framed)) => framed,
+            Err(mpsc::error::TrySendError::Full(message)) => message,
         };
 
         // Biased, so a call that ended while this send waited for room answers `Ended` rather than
@@ -81,7 +82,7 @@ impl SendHalf {
         tokio::select! {
             biased;
             _ = over.wait_for(|over| *over) => Err(CallError::Ended),
-            queued = messages.send(framed) => queued.map_err(|_| CallError::Ended),
+            queued = messages.send(message) => queued.map_err(|_| CallError::Ended),
         }
     }
 
@@ -151,11 +152,11 @@ impl Drop for RecvHalf {
 #[derive(Clone, Debug)]
 pub struct CallControl {
     over: Arc<watch::Sender<bool>>,
-    /// The same news, on a channel the request body can poll.
+    /// The same news, on a channel the request's messages can poll.
     ///
-    /// A `watch` is read, not awaited, so a body parked on its message queue would never learn
-    /// the call ended - and hyper keeps a reference to the HTTP/2 stream for as long as the body
-    /// is unfinished. This is what makes the stream go back.
+    /// A `watch` is read, not awaited, so messages parked on their queue would never learn the
+    /// call ended - and hyper keeps a reference to the HTTP/2 stream for as long as the body they
+    /// feed is unfinished. This is what makes the stream go back.
     body_over: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
 
@@ -173,26 +174,23 @@ impl CallControl {
     }
 }
 
-pub(crate) struct RequestBody {
-    messages: mpsc::Receiver<Chain<Bytes, Bytes>>,
+/// The messages a call sends, as the stream tonic's client encodes into the request body.
+pub(crate) struct RequestMessages {
+    messages: mpsc::Receiver<Bytes>,
     over: oneshot::Receiver<()>,
     ended: bool,
 }
 
-impl Body for RequestBody {
-    type Data = Chain<Bytes, Bytes>;
-    type Error = Infallible;
+impl Stream for RequestMessages {
+    type Item = Bytes;
 
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         if this.ended {
             return Poll::Ready(None);
         }
 
-        // The call ending ends the body, not only the send half being dropped. hyper pipes an
+        // The call ending ends the messages, not only the send half being dropped. hyper pipes an
         // unfinished body into the h2 stream and holds a stream reference while it does, so a
         // call cancelled after the response head left the stream open with no RST_STREAM: the
         // peer went on producing into a reader that discards every frame, and the stream kept its
@@ -206,16 +204,14 @@ impl Body for RequestBody {
             return Poll::Ready(None);
         }
 
-        this.messages
-            .poll_recv(cx)
-            .map(|message| message.map(|buffer| Ok(Frame::data(buffer))))
+        this.messages.poll_recv(cx)
     }
 }
 
 pub(crate) fn create(
     send_window: usize,
     channel_closed: watch::Receiver<bool>,
-) -> (GrpcCall, RequestBody, Driving) {
+) -> (GrpcCall, RequestMessages, Driving) {
     let (message_tx, message_rx) = mpsc::channel(send_window);
     let (head_tx, head_rx) = oneshot::channel();
     // One, because the reader is what paces the peer: anything deeper reads ahead of a consumer
@@ -254,7 +250,7 @@ pub(crate) fn create(
 
     (
         call,
-        RequestBody {
+        RequestMessages {
             messages: message_rx,
             over: body_over_rx,
             ended: false,
@@ -273,7 +269,7 @@ mod tests {
     /// not whether the transport happens to be able to take the bytes.
     #[tokio::test]
     async fn a_call_that_is_over_refuses_a_send_though_its_queue_has_room() {
-        let (call, _body, _driving) = create(4, watch::channel(false).1);
+        let (call, _messages, _driving) = create(4, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -288,19 +284,19 @@ mod tests {
         );
     }
 
-    /// A body parked on its queue is woken by the call ending, with the send half still held.
+    /// Messages parked on their queue are woken by the call ending, with the send half still held.
     ///
     /// Held is the case: hyper keeps a reference to the HTTP/2 stream while the body is
-    /// unfinished, so a body that ends only when its sender drops leaves the stream open for as
+    /// unfinished, so messages that end only when their sender drops leave the stream open for as
     /// long as the caller keeps the send half - and a caller that keeps it for the life of its
     /// client keeps the stream for the life of its client.
     #[tokio::test]
-    async fn a_request_body_ends_when_the_call_does_and_not_when_its_sender_drops() {
-        let (call, mut body, _driving) = create(1, watch::channel(false).1);
+    async fn the_request_messages_end_when_the_call_does_and_not_when_their_sender_drops() {
+        let (call, mut messages, _driving) = create(1, watch::channel(false).1);
         let (_send, _recv, control) = call.split();
 
         let parked = tokio::spawn(async move {
-            std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await
+            std::future::poll_fn(|cx| Pin::new(&mut messages).poll_next(cx)).await
         });
         tokio::task::yield_now().await;
 
@@ -315,7 +311,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_send_waiting_on_a_full_window_is_refused_when_the_call_ends() {
-        let (call, _body, _driving) = create(1, watch::channel(false).1);
+        let (call, _messages, _driving) = create(1, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -341,7 +337,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn the_send_window_holds_the_next_message_until_the_last_is_taken() {
-        let (call, mut body, _driving) = create(1, watch::channel(false).1);
+        let (call, mut messages, _driving) = create(1, watch::channel(false).1);
         let (mut send, _recv, _control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -355,10 +351,9 @@ mod tests {
         .await;
         assert!(held.is_err(), "a window of one holds the second message");
 
-        std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx))
+        std::future::poll_fn(|cx| Pin::new(&mut messages).poll_next(cx))
             .await
-            .expect("the first message is there to be taken")
-            .expect("a data frame");
+            .expect("the first message is there to be taken");
 
         send.send_message(Bytes::from_static(b"second"))
             .await

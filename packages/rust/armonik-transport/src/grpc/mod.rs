@@ -3,7 +3,6 @@ mod channel;
 mod driver;
 mod error;
 mod executor;
-mod frame;
 mod metadata;
 mod status;
 

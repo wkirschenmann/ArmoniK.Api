@@ -27,4 +27,7 @@ service Echo {
   // Ends the call without reading, so a client still holding the request stream writes into a
   // call that is over.
   rpc CollectRefused (stream EchoRequest) returns (EchoReply);
+  // Resets its own stream with ENHANCE_YOUR_CALM, after the response head when the text says
+  // "after the head" and before it otherwise, so a client reads the reason off the RST_STREAM.
+  rpc Reset (EchoRequest) returns (EchoReply);
 }

@@ -438,7 +438,7 @@ async fn a_status_in_the_head_is_not_believed_over_a_message_behind_it() {
     let (_, messages, status) =
         call_on("/raw/StatusInHeadThenMessage", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Unknown, "{status}");
     assert!(
         status.message.contains("and then sent a message"),
         "{status}"
@@ -512,13 +512,58 @@ async fn a_status_behind_a_response_head_is_read_off_the_trailers() {
     );
 }
 
+/// UNKNOWN, as tonic answers it: the status never came, and a proxy that truncated the stream is
+/// the usual reason.
 #[tokio::test]
-async fn a_stream_that_ends_without_a_status_is_an_internal_failure() {
+async fn a_stream_that_ends_without_a_status_is_an_unknown_failure() {
     let (_, messages, status) = call_on("/raw/NoTrailers", Bytes::from_static(b"x")).await;
 
-    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert_eq!(status.code, GrpcStatusCode::Unknown, "{status}");
     assert!(status.message.contains("grpc-status"), "{status}");
     assert_eq!(messages, vec![Bytes::from_static(b"orphan")]);
+}
+
+#[tokio::test]
+async fn a_stream_that_ends_inside_a_message_is_an_internal_failure() {
+    let (_, messages, status) = call_on("/raw/EndsMidMessage", Bytes::from_static(b"x")).await;
+
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert!(messages.is_empty(), "{messages:?}");
+}
+
+/// Details nothing on this side reads, and a peer that mangled them does not cost the call.
+#[tokio::test]
+async fn status_details_a_peer_mangled_do_not_cost_the_call() {
+    let (_, messages, status) = call_on("/raw/BadStatusDetails", Bytes::from_static(b"x")).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages, vec![Bytes::from_static(b"kept")]);
+
+    let (_, _, status) = call_on(
+        "/raw/TrailersOnlyBadStatusDetails",
+        Bytes::from_static(b"x"),
+    )
+    .await;
+    assert_eq!(status.code, GrpcStatusCode::NotFound, "{status}");
+    assert_eq!(status.message, "gone");
+}
+
+/// No limit, and a length no address on this target can span: refused, not reserved.
+#[cfg(target_pointer_width = "32")]
+#[tokio::test]
+async fn a_length_no_address_can_hold_is_refused_rather_than_reserved() {
+    let server = TestServer::start().await;
+    let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
+    config.max_recv_message_size = usize::MAX;
+    let unbounded = common::echo::channel_with(config).expect("a plain endpoint");
+
+    let (_, _, status) = unary(
+        &unbounded,
+        CallStartOptions::new("/raw/Unaddressable"),
+        Bytes::from_static(b"x"),
+    )
+    .await;
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
 }
 
 /// A reset is not a lost connection, and the code says which.

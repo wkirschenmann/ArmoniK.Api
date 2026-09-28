@@ -4,9 +4,9 @@
 //! the keepalives and every timeout, read from the `GrpcClient__*` environment. It is what the
 //! Rust client dials with.
 //!
-//! [`grpc`] over [`http2`] is the engine the C ABI drives. Cleartext `http://` only, configured
-//! by an [`options::ChannelOptions`] document rather than by the environment, and carrying its
-//! own HTTP/2 and gRPC framing rather than reaching for tonic's.
+//! [`grpc`] over [`http2`] is the engine the C ABI drives: tonic's client, which carries the gRPC
+//! framing, over an HTTP/2 session of this crate's own. Cleartext `http://` only, and configured
+//! by an [`options::ChannelOptions`] document rather than by the environment.
 //!
 //! Nothing converts one configuration into the other, and that is the point: seventeen fields
 //! answer to fourteen the engine has no use for, so a conversion would drop them and leave a

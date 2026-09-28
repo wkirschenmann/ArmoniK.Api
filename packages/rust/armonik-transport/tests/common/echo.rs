@@ -415,6 +415,37 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             ],
         ),
         "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
+        // A message announced longer than what arrives before the trailers.
+        "EndsMidMessage" => (
+            grpc_head(),
+            vec![
+                Frame::data(announced_message(10, b"abc")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        // Status details a peer mangled: not base64 at all.
+        "BadStatusDetails" => (
+            grpc_head(),
+            vec![
+                Frame::data(grpc_message(0, b"kept")),
+                trailers(&[
+                    ("grpc-status", "0"),
+                    ("grpc-status-details-bin", "!not base64!"),
+                ]),
+            ],
+        ),
+        "TrailersOnlyBadStatusDetails" => (
+            grpc_head()
+                .header("grpc-status", "5")
+                .header("grpc-message", "gone")
+                .header("grpc-status-details-bin", "!not base64!"),
+            vec![],
+        ),
+        // A length no 32-bit address can span.
+        "Unaddressable" => (
+            grpc_head(),
+            vec![Frame::data(announced_message(u32::MAX, b"x"))],
+        ),
         // Trailers-Only is one HEADERS frame carrying the status and nothing after it. This one
         // states the status and then sends a message, which is neither shape.
         "StatusInHeadThenMessage" => (
