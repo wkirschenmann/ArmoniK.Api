@@ -100,9 +100,10 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   /// <summary>The deepest delivery window a channel may ask for.</summary>
   /// <remarks>Every call of the channel allocates a ring of the next power of two above it, so a
-  /// window is paid per call in memory whether or not the peer ever fills it: this one is a
-  /// megabyte of slots. There is no answer here for what a host should want - the bound exists
-  /// because the engine imposes none that sizes anything, so this one is the binding's.</remarks>
+  /// window is paid per call in memory whether or not the peer ever fills it: this one is 65536
+  /// slots, two megabytes in a 64-bit process. There is no answer here for what a host should
+  /// want - the bound exists because the engine imposes none that sizes anything, so this one is
+  /// the binding's.</remarks>
   public const int MaxDeliveryCredits = 1 << 15;
 
   /// <summary>The delivery window a channel gets when its options name none.</summary>

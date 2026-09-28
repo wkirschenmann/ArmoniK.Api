@@ -781,7 +781,7 @@ Note: `RetryConfig` appears both in `GrpcChannelConfig` (channel default) and, p
 per-call override. Only the type is shared with the schema; the per-call override travels as
 an ABI field like the rest of `CallStartOptions`.
 
-The schema is committed at `packages/rust/armonik-transport-ffi/include/channel_config.schema.json`.
+The schema is committed at `packages/rust/armonik-transport/options.schema.json`.
 
 ### FFI entry points (complete V1 list)
 
@@ -2457,6 +2457,15 @@ the shape every option takes, and gives the reasons:
 - `additionalProperties: false` everywhere, so an unknown option is refused rather than ignored;
 - nothing is required, and `{}` is a valid configuration.
 
+A binding may narrow what the schema admits, and cannot widen it: the engine checks every bound
+again. The schema states what the engine can honour, and a binding that sizes something of its
+own from an option bounds it by what that costs on its side. The .NET binding does so once. Each
+call allocates its delivery ring at the next power of two above `DeliveryCredits`, so it refuses
+a window past `NativeRuntime.MaxDeliveryCredits`, 32768 - 65536 slots, two megabytes per call in
+a 64-bit process - where the schema admits 536870910, just under what a tokio semaphore holds
+on a 32-bit target. `MaxSendsInFlight` sizes nothing on the .NET side, and keeps the schema's
+bound.
+
 Options that name material - a certificate, an identity, a proxy - arrive with the tasks that
 read them, from T4.1 on.
 
@@ -3951,7 +3960,7 @@ table above maps the five call shapes and stops there.
 | The per-call delivery queue on .NET | **Open, and the three objections to `System.Threading.Channels` were wrong.** A bounded `Channel<Slot>` allocates nothing per element that the ring does not, the element being a reference to a native buffer rather than the buffer; a queue that removes the item at the take is no obstacle, because `ak_event_consumed` names the payload it releases, so the engine discharges what comes back rather than what it handed out in order; and level 2's `RingHead`/`RingTail` bind nothing, since that level describes this binding and a refinement needs only a mapping, which may be fictional. What a swap does not touch is the phase machine and the read-versus-token arbiter, which are the actual complexity and have no library answer. What it costs is a package reference on .NET Framework and the release rule: `DeliveryRing.Release()` is the sole releaser of an accepted payload, and a queue that hands the item out cannot hold that invariant - it returns to being the caller's discipline. `DeliveryRing` is one 122-line type, so the swap is mechanical whenever it is wanted | Layer 4 |
 | How the C ABI is kept in five places | **Generated from the Rust, and the artefact committed.** `abi.rs`, the header, `NativeMethods.cs`, `tests/layout.rs` and `AbiLayoutTests.cs` are one contract written out five times by hand. `cbindgen` emits the header and `csbindgen` the P/Invoke declarations, verified by the same regenerate-and-compare step `ChannelOptions.g.cs` already has, and the prose the header carries moves into `cbindgen.toml`'s `header` and the Rust doc comments. What does not become redundant is the .NET layout test: `Marshal.SizeOf` and `Marshal.OffsetOf` measure what the CLR does with the declarations, per target framework and per architecture, and a generator proves the declarations match the Rust rather than that the runtime lays them out as Rust does. T3.6, before T4.0 | Layer 3, decided |
 | Guarding a buffer or a payload given back twice | **Not built, and if it ever is, behind a feature of its own rather than `cfg(debug_assertions)`.** The `LENT_TAG` in the allocation does not guard this and cannot: it is read from the thing being validated, so a second give-back reads eight bytes of freed memory before any check runs, and no in-allocation scheme fixes that. A guard that works is out of band - a per-call set of live owner pointers, on the lend and the return of every message - and what it would protect is a rule the header already assigns to the host outright, calling a second give-back undefined behaviour rather than a refusal because "there is nothing left to refuse with". The debug build is the wrong home for it twice over: it is the build this repository's own tests run against, so the cost lands on the work rather than on the question, and a guard that exists only where nobody deploys is one no host can ask for when it wants it. A feature flag is the shape - off by default, named, and switched on by whoever is bringing up a host | Layer 3, decided |
-| One runtime per process: choice or implementation limit | **A choice, and now requirement 14.9.** Several tokio runtimes in one process share the machine's cores without knowing of each other. `static LIVE` and the three `OnceLock` registries enforce it and the header states it at `ak_runtime_create`; what follows is that the first lessee's thread count and memory ceiling are the process's, which `NativeRuntimeFactory.Configure` refuses to overwrite rather than ignoring | Requirement 14, decided |
+| One runtime per process: choice or implementation limit | **A choice, and now requirement 14.9.** Several tokio runtimes in one process share the machine's cores without knowing of each other. `static LIVE` and the three `OnceLock` registries enforce it and the header states it at `ak_runtime_create`; what follows is that the worker count and memory ceiling its creator sets are the process's, and a second `NativeRuntime.Create` is refused rather than reconfiguring it | Requirement 14, decided |
 
 ---
 

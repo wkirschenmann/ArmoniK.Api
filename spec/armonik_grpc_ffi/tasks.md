@@ -1019,7 +1019,7 @@ against managed, on net4.8 and net8.0.
 calls, and split the assemblies so that choosing costs only what it uses.
 
 Today the seam is `ChannelBase`: every generated ArmoniK stub takes one, `NativeChannel` is one,
-and a consumer picks by calling `NativeRuntimeFactory.Channel` instead of
+and a consumer picks by calling `NativeRuntime.Channel` instead of
 `GrpcChannelFactory.CreateChannel`. That works and is what phase 1 deliberately settled for -
 `ArmoniK.Api.Client` knows nothing of the native engine, so a consumer that does not want it does
 not carry it.
@@ -1207,7 +1207,7 @@ What to settle:
   defect: the trampoline runs on a tokio thread and an exception crossing back into Rust is
   undefined behaviour, so the catch is the boundary. What is missing is that the boundary says
   nothing, and a call stranded there is the one failure with no observer at all. Whether that is
-  an `EventSource` or an optional `ILoggerFactory` on `NativeRuntimeFactory.Configure` is chosen
+  an `EventSource` or an optional `ILoggerFactory` on `NativeRuntime.Create` is chosen
   with the engine's own crossing rather than beside it - a host with two unrelated diagnostic
   channels for one call is what deciding twice produces.
 

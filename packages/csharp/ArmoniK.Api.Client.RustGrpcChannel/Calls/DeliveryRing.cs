@@ -52,7 +52,7 @@ internal sealed class DeliveryRing
   {
     // One slot more than the window, because the terminal goes out with every credit spent.
     //
-    // `NativeRuntimeFactory.MaxDeliveryCredits` is what keeps this loop finite: a shift is not
+    // `NativeRuntime.MaxDeliveryCredits` is what keeps this loop finite: a shift is not
     // checked in C#, so an unbounded window would take `size` through `int.MinValue` to zero and
     // spin here for ever on the caller's thread.
     var size = 1;
