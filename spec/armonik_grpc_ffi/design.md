@@ -260,8 +260,8 @@ pub struct GrpcCall { /* ... */ }
 // A call splits into a writer, a reader and a control. The halves take
 // &mut self, so send order and read order are facts about the type rather
 // than a rule in prose: two concurrent sends cannot be expressed, and
-// neither can two readers. This is the Rust-side twin of the level-2
-// SingleStreamConsumer obligation.
+// neither can two readers. This is the Rust-side twin of what level 2 holds
+// by construction: one reader_state and one writer_state per call.
 impl GrpcCall {
     /// Splits into the three. Each may be dropped independently.
     pub fn split(self) -> (SendHalf, RecvHalf, CallControl);
@@ -300,7 +300,7 @@ impl RecvHalf {
     /// Blocks until reception or terminal. On a Trailers-Only response the
     /// server sends no headers, and this yields an empty Metadata rather
     /// than an error - see the normalization note in the ABI section.
-    pub async fn recv_initial_metadata(&mut self) -> Result<Metadata, CallError>;
+    pub async fn recv_initial_metadata(&mut self) -> Result<&Metadata, CallError>;
 
     /// Retrieves the next message or the terminal status.
     /// Each call implicitly constitutes a request for one message (natural backpressure).
@@ -431,8 +431,8 @@ retry contract of gRFC A6 also carries: jitter on the backoff, `grpc-retry-pushb
 post-GOAWAY streams (which are not attempts and are not throttled), and a per-channel retry
 throttle. A channel-wide policy is also the wrong granularity: gRPC configures retry per
 method. None of that is specified here yet, and shipping the commitment point without it
-would produce a client that retries at the wrong times and hides server pushback. It needs
-a task of its own in phase 5, alongside T5.2.
+would produce a client that retries at the wrong times and hides server pushback. T6.3 and
+T6.4 carry it.
 
 ---
 
@@ -446,8 +446,8 @@ a task of its own in phase 5, alongside T5.2.
   monotonic counter and never handed out twice, so a token whose object has been reclaimed
   names nothing rather than aliasing whatever came after it. The three kinds draw from
   disjoint ranges of the same 64 bits - runtimes below 2^32, channels to 2^63, calls above -
-  so a handle of one kind is absent from the others' tables and the test on the hottest
-  path is the sign bit
+  so a handle of one kind is absent from the others' tables, and telling the kinds apart is
+  a range test
   The August design specified a slot map - index plus per-slot generation, chained free
   list - chosen for O(1) allocation. That was reversed on 2026-09-05. The generation was
   never a goal: it is the repair for the aliasing that reusing an index causes, and reusing
@@ -594,8 +594,9 @@ Terminals use the relaxed guard (`HasFreeDeliverySlotForTerminal`), so a termina
 blocked behind unread messages.
 
 FIFO release is what lets level 1 count payloads instead of tracking their identities,
-and the level-2 refinement owes that order as a proof obligation
-(`PayloadsReleasedInOrder`). In exchange the model asks strictly less of the host: one
+and level 2 carries that order by representation rather than as an obligation: its release
+counter can only advance by one, and `ConsumerHandoffPreservesTail` is the theorem for the
+hand-off. In exchange the model asks strictly less of the host: one
 fairness conjunct per call rather than one per payload, since consuming past a payload
 without consuming it is no longer a behavior the ABI admits.
 
@@ -750,7 +751,8 @@ back".
 
 ### JSON configuration schema
 
-The JSON schema is generated from `GrpcChannelConfig` + `TransportConfig`. `CallStartOptions`
+The JSON schema is generated from `options::ChannelOptions` and `options::TransportOptions`,
+the option document rather than the engine's own configuration. `CallStartOptions`
 is deliberately outside it: it carries a `Deadline`, whose `Absolute(Instant)` variant is a
 process-local monotonic point with no portable serialization and no meaning in another
 address space. Per-call options cross the ABI as fields, not as JSON, and a serialized
@@ -758,7 +760,7 @@ deadline - in a retry policy for instance - is always a relative `Duration`.
 The schema is the source of truth for:
 - C# options (generated from the schema)
 - Options documentation
-- Rust-side validation at channel creation and at the start of each call
+- Rust-side validation at channel creation
 
 Note: `RetryConfig` appears both in `GrpcChannelConfig` (channel default) and, post-V1, as a
 per-call override. Only the type is shared with the schema; the per-call override travels as
@@ -1483,7 +1485,7 @@ Only a genuine allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
 The order of those checks is what keeps `AK_STATUS_INTERNAL` rare. The ceiling is tested
 *before* anything is allocated, so a runtime at its budget refuses with `AK_STATUS_BUDGET_BUSY`
 and never reaches an allocation that could fail. Past that check, every allocation on this path
-uses the fallible form - `try_reserve`, `try_with_capacity` - so a failure returns rather than
+uses the fallible form - `try_reserve_exact` - so a failure returns rather than
 aborting, and that return is what `AK_STATUS_INTERNAL` reports. The infallible `Vec` and `Bytes`
 APIs are what abort; the emission path does not use them.
 
@@ -1567,7 +1569,7 @@ of the modelled behaviours: no proved liveness rests on the lend being taken. Th
 alternative shapes - reserving the budget at call admission and refusing `ak_call_start`, or a
 runtime permit acquired before the lend and released on the real recredit - remain open and
 are the level-2 material for turning a non-blocking refusal into a fair asynchronous wait.
-See T8.1.
+See T6.1.
 
 ---
 
@@ -1578,19 +1580,20 @@ See T8.1.
 The disposable object is the channel; the invoker is a view over it.
 
 ```csharp
-await using var channel = new NativeGrpcChannel(options);
+await using var runtime = NativeRuntime.Create();
+await using var channel = runtime.Channel(endpoint, options);
 CallInvoker invoker = channel.CreateCallInvoker();
 ```
 
 ```text
-+------------------------------------------+
-|  NativeGrpcChannel : ChannelBase         |
-|    +-- NativeChannel (SafeHandle)        |
-|    +-- RuntimeLease -> RuntimeState      |
-|    +-- Trampoline (static, unmanaged)    |
-|    +-- CallState (per call)              |
-|          +-- delivery ring + signals     |
-+------------------------------------------+
++--------------------------------------------+
+|  NativeRuntime                             |
+|    +-- Trampoline (static delegate)        |
+|    +-- NativeChannel : ChannelBase         |
+|          +-- the channel's ulong handle    |
+|          +-- NativeCall<T> (per call)      |
+|                +-- delivery ring + signal  |
++--------------------------------------------+
         |
         +-- CreateCallInvoker() -> NativeCallInvoker (a view, no state)
 
@@ -1714,8 +1717,8 @@ call's root.
 The trampoline never copies a payload. It publishes the owned `ak_bytes` and the consumer
 releases it after parsing, on a managed thread.
 
-No registry: the `call_ctx` is directly a `GCHandle` to the call's `CallState`, allocated
-before `ak_call_start`.
+No registry: the `call_ctx` is directly a `GCHandle` to the call, allocated before
+`ak_call_start`.
 
 **Who frees that root, and when, is not the consumer's business.** Reclamation is the
 runtime's own step and the host is not told when it happens, so tying the root's lifetime
@@ -1723,7 +1726,7 @@ to it is not even an option. Two rules remove the question instead:
 
 - every callback resolves `call_ctx` into a strong local reference before touching
   anything, so the object stays reachable for the whole callback regardless of the root;
-- the terminal callback frees `SelfHandle` itself, after its last access to `CallState`.
+- the terminal callback frees that root itself, after its last access to the call.
   It is the last callback of the call, so that is where native use ends - and the managed
   side keeps its own references, so freeing the native root collects nothing.
 
@@ -2361,7 +2364,7 @@ rules make that hold, and they are the level-2 proof obligations:
   up. `CancellationCompletes` proves the terminal arrives without any further host
   action, so the drain reaches it and releases its payload last. There is nothing to call
   afterwards: the runtime reclaims the call when that last release clears the debt.
-  `Dispose` does not free `SelfHandle` either - the terminal callback already did, on the
+  `Dispose` does not free the call's root either - the terminal callback already did, on the
   native side, after its own last access. A parse already in flight on the application thread completes
   first; the drain starts behind it, never beside it.
 - **Exactly once.** `OwnedMessage` releases on its first disposal and is inert afterwards.
@@ -2401,28 +2404,38 @@ Each call:
 The complete chain is:
 
 ```text
-Rust types (TransportConfig, GrpcChannelConfig)
-    │ derive(schemars::JsonSchema) on the *Source types (serializable)
+armonik_transport::options::{ChannelOptions, TransportOptions}
+    │ derive(schemars::JsonSchema), under the `schema` feature
     ▼
-channel_config.schema.json  <- committed, source of truth
-    │ generation tool (NJsonSchema, or custom)
+options.schema.json      <- committed beside the crate; a test fails when it is not
+    │                       what the types describe
+    │ ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator, a build-time tool
+    │ over Corvus.Json.CodeGeneration's TypeDeclaration model
     ▼
-RustChannelOptions.g.cs     <- generated, C# types to configure the channel
-    │ .ToJson()
+ChannelOptions.g.cs      <- committed; the build compares it with what the schema
+    │                       renders, and never rewrites it
+    │ ChannelOptions.Encode()
     ▼
-UTF-8 JSON passed to ak_channel_create
-    │ serde::Deserialize on Rust side
+UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument
+    │ serde_json into ChannelOptions, every bound checked again
     ▼
-GrpcChannelConfig (Rust types, with *Source)
-    │ .load() / .resolve()
-    ▼
-Effective material (Identity, CA certs, proxy route, etc.)
+GrpcChannelConfig and TransportConfig, the engine's own
 ```
 
-The `*Source` types (IdentitySource, CaSource, ProxySource) are serializable (serde +
-schemars). The loaded material (Identity, CertificateDer) is not. The JSON schema is
-generated from the source types, which guarantees consistency between Rust options and C#
-options without manual maintenance.
+The schema is the generator's only input, so the vocabulary lives in one place. T3.3 settled
+the shape every option takes, and gives the reasons:
+
+- a duration is a number of seconds, and the option's name carries the unit -
+  `ConnectTimeoutSeconds`;
+- a count is an `int`, and its range is a constraint of the schema rather than of an unsigned
+  type;
+- every constraint that can be said in the schema is said there;
+- nothing is nullable: unset is absent;
+- `additionalProperties: false` everywhere, so an unknown option is refused rather than ignored;
+- nothing is required, and `{}` is a valid configuration.
+
+Options that name material - a certificate, an identity, a proxy - arrive with the tasks that
+read them, from T4.1 on.
 
 ---
 
@@ -2438,17 +2451,17 @@ public class SessionsClient
 }
 
 // Usage with the native channel:
-var options = new RustChannelOptions { Endpoint = "https://armonik:5001" };
-await using var channel = new NativeGrpcChannel(options);
+await using var runtime = NativeRuntime.Create();
+await using var channel = runtime.Channel("http://armonik:5001");
 var client = new Sessions.SessionsClient(channel.CreateCallInvoker());
 ```
 
 ### Existing options mapping
 
 The current client options (`GrpcChannel` in ArmoniK.Api.Common.Options) must be able to
-produce a `RustChannelOptions`. The mapping is explicit and tested:
+produce a `ChannelOptions`. The mapping is explicit and tested:
 
-| Existing option | RustChannelOptions field |
+| Existing option | ChannelOptions field |
 |-----------------|--------------------------|
 | `Address` | `Endpoint` |
 | `CaCert` | `Tls.CaCertPath` |
@@ -2541,8 +2554,9 @@ deliberately unconstrained failed state: `SafetyInvariant == NotFailed => Safety
 
 **Ownership - everything belongs to a runtime:**
 - **SingleRuntime**: at most one runtime with state ∈ {RUNNING, STOPPING,
-  FAILED_UNQUIESCED} at all times. This is a modelling restriction, not an ABI rule:
-  nothing in the C surface forbids two runtimes. The binding holds one runtime, the
+  FAILED_UNQUIESCED} at all times. The ABI enforces it as well: `ak_runtime_create` refuses
+  a second live runtime with `AK_STATUS_INVALID_STATE`, so the model states the contract's
+  rule rather than a convenience of its own. The binding holds one runtime, the
   object its caller created, from which every channel is made - the diagram above shows
   the invoker's view, not a per-invoker runtime. It bounds the
   state space and lets the shutdown chain be stated per runtime without quantifying over
@@ -3001,7 +3015,8 @@ action it rides on; a managed-only action leaves `L1!vars` unchanged; the runtim
 actions pass through untouched.  `L2!Spec => L1!Spec` is therefore the only refinement to
 prove - `L0!Spec` follows from level 1's `RefinesSpec` by transitivity.  Ownership needs
 no new relation either: `call_channel` already says which channel a call belongs to, and
-`ChannelIds` is the channel identity space, so no `InvokerIds` and no refcount appear -
+`ChannelIds` is the channel identity space, so the model needs no invoker identities and no
+refcount -
 "the sweep is over" is `EveryChannelSettled`, every channel unopened, rejected, released
 or disposed. Nothing triggers on it: it is the guard `BeginRuntimeShutdown` reads, and no
 step fires because it became true. What keeps a channel from being added behind the sweep
@@ -3496,7 +3511,7 @@ and named seven of them on the day it was added.
 | `StatusResolvedOnceTheRingIsDrained` | a drained ring past its first slot means the status is resolved | the status, the call dispose |
 | `LiveRootIsServed` | a live call root has its token published, and past the status a delivery callback is running | the call root's release |
 
-Two of the seven were forced by the send side and are worth naming for what they rule
+Two of the twelve were forced by the send side and are worth naming for what they rule
 out.  `AwaitingWriteDoneHasOneComing` is what makes the wait end without any hypothesis on
 the application: one of the two disjuncts is always the enabled step.  And it is not enough
 on its own - `TrampolineStaysUntilItReturns` says the callback cannot slip off the stack
@@ -3581,12 +3596,12 @@ race. Ordered by what a defect would cost.
 
 | Risk | What it produces | Gate |
 |------|------------------|------|
-| Write TCS or writer state published after the downcall | an immediate WRITE_DONE finds nothing to complete: the write hangs, or a later one is completed twice | publish before the native call, roll back only on synchronous refusal; a test whose callback fires before the downcall returns |
+| The write claim or writer state published after the downcall | an immediate WRITE_DONE finds nothing to complete: the write hangs, or a later one is completed twice | publish before the native call, roll back only on synchronous refusal; a test whose callback fires before the downcall returns |
 | The slot's ownership: a read taking the ring against the drain's handoff | two consumers believing they hold the same tail, so a payload acquitted twice or a drain parsing bytes already returned | the transition is what confers ownership, never a peek - `BeginParseEvent` against `HandoffToDrain`, one of which wins; `ParsingReadOwnsItsSlot` states the borrow's lifetime |
 | The read's result: success against this read's token | a call believed cancelled that continues, or a value published after the token won | one CompareExchange per read, decided after the disarm and before the release - a different winner and a different point from the race above, which is why they are listed apart; `ReadCancellationCancelsCall` and `CompletedReadTokenArmsNothing` |
 | Serializer running while the call is disposed | the buffer returned under a marshaller still writing into it - use after return | one owner for the wrapper, commit and abort atomic and exclusive, returned exactly once |
 | GCHandle on a refused start, or a terminal arriving at once | a root leaked, or freed twice | root before the start; local rollback if the start refuses (no callback is promised); after acceptance the terminal callback is the only releaser |
-| Lease reaching zero beside a concurrent construction | a generation reused after its zero, or two live runtimes | decide the zero and mark the generation non-acquirable under one lock; a strongly concurrent create/dispose test |
+| A channel created beside the runtime's disposal | a channel the sweep misses, whose handle nobody closes | one lock orders the creation and the sweep, so a creation is either swept or refused; a concurrent create/dispose test |
 | The ring's memory ordering | a slot published half-visible, a lost wake-up - and only on ARM64 | documented `Volatile`/acquire-release pairs, padding, an ARM64 stress test, latched signals |
 | An exception crossing the reverse P/Invoke into the engine | undefined on the engine's side, which it would unwind through | catch-all at the trampoline, no user code inside it, and a `finally` that gives back the payload and the call's root a throw would have kept |
 | A continuation running inline on the callback thread | arbitrary reentrancy, the Tokio thread blocked by user code | `RunContinuationsAsynchronously` everywhere, signals never inline, a test capturing the thread identity |
@@ -3596,8 +3611,8 @@ race. Ordered by what a defect would cost.
 | An arbitrary marshaller that allocates, throws, or keeps the sequence | the zero-copy claim overstated, a lifetime violated | generated fast path plus a copying fallback; a stated lifetime contract; exception and retention tests |
 | Budget polling without fairness | unbounded latency, a thundering herd, admitted starvation | backoff with jitter, prompt cancellation, metrics on refusals and waiting time |
 | The receive path unbounded | out of memory despite a correct send budget | decide a capacity or an operational policy before production; memory metrics |
-| Replay holding bytes past WRITE_DONE | memory above what "the write finished" suggests | a separate budget, replay metrics, cancel and retry tests |
-| Handle index or generation exhaustion | a late refusal, or a stale token colliding | retire a saturating slot; a metric, and a test with an artificially small space |
+| Replay holding copies of sent messages | memory the lending ceiling does not see | a separate budget, replay metrics, cancel and retry tests |
+| Handle space exhaustion | a late refusal | the counter climbs past its range's end and every claim after it is refused, so one kind never spills into the next; tested on an artificially small space |
 | `FAILED_UNQUIESCED` with no operational procedure | a process durably degraded, memory unrecoverable | an alert, a debt dump, a documented fail-fast or restart threshold |
 | State tables in this document drifting from the modules | the model transcribed wrongly into the code | generate the tables from one source, or compare them in CI |
 
@@ -3627,7 +3642,7 @@ model stops promising, the implementation must still answer for.
 
 The models assume state updates are atomic and sequentially consistent; concrete memory
 ordering, encodings and the code the models abstract on purpose sit outside that
-assumption.  This is the closed frontier: twelve subjects deliberately outside every
+assumption.  This is the closed frontier: the subjects below sit deliberately outside every
 level, each with what verifies it instead. The list exists so that none of them is mistaken for a gap - a
 proof obligation nobody wrote - and so that none is reopened as one. No further level of
 refinement would help with any of them: they are properties of concrete memory, of
@@ -3641,11 +3656,11 @@ encodings, or of code the models abstract on purpose.
 | **Exact metadata, status and trailers**, and the .NET exception mapping | gRPC conformance tests |
 | **The five `CallInvoker` shapes' cardinalities** - the model is the generic bidirectional call | A test per shape |
 | **`CallOptions` in full** - deadline, credentials, headers | Still declared missing work, not a hidden claim |
-| **The lease refcount's algorithm** and the singleton's publication | A concurrent create/dispose race test |
+| **The runtime's lock** between a channel's creation and the disposal's sweep - level 2 takes both as atomic steps | Nothing directed: no test races a creation against the disposal |
 | **The handles' concrete encoding** - widths, allocation, type discrimination | ABI header work and stale-handle tests |
 | **Budget polling's cadence, backoff and starvation** | Nothing: deliberately not guaranteed, and the model says so |
 | **Payload owner identity** - FIFO release is a conformance hypothesis | `ak_call_debt_of` in assertions and tests |
-| **The `WriteTcs` publication race** around the send downcall | A directed race test |
+| **The write claim** around the send downcall | A directed test: a second write while one is in flight is refused |
 | **A compilable C ABI**, layouts, versioning, protocol encodings, tri-language tests | The header and conformance phase of the binding plan |
 | **The automatic retry** - attempts, backoff, replay buffer, retryable statuses | That requirement's own tests.  A policy over calls the models describe, not a mechanism of the protocol; the retry the models carry is the buffer lending one |
 
@@ -3893,7 +3908,7 @@ table above maps the five call shapes and stops there.
 | Question | Options | Impact |
 |----------|---------|--------|
 | Crate for X509Store Windows | Direct native APIs / `schannel` crate / `windows` crate | Layer 1 |
-| Exact handle format | **Slot map: index plus generation.** A stale handle is refused with a status instead of dereferenced, which is what makes runtime-driven reclamation safe: the host may still hold a token for a call already reclaimed | Layer 3, decided |
+| Exact handle format | **A monotonic counter per kind, over three disjoint ranges of 64 bits, and no reuse** - the slot map with per-slot generations was reversed on 2026-09-05. A stale handle is refused with a status instead of dereferenced, which is what makes runtime-driven reclamation safe: the host may still hold a token for a call already reclaimed | Layer 3, decided |
 | Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes the engine keeps a copy of for a replay, which is the one knob between replayability and memory held. Choosable alone: a replay resends the engine's copy and takes no slot in the send window, so the window does not bound it |
 | Host queue signal mechanism | **Moot: there is no host queue.** The per-call ring replaces it, and its signal must be latched auto-reset - never `SemaphoreSlim`, whose `Release` can run a waiter inline on the callback's thread | Layer 4, decided |
 | Generator for the C# options | **A build-time tool reading the schema with `Corvus.Json.CodeGeneration`.** A Roslyn generator cannot carry `System.Text.Json`: an analyzer loads inside the compiler, and the documented failure is green under `dotnet build` and red under Visual Studio, which is the one shape no CI can catch. Corvus's own generator has no such problem but emits `readonly struct` readers over a `JsonElement`, which is the wrong shape for a class `IConfiguration` binds and would need a hand-written mutable facade anyway. So its `TypeDeclaration` model does the reading - `$ref`, `$defs`, draft 2020-12 - and this repository decides the C#. The tool runs at build time, so none of Corvus reaches a consumer | Layer 4, decided |
