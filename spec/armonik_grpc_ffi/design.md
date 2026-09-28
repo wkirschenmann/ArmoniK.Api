@@ -2453,6 +2453,8 @@ the shape every option takes, and gives the reasons:
 - a count is an `int`, and its range is a constraint of the schema rather than of an unsigned
   type;
 - every constraint that can be said in the schema is said there;
+- a default is stated in its option's description and nowhere else in the schema: applying it
+  is the reader's, and a test compares the two;
 - nothing is nullable: unset is absent;
 - `additionalProperties: false` everywhere, so an unknown option is refused rather than ignored;
 - nothing is required, and `{}` is a valid configuration.

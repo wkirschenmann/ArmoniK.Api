@@ -5,32 +5,31 @@
   "type": "object",
   "properties": {
     "DeliveryCredits": {
-      "description": "How many events the engine may hold for a call the host has not read from.",
+      "description": "How many events the engine may hold for a call the host has not read from.\n\nDefaults to 1.",
       "type": "integer",
       "format": "int32",
       "maximum": 536870910,
       "minimum": 1
     },
     "MaxReceiveMessageSize": {
-      "description": "The largest message this client will accept, in bytes.\n\nNo upper bound, because the largest a caller can name is a channel that refuses nothing.\nZero is refused: it is a channel that can receive no message at all.",
+      "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
       "type": "integer",
       "format": "int32",
       "minimum": 1
     },
     "MaxSendsInFlight": {
-      "description": "How many messages a call may have sent and unacquitted at once.",
+      "description": "How many messages a call may have sent and unacquitted at once.\n\nDefaults to 1.",
       "type": "integer",
       "format": "int32",
       "maximum": 536870910,
       "minimum": 1
     },
     "Transport": {
-      "description": "What the transport does, beyond reaching the endpoint.",
-      "$ref": "#/$defs/TransportOptions",
-      "default": {}
+      "description": "What the transport does, beyond reaching the endpoint.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+      "$ref": "#/$defs/TransportOptions"
     },
     "UserAgent": {
-      "description": "What this client calls itself in `user-agent`. Absent for the engine's own.",
+      "description": "What this client calls itself in `user-agent`.\n\nDefaults to `armonik-transport/` followed by the engine's version.",
       "type": "string",
       "minLength": 1
     }
@@ -48,7 +47,7 @@
       "type": "object",
       "properties": {
         "ConnectTimeoutSeconds": {
-          "description": "How long a dial may take before it is given up on. Absent for the engine's own default.\n\nZero is refused: no dial could beat it, so it names a channel that can never connect.",
+          "description": "How long a dial may take before it is given up on.\n\nDefaults to 60. Zero is refused: no dial could beat it, so it names a channel that can\nnever connect.",
           "$ref": "#/$defs/Seconds",
           "exclusiveMinimum": 0.0
         }

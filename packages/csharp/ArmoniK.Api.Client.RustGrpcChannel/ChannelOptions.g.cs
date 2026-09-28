@@ -63,30 +63,35 @@ public sealed class ChannelOptions
   }
 
   /// <summary>How many events the engine may hold for a call the host has not read from.</summary>
+  /// <remarks>Defaults to 1.</remarks>
   [JsonPropertyName("DeliveryCredits")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? DeliveryCredits { get; set; }
 
   /// <summary>The largest message this client will accept, in bytes.</summary>
   /// <remarks>
-  ///   No upper bound, because the largest a caller can name is a channel that refuses nothing.
-  ///   Zero is refused: it is a channel that can receive no message at all.
+  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
+  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
+  ///   at all.
   /// </remarks>
   [JsonPropertyName("MaxReceiveMessageSize")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? MaxReceiveMessageSize { get; set; }
 
   /// <summary>How many messages a call may have sent and unacquitted at once.</summary>
+  /// <remarks>Defaults to 1.</remarks>
   [JsonPropertyName("MaxSendsInFlight")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? MaxSendsInFlight { get; set; }
 
   /// <summary>What the transport does, beyond reaching the endpoint.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Transport")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public TransportOptions? Transport { get; set; }
 
-  /// <summary>What this client calls itself in <c>user-agent</c>. Absent for the engine's own.</summary>
+  /// <summary>What this client calls itself in <c>user-agent</c>.</summary>
+  /// <remarks>Defaults to <c>armonik-transport/</c> followed by the engine's version.</remarks>
   [JsonPropertyName("UserAgent")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? UserAgent { get; set; }
@@ -168,8 +173,11 @@ public sealed class TransportOptions
     ConnectTimeoutSeconds = other.ConnectTimeoutSeconds;
   }
 
-  /// <summary>How long a dial may take before it is given up on. Absent for the engine's own default.</summary>
-  /// <remarks>Zero is refused: no dial could beat it, so it names a channel that can never connect.</remarks>
+  /// <summary>How long a dial may take before it is given up on.</summary>
+  /// <remarks>
+  ///   Defaults to 60. Zero is refused: no dial could beat it, so it names a channel that can
+  ///   never connect.
+  /// </remarks>
   [JsonPropertyName("ConnectTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? ConnectTimeoutSeconds { get; set; }

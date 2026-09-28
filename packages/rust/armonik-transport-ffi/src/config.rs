@@ -94,6 +94,51 @@ mod tests {
         settings.into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
     }
 
+    /// A default is stated in words, in its option's description, and applied here. This is
+    /// what says the words give the number the reader applies.
+    #[test]
+    fn every_default_the_schema_states_is_the_one_the_reader_applies() {
+        let schema: serde_json::Value = serde_json::from_str(&armonik_transport::options::schema())
+            .expect("the schema renders as JSON");
+        let stated = |pointer: &str| -> f64 {
+            let description = schema
+                .pointer(pointer)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_else(|| panic!("{pointer} names no description"));
+            let (_, after) = description
+                .split_once("Defaults to ")
+                .unwrap_or_else(|| panic!("{pointer} states no default: {description}"));
+            let number: String = after
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            number
+                .trim_end_matches('.')
+                .parse()
+                .unwrap_or_else(|_| panic!("{pointer} states no number: {after}"))
+        };
+
+        let settings = parse(b"{}").expect("an empty document is valid");
+        assert_eq!(
+            stated("/properties/DeliveryCredits/description"),
+            settings.delivery_credits() as f64
+        );
+        assert_eq!(
+            stated("/properties/MaxSendsInFlight/description"),
+            settings.max_sends_in_flight() as f64
+        );
+
+        let config = config_of(b"{}");
+        assert_eq!(
+            stated("/properties/MaxReceiveMessageSize/description"),
+            config.max_recv_message_size as f64
+        );
+        assert_eq!(
+            stated("/$defs/TransportOptions/properties/ConnectTimeoutSeconds/description"),
+            config.transport.connect_timeout.as_secs_f64()
+        );
+    }
+
     /// The bounds below are stated twice - once as a schemars attribute, once as this reader -
     /// and this is what says the two are the same numbers.
     ///

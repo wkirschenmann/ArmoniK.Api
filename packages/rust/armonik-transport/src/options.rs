@@ -61,9 +61,10 @@ impl TryFrom<Seconds> for Duration {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct TransportOptions {
-    /// How long a dial may take before it is given up on. Absent for the engine's own default.
+    /// How long a dial may take before it is given up on.
     ///
-    /// Zero is refused: no dial could beat it, so it names a channel that can never connect.
+    /// Defaults to 60. Zero is refused: no dial could beat it, so it names a channel that can
+    /// never connect.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -88,10 +89,14 @@ pub struct TransportOptions {
 #[non_exhaustive]
 pub struct ChannelOptions {
     /// What the transport does, beyond reaching the endpoint.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
     pub transport: TransportOptions,
 
-    /// What this client calls itself in `user-agent`. Absent for the engine's own.
+    /// What this client calls itself in `user-agent`.
+    ///
+    /// Defaults to `armonik-transport/` followed by the engine's version.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -101,8 +106,9 @@ pub struct ChannelOptions {
 
     /// The largest message this client will accept, in bytes.
     ///
-    /// No upper bound, because the largest a caller can name is a channel that refuses nothing.
-    /// Zero is refused: it is a channel that can receive no message at all.
+    /// Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
+    /// channel that refuses nothing. Zero is refused: it is a channel that can receive no message
+    /// at all.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -111,6 +117,8 @@ pub struct ChannelOptions {
     pub max_receive_message_size: Option<i32>,
 
     /// How many messages a call may have sent and unacquitted at once.
+    ///
+    /// Defaults to 1.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -122,6 +130,8 @@ pub struct ChannelOptions {
     pub max_sends_in_flight: Option<i32>,
 
     /// How many events the engine may hold for a call the host has not read from.
+    ///
+    /// Defaults to 1.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -137,9 +147,19 @@ pub struct ChannelOptions {
 ///
 /// Rendered here rather than by whoever asks, so the file, the test that checks it and any
 /// other reader are looking at the same bytes.
+///
+/// A default is stated in its option's description and nowhere else in the schema: applying it
+/// is the reader's, and a `default` keyword is one a validator or a generator could act on.
 #[cfg(feature = "schema")]
 pub fn schema() -> String {
-    let schema = schemars::schema_for!(ChannelOptions);
+    let schema = schemars::generate::SchemaSettings::default()
+        .with_transform(schemars::transform::RecursiveTransform(
+            |schema: &mut schemars::Schema| {
+                schema.remove("default");
+            },
+        ))
+        .into_generator()
+        .into_root_schema_for::<ChannelOptions>();
     let mut rendered = serde_json::to_string_pretty(&schema).expect("a schema renders");
     rendered.push('\n');
     rendered

@@ -180,6 +180,19 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                              }));
     }
 
+    /// <summary>A default stated as a keyword stops the generator.</summary>
+    /// <remarks>
+    ///   A default is stated in its option's description and applied by the engine. As a keyword
+    ///   it is one a generator could act on, and the class would then hold a second copy.
+    /// </remarks>
+    [Test]
+    public void ADefaultStatedAsAKeywordIsRefused()
+      => Assert.That(OptionVocabulary.Unhandled(Wrap(@"""Name"": { ""type"": ""string"", ""default"": ""a"" }")),
+                     Is.EqualTo(new[]
+                                {
+                                  "default",
+                                }));
+
     [Test]
     public void EveryBoundTheGeneratorChecksIsOneItAlsoAccepts()
     {

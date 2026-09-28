@@ -601,8 +601,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     // What a schema may say that this generator either reads or can ignore without losing a
     // constraint: the types and names it emits from, the documentation it carries over, and the
-    // annotations that assert nothing. `format` is read for the C# type. `default` states what an
-    // absent option means, which is the engine's business and not the class's.
+    // annotations that assert nothing. `format` is read for the C# type. `default` is not here: a
+    // default is stated in its option's description, and applying it is the engine's.
     private static readonly HashSet<string> Understood = new(StringComparer.Ordinal)
                                                          {
                                                            "$anchor",
@@ -610,7 +610,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                            "$id",
                                                            "$ref",
                                                            "$schema",
-                                                           "default",
                                                            "deprecated",
                                                            "description",
                                                            "examples",
