@@ -9,6 +9,11 @@ It establishes the APIs, types, sequences, error contracts, and the foundations 
 formal model. Implementation choices (specific crates, internal algorithms) remain free as long
 as they comply with the contracts described here.
 
+Two numberings run through it, and they count different things. *Layers* 1 to 5 are the
+components of the implementation, one section each below. *Levels* 0 to 2 are the TLA+ models,
+each refining the one before it; `L0!` and `L1!` are their instance names. A level is not a
+layer, and "level 1" and "layer 1" do not name the same thing.
+
 ---
 
 ## Layer 1 — `armonik-transport`, module `http2`
@@ -645,10 +650,20 @@ kind can hold destruction back - the alternative, refusing to destroy until ever
 handle is released, turns a host bug that today leaks a slot into one that hangs at
 teardown, and buys no safety in exchange.
 
-**Failure.** On a runtime failure the binding makes one best-effort pass to reclaim what
-it can and stops, and reports `AK_RUNTIME_FAILED_UNQUIESCED`. `ak_runtime_destroy` is
-refused and unloading is forbidden, because nothing can promise the outstanding memory
-is idle.
+**Failure.** A runtime fails when its shutdown can no longer finish: the task that drives
+the shutdown panicked, or the thread that drops the tokio runtime from outside it could not be
+started. Both happen during a shutdown. Elsewhere a panic is contained where it happens - a
+downcall answers `AK_STATUS_INTERNAL`, a call's own task ends that call with a status - and
+the runtime goes on. Two defensive readings report it too: `ak_runtime_status` itself
+faulting, and a stored state it cannot read. The state is then `AK_RUNTIME_FAILED_UNQUIESCED`:
+`ak_runtime_destroy` is refused and unloading is forbidden, because nothing can promise the
+outstanding memory is idle.
+
+A shutdown that only fails to end - a callback the host never returns from, a buffer never
+given back - is not a failure. The runtime stays `GRPC_STOPPED`, which refuses the destroy just
+the same, and the host's patience is the host's to bound. The model lets a runtime fail from
+RUNNING as well, which is wider than the code and the safe direction to be wrong in: every
+guarantee is stated outside the failure.
 
 **Failure suspends the nominal contract, and the document must not promise past it.**
 The models make their safety and liveness guarantees conditional on no runtime having
@@ -1084,10 +1099,10 @@ int ak_abi_version(void);
 // always the next one to be consumed.
 // The terminal does not invalidate payloads already handed over: calling
 // ak_event_consumed remains legal after the terminal, and is in fact required
-// before the call can be reclaimed.  After a runtime failure the binding cleans
-// up on a best-effort basis: no promise that reads a runtime state survives, but
-// this call does - ak_event_consumed stays legal and BufferEventuallyFreed still
-// holds, because a failed runtime disables neither returning memory nor freeing it.
+// before the call can be reclaimed.  After a runtime failure no promise that
+// reads a runtime state survives, but this call does - ak_event_consumed stays
+// legal and BufferEventuallyFreed still holds, because a failed runtime disables
+// neither returning memory nor freeing it.
 void ak_event_consumed(ak_bytes payload);
 ```
 
@@ -1500,9 +1515,11 @@ stream with `RESOURCE_EXHAUSTED` when the reservation fails - and it is not this
 why the model's budget is welded to the send-buffer lifecycle alone, and why
 `BudgetEventuallyHasRoomFor` is a statement about lending rather than about all memory.
 
-**What a buffer charges against the budget** is the size the allocator returned, not the size
-the host asked for: `charge(b)` is what actually backs `b`, `len` is the request it must
-cover, and `bytes_used` is the sum of `charge(b)` over every buffer lent and not yet freed.
+**What a buffer charges against the budget** is the capacity of the allocation that backs it,
+not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
+`len` is the request it must cover, and `bytes_used` is the sum of `charge(b)` over every buffer
+lent and not yet freed. Each lend gets a fresh allocation of exactly `len`, so today the charge
+is the request; a pooled arena would charge the capacity of the buffer it hands out.
 The two refusals are then
 
 ```
@@ -1517,19 +1534,25 @@ what was configured by what this library can lend, and `ak_runtime_memory_usage`
 that. One number, so `Ceiling` in the model is that number and the equivalence above is
 the whole story.
 
-Charging the request instead is the obvious alternative, and it fails at the one thing the
-ceiling exists for. A budget that counts what was asked for bounds an accounting fiction;
-the memory that has to fit is what the allocator handed out. Size-class rounding and per-arena
-slack would sit outside the ceiling, and the ceiling would be wrong by however much they come
-to - silently, and in the direction that matters.
+Charging the request, whatever backs it, is the obvious alternative, and it fails at the one
+thing the ceiling exists for. A budget that counts what was asked for bounds an accounting
+fiction; the memory that has to fit is what backs the buffer, and per-arena slack would sit
+outside the ceiling, wrong by however much it comes to - silently, and in the direction that
+matters. The allocator's own size-class rounding stays outside regardless: Rust's stable
+allocation interface does not report it, and it is small against a message.
+
+What the ceiling bounds is what the engine lends. The copy tonic's encoder makes of each
+message is outside it, and so is what the receive path buffers; neither is bounded
+runtime-wide.
 
 What that costs is the predictability of one refusal, and only one. `MESSAGE_TOO_LARGE` stays
 a predicate the host can evaluate *before* it calls, because it reads `len` and the ceiling
 and nothing else - which is also why its permanence is **derived** in the model rather than
 asserted: `IsLendable(len)` mentions no charge, so no sequence of frees can turn the answer
 around. A host holding a 4 MiB message against a 4 MiB ceiling still knows which answer it
-will get. `BUDGET_BUSY` is not predictable from the host's own numbers, and does not need to
-be: it is transient, it has a wake-up, and retrying on it is the correct response.
+will get. `BUDGET_BUSY` need not be predictable from the host's own numbers - it happens to be
+while the charge is the request - because it is transient, it has a wake-up, and retrying on it
+is the correct response.
 
 The residue is small but it is not zero: **the ceiling bounds
 the bytes the allocator reported, not the process's resident memory.** Allocator metadata, the
@@ -3629,14 +3652,14 @@ conformance hypothesis is recognized while it is still cheap.
 #### After a failed runtime, the binding still owes determinism
 
 `AK_RUNTIME_FAILED_UNQUIESCED` is absorbing, and every promise above carries the
-`~NotFailed` escape - the proofs stop there, legitimately. The binding may not. A
-generation that failed must refuse new channels and new calls at once, resolve every
-managed task still pending rather than abandoning it - readers, writers, headers, status,
-and any constructor waiting on a step that will never come - and leave no `Task` without a
-deterministic outcome. Operationally the failure is terminal for that generation: its
-memory is unreclaimable while it lives, so the policy is fail-fast with the debt reported
-(`ak_call_debt_of`, the counters below) and a restart, not a silent degradation. What the
-model stops promising, the implementation must still answer for.
+`~NotFailed` escape - the proofs stop there, legitimately. The binding may not, and what it
+owes follows from where a failure arises. It arises only in a shutdown the caller started with
+`DisposeAsync`, so new channels and calls are refused already. Each call's terminal comes from
+that call's own task, not from the shutdown's, so the managed readers, writers and status still
+resolve. And the disposal throws rather than waiting for a quiescence that will not come, which
+leaves no `Task` without an outcome. Operationally the failure is terminal for the runtime: its
+memory is unreclaimable while the process lives, so the policy is fail-fast with the debt
+reported (`ak_call_debt_of`, the counters below) and a restart, not a silent degradation.
 
 #### What no level of the specification covers
 
@@ -3880,9 +3903,10 @@ What is still owed:
 
 **What the ABI does not yet implement.** `ak_runtime_memory_usage_detailed` and its
 five-field struct: its three categories need each buffer's position in its lifecycle
-tracked, and it is an observability tool rather than one a retry needs. `AK_RUNTIME_FAILED_UNQUIESCED` has three producers: a status
-that cannot be read, a shutdown task that dies under its guard, and a shutdown that cannot
-get the thread quiescence is defined as.
+tracked, and it is an observability tool rather than one a retry needs. `AK_RUNTIME_FAILED_UNQUIESCED` has two producers, a shutdown
+task that dies under its guard and a shutdown that cannot get the thread quiescence is
+defined as, and two defensive readings: `ak_runtime_status` faulting, and a stored state it
+cannot read.
 
 `ak_error` and `ak_error_release` are specified above and implemented nowhere: every failing
 entry point answers with a status alone, `From<ChannelError> for ak_status` sends everything
