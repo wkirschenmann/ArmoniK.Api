@@ -550,7 +550,7 @@ spanning C# and Rust would need the channel to accept a `ChannelOptions`, which 
   That test builds a document from the schema's own properties and hands it to `serde`, where
   `deny_unknown_fields` refuses any name the two stopped agreeing on.
 
-What is still owed is the one test that starts a channel with every option set, in T3.4.
+The one test that starts a channel with every option set is T3.4's.
 
 The schema describes the structured shape - nested objects, booleans as booleans, numbers as
 numbers - because that is what the generated C# type has to serialize to, and a schema that said
@@ -651,7 +651,9 @@ a test that an option set only in the environment reaches the engine.
 configuration one takes a *section* rather than a root: which sources a configuration is composed
 from and which of them wins is .NET's to resolve and the host's to compose, so a caller hands over
 `configuration.GetSection(...)` and this binds what is there.  Nothing of ours sits between the
-layers, which is what the two-layer test asserts.
+layers, which is what the two-layer test asserts.  The environment test sets all five options
+and makes a call, so it is also the test T3.3 owed: an option the engine stops reading under its
+name refuses the channel there.
 
 **`ChannelOptions` is public.**  A caller fills it in, and T6.8 will construct one from another
 assembly; the generator emits `public sealed class` for that reason.  Which makes the

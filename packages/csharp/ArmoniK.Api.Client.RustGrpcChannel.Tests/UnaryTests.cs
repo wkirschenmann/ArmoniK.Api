@@ -47,21 +47,32 @@ public class UnaryTests : EchoServerFixture
   /// <summary>Room for one of the messages the ceiling test sends, and not two.</summary>
   private const ulong Ceiling = 128 * 1024;
 
-  /// <summary>A channel opened from a configuration, and a call over it.</summary>
+  /// <summary>Every option set in a configuration, and a call over the channel it opens.</summary>
   /// <remarks>
   ///   The whole path: an environment variable, .NET's binder, the generated options, the JSON,
   ///   and the engine reading it. `ChannelOptionsTests` stops at the document; only a served call
-  ///   says the engine accepted it.
+  ///   says the engine accepted it. The timeout carries a fraction, which a culture's decimal
+  ///   comma or an integer reading would break.
   /// </remarks>
   [Test]
-  public async Task AnOptionSetOnlyInTheEnvironmentReachesTheEngine()
+  public async Task EveryOptionSetOnlyInTheEnvironmentReachesTheEngine()
   {
     const string prefix = "AKRUSTUNARY_";
 
-    Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__DeliveryCredits",
-                                       "4");
-    Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__Transport__ConnectTimeoutSeconds",
-                                       "30");
+    var variables = new[]
+                    {
+                      ("DeliveryCredits", "4"),
+                      ("MaxReceiveMessageSize", "65536"),
+                      ("MaxSendsInFlight", "2"),
+                      ("Transport__ConnectTimeoutSeconds", "2.5"),
+                      ("UserAgent", "unary-tests"),
+                    };
+
+    foreach (var (name, value) in variables)
+    {
+      Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__" + name,
+                                         value);
+    }
 
     try
     {
@@ -83,10 +94,11 @@ public class UnaryTests : EchoServerFixture
     }
     finally
     {
-      Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__DeliveryCredits",
-                                         null);
-      Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__Transport__ConnectTimeoutSeconds",
-                                         null);
+      foreach (var (name, _) in variables)
+      {
+        Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__" + name,
+                                           null);
+      }
     }
   }
 
