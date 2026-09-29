@@ -402,7 +402,7 @@ jobs:
 
       - name: Test
         working-directory: packages/rust
-        run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi
+        run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi --features armonik-transport-ffi/test-hooks
 
   # The binding ships netstandard2.0 and net8.0 and loads a native engine of one architecture, so
   # what has to be exercised is the pairing: three client runtimes against two architectures. Its

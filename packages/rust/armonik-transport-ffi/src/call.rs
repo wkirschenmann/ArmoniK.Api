@@ -39,9 +39,10 @@ struct Debt {
 
 impl Debt {
     fn quiet(&self) -> bool {
-        // `terminal` and `buffers` are the two halves of the race `lend` closes: sequentially
-        // consistent here and there, so of the two threads writing one and reading the other,
-        // one sees the other's write.
+        // Sequentially consistent, for two handshakes with `lend`: `terminal` against its claim
+        // of `buffers`, and, for the shutdown, `terminal` then `Ledger::empty` against its count
+        // then its second read of `terminal`. In both, either this side sees the lend or the lend
+        // sees the terminal.
         self.terminal.load(Ordering::SeqCst) && self.callbacks.load(Ordering::Acquire) == 0
     }
 
@@ -168,7 +169,16 @@ impl CallState {
         let Ok(slot) = self.window.try_acquire() else {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);
         };
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::run_before_charge();
         self.ledger.hold_bytes(len)?;
+
+        // Read again once counted: a shutdown that ran after the checks above found nothing
+        // owed. The other half is `Debt::quiet` then `Ledger::empty`.
+        if self.debt.terminal.load(Ordering::SeqCst) {
+            self.ledger.release_bytes(len);
+            return Err(ak_status::AK_STATUS_INVALID_STATE);
+        }
 
         // The arena before the permit is spent: a refusal that left the ledger charged and the
         // permit forgotten would be a send window that never opens again.

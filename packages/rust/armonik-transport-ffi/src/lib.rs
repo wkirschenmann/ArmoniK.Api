@@ -5,6 +5,8 @@ mod blob;
 mod call;
 mod channel;
 mod config;
+#[cfg(feature = "test-hooks")]
+pub mod hooks;
 mod host;
 mod ledger;
 mod lifecycle;

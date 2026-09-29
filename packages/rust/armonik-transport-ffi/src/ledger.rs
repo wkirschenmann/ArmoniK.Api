@@ -58,8 +58,11 @@ impl Ledger {
         asked.min(LARGEST_LENDABLE)
     }
 
+    // Sequentially consistent here and in `empty`: `CallState::fill` counts a lend and then reads
+    // its call's terminal, and `shutting_down` reads every terminal through `Debt::quiet` and
+    // then the count, so one of the two sees the other's write.
     pub(crate) fn hold(&self) {
-        self.outstanding.fetch_add(1, Ordering::AcqRel);
+        self.outstanding.fetch_add(1, Ordering::SeqCst);
     }
 
     pub(crate) fn release(&self) {
@@ -115,7 +118,7 @@ impl Ledger {
     }
 
     pub(crate) fn empty(&self) -> bool {
-        self.outstanding.load(Ordering::Acquire) == 0
+        self.outstanding.load(Ordering::SeqCst) == 0
     }
 
     pub(crate) async fn drained(&self) {

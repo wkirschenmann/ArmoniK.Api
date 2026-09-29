@@ -23,6 +23,16 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 
+[features]
+# Points where a test holds a host thread inside a downcall. Off unless a test asks for it; no
+# shipped build enables it.
+test-hooks = []
+
+# Skipped without the feature: run it with `--features test-hooks`, or `--all-features`.
+[[test]]
+name = "races"
+required-features = ["test-hooks"]
+
 [dev-dependencies]
 # The same crate again, with the schema turned on: one test reads the bounds the schema states
 # and drives `config::parse` at each of them, which is what keeps the reader's copy honest.
