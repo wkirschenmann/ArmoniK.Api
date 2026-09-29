@@ -83,11 +83,30 @@ impl TransportConfig {
             return refuse("the endpoint names no host".to_owned());
         }
 
-        // A port that does not parse leaves `port_u16` empty and the connector dials 80, so a typo
-        // reaches the wrong service rather than being refused.
-        let port = &authority.as_str()[host.len()..];
-        if !port.is_empty() && authority.port_u16().is_none_or(|port| port == 0) {
-            return refuse(format!("`{port}` is not a port; it has to be 1 to 65535"));
+        // A port that does not parse, or a colon with none after it, leaves `port_u16` empty and
+        // the connector dials 80, so a typo reaches the wrong service rather than being refused.
+        // A bracketed host ends at its `]`, and the parser admits more text after it than a port.
+        let after_host = &authority.as_str()[host.len()..];
+        if !after_host.is_empty() {
+            let Some(port) = after_host.strip_prefix(':') else {
+                return refuse(
+                    "the endpoint's host is followed by something other than `:` and a port"
+                        .to_owned(),
+                );
+            };
+            if port.is_empty() {
+                return refuse("the endpoint has a `:` after its host and no port".to_owned());
+            }
+            // Digits only, because `u16` parsing also takes a leading `+`; and quoted only then,
+            // because anything else may be a password that lost its `@`.
+            if !port.bytes().all(|byte| byte.is_ascii_digit()) {
+                return refuse(
+                    "the endpoint's port is not a number; it has to be 1 to 65535".to_owned(),
+                );
+            }
+            if authority.port_u16().is_none_or(|port| port == 0) {
+                return refuse(format!("`{port}` is not a port; it has to be 1 to 65535"));
+            }
         }
 
         // Neither reaches the wire: a call is addressed by its method path, which replaces both.
@@ -282,13 +301,59 @@ mod tests {
 
     #[test]
     fn a_port_that_is_not_a_port_is_refused_rather_than_dialling_eighty() {
-        for endpoint in ["http://h:99999", "http://h:0"] {
+        for (endpoint, port) in [
+            ("http://h:99999", "99999"),
+            ("http://h:0", "0"),
+            ("http://[::1]:0", "0"),
+        ] {
             let refused = dialable(endpoint).expect_err(endpoint);
             assert_eq!(
                 refused.kind(),
                 TransportErrorKind::Configuration,
                 "{endpoint}"
             );
+            let said = refused.to_string();
+            assert!(said.contains(&format!("`{port}` is not a port")), "{said}");
+        }
+    }
+
+    #[test]
+    fn a_colon_with_no_port_after_it_is_refused_as_such() {
+        for endpoint in ["http://h:", "http://[::1]:"] {
+            let refused = dialable(endpoint).expect_err(endpoint);
+            assert_eq!(
+                refused.kind(),
+                TransportErrorKind::Configuration,
+                "{endpoint}"
+            );
+            let said = refused.to_string();
+            assert!(said.contains("and no port"), "{said}");
+        }
+    }
+
+    #[test]
+    fn text_after_a_bracketed_host_that_is_not_a_port_is_refused() {
+        for endpoint in ["http://[::1]8080", "http://[::1]x:80"] {
+            let refused = dialable(endpoint).expect_err(endpoint);
+            assert_eq!(
+                refused.kind(),
+                TransportErrorKind::Configuration,
+                "{endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_port_that_is_not_digits_is_refused_and_not_quoted() {
+        for (endpoint, text) in [("http://h:+80", "+80"), ("http://alice:s3cret", "s3cret")] {
+            let refused = dialable(endpoint).expect_err(endpoint);
+            assert_eq!(
+                refused.kind(),
+                TransportErrorKind::Configuration,
+                "{endpoint}"
+            );
+            let said = refused.to_string();
+            assert!(!said.contains(text), "{said}");
         }
     }
 
