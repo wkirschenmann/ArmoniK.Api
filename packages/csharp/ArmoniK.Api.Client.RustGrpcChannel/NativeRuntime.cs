@@ -45,6 +45,8 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   private static readonly TimeSpan JoinPollInterval = TimeSpan.FromMilliseconds(1);
 
+  private static readonly TimeSpan FailurePollInterval = TimeSpan.FromMilliseconds(100);
+
   // The engine holds this pointer for as long as the runtime lives, and a delegate is only as
   // alive as the reference kept to it.
   private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
@@ -270,6 +272,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// handle into a library that may have been unloaded. Disposing a channel twice is a no-op, so
   /// a caller that disposed its own and then this one is the ordinary path and not a race.
   /// </remarks>
+  /// <exception cref="InvalidOperationException">
+  ///   The engine failed, and the runtime can be neither quiesced nor destroyed.
+  /// </exception>
   public async ValueTask DisposeAsync()
   {
     bool mine;
@@ -399,7 +404,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// a wait on the event reads a state that has already moved. What follows is a thread outside
   /// tokio stopping the workers, and QUIESCENT is that thread having finished: no event can
   /// announce it, because whatever emitted the announcement would be running on the thread whose
-  /// end it reports. So the long part is waited on and the join is polled.
+  /// end it reports. So the long part is waited on by its event and read again every 100 ms,
+  /// because a shutdown that fails announces nothing, and the join is polled.
   ///
   /// <para>
   ///   And there is no deadline, for the reason the engine gives for dropping its own: this state
@@ -409,28 +415,36 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   is the process's for good. The two failures that are failures answer here: the engine
   ///   saying quiescence is impossible, and a destroy it refuses.
   /// </para>
-  private async Task QuiescentAsync()
+  private Task QuiescentAsync()
+    => QuiescentAsync(() => NativeMethods.ak_runtime_status(handle_),
+                      announced_.WaitAsync);
+
+  /// <summary>The wait itself, over the state it reads and the announcement it wakes on.</summary>
+  internal static async Task QuiescentAsync(Func<NativeMethods.AkRuntimeState> status,
+                                            Func<Task>                         announced)
   {
     while (true)
     {
-      var state = NativeMethods.ak_runtime_status(handle_);
+      var state = status();
 
       switch (state)
       {
         case NativeMethods.AkRuntimeState.Quiescent:
           return;
 
-        // The engine says it will never quiesce - a teardown thread it could not start - so this
-        // is the one wait that ends without the fact it waited for.
+        // The engine says it will never quiesce - a shutdown task that died, a teardown thread it
+        // could not start - so this wait ends without the fact it waited for.
         case NativeMethods.AkRuntimeState.FailedUnquiesced:
           throw NotQuiescent(state);
 
         case NativeMethods.AkRuntimeState.Running:
         case NativeMethods.AkRuntimeState.GrpcStopping:
           // Latched, so an announcement that landed between the read above and this wait is not
-          // lost, and the state above is what is believed rather than the event.
-          await announced_.WaitAsync()
-                          .ConfigureAwait(false);
+          // lost, and the state above is what is believed rather than the event. The timer is for
+          // the failure: the engine stores it and announces nothing.
+          await Task.WhenAny(announced(),
+                             Task.Delay(FailurePollInterval))
+                    .ConfigureAwait(false);
           break;
 
         default:
