@@ -102,12 +102,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                               Metadata? metadata,
                                               Marshaller<TResponse> marshaller)
   {
-    var call = new NativeCall<TResponse>(runtime,
-                                         deliveryCredits,
-                                         marshaller);
+    // Encoded before the call exists: the encoding refuses a reserved key by throwing, and a call
+    // built first would already hold the handle that roots it, with no terminal to free it.
     var methodBytes = MethodNames.GetValue(method,
                                            static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = RawMetadata.Encode(metadata);
+    var call = new NativeCall<TResponse>(runtime,
+                                         deliveryCredits,
+                                         marshaller);
 
     // The engine copies both before it answers, so the pin lasts exactly the call.
     unsafe

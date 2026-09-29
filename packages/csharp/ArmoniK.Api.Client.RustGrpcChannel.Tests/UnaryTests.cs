@@ -17,6 +17,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -694,6 +695,46 @@ public class UnaryTests : EchoServerFixture
                                   Does.Contain("grpc-timeout"),
                                   "and which entry it was, which one status for a whole document cannot say");
                     });
+  }
+
+  /// <summary>A call refused over its metadata leaves nothing rooted behind it.</summary>
+  /// <remarks>
+  ///   A call is rooted for the engine by a handle its terminal frees, and a call refused before
+  ///   it starts has no terminal. The call holds its marshaller, so a marshaller that survives a
+  ///   collection means the call is still rooted.
+  /// </remarks>
+  [Test]
+  public async Task ACallRefusedOverItsMetadataLeavesNothingRooted()
+  {
+    await using var channel = Channel();
+
+    var marshaller = RefusedOverItsMetadata(channel);
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+
+    Assert.That(marshaller.IsAlive,
+                Is.False,
+                "the refused call is still rooted, and its marshaller with it");
+  }
+
+  // Not inlined, so no local of the test's own frame keeps the marshaller alive.
+  [MethodImpl(MethodImplOptions.NoInlining)]
+  private static WeakReference RefusedOverItsMetadata(NativeChannel channel)
+  {
+    var marshaller = Marshallers.Create<EchoReply>(message => message.ToByteArray(),
+                                                   EchoReply.Parser.ParseFrom);
+
+    Assert.Throws<RpcException>(() => channel.StartCall("/armonik.transport.ffi.test.Echo/Say",
+                                                        new Metadata
+                                                        {
+                                                          {
+                                                            "grpc-timeout", "1S"
+                                                          },
+                                                        },
+                                                        marshaller));
+
+    return new WeakReference(marshaller);
   }
 
   /// <summary>An endpoint the engine will not dial is the caller's argument, not a state this
