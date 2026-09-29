@@ -19,7 +19,6 @@ name = "armonik_transport_ffi"
 # once, beside the engine that honours it, and this crate reads rather than restates it.
 armonik-transport = { path = "../armonik-transport", features = ["serde"] }
 bytes.workspace = true
-serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 

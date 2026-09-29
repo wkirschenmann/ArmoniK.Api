@@ -79,7 +79,6 @@ dependencies = [
  "futures",
  "http",
  "hyper",
- "serde",
  "serde_json",
  "tokio",
  "tonic",

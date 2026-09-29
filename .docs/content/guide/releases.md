@@ -15,6 +15,7 @@ In order to be sure that every [packages](./packages) use the same version, we c
 ### Prerequisites
 
 - [NodeJS](https://nodejs.org/en/) (latest LTS version)
+- [Rust](https://rustup.rs/) toolchain, which provides `cargo`
 
 ### Steps
 
@@ -29,16 +30,10 @@ pnpm install
 You can install pnpm using `npm i -g pnpm`
 
 ```
-- Run the script
+- Run the script, which also updates `packages/rust/Cargo.lock` and so needs `cargo` and network access
 
 ```bash
 pnpm run update-versions <version>
-```
-
-- Update Cargo.lock
-
-```
-cargo check
 ```
 
 - Create a PR with the changes (an action will be triggered to check that each package has the same version)

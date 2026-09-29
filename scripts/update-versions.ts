@@ -53,15 +53,16 @@ rustDependencyFiles.forEach(_readAndReplace(rustDependencyPattern, `${version}-b
 
 // Cargo.lock pins the workspace members by version as well, and every cargo invocation in CI passes
 // --locked, which refuses to resolve a manifest the lock does not match. `--workspace` so the
-// third-party pins stay where they are: a version bump is not the moment to move them.
+// third-party pins stay where they are: a version bump is not the moment to move them. Online: a
+// clean checkout has no crate cache for `--offline` to resolve from.
 consola.info('Locking rust workspace members at ', version)
 try {
-  execFileSync('cargo', ['update', '--workspace', '--offline'], {
+  execFileSync('cargo', ['update', '--workspace'], {
     cwd: 'packages/rust',
     stdio: 'inherit',
   })
 }
-catch {
-  consola.fatal('cargo update failed, so Cargo.lock still names the previous version')
+catch (error) {
+  consola.fatal('cargo update failed, so Cargo.lock still names the previous version', error)
   process.exit(1)
 }

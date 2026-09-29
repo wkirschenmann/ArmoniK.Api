@@ -68,10 +68,11 @@ When necessary, maintainers can release a new version. This new version will pub
 
 > Replace <version> with the new version number
 
-1. Install Node.js LTS version (https://nodejs.org/en/download/)
+1. Install Node.js LTS version (https://nodejs.org/en/download/) and a Rust toolchain (https://rustup.rs/)
 2. Install dependencies with `npm ci` (from the root of the project)
 3. Create a new branch from main named `chore(release): release <version>` (from the root of the project)
-4. Update versions using `npm run update-versions <version>` (from the root of the project)
+4. Update versions using `npm run update-versions <version>` (from the root of the project). It also updates
+   `packages/rust/Cargo.lock`, which takes `cargo` and network access
 5. Commit changes with `chore(release): release <version>`
 6. Push the branch to the remote repository
 7. Create a new pull request from the branch to main
