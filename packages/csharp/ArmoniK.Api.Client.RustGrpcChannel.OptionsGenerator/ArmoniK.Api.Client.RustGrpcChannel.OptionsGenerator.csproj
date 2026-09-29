@@ -8,7 +8,7 @@
     <IsPackable>false</IsPackable>
     <PackageVersion>3.29.2</PackageVersion>
     <Version>3.29.2</Version>
-    <LangVersion>10</LangVersion>
+    <LangVersion>11</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <Optimize>true</Optimize>

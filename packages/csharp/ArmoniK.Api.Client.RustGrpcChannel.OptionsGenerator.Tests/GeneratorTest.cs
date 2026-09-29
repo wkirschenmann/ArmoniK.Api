@@ -139,6 +139,118 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests
                   "the option is documented by what it states, not by what its group states");
     }
 
+    /// <summary>A root holding one group renders its classes to exactly this.</summary>
+    /// <remarks>
+    ///   The classes as whole text, because the other tests read fragments and the committed
+    ///   schema has only its own shapes. This one pins two that schema lacks: a `Validate` holding
+    ///   only groups, and one that bounds nothing.
+    /// </remarks>
+    [Test]
+    public async Task ARootHoldingOneGroupRendersItsClassesToExactlyThisText()
+    {
+      var rendered = await Render(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                       @",
+  ""$defs"": {
+    ""TransportOptions"": {
+      ""description"": ""What the transport does."",
+      ""type"": ""object"",
+      ""properties"": { ""Name"": { ""description"": ""A name."", ""type"": ""string"" } },
+      ""additionalProperties"": false
+    }
+  }"))
+                       .ConfigureAwait(false);
+
+      const string classes = @"/// <summary>What a caller may set.</summary>
+public sealed class Options
+{
+  /// <summary>Options nobody has set.</summary>
+  public Options()
+  {
+  }
+
+  /// <summary>A copy of <paramref name=""other"" />, sharing nothing with it.</summary>
+  /// <param name=""other"">The options to copy.</param>
+  /// <exception cref=""ArgumentNullException""><paramref name=""other"" /> is null.</exception>
+  public Options(Options other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Transport = other.Transport is null
+                  ? null
+                  : new TransportOptions(other.Transport);
+  }
+
+  /// <summary>What this option does.</summary>
+  [JsonPropertyName(""Transport"")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public TransportOptions? Transport { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    Transport?.Validate();
+  }
+
+  /// <summary>The document the engine reads, as UTF-8.</summary>
+  /// <returns>The options as JSON, without the ones left unset.</returns>
+  /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its bounds.</exception>
+  /// <remarks>
+  ///   Checked before it is written, not after it is refused: the engine answers a bad
+  ///   document with a status naming neither the option nor the bound.
+  /// </remarks>
+  internal byte[] Encode()
+  {
+    Validate();
+
+    return JsonSerializer.SerializeToUtf8Bytes(this,
+                                               OptionsJsonContext.Default.Options);
+  }
+}
+
+/// <summary>What the transport does.</summary>
+public sealed class TransportOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public TransportOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name=""other"" />, sharing nothing with it.</summary>
+  /// <param name=""other"">The options to copy.</param>
+  /// <exception cref=""ArgumentNullException""><paramref name=""other"" /> is null.</exception>
+  public TransportOptions(TransportOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Name = other.Name;
+  }
+
+  /// <summary>A name.</summary>
+  [JsonPropertyName(""Name"")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Name { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    // The schema bounds nothing here.
+  }
+}
+";
+
+      Assert.That(rendered,
+                  Does.EndWith(classes.Replace("\r\n",
+                                               "\n")));
+    }
+
     /// <summary>A description is documentation, and its paragraphs are the XML's two elements.</summary>
     [Test]
     public async Task ADescriptionBecomesTheDocumentation()
