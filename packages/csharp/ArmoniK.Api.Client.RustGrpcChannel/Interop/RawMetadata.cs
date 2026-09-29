@@ -39,10 +39,6 @@ internal static class RawMetadata
   ///   a host is not to be trusted with an invariant of the wire - but it answers with one status
   ///   for a whole document, so a caller reads that their call could not be started and never
   ///   which entry was wrong. Named here, where the entry is still in hand.
-  ///   <para>
-  ///     The copy goes when the ABI can carry a sentence: `ak_error` is what would let the engine
-  ///     name the key itself, and this list is what stands in for it until then.
-  ///   </para>
   /// </remarks>
   private static readonly HashSet<string> Reserved = new(StringComparer.Ordinal)
                                                      {

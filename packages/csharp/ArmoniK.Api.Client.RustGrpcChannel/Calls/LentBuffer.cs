@@ -198,7 +198,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       // calls it backpressure and names the next WRITE_DONE as its wake-up, which is what a host
       // pipelining deeper than one message waits on; this binding admits one writer and has it
       // wait for the acquittal, so reaching this is its own bookkeeping being wrong rather than a
-      // resource to wait for. Named as such, where the message used to read like a shortage.
+      // resource to wait for.
       case NativeMethods.AkStatus.SlotBusy:
         throw new RpcException(new Status(StatusCode.Internal,
                                           "a send was begun while this call still had one unacquitted"));

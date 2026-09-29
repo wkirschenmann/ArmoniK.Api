@@ -37,8 +37,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 ///   <para>
 ///     Answered by a declared correspondence rather than by hand: every option of either side has
 ///     to appear here, so an option added to `GrpcClient` or to the schema and forgotten fails
-///     this instead of quietly having no counterpart. Phases 4 to 6 are what move a name out of
-///     <see cref="Awaited" /> and into <see cref="Counterparts" />.
+///     this instead of quietly having no counterpart. A name leaves <see cref="Awaited" /> for
+///     <see cref="Counterparts" /> when an option here answers it.
 ///   </para>
 /// </remarks>
 [TestFixture]
@@ -47,19 +47,19 @@ public class OptionVocabularyTests
   /// <summary>A `GrpcClient` option and the path of the option that answers it here.</summary>
   private static readonly IReadOnlyDictionary<string, string> Counterparts = new Dictionary<string, string>(StringComparer.Ordinal);
 
-  /// <summary>A `GrpcClient` option whose counterpart a later phase brings, and which one.</summary>
+  /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
   /// <remarks>
-  ///   The phase is named so the entry says when it stops being an omission. `RequestTimeout` is
-  ///   a deadline rather than a connection option, which is why it waits on T6.2 and not on the
-  ///   transport unit.
+  ///   The task is named so the entry says what ends the omission. `RequestTimeout` is a deadline
+  ///   rather than a connection option, which is why its task is T6.2 and not the transport
+  ///   unit's.
   /// </remarks>
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
                                                                           ["AllowUnsafeConnection"] = "T4.1",
                                                                           ["CaCert"]                = "T4.1",
                                                                           ["CertP12"]               = "T4.2",
-                                                                          ["CertPem"]               = "T4.2",
-                                                                          ["KeyPem"]                = "T4.2",
+                                                                          ["CertPem"]               = "T4.1",
+                                                                          ["KeyPem"]                = "T4.1",
                                                                           ["OverrideTargetName"]    = "T4.1",
                                                                           ["KeepAliveTime"]         = "T4.1",
                                                                           ["KeepAliveTimeInterval"] = "T4.1",
@@ -96,10 +96,9 @@ public class OptionVocabularyTests
   /// <remarks>
   ///   Three readers share the `GrpcClient__` namespace, not two: `Options.GrpcClient` here,
   ///   `ClientConfigArgs::from_env` in the Rust client, and this channel's schema. The two
-  ///   vocabularies below are pinned rather than reconciled - which of these spellings wins is
-  ///   the #736 question and not this branch's - so what this catches is a name moving on one
-  ///   side alone. An unknown option is ignored rather than refused, so drift here fails late and
-  ///   silently everywhere else.
+  ///   vocabularies below are pinned rather than reconciled - which spelling wins is #736's to
+  ///   decide - so what this catches is a name moving on one side alone. An unknown option is
+  ///   ignored rather than refused, so drift here fails late and silently everywhere else.
   /// </remarks>
   private static readonly IReadOnlyDictionary<string, string> RustOnly = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
@@ -215,7 +214,7 @@ public class OptionVocabularyTests
                     {
                       Assert.That(declared.Where(name => !accounted.Contains(name)),
                                   Is.Empty,
-                                  "a GrpcClient option with no entry here: map it, name the phase that will, or say what answers it instead");
+                                  "a GrpcClient option with no entry here: map it, name the task that carries it, or say what answers it instead");
                       Assert.That(accounted.Where(name => !declared.Contains(name)),
                                   Is.Empty,
                                   "an entry here for a GrpcClient option that no longer exists");
@@ -255,7 +254,7 @@ public class OptionVocabularyTests
   {
     TestContext.Out.WriteLine($"GrpcClient options: {Settable(typeof(Options.GrpcClient)).Count()}");
     TestContext.Out.WriteLine($"  mapped to an option here: {Counterparts.Count}");
-    TestContext.Out.WriteLine($"  awaiting a phase:         {Awaited.Count}");
+    TestContext.Out.WriteLine($"  awaiting a task:          {Awaited.Count}");
 
     // Key and Value rather than a deconstruction: `KeyValuePair` gained one in .NET Core, and
     // this assembly is exercised on .NET Framework as well.

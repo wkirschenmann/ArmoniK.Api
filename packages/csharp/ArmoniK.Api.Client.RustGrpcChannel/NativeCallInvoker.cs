@@ -269,8 +269,4 @@ internal sealed class NativeCallInvoker : CallInvoker
                                         $"this invoker carries no per-call host: `{host}` would be dropped and the call sent to the channel's endpoint"));
     }
   }
-
-  private static RpcException Unsupported(MethodType type)
-    => new(new Status(StatusCode.Unimplemented,
-                      $"this invoker carries unary calls; {type} is not implemented yet"));
 }
