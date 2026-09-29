@@ -568,6 +568,42 @@ fn a_channel_released_before_the_runtime_stops_is_closed_by_the_time_it_does() {
     );
 }
 
+/// A closed channel stays in the tables, whether its host released it or not, until the runtime
+/// is destroyed: the destroy is what takes it out, and its handle names nothing from then on.
+#[test]
+fn destroying_a_runtime_leaves_none_of_its_handles_naming_anything() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let released = host.channel(&server.endpoint);
+    let kept = host.channel(&server.endpoint);
+    let call = start_call(kept, ECHO, &[]);
+
+    ak_channel_release(released);
+    host.stop();
+
+    for channel in [released, kept] {
+        assert_eq!(
+            ak_channel_status(channel),
+            ak_channel_state::AK_CHANNEL_CLOSED
+        );
+    }
+
+    let runtime = host.runtime;
+    drop(host);
+
+    assert_eq!(
+        ak_runtime_status(runtime),
+        ak_runtime_state::AK_RUNTIME_NONE
+    );
+    for channel in [released, kept] {
+        assert_eq!(
+            ak_channel_status(channel),
+            ak_channel_state::AK_CHANNEL_NONE
+        );
+    }
+    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_HANDLE_STALE);
+}
+
 #[test]
 fn the_abi_version_is_the_one_the_header_carries() {
     assert_eq!(ak_abi_version(), AK_ABI_VERSION);
