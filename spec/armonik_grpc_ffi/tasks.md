@@ -1067,6 +1067,67 @@ it. Dead code removed.
 
 **Deliverable**: a clean repository.
 
+### T6.10: Received messages count against the memory ceiling
+
+**Prerequisite**: none among the tasks above. The level-1 model changes first, as for anything the
+ABI promises.
+
+**Why**: the runtime's ceiling bounds only the buffers a host fills to send. A message the engine
+receives and lends to the host is counted for quiescence and not in bytes, so what a runtime holds
+on the receive side is bounded per call - `DeliveryCredits` times `MaxReceiveMessageSize` - and not
+at all across calls. A client downloading large chunks on many calls at once can exhaust the
+process's memory with every bound respected.
+
+**Commit**: two thresholds over the one count of bytes that sends and receives then share.
+
+- A received message is charged its length, from the moment it is decoded until the host gives it
+  back with `ak_event_consumed`. The slack a message may keep alive in tonic's decode buffer is
+  taken as negligible.
+- The first threshold is where work waits. A call about to read its next message while the count
+  is past it stops reading, and HTTP/2 flow control stops the peer, as when a call is out of
+  delivery credits; it reads again when a release takes the count back below. A send buffer is
+  admitted against this threshold as it is against the ceiling today: `AK_STATUS_BUDGET_BUSY`
+  while the lends in flight leave no room, `AK_STATUS_MESSAGE_TOO_LARGE` when the message alone
+  exceeds it.
+- The second threshold is where the engine stops, so that the process does not run out of memory.
+  Calls that each found the count below the first threshold before reading can pass it together,
+  by up to one message each. A decoded message that would take the count past the second ends its
+  call with `RESOURCE_EXHAUSTED`, and is freed at once.
+- A call refused with `AK_STATUS_BUDGET_BUSY` is woken by an event at the next release that could
+  make room, a send buffer's or a received message's. It fires where the count falls - a send
+  buffer's release, at its WRITE_DONE or when it is given back unsent, and a received message's
+  at `ak_event_consumed` - and never at a commit, which moves bytes from the host to the runtime
+  without freeing any: design.md kept a poll until now because a signal on that edge is a
+  wake-up that never comes. The .NET binding's poll of `ak_runtime_memory_usage`, every 2 ms,
+  goes.
+- The memory categories gain one, the received messages the host holds, and the partition level
+  1 proves (`CategoriesPartitionTotal`) gains it too.
+- design.md is rewritten where it says the budget covers the emission path only, that a fallible
+  receive path is not this design, and that the budget's wake-up is a poll. Its reasons were
+  that receive-side bytes belong to hyper and that a failed allocation aborts; neither holds
+  against a count of messages already decoded, which needs no fallible allocation.
+- `AK_ABI_VERSION` does not change, for the reason T4.0 gives.
+
+The models change first: level 1 charges a payload its length and gains the two thresholds and the
+event, and level 2 replaces the binding's poll by the event.
+
+What to settle:
+
+- how the second threshold is set - a second field of `ak_runtime_config` beside
+  `memory_ceiling`, or derived from the first - and both defaults; today's ceiling defaults to
+  four gigabytes, or half the address space where that is smaller;
+- the event: its name, whether it wakes every call refused since the last release or one of them,
+  and that it carries no payload and takes no delivery credit, as WRITE_DONE does not;
+- whether a caller must tell the second threshold from a message past `MaxReceiveMessageSize`.
+  Both end the call with `RESOURCE_EXHAUSTED`, the first transient and runtime-wide, the second
+  permanent, and only the status message tells them apart - which a retry policy reading the
+  code, T6.3's, does not see.
+
+**Deliverable**: many calls receiving messages the host does not read end with some of them
+waiting and none past the second threshold, read from `ak_runtime_memory_usage`; a message that
+would cross the second ends its call with `RESOURCE_EXHAUSTED`; and a send refused with
+`AK_STATUS_BUDGET_BUSY` resumes on the event when a received message is given back, with no poll.
+
 ---
 
 ## Phase 7 — Rust ArmoniK Client on armonik-transport

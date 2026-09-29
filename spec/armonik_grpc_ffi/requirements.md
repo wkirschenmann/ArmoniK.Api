@@ -383,12 +383,20 @@ undefined behavior when used from .NET.
    Several tokio runtimes in one process share the machine's cores without knowing of each other,
    which is what this forbids. The worker-thread count and memory ceiling its creator sets are
    the process's.
-10. A runtime bounds what it lends for messages at once by a ceiling its creator sets; zero
-   leaves it to the library. A lend it cannot grant is refused, never blocked:
-   `AK_STATUS_MESSAGE_TOO_LARGE` when the message alone exceeds the ceiling, which no retry
-   changes, and `AK_STATUS_BUDGET_BUSY` when the lends in flight leave no room, which is
-   transient and calls for a retry. The ceiling bounds lending: the engine's copy of a message
-   being sent and what the receive path buffers are outside it.
+10. A runtime bounds the bytes it holds for messages at once - those a host fills to send, and
+   those the engine received and lends to the host until they are given back - by two thresholds
+   its creator sets; zero leaves each to the library. Past the first, work waits. A send is
+   refused, never blocked: `AK_STATUS_BUDGET_BUSY` while the lends in flight leave no room, which
+   is transient, and an event wakes the call when a release makes room;
+   `AK_STATUS_MESSAGE_TOO_LARGE` when the message alone exceeds the threshold, which no retry
+   changes. A receiving call stops reading until a release makes room. The second threshold is
+   the one the process may not pass: a received message that would cross it ends its call with
+   `RESOURCE_EXHAUSTED`. The engine's copy of a message being sent, and a message still being
+   assembled from the network, are outside both.
+
+**Status**: 10 is met for sends only, against a single ceiling, and a refused send polls
+`ak_runtime_memory_usage` rather than being woken. A received message is counted for quiescence
+and not in bytes, so nothing bounds received messages across calls. T6.10 carries the rest.
 
 ---
 
