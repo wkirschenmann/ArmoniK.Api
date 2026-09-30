@@ -221,6 +221,38 @@ fn releasing_a_channel_cancels_its_calls_and_none_of_another_channels() {
     host.stop();
 }
 
+/// Once the sending has ended, a send and a second end are both refused, and the refused send's
+/// buffer is still the host's to give back.
+///
+/// The answer is held on its delivery credit, so the call stays live and each refusal is the
+/// ended sending's rather than a finished call's.
+#[test]
+fn nothing_is_sent_after_the_sending_has_ended() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    host.recorder.hold_payloads();
+    let call = start_call(channel, ECHO, &blob(&[]));
+
+    send_one(call, b"hello");
+    host.recorder.await_write_done();
+    host.recorder.await_metadata();
+    assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_INVALID_STATE);
+
+    let (status, buffer) = lend(call, 1);
+    assert_eq!(status, ak_status::AK_STATUS_OK, "the call is still live");
+    assert_eq!(
+        unsafe { ak_call_send_message(call, buffer) },
+        ak_status::AK_STATUS_INVALID_STATE
+    );
+    unsafe { ak_return_call_buffer(buffer) };
+
+    host.recorder.consume_all();
+    host.recorder.await_terminal();
+    host.recorder.consume_all();
+    support::await_call_reclaimed(call);
+    host.stop();
+}
+
 #[test]
 fn a_closing_channel_takes_no_new_call() {
     let fixture = Host::connected();

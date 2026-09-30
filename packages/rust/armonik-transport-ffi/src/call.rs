@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use armonik_transport::grpc::{
     CallControl, CallError, CallStartOptions, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf,
@@ -74,23 +74,50 @@ pub(crate) struct CallState {
     cancelled: AtomicBool,
     progress: watch::Sender<u64>,
     over: watch::Sender<bool>,
-    ended_sending: AtomicBool,
-    /// Held across deciding to queue a command and queueing it.
+    /// Whether the sending has ended, in `SENDING_ENDED`, beside how many sends are being queued.
     ///
     /// The two writers are `ak_call_send_message` and `ak_call_end_send`, and the queue orders
-    /// commands by when they are sent, not by when a slot was reserved. Without this, both could
-    /// hold a slot, the second could end the sending and queue its command first, and the first
-    /// would then queue a send behind it: the writer takes the end, drops the send half, finds no
-    /// half for the message, and emits its WRITE_DONE anyway - the host told a message left that
-    /// never did. gRPC forbids a host doing the two at once; this makes the answer a refusal
-    /// rather than a false acquittal.
-    ///
-    /// Never held across an await, and taken only by those two downcalls.
-    queueing: Mutex<()>,
+    /// commands by when they are sent, not by when a slot was reserved. An end queued while a send
+    /// was on its way to the queue would go in first: the writer takes the end, drops the send
+    /// half, finds no half for the message, and emits its WRITE_DONE anyway - the host told a
+    /// message left that never did. So a send counts itself in before it looks and out when its
+    /// downcall returns, and the end takes the word only when it counts no send, waiting for one
+    /// it finds: the WRITE_DONE of a send can reach the host before that send's downcall has
+    /// returned, and a host ending from inside it is ending after the send, not beside it.
+    sending: AtomicU32,
     handle: ak_handle,
     // The channel itself, not its name: leaving it is not optional, and a name would make it
     // conditional on a lookup whose failure the reader has no answer for.
     channel: Arc<AkChannel>,
+}
+
+/// The bit of `CallState::sending` that says the sending has ended; the bits below count sends.
+const SENDING_ENDED: u32 = 1 << 31;
+
+/// A send counted in `CallState::sending` from its look at the word until its downcall returns.
+struct Queueing<'a>(&'a AtomicU32);
+
+impl<'a> Queueing<'a> {
+    /// Counts a send in, unless the sending has ended.
+    fn enter(sending: &'a AtomicU32) -> Option<Self> {
+        let mut seen = sending.load(Ordering::Acquire);
+        loop {
+            if seen & SENDING_ENDED != 0 {
+                return None;
+            }
+            match sending.compare_exchange_weak(seen, seen + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return Some(Self(sending)),
+                Err(now) => seen = now,
+            }
+        }
+    }
+}
+
+impl Drop for Queueing<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl CallState {
@@ -102,10 +129,6 @@ impl CallState {
         self.cancelled.store(true, Ordering::Release);
         self.announce();
         self.control.cancel();
-    }
-
-    fn ended_sending(&self) -> bool {
-        self.ended_sending.load(Ordering::Acquire)
     }
 
     fn accepts_work(&self) -> bool {
@@ -224,9 +247,13 @@ impl CallState {
     }
 
     pub(crate) fn commit(&self, lent: Box<Lent>) -> ak_status {
-        let _queueing = self.queueing.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(_queueing) = Queueing::enter(&self.sending) else {
+            return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
+        };
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::run_before_queueing();
 
-        if !self.accepts_work() || self.ended_sending() {
+        if !self.accepts_work() {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         }
 
@@ -245,16 +272,34 @@ impl CallState {
     }
 
     pub(crate) fn end_send(&self) -> ak_status {
-        let _queueing = self.queueing.lock().unwrap_or_else(PoisonError::into_inner);
-
         if !self.live() {
             return ak_status::AK_STATUS_INVALID_STATE;
         }
         let Ok(slot) = self.commands.try_reserve() else {
             return ak_status::AK_STATUS_INVALID_STATE;
         };
-        if self.ended_sending.swap(true, Ordering::AcqRel) {
-            return ak_status::AK_STATUS_INVALID_STATE;
+        // From no send being counted and the sending still open. An end already queued is a
+        // refusal, and the slot goes back unused with it; a send still counted is waited for,
+        // briefly: its downcall queues without waiting on anything, so it returns.
+        let mut seen = self.sending.load(Ordering::Acquire);
+        loop {
+            if seen & SENDING_ENDED != 0 {
+                return ak_status::AK_STATUS_INVALID_STATE;
+            }
+            if seen != 0 {
+                std::thread::yield_now();
+                seen = self.sending.load(Ordering::Acquire);
+                continue;
+            }
+            match self.sending.compare_exchange_weak(
+                0,
+                SENDING_ENDED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(now) => seen = now,
+            }
         }
         slot.send(Command::EndSend);
         ak_status::AK_STATUS_OK
@@ -409,8 +454,7 @@ fn create(
         cancelled: AtomicBool::new(false),
         progress: watch::channel(0).0,
         over: watch::channel(false).0,
-        ended_sending: AtomicBool::new(false),
-        queueing: Mutex::new(()),
+        sending: AtomicU32::new(0),
         channel,
         handle,
     });

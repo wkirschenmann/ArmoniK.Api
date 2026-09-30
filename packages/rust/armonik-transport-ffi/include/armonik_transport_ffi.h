@@ -384,7 +384,12 @@ ak_status ak_call_send_message(ak_handle call, ak_buffer buffer);
  * leaves the buffer with the host, exactly as it was lent. */
 void ak_return_call_buffer(ak_buffer buffer);
 
-/* Signals end of sending. No ak_call_send_message after this. */
+/* Signals end of sending. No ak_call_send_message after this: a send that comes after the end,
+ * and a second end, answer AK_STATUS_INVALID_STATE.
+ *
+ * An end that comes while an ak_call_send_message has not yet returned on another thread - from
+ * inside that send's own AK_EVENT_WRITE_DONE, which may arrive first - waits for it to return, so
+ * it never goes ahead of a message the host has been told left. */
 ak_status ak_call_end_send(ak_handle call);
 
 /* Cancels the call, which then reaches a terminal - carrying CANCELLED, unless the peer's own
