@@ -490,6 +490,11 @@ T6.4 carry it.
   round trip. The event path never touches the registry at all: payloads and lent buffers
   are identified by a tagged owner pointer, so the place where O(1) would have earned its
   keep was already not using it.
+- A released channel leaves its table once it is CLOSED, and its handle names nothing from
+  then on. No level has a step for it: the refinement maps a channel handle the table no
+  longer holds to the closed state it left in, which a history variable recording the release
+  carries. A channel the shutdown closed stays in the table, because the host still names it -
+  `ak_call_start` on it answers `AK_STATUS_INVALID_STATE`, as a closed channel's does
 
 - Received message payloads are **owned**: the host receives an `ak_bytes` that it must
   release. This prepares for future zero-copy (the host will be able to deserialize directly
@@ -906,14 +911,16 @@ ak_status ak_channel_create(ak_runtime_handle runtime,
                             ak_bytes_in config_json,
                             ak_channel_handle *out);
 
-// Frees the channel. In-progress calls are cancelled (CANCELLED).
-// The handle is no longer valid after this call.
+// Frees the channel. In-progress calls are cancelled (CANCELLED). The handle
+// is reclaimed once the last call has reached its terminal; a channel the
+// runtime's shutdown closed stays nameable until it is released.
 void ak_channel_release(ak_channel_handle channel);
 
 // How far along a channel's closing is; NONE for a handle this library does not
-// know. Observational: what ends CLOSING is this library's own bookkeeping - the
-// last call of the channel reaching its terminal - so a host following the drain
-// has nothing to do but read.
+// know, which a released channel is once reclaimed. Observational: what ends
+// CLOSING is this library's own bookkeeping - the last call of the channel
+// reaching its terminal - so a host following the drain has nothing to do but
+// read.
 ak_channel_state ak_channel_status(ak_channel_handle channel);
 
 // === Call ===

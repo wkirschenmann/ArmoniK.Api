@@ -138,25 +138,30 @@ async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledge
 
 pub(crate) fn release_channel(handle: ak_handle) {
     if let Some(found) = tables::channels().get(handle) {
-        close_channel(&found);
+        let enlisted = found.release();
+        close(&found, enlisted);
     }
 }
 
 fn close_channel(channel: &Arc<AkChannel>) {
-    let Some(enlisted) = channel.start_closing() else {
-        return;
-    };
+    close(channel, channel.start_closing());
+}
 
-    for call in enlisted {
-        if let Some(call) = tables::calls().get(call) {
-            call.cancel();
+/// Cancels the calls a close has to, when this is the close that started it.
+fn close(channel: &Arc<AkChannel>, enlisted: Option<Vec<ak_handle>>) {
+    if let Some(enlisted) = enlisted {
+        for call in enlisted {
+            if let Some(call) = tables::calls().get(call) {
+                call.cancel();
+            }
         }
+        channel.grpc.close();
     }
-    channel.grpc.close();
     // Whoever brings the count to zero finishes the close, and with no call to wait for that is
     // this thread. It is also this thread when the last call left while the loop above ran - its
-    // own attempt found the count still standing - so the call is made unconditionally rather
-    // than reasoned about.
+    // own attempt found the count still standing - and when a release finds a channel the
+    // shutdown already closed, which only the release can reclaim. So the call is made
+    // unconditionally rather than reasoned about.
     channel.finish_closing();
 }
 

@@ -130,8 +130,9 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
 
     assert_eq!(seen.status_code(), Some(CANCELLED));
 
+    // Closed, and reclaimed: the host released it.
     support::poll_until(
-        || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_CLOSED,
+        || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_NONE,
         || format!("the channel is {:?}", ak_channel_status(channel)),
     );
 
@@ -151,7 +152,7 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     support::await_call_reclaimed(call);
     assert_eq!(
         ak_channel_status(channel),
-        ak_channel_state::AK_CHANNEL_CLOSED
+        ak_channel_state::AK_CHANNEL_NONE
     );
 
     host.stop();
@@ -232,33 +233,42 @@ fn a_closing_channel_takes_no_new_call() {
 
     ak_channel_release(channel);
     // Either, because the call may reach its terminal between the release and this read, and
-    // this test is about what a released channel refuses, not about how far its drain has got.
+    // this test is about what a released channel refuses, not about how far its drain has got:
+    // closing while the call is on it, reclaimed once it has left.
     assert!(
         matches!(
             ak_channel_status(channel),
-            ak_channel_state::AK_CHANNEL_CLOSING | ak_channel_state::AK_CHANNEL_CLOSED
+            ak_channel_state::AK_CHANNEL_CLOSING | ak_channel_state::AK_CHANNEL_NONE
         ),
         "the channel is {:?}",
         ak_channel_status(channel)
     );
 
     let (status, refused) = try_start_call(channel, ECHO, &[]);
-    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert!(
+        matches!(
+            status,
+            ak_status::AK_STATUS_INVALID_STATE | ak_status::AK_STATUS_HANDLE_STALE
+        ),
+        "{status:?}"
+    );
     assert_eq!(refused, AK_HANDLE_NONE, "nothing was started");
 
     host.recorder.await_terminal();
     host.recorder.consume_all();
     support::await_call_reclaimed(first);
     support::poll_until(
-        || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_CLOSED,
+        || ak_channel_status(channel) == ak_channel_state::AK_CHANNEL_NONE,
         || format!("the channel is {:?}", ak_channel_status(channel)),
     );
 
     host.stop();
 }
 
+/// With no call to wait for, the release closes the channel and reclaims its handle before it
+/// returns.
 #[test]
-fn an_idle_channel_is_closed_the_moment_it_is_released() {
+fn an_idle_channel_is_reclaimed_the_moment_it_is_released() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
 
@@ -271,20 +281,44 @@ fn an_idle_channel_is_closed_the_moment_it_is_released() {
 
     assert_eq!(
         ak_channel_status(channel),
-        ak_channel_state::AK_CHANNEL_CLOSED
+        ak_channel_state::AK_CHANNEL_NONE
     );
 
     let (status, call) = try_start_call(channel, ECHO, &blob(&[]));
-    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(status, ak_status::AK_STATUS_HANDLE_STALE);
     assert_eq!(call, AK_HANDLE_NONE, "a refusal leaves *out as it was");
 
     ak_channel_release(channel);
     assert_eq!(
         ak_channel_status(channel),
-        ak_channel_state::AK_CHANNEL_CLOSED
+        ak_channel_state::AK_CHANNEL_NONE
     );
 
     host.stop();
+}
+
+/// The runtime's shutdown closes a channel without taking it from the host: it reads CLOSED and
+/// refuses a call as a closed channel does, until the host releases it.
+#[test]
+fn a_channel_the_shutdown_closed_is_the_hosts_until_it_releases_it() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    host.stop();
+
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_CLOSED
+    );
+    let (status, call) = try_start_call(channel, ECHO, &blob(&[]));
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(call, AK_HANDLE_NONE);
+
+    ak_channel_release(channel);
+    assert_eq!(
+        ak_channel_status(channel),
+        ak_channel_state::AK_CHANNEL_NONE
+    );
 }
 
 #[test]
@@ -681,21 +715,9 @@ fn nothing_starts_on_a_runtime_that_has_begun_stopping() {
     host.await_state(ak_runtime_state::AK_RUNTIME_QUIESCENT);
 }
 
-#[test]
-fn a_channel_released_before_the_runtime_stops_is_closed_by_the_time_it_does() {
-    let fixture = Host::connected();
-    let (host, channel) = (&fixture.host, fixture.channel);
-
-    host.stop();
-
-    assert_eq!(
-        ak_channel_status(channel),
-        ak_channel_state::AK_CHANNEL_CLOSED
-    );
-}
-
-/// A closed channel stays in the tables, whether its host released it or not, until the runtime
-/// is destroyed: the destroy is what takes it out, and its handle names nothing from then on.
+/// A closed channel the host has not released stays in the tables until the runtime is
+/// destroyed: the destroy is what takes it out, and its handle names nothing from then on. One the
+/// host released has already gone.
 #[test]
 fn destroying_a_runtime_leaves_none_of_its_handles_naming_anything() {
     let server = TestServer::start();
@@ -707,12 +729,11 @@ fn destroying_a_runtime_leaves_none_of_its_handles_naming_anything() {
     ak_channel_release(released);
     host.stop();
 
-    for channel in [released, kept] {
-        assert_eq!(
-            ak_channel_status(channel),
-            ak_channel_state::AK_CHANNEL_CLOSED
-        );
-    }
+    assert_eq!(
+        ak_channel_status(released),
+        ak_channel_state::AK_CHANNEL_NONE
+    );
+    assert_eq!(ak_channel_status(kept), ak_channel_state::AK_CHANNEL_CLOSED);
 
     let runtime = host.runtime;
     drop(host);

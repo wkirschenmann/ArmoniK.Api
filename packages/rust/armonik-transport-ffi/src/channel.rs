@@ -14,6 +14,8 @@ pub(crate) struct AkChannel {
     pub(crate) runtime: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: usize,
+    /// Its own handle, which it takes out of the table once it is released and closed.
+    handle: ak_handle,
     members: Mutex<Members>,
 }
 
@@ -25,6 +27,9 @@ struct Members {
     /// is counted from its join and listed only once it is in the table, where a close looks it
     /// up.
     listed: HashSet<ak_handle, BuildHasherDefault<Spread>>,
+    /// The host has released the channel, so its handle is the table's to reclaim once it is
+    /// closed. A channel the runtime's shutdown closed is still the host's to name.
+    released: bool,
 }
 
 /// What a channel is, and how many calls are on it.
@@ -79,6 +84,7 @@ impl Members {
                 calls: 0,
             },
             listed: HashSet::default(),
+            released: false,
         }
     }
 
@@ -113,6 +119,15 @@ impl Members {
     fn close(&mut self) -> Option<Vec<ak_handle>> {
         self.advance(Phase::closing)
             .then(|| self.listed.iter().copied().collect())
+    }
+
+    fn release(&mut self) -> Option<Vec<ak_handle>> {
+        self.released = true;
+        self.close()
+    }
+
+    fn reclaimable(&self) -> bool {
+        self.released && self.phase.state == ak_channel_state::AK_CHANNEL_CLOSED
     }
 }
 
@@ -152,19 +167,33 @@ impl AkChannel {
     /// OPEN -> CLOSING, whatever the count, and the calls to cancel; None when it was not OPEN.
     ///
     /// Through CLOSING even with nothing to drain, because that is what the header describes and
-    /// what the model has as two steps. Nothing is lost by it: `release_channel` finishes the
-    /// close before it returns, so a host that reads the status after the call still finds
-    /// CLOSED.
+    /// what the model has as two steps. Nothing is lost by it: with no call on the channel, the
+    /// close that started it finishes it before returning.
     pub(crate) fn start_closing(&self) -> Option<Vec<ak_handle>> {
         self.members().close()
     }
 
-    /// CLOSING -> CLOSED, once the last call has left.
+    /// `start_closing`, by the host: the channel is reclaimed once it is closed.
+    pub(crate) fn release(&self) -> Option<Vec<ak_handle>> {
+        self.members().release()
+    }
+
+    /// CLOSING -> CLOSED, once the last call has left, and the handle reclaimed if the host has
+    /// released the channel.
     ///
     /// Called by whoever made that true - the call that left, or the release itself when there
-    /// was no call to wait for.
+    /// was no call to wait for, or when a shutdown had already closed the channel.
     pub(crate) fn finish_closing(&self) {
-        self.members().advance(Phase::closed);
+        let reclaimable = {
+            let mut members = self.members();
+            members.advance(Phase::closed);
+            members.reclaimable()
+        };
+        // Outside this channel's lock, because the table's is another. A second remove finds
+        // nothing, so the call that left and the release may both get here.
+        if reclaimable {
+            tables::channels().remove(self.handle);
+        }
     }
 }
 
@@ -186,13 +215,18 @@ pub(crate) fn create(
         .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
 
     tables::channels()
-        .insert(Arc::new(AkChannel {
-            grpc,
-            runtime,
-            delivery_credits,
-            max_sends_in_flight,
-            members: Mutex::new(Members::open()),
-        }))
+        .insert_with(|handle| {
+            let channel = Arc::new(AkChannel {
+                grpc,
+                runtime,
+                delivery_credits,
+                max_sends_in_flight,
+                handle,
+                members: Mutex::new(Members::open()),
+            });
+            (channel, ())
+        })
+        .map(|(handle, ())| handle)
         .ok_or(ak_status::AK_STATUS_INTERNAL)
 }
 
@@ -293,5 +327,28 @@ mod tests {
             None,
             "and it finishes once"
         );
+    }
+
+    #[test]
+    fn a_released_channel_is_reclaimable_once_its_last_call_has_left() {
+        let mut members = Members::open();
+        assert!(members.advance(Phase::joined));
+        assert_eq!(members.release(), Some(vec![]));
+        assert!(!members.reclaimable(), "a call is still on it");
+
+        assert!(members.leave(None));
+        assert!(members.advance(Phase::closed));
+        assert!(members.reclaimable());
+    }
+
+    #[test]
+    fn a_channel_the_shutdown_closed_stays_the_hosts_until_it_releases_it() {
+        let mut members = Members::open();
+        assert_eq!(members.close(), Some(vec![]));
+        assert!(members.advance(Phase::closed));
+        assert!(!members.reclaimable(), "the host still names it");
+
+        assert_eq!(members.release(), None, "there is nothing left to cancel");
+        assert!(members.reclaimable());
     }
 }

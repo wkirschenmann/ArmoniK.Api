@@ -321,13 +321,19 @@ ak_status ak_channel_create(ak_handle runtime, ak_bytes_in endpoint, ak_bytes_in
  * that needs it - it is not watching the transport, so closing the session alone would never
  * reach it.
  *
- * Idempotent, and it does not stale the handle: the channel goes to AK_CHANNEL_CLOSING and then
- * to AK_CHANNEL_CLOSED on its own, and ak_channel_status is how a host follows that. A closing
- * channel starts no further call - ak_call_start on one answers AK_STATUS_INVALID_STATE. The
- * handle is reclaimed with the runtime. */
+ * Idempotent. The channel goes to AK_CHANNEL_CLOSING, and once its last call has reached its
+ * terminal the handle is reclaimed: from then on ak_channel_status answers AK_CHANNEL_NONE and
+ * ak_call_start AK_STATUS_HANDLE_STALE. Until then the channel starts no further call -
+ * ak_call_start on it answers AK_STATUS_INVALID_STATE - and a host following the drain reads
+ * CLOSING and then NONE, with CLOSED at most in passing. An idle channel is reclaimed before this
+ * returns.
+ *
+ * A channel the runtime's shutdown closed is not reclaimed: it stays AK_CHANNEL_CLOSED, and
+ * nameable, until this is called or the runtime is destroyed. */
 void ak_channel_release(ak_handle channel);
 
-/* How far along a channel's closing is. Answers NONE for a handle this library does not know.
+/* How far along a channel's closing is. Answers NONE for a handle this library does not know,
+ * which a released channel is once its last call has ended.
  *
  * What ends CLOSING is this library's own bookkeeping - the last call of the channel reaching
  * its terminal - so a host watching the drain has nothing to do but read. In particular CLOSED

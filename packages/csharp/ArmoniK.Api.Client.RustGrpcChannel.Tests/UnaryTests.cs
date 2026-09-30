@@ -1076,10 +1076,12 @@ public class UnaryTests : EchoServerFixture
     await channel.DisposeAsync()
                  .ConfigureAwait(false);
 
+    // The native half is gone: the channel is released, and its calls settled before the
+    // release, so the engine reclaimed the handle there.
     Assert.Multiple(() =>
                     {
                       Assert.That(channel.NativeState,
-                                  Is.EqualTo(NativeMethods.AkChannelState.Closed));
+                                  Is.EqualTo(NativeMethods.AkChannelState.None));
                       Assert.That(channel.DisposeState,
                                   Is.EqualTo(ChannelDisposeState.Disposed));
                     });
