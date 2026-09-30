@@ -8077,16 +8077,38 @@ LEMMA IdleHoldsUntilTheStreamIsRead ==
    downcall, so none inherits a level-1 guard: what each wants is its own
    consumer state, plus the debt for the two that read the ring. *)
 
+\* ConsumeHeader with its outcome named: the witness ExpandENABLED will not
+\* build for the quantifier inside the action.  If the two ever differ, the
+\* implication HeaderIsEnabled carries across stops holding.
+ConsumeHeaderSucceeding(cId) ==
+    /\ consumer_phase[cId] = "prologue"
+    /\ call_dispose_state[cId] = "active"
+    /\ RingTail(cId) = 0
+    /\ L1!HostConsumesEvent(cId)
+    /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "application"]
+    /\ headers_completion' =
+           [headers_completion EXCEPT ![cId] = "succeeded"]
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
+               call_token_published, call_root_live, reader_state,
+               read_cancel_pending, status_completion, call_dispose_state>>
+
 LEMMA HeaderIsEnabled ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
            PrologueHasReleasedNothing, PayloadOwed(cId),
            consumer_phase[cId] = "prologue",
            ~(call_dispose_state[cId] # "active")
     PROVE  ENABLED <<ConsumeHeader(cId)>>_vars
+<1>1. ENABLED <<ConsumeHeaderSucceeding(cId)>>_vars
     BY ExpandENABLED, SMT
-    DEF ConsumeHeader, PrologueHasReleasedNothing, PayloadOwed, RingTail,
-       RingHead, L1!HostConsumesEvent, L1!HostOwnsSomePayload,
+    DEF ConsumeHeaderSucceeding, PrologueHasReleasedNothing, PayloadOwed,
+       RingTail, RingHead, L1!HostConsumesEvent, L1!HostOwnsSomePayload,
        L1!OwedPayloads, ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, vars,
+       l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED
+    BY <1>1, ExpandENABLED, SMT
+    DEF ConsumeHeader, ConsumeHeaderSucceeding, RingTail, RingHead,
+       L1!HostConsumesEvent, L1!HostOwnsSomePayload, L1!OwedPayloads, vars,
        l1_vars, managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 

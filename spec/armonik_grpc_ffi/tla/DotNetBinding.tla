@@ -530,15 +530,21 @@ HandoffToDrain(cId) ==
                WriterVars, reader_state, read_cancel_pending>>
 
 \* The prologue owns slot 0: it releases the header, resolves the headers
-\* completion, and hands the ring to the application.
+\* completion, and hands the ring to the application.  The headers succeed,
+\* or fail: a head whose event says no response came fails them with the
+\* call's status, as grpc-dotnet's do, and the binding takes this step for
+\* such a head, or for a Trailers-Only one, only once the terminal is in the
+\* ring.  This level does not carry the head's origin, so it leaves the
+\* outcome open.
 ConsumeHeader(cId) ==
     /\ consumer_phase[cId] = "prologue"
     /\ call_dispose_state[cId] = "active"
     /\ RingTail(cId) = 0
     /\ L1!HostConsumesEvent(cId)
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "application"]
-    /\ headers_completion' =
-           [headers_completion EXCEPT ![cId] = "succeeded"]
+    /\ \E outcome \in {"succeeded", "failed"} :
+           headers_completion' =
+               [headers_completion EXCEPT ![cId] = outcome]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, reader_state,
                read_cancel_pending, status_completion, call_dispose_state>>
@@ -969,7 +975,8 @@ BindingOwedFairness ==
     /\ \A rtId \in RuntimeIds : WF_vars(ResourcesReleasedReturns(rtId))
     \* the prologue releases slot 0 and resolves the headers, and it is the
     \* only way out of the prologue on a live call; true: decoding metadata
-    \* is the binding's own code, and a decode that throws drains the call
+    \* is the binding's own code, a decode that throws drains the call, and
+    \* a head that waits for the terminal waits for an event that arrives
     /\ \A cId \in CallIds : WF_vars(ConsumeHeader(cId))
     \* the drain releases what is left, the only consumer its phase admits
     \* and the only step that can empty the ring; true: the drain decodes
