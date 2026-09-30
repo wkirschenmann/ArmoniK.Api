@@ -85,6 +85,7 @@ public class AbiLayoutTests
                                                     typeof(NativeMethods.AkEventKind),
                                                     typeof(NativeMethods.AkHostDebt),
                                                     typeof(NativeMethods.AkChannelState),
+                                                    typeof(NativeMethods.AkHeadOrigin),
                                                   })
                          {
                            Assert.That(Enum.GetUnderlyingType(crossing),
@@ -200,6 +201,13 @@ public class AbiLayoutTests
                                      Is.EqualTo(0));
                          Assert.That((int)NativeMethods.AkHostDebt.MustReturn,
                                      Is.EqualTo(1));
+
+                         Assert.That((int)NativeMethods.AkHeadOrigin.Received,
+                                     Is.EqualTo(0));
+                         Assert.That((int)NativeMethods.AkHeadOrigin.TrailersOnly,
+                                     Is.EqualTo(1));
+                         Assert.That((int)NativeMethods.AkHeadOrigin.NoResponse,
+                                     Is.EqualTo(2));
                        });
 
   /// <summary>The version this binding was written against, as a literal.</summary>

@@ -39,6 +39,8 @@ internal sealed class DeliveryRing
   {
     internal NativeMethods.AkBytes Payload;
     internal NativeMethods.AkEventKind Kind;
+
+    // A gRPC status on a terminal, an ak_head_origin on a head.
     internal int Status;
   }
 
@@ -97,6 +99,19 @@ internal sealed class DeliveryRing
     }
 
     slot = slots_[(int)(tail_ & mask_)];
+    return true;
+  }
+
+  /// <summary>The slot after the one <see cref="TryPeek" /> answers, which stays the ring's.</summary>
+  internal bool TryPeekBehind(out Slot slot)
+  {
+    if (Volatile.Read(ref head_) - tail_ < 2)
+    {
+      slot = default;
+      return false;
+    }
+
+    slot = slots_[(int)((tail_ + 1) & mask_)];
     return true;
   }
 

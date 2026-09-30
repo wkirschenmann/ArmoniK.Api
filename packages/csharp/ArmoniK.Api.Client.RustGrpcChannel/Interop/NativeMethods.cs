@@ -91,6 +91,14 @@ internal static class NativeMethods
     ResourcesReleased = 6,
   }
 
+  /// <summary>Where a head came from, in its event's status code.</summary>
+  internal enum AkHeadOrigin
+  {
+    Received     = 0,
+    TrailersOnly = 1,
+    NoResponse   = 2,
+  }
+
   internal enum AkHostDebt
   {
     NothingToReturn = 0,

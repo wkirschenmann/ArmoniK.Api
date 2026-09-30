@@ -479,6 +479,77 @@ public class UnaryTests : EchoServerFixture
                                  : $"{entry.Key}={entry.Value}")
               .ToArray();
 
+  /// <remarks>What grpc-dotnet answers: a call no response reached fails its headers with its
+  /// status, and its response the same way.</remarks>
+  [Test]
+  public async Task TheHeadersOfACallNoResponseReachedFailWithItsStatus()
+  {
+    await using var channel = Runtime.Channel(ClosedPort.Endpoint());
+    using var call = Client(channel)
+      .SayAsync(new EchoRequest
+                {
+                  Text = "nobody",
+                });
+
+    var headers = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseHeadersAsync.ConfigureAwait(false));
+    var response = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseAsync.ConfigureAwait(false));
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(headers!.StatusCode,
+                                  Is.EqualTo(StatusCode.Unavailable));
+                      Assert.That(response!.StatusCode,
+                                  Is.EqualTo(StatusCode.Unavailable));
+                    });
+  }
+
+  /// <remarks>A send that fails ends the call before any response, and whichever of the ring's
+  /// consumers takes its head, the headers answer that as a call no response reached.</remarks>
+  [Test]
+  public async Task TheHeadersOfACallWhoseSendFailedFailWithItsStatus()
+  {
+    await using var channel = Channel();
+    using var call = channel.CreateCallInvoker()
+                            .AsyncUnaryCall(Say(Serializing((_,
+                                                             context) =>
+                                                            {
+                                                              context.SetPayloadLength(16);
+                                                              throw new InvalidOperationException("the serializer gave up");
+                                                            }),
+                                                ReplyMarshaller),
+                                            null,
+                                            new CallOptions(),
+                                            new EchoRequest());
+
+    var headers = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseHeadersAsync.ConfigureAwait(false));
+    Assert.That(headers!.StatusCode,
+                Is.EqualTo(StatusCode.Cancelled));
+  }
+
+  /// <remarks>What grpc-dotnet answers: a Trailers-Only response's headers are its one header
+  /// block, the trailers, whatever the status - the status is the response's to report.</remarks>
+  [Test]
+  public async Task ATrailersOnlyResponseAnswersItsHeadersWithItsTrailers()
+  {
+    await using var channel = Channel();
+    using var call = Client(channel)
+      .RefuseAsync(new EchoRequest
+                   {
+                     Text = "refused",
+                   });
+
+    var headers = await call.ResponseHeadersAsync.ConfigureAwait(false);
+    var response = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseAsync.ConfigureAwait(false));
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(headers.GetValue("x-reason"),
+                                  Is.EqualTo("policy"));
+                      Assert.That(response!.StatusCode,
+                                  Is.EqualTo(StatusCode.PermissionDenied));
+                    });
+  }
+
   [Test]
   public async Task CallsWaitForRoomUnderAMemoryCeiling()
   {

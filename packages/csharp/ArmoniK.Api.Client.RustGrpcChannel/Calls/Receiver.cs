@@ -45,6 +45,10 @@ internal sealed class Receiver<TResponse>
 
   private Metadata trailers_ = Metadata.Empty;
 
+  // Where the head came from, once one of the ring's consumers has taken it: what the terminal
+  // answers the headers with when the head did not.
+  private NativeMethods.AkHeadOrigin headOrigin_ = NativeMethods.AkHeadOrigin.Received;
+
   internal Receiver(ICallState call,
                     int deliveryCredits,
                     Marshaller<TResponse> marshaller)
@@ -332,7 +336,7 @@ internal sealed class Receiver<TResponse>
       }
       else if (metadata)
       {
-        headers_.TrySetResult(RawMetadata.Decode(Bytes(slot.Payload)));
+        TakeHead(slot);
       }
       else
       {
@@ -351,6 +355,8 @@ internal sealed class Receiver<TResponse>
     if (terminal && end is null)
     {
       end = Unreadable(decodeFailure);
+      // With no trailers to answer, a head that left the headers to the terminal fails them too.
+      FailHead(new RpcException(end.Value));
     }
 
     bool won;
@@ -586,14 +592,18 @@ internal sealed class Receiver<TResponse>
         }
         else if (slot.Kind == NativeMethods.AkEventKind.InitialMetadata)
         {
-          headers_.TrySetResult(RawMetadata.Decode(Bytes(slot.Payload)));
+          TakeHead(slot);
         }
       }
       catch (Exception thrown)
       {
         if (terminal)
         {
-          Resolve(Unreadable(thrown));
+          var unreadable = Unreadable(thrown);
+          // With no trailers to answer, a head that left the headers to the terminal fails them
+          // too.
+          FailHead(new RpcException(unreadable));
+          Resolve(unreadable);
         }
         else
         {
@@ -641,8 +651,37 @@ internal sealed class Receiver<TResponse>
   private void Resolve(Status ended)
   {
     terminal_.TrySetResult(ended);
+    AnswerHeadsAt(ended);
+  }
 
-    if (ended.StatusCode == StatusCode.OK)
+  /// <summary>Takes the head's origin, and answers the headers when the peer's came.</summary>
+  /// <remarks>A value this binding does not know is taken for the peer's headers, as the ABI
+  /// promises a host that ignores the field.</remarks>
+  private void TakeHead(in DeliveryRing.Slot head)
+  {
+    var origin = (NativeMethods.AkHeadOrigin)head.Status;
+    headOrigin_ = origin is NativeMethods.AkHeadOrigin.TrailersOnly or NativeMethods.AkHeadOrigin.NoResponse
+                    ? origin
+                    : NativeMethods.AkHeadOrigin.Received;
+
+    if (headOrigin_ == NativeMethods.AkHeadOrigin.Received)
+    {
+      headers_.TrySetResult(RawMetadata.Decode(Bytes(head.Payload)));
+    }
+  }
+
+  /// <summary>The headers the head did not answer, answered at the terminal as grpc-dotnet
+  /// answers them.</summary>
+  /// <remarks>A response that delivered no head answers them with its trailers, whatever its
+  /// status; no response, with the call's status. With no head taken at all, an OK call answers
+  /// none and any other its status.</remarks>
+  private void AnswerHeadsAt(Status ended)
+  {
+    if (headOrigin_ == NativeMethods.AkHeadOrigin.TrailersOnly)
+    {
+      headers_.TrySetResult(trailers_);
+    }
+    else if (ended.StatusCode == StatusCode.OK)
     {
       headers_.TrySetResult(Metadata.Empty);
     }
@@ -687,6 +726,29 @@ internal sealed class Receiver<TResponse>
     }
   }
 
+  /// <summary>Answers the headers from the terminal the prologue peeked at, which stays the
+  /// ring's.</summary>
+  private void AnswerHeadsFrom(in DeliveryRing.Slot terminal)
+  {
+    if (terminal.Kind != NativeMethods.AkEventKind.Status)
+    {
+      FailHead(new RpcException(new Status(StatusCode.Internal,
+                                           "a message followed a head that said no response body would come")));
+      return;
+    }
+
+    try
+    {
+      AnswerHeadsAt(DecodedStatus(terminal));
+    }
+    catch (Exception thrown)
+    {
+      FailHead(new RpcException(new Status(StatusCode.Internal,
+                                           "the response trailers could not be read",
+                                           thrown)));
+    }
+  }
+
   /// <summary>Consumes the initial metadata and resolves the headers, on no read's behalf.</summary>
   /// <remarks>The model's <c>ConsumeHeader</c>: what owns slot 0 is the phase and not a read, so
   /// <see cref="ResponseHeadersAsync" /> answers whether or not the caller is pumping the reader.
@@ -718,21 +780,43 @@ internal sealed class Receiver<TResponse>
       delivered_.TryPeek(out var slot);
       if (slot.Kind != NativeMethods.AkEventKind.InitialMetadata)
       {
-        // A Trailers-Only response has no metadata of its own, and `Resolve` answers the headers
-        // with an empty set. Left where it is: this consumes the prologue, not whatever is first.
+        // No head came first, which the ABI does not do. Left for the reader or the drain, and
+        // the terminal answers the headers.
         return;
       }
 
       try
       {
-        headers_.TrySetResult(RawMetadata.Decode(Bytes(slot.Payload)));
+        TakeHead(slot);
       }
       catch (Exception thrown)
       {
-        // The caller hears it from the headers, and the reader still gets the rest of the response.
+        // The caller hears it from the headers, and the reader still gets the rest of the
+        // response.
         FailHead(new RpcException(new Status(StatusCode.Internal,
                                              "the response metadata could not be read",
                                              thrown)));
+      }
+
+      if (headOrigin_ != NativeMethods.AkHeadOrigin.Received)
+      {
+        // No headers of the peer's: the terminal comes next and nothing else does, and it
+        // answers the headers. Waited for here so that they are answered without a read.
+        DeliveryRing.Slot terminal;
+        while (!delivered_.TryPeekBehind(out terminal))
+        {
+          if (call_.Ending.IsCancellationRequested)
+          {
+            // The call is ending: whoever consumes the ring next takes the head again, and the
+            // terminal answers the headers there.
+            return;
+          }
+
+          await delivered_.WaitAsync()
+                          .ConfigureAwait(false);
+        }
+
+        AnswerHeadsFrom(terminal);
       }
 
       delivered_.Release();

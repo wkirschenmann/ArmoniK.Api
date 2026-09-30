@@ -76,6 +76,35 @@ public class ArmoniKClientTests : RuntimeFixture
                 "and the stream still reads afterwards");
   }
 
+  /// <summary><c>WaitForResultsAsync</c> gives up on a server that does not answer.</summary>
+  /// <remarks>It resets its retry count once the headers are in, so headers that answered a call
+  /// no response reached would have it retry for as long as the server stays away.</remarks>
+  [Test]
+  public async Task WaitForResultsGivesUpOnAServerThatDoesNotAnswer()
+  {
+    await using var channel = Runtime.Channel(ClosedPort.Endpoint());
+    var waiting = new gRPC.V1.Events.Events.EventsClient(channel).WaitForResultsAsync("session-id",
+                                                                                      new[]
+                                                                                      {
+                                                                                        "result-id",
+                                                                                      },
+                                                                                      100,
+                                                                                      1,
+                                                                                      CancellationToken.None);
+    using var bound = new CancellationTokenSource();
+    var settled = await Task.WhenAny(waiting,
+                                     Task.Delay(TimeSpan.FromSeconds(30),
+                                                bound.Token))
+                            .ConfigureAwait(false);
+    bound.Cancel();
+
+    Assert.That(settled,
+                Is.SameAs(waiting),
+                "it retries for good");
+    Assert.That(waiting.Exception?.InnerException,
+                Is.InstanceOf<Grpc.Core.RpcException>());
+  }
+
   [Test]
   public async Task AGeneratedArmoniKStubAnswersOverThisInvoker()
   {

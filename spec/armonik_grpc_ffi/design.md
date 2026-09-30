@@ -2378,6 +2378,20 @@ reading the first message - through an idempotent `EnsureHeadersAsync`, which is
 what stops the two from overlapping. `ResponseHeadersAsync` therefore completes on
 arrival rather than on the application deciding to read, which is what gRPC promises.
 
+**What the headers answer is grpc-dotnet's**, read off the head's origin: the peer's
+headers when they came; for a response that delivered no head - the Trailers-Only shape,
+or an answer refused before its body - that response's trailers, whatever its status, as
+grpc-dotnet returns the headers of any HTTP response once it arrives and before it reads
+it; and, when no response reached the call, the call's status as an `RpcException`.
+Whoever takes the head records its origin, and the terminal answers the headers the head
+did not. The prologue waits for that terminal, the only event that follows such a head,
+before it consumes slot 0, so the headers are answered without a read - the model's
+`ConsumeHeader`, which leaves the outcome open because it does not carry the origin. A
+call that ends first leaves the head to the reader or the drain, and the terminal answers
+the headers there. grpc-go's `Header()` answers a call no response reached with no
+headers and no error, and leaves the error to the read; the binding does not, because
+`WaitForResultsAsync` resets its retry count once the headers are in.
+
 The ring carries a sum, not just messages - the managed mirror of the Rust
 `RecvResult::Message | RecvResult::End`. The terminal takes its place *in* the ring
 instead of being released on a side path, so whoever drains it releases the payloads in
