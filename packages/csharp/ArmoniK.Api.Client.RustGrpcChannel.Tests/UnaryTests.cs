@@ -885,8 +885,8 @@ public class UnaryTests : EchoServerFixture
   /// <remarks>
   ///   The distinction is the one a caller can act on, and it is what the two exception types
   ///   say: a different endpoint is worth trying, a runtime that has gone is not. One
-  ///   `InvalidOperationException` for both would say neither - and `Channel` already documents
-  ///   the second, so it was a published contract the code did not keep.
+  ///   `InvalidOperationException` for both would say neither, and `Channel` documents
+  ///   `ArgumentException` for this one.
   /// </remarks>
   [Test]
   public void AnEndpointTheEngineWillNotDialIsTheCallersArgument()

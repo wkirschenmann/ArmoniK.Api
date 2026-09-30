@@ -257,7 +257,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       // at the node holding the `$ref` - `#/$defs/A/properties/B` - so a walk that looked the
       // target up as a key would find a step only where the target is itself a bare `$ref`. That
       // is the rare shape. The ordinary one is a type that reaches itself through its own
-      // properties, which is what a recursive schema has, and it was going through unseen.
+      // properties, which is what a recursive schema has.
       foreach (var (from, _) in references)
       {
         Follow(from,

@@ -422,8 +422,7 @@ build/
 **/.tlacache/
 **/tla/out/
 # TLC writes its run directory as out_<config>/ when told to, which the
-# bare out/ pattern does not match - one such directory reached a commit's
-# index before this line existed.
+# bare out/ pattern does not match.
 **/tla/out_*/
 **/tla/states/
 # The model checker is a toolchain download, not a source artifact.
