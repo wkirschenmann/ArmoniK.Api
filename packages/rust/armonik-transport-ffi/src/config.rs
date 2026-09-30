@@ -69,12 +69,13 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
         return None;
     }
 
-    // No dial could beat a timeout of zero, so it names a channel that can never connect. And a
-    // number is not yet a duration: `Duration` holds neither a negative value nor one past its
-    // own range, so the conversion is what says whether the document named one.
+    // Below a nanosecond is refused, as the schema's `minimum` refuses it: `Duration` holds
+    // nothing finer, so the conversion could round it to zero, which no dial could beat. And a
+    // number is not yet a duration: `Duration` holds no value past its own range either, so the
+    // conversion is what says whether the document named one.
     let connect_timeout = match options.transport.connect_timeout_seconds {
         None => None,
-        Some(seconds) if seconds.0 <= 0.0 => return None,
+        Some(seconds) if seconds.0 < 1e-9 => return None,
         Some(seconds) => Some(Duration::try_from(seconds).ok()?),
     };
 
@@ -186,18 +187,31 @@ mod tests {
 
         assert_eq!(
             schema
-                .pointer(
-                    "/$defs/TransportOptions/properties/ConnectTimeoutSeconds/exclusiveMinimum"
-                )
+                .pointer("/$defs/TransportOptions/properties/ConnectTimeoutSeconds/minimum")
                 .and_then(serde_json::Value::as_f64),
-            Some(0.0)
+            Some(1e-9)
         );
         assert!(!admits(
             r#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#.to_owned()
         ));
-        assert!(admits(
-            r#"{"Transport":{"ConnectTimeoutSeconds":0.5}}"#.to_owned()
+        assert!(!admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":9.99e-10}}"#.to_owned()
         ));
+        assert!(admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":1e-9}}"#.to_owned()
+        ));
+        // The same number, as .NET Framework's System.Text.Json writes it: seventeen digits, which
+        // only a correctly rounded parse reads back as the double the host meant.
+        assert!(admits(
+            r#"{"Transport":{"ConnectTimeoutSeconds":1.0000000000000001E-09}}"#.to_owned()
+        ));
+        // The smallest it admits is still a duration, and not the zero the transport refuses.
+        assert_eq!(
+            config_of(br#"{"Transport":{"ConnectTimeoutSeconds":1e-9}}"#)
+                .transport
+                .connect_timeout,
+            Duration::from_nanos(1)
+        );
 
         // The ceiling is the type's rather than the option's, so it is read off `Seconds`: every
         // duration becomes a `Duration`, which holds `u64::MAX` seconds, and 2^64 is the first

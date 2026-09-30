@@ -178,8 +178,8 @@ public sealed class TransportOptions
 
   /// <summary>How long a dial may take before it is given up on.</summary>
   /// <remarks>
-  ///   Defaults to 60. Zero is refused: no dial could beat it, so it names a channel that can
-  ///   never connect.
+  ///   Defaults to 60, and at least a nanosecond, the finest duration the engine holds: a shorter
+  ///   one could round to zero, which no dial could beat.
   /// </remarks>
   [JsonPropertyName("ConnectTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -189,11 +189,11 @@ public sealed class TransportOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (ConnectTimeoutSeconds is double connectTimeoutSeconds && (connectTimeoutSeconds <= 0 || connectTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(connectTimeoutSeconds) || double.IsInfinity(connectTimeoutSeconds)))
+    if (ConnectTimeoutSeconds is double connectTimeoutSeconds && (connectTimeoutSeconds < 1E-09 || connectTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(connectTimeoutSeconds) || double.IsInfinity(connectTimeoutSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(ConnectTimeoutSeconds),
                                             connectTimeoutSeconds,
-                                            "ConnectTimeoutSeconds has to be greater than 0 and less than 1.8446744073709552E+19 and finite.");
+                                            "ConnectTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
   }
 }

@@ -122,6 +122,27 @@ public class UnaryTests : EchoServerFixture
                 "the window was resolved into the copy the channel holds, not into this");
   }
 
+  /// <summary>The shortest timeout this side admits is one the engine admits too.</summary>
+  /// <remarks>
+  ///   The two check the same bound, each on its own, so a copy that drifted would refuse a
+  ///   document the other had let through - and the engine's refusal names no option.
+  /// </remarks>
+  [Test]
+  public async Task TheShortestTimeoutThisSideAdmitsOpensAChannel()
+  {
+    await using var channel = Runtime.Channel(Endpoint,
+                                              new ChannelOptions
+                                              {
+                                                Transport = new TransportOptions
+                                                            {
+                                                              ConnectTimeoutSeconds = 1e-9,
+                                                            },
+                                              });
+
+    Assert.That(channel.NativeState,
+                Is.EqualTo(NativeMethods.AkChannelState.Open));
+  }
+
   /// <summary>A configuration with no section for this is refused, not defaulted.</summary>
   /// <remarks>
   ///   A misspelled section name would otherwise be a channel nobody configured, opened on the

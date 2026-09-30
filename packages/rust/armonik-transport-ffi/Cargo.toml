@@ -19,7 +19,10 @@ name = "armonik_transport_ffi"
 # once, beside the engine that honours it, and this crate reads rather than restates it.
 armonik-transport = { path = "../armonik-transport", features = ["serde"] }
 bytes.workspace = true
-serde_json.workspace = true
+# `float_roundtrip`, so a number reads back as the double the host wrote: the default parse may
+# land an ulp away, and at a bound an ulp is a refusal. .NET Framework writes 1e-9 with
+# seventeen digits.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [features]

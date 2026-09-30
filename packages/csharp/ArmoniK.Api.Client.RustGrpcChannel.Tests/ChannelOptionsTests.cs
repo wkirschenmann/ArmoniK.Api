@@ -89,17 +89,21 @@ public class ChannelOptionsTests
                          .With.Message.Contains("at least 1 character long"));
 
   /// <summary>A group's own bounds are checked through the group that holds it.</summary>
-  [Test]
-  public void ATimeoutOfZeroIsRefusedThroughItsGroup()
+  /// <remarks>Below a nanosecond, which the engine could round to a timeout of zero.</remarks>
+  [TestCase(0.0,
+            TestName = "{m}(zero)")]
+  [TestCase(9.99e-10,
+            TestName = "{m}(below a nanosecond)")]
+  public void ATimeoutBelowANanosecondIsRefusedThroughItsGroup(double timeout)
     => Assert.That(() => new ChannelOptions
                          {
                            Transport = new TransportOptions
                                        {
-                                         ConnectTimeoutSeconds = 0,
+                                         ConnectTimeoutSeconds = timeout,
                                        },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("ConnectTimeoutSeconds has to be greater than 0"));
+                         .With.Message.Contains("ConnectTimeoutSeconds has to be at least 1E-09"));
 
   /// <summary>A `double` holds three values a JSON number cannot, and all three are refused.</summary>
   /// <remarks>

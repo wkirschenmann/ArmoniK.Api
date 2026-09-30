@@ -63,17 +63,16 @@ impl TryFrom<Seconds> for Duration {
 pub struct TransportOptions {
     /// How long a dial may take before it is given up on.
     ///
-    /// Defaults to 60. Zero is refused: no dial could beat it, so it names a channel that can
-    /// never connect.
+    /// Defaults to 60, and at least a nanosecond, the finest duration the engine holds: a shorter
+    /// one could round to zero, which no dial could beat.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
     )]
-    // `range` has no exclusive bound, and zero has to be excluded rather than admitted, so the
-    // keyword is set directly.
+    // Set beside the `$ref` that `with` writes, where `range` does not reach.
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("exclusiveMinimum" = 0.0))
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
     pub connect_timeout_seconds: Option<Seconds>,
 }
@@ -245,8 +244,8 @@ mod tests {
                         .collect(),
                 )
             }
-            // The smallest value every bound in this schema admits: `minimum` is 1 where it is
-            // stated, and `exclusiveMinimum` is 0.
+            // A value every bound in this schema admits: an integer's `minimum` is 1 where it is
+            // stated, and the timeout's is a nanosecond.
             Some("integer") => json!(1),
             Some("number") => json!(1.0),
             Some("string") => json!("x"),
