@@ -128,7 +128,6 @@ done
 `verify_proofs.sh` passes `--nofp`, which is the whole point: a run over a warm cache
 says the obligations were once discharged by a text that may since have changed.
 
-
 ---
 
 ## Phase 1 — Minimal E2E unary call (the shortest path)

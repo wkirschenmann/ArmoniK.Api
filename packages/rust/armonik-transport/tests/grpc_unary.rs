@@ -252,13 +252,8 @@ async fn an_endpoint_nobody_answers_ends_the_call_rather_than_failing_to_start_i
     assert!(messages.is_empty());
 }
 
-/// A caller that gives up does not take the dial with it.
-///
-/// The dial opens the channel's connection, so it belongs to the channel. Run inside the first
-/// caller's future it belonged to that caller, and a call cancelled while it dialled - a deadline,
-/// `ak_call_cancel`, its channel closing - dropped the future and the dial with it. The callers
-/// queued behind started again from nothing, so under a stream of calls whose deadline is shorter
-/// than a dial none of them ever completed one, though a single call left alone would.
+/// A caller that gives up does not take the dial with it: the dial is the channel's, for the
+/// reason the doc of `Session::dialling` in grpc/channel.rs gives.
 ///
 /// Timed rather than counted, because nothing observable says which caller dialled. The first
 /// caller gives up late on purpose: the second then finishes one budget from the start if it

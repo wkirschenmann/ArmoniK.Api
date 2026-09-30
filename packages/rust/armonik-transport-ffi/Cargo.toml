@@ -20,7 +20,7 @@ name = "armonik_transport_ffi"
 armonik-transport = { path = "../armonik-transport", features = ["serde"] }
 bytes.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [features]
 # Points where a test holds a host thread inside a downcall. Off unless a test asks for it; no

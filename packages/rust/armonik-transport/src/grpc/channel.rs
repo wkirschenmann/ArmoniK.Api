@@ -189,9 +189,9 @@ struct Session {
     /// The dial in flight, if one is, and how its outcome reaches whoever waits for it.
     ///
     /// A dial opens the channel's connection, so it belongs to the channel and not to whichever
-    /// call reached it first. Run inside that call's future it would be the call's: cancelling
-    /// the call - a deadline, `ak_call_cancel`, its channel closing - would drop the future and
-    /// the dial with it, and the calls queued behind the lock would start again from nothing.
+    /// call reached it first. Run inside that call's future it would be the call's: ending the
+    /// call - a deadline, a cancel, its channel closing - would drop the future and the dial with
+    /// it, and the calls queued behind the lock would start again from nothing.
     /// Under a stream of calls whose deadline is shorter than a dial, none of them would ever
     /// complete one, though a single call left alone would.
     dialling: Option<broadcast::Sender<Result<SendRequest<tonic::body::Body>, ChannelError>>>,
