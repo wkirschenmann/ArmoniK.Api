@@ -116,8 +116,8 @@ internal sealed class DeliveryRing
     => arrived_.WaitAsync();
 
   /// <summary>Wakes whoever waits, granting nothing.</summary>
-  /// <remarks>What a cancelled read and a finished prologue need: the waiter has to look again at
-  /// state that is not this queue's.</remarks>
+  /// <remarks>What a cancelled call needs: whoever waits - a read, or a prologue with no read
+  /// behind it - has to look again at state that is not this queue's.</remarks>
   internal void Wake()
     => arrived_.Set();
 }

@@ -68,6 +68,72 @@ public class ServerStreamingTests : EchoServerFixture
                 Is.EqualTo("yes"));
   }
 
+#if DEBUG
+  /// <summary>A read started while the prologue waits takes nothing the prologue needs.</summary>
+  /// <remarks>
+  ///   The interleaving in which a read and the prologue would both wait on the ring's signal,
+  ///   held open: the prologue finds the ring empty, the head lands and its wake-up is kept, a
+  ///   read begins, and only then does the prologue wait. A read that waited on the ring would
+  ///   take that wake-up and wait again, and the prologue would wait beside it for an arrival
+  ///   already in the ring. The hook it holds the prologue with is Debug-only and process-wide.
+  /// </remarks>
+  [Test]
+  [NonParallelizable]
+  public async Task AReadStartedWhileThePrologueWaitsTakesNoWakeUpFromIt()
+  {
+    using var reached = new SemaphoreSlim(0);
+    using var resume  = new SemaphoreSlim(0);
+    var       held    = 0;
+    Calls.TestHooks.PrologueFoundTheRingEmpty = () =>
+                                                {
+                                                  if (Interlocked.Exchange(ref held,
+                                                                           1) != 0)
+                                                  {
+                                                    return Task.CompletedTask;
+                                                  }
+
+                                                  reached.Release();
+                                                  return resume.WaitAsync();
+                                                };
+    try
+    {
+      await using var channel = Runtime.Channel(Endpoint);
+      using var call = Client(channel)
+        .Fan(new EchoRequest
+             {
+               Text = "one,two",
+             });
+
+      Assert.That(await reached.WaitAsync(TimeSpan.FromSeconds(10))
+                               .ConfigureAwait(false),
+                  Is.True,
+                  "the prologue found the ring empty");
+
+      // The head lands while the prologue is held, and a read begins behind it.
+      await Task.Delay(500)
+                .ConfigureAwait(false);
+      var reading = call.ResponseStream.MoveNext(CancellationToken.None);
+      await Task.Delay(200)
+                .ConfigureAwait(false);
+      resume.Release();
+
+      var settled = await Task.WhenAny(reading,
+                                       Task.Delay(TimeSpan.FromSeconds(10)))
+                              .ConfigureAwait(false);
+      Assert.That(settled,
+                  Is.SameAs(reading),
+                  "the read and the prologue each wait for the other");
+      Assert.That(await reading.ConfigureAwait(false),
+                  Is.True);
+    }
+    finally
+    {
+      Calls.TestHooks.PrologueFoundTheRingEmpty = null;
+      resume.Release();
+    }
+  }
+#endif
+
   [Test]
   public async Task EveryMessageComesBackInOrderAndTheStreamThenEnds()
   {

@@ -219,15 +219,13 @@ internal sealed class Receiver<TResponse>
             throw Cancelled();
           }
 
-          // The token wakes this wait as an arrival would, and the check above then reads it. The
-          // wait is taken before the registration: the prologue waits on the same latch and
-          // consumes a wake it finds, so a wait taken after it could be one the wake never reaches.
-          var arrival = delivered_.WaitAsync();
-          using (token.Register(static ring => ((DeliveryRing)ring!).Wake(),
-                                delivered_))
-          {
-            await arrival.ConfigureAwait(false);
-          }
+          // The prologue's end, not the ring's signal. The signal keeps a wake-up nobody waited
+          // for, and the next wait takes it: a read that took the head's, looped and waited again
+          // would leave the prologue, which found the ring empty just before, waiting beside it
+          // for an arrival already in the ring. The token ends this wait too, and the check above
+          // then reads it.
+          await PrologueEndsOr(token)
+            .ConfigureAwait(false);
 
           continue;
 
@@ -677,6 +675,18 @@ internal sealed class Receiver<TResponse>
                       "the call was cancelled"));
 
 
+  private async Task PrologueEndsOr(CancellationToken token)
+  {
+    var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    using (token.Register(static source => ((TaskCompletionSource<bool>)source!).TrySetResult(true),
+                          cancelled))
+    {
+      await Task.WhenAny(PrologueFinished,
+                         cancelled.Task)
+                .ConfigureAwait(false);
+    }
+  }
+
   /// <summary>Consumes the initial metadata and resolves the headers, on no read's behalf.</summary>
   /// <remarks>The model's <c>ConsumeHeader</c>: what owns slot 0 is the phase and not a read, so
   /// <see cref="ResponseHeadersAsync" /> answers whether or not the caller is pumping the reader.
@@ -694,6 +704,13 @@ internal sealed class Receiver<TResponse>
           return;
         }
 
+#if DEBUG
+        if (TestHooks.PrologueFoundTheRingEmpty is { } hook)
+        {
+          await hook()
+            .ConfigureAwait(false);
+        }
+#endif
         await delivered_.WaitAsync()
                         .ConfigureAwait(false);
       }
@@ -728,7 +745,6 @@ internal sealed class Receiver<TResponse>
                      new Reading(Phase.Idle,
                                  null));
       HandoffToDrain();
-      delivered_.Wake();
     }
   }
 
