@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -406,6 +407,77 @@ public class UnaryTests : EchoServerFixture
     Assert.That(reply.SawMetadata,
                 Is.EqualTo("000102ff"));
   }
+
+  /// <remarks>
+  ///   The server lists these entries as it read them and sends them back in its head, so they
+  ///   leave through the binding's encoder and the engine's decoder and return through the
+  ///   engine's encoder and the binding's decoder: each codec is read against the other rather
+  ///   than against its own expectations.
+  /// </remarks>
+  [Test]
+  public async Task MetadataCrossesBothCodecsAsItWasSent()
+  {
+    await using var channel = Channel();
+    var sent = new Metadata
+               {
+                 {
+                   "x-reflect-text", "value"
+                 },
+                 {
+                   "x-reflect-empty", string.Empty
+                 },
+                 {
+                   "x-reflect-twice", "first"
+                 },
+                 {
+                   "x-reflect-twice", "second"
+                 },
+                 {
+                   "x-reflect-bin", new byte[]
+                                    {
+                                      0,
+                                      1,
+                                      2,
+                                      255,
+                                    }
+                 },
+                 {
+                   "x-reflect-empty-bin", Array.Empty<byte>()
+                 },
+               };
+
+    using var call = Client(channel)
+      .SayAsync(new EchoRequest
+                {
+                  Text = "reflect",
+                },
+                sent);
+
+    var head = await call.ResponseHeadersAsync.ConfigureAwait(false);
+    var reply = await call.ResponseAsync.ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(reply.SawMetadata.Split('\n'),
+                                  Is.EqualTo(Reflected(sent)),
+                                  "what the server read");
+                      Assert.That(Reflected(head),
+                                  Is.EqualTo(Reflected(sent)),
+                                  "what the binding read back");
+                    });
+  }
+
+  // Ordered by key, since a header map need not keep the order of distinct keys; the sort is
+  // stable, so one key's values keep theirs, which HTTP does keep.
+  private static string[] Reflected(IEnumerable<Metadata.Entry> entries)
+    => entries.Where(entry => entry.Key.StartsWith("x-reflect-",
+                                                   StringComparison.Ordinal))
+              .OrderBy(entry => entry.Key,
+                       StringComparer.Ordinal)
+              .Select(entry => entry.IsBinary
+                                 ? $"{entry.Key}={BitConverter.ToString(entry.ValueBytes)}"
+                                 : $"{entry.Key}={entry.Value}")
+              .ToArray();
 
   [Test]
   public async Task CallsWaitForRoomUnderAMemoryCeiling()

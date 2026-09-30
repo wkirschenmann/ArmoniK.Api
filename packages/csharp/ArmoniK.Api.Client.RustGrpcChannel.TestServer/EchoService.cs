@@ -16,20 +16,39 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 using Grpc.Core;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 public class EchoService : Echo.EchoBase
 {
+  // Request entries under this prefix come back in Say's head, and Say's reply lists them as it
+  // read them.
+  private const string ReflectedPrefix = "x-reflect-";
+
   public override async Task<EchoReply> Say(EchoRequest request,
                                             ServerCallContext context)
   {
+    // Header to header, past grpc-dotnet's Metadata, whose RequestHeaders joins a repeated key's
+    // values into one and whose head loses an empty value. The indexer rather than Append, which
+    // drops an empty value too.
+    var http = context.GetHttpContext();
+    foreach (var (key, values) in http.Request.Headers)
+    {
+      if (key.StartsWith(ReflectedPrefix,
+                         StringComparison.Ordinal))
+      {
+        http.Response.Headers[key] = values;
+      }
+    }
+
     await context.WriteResponseHeadersAsync(new Metadata
                                             {
                                               {
@@ -41,7 +60,7 @@ public class EchoService : Echo.EchoBase
     return new EchoReply
            {
              Text        = request.Text,
-             SawMetadata = Saw(context.RequestHeaders),
+             SawMetadata = Reflected(http.Request.Headers) ?? Saw(context.RequestHeaders),
            };
   }
 
@@ -204,4 +223,28 @@ public class EchoService : Echo.EchoBase
 
     return headers.GetValue("x-request") ?? string.Empty;
   }
+
+  // One line per value, `key=value` with a binary value's bytes in hex, ordered by key. Null when
+  // the request has no such entry.
+  private static string? Reflected(IHeaderDictionary headers)
+  {
+    var lines = headers.Where(header => header.Key.StartsWith(ReflectedPrefix,
+                                                              StringComparison.Ordinal))
+                       .OrderBy(header => header.Key,
+                                StringComparer.Ordinal)
+                       .SelectMany(header => header.Value.Select(value => header.Key.EndsWith(Metadata.BinaryHeaderSuffix,
+                                                                                              StringComparison.Ordinal)
+                                                                            ? $"{header.Key}={BitConverter.ToString(FromBase64(value!))}"
+                                                                            : $"{header.Key}={value}"))
+                       .ToArray();
+    return lines.Length == 0
+             ? null
+             : string.Join("\n",
+                           lines);
+  }
+
+  // gRPC lets a sender leave base64's padding out, and Convert wants it.
+  private static byte[] FromBase64(string base64)
+    => Convert.FromBase64String(base64.PadRight((base64.Length + 3) / 4 * 4,
+                                                '='));
 }
