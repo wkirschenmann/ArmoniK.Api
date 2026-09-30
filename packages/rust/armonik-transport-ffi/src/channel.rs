@@ -1,9 +1,12 @@
-use std::sync::{Arc, Mutex, PoisonError};
+use std::collections::HashSet;
+use std::hash::BuildHasherDefault;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use armonik_transport::grpc::GrpcChannel;
 
 use crate::abi::{ak_channel_state, ak_handle, ak_status};
 use crate::config;
+use crate::registry::Spread;
 use crate::tables;
 
 pub(crate) struct AkChannel {
@@ -11,7 +14,17 @@ pub(crate) struct AkChannel {
     pub(crate) runtime: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: usize,
-    phase: Mutex<Phase>,
+    members: Mutex<Members>,
+}
+
+/// The channel's phase and the calls a close has to cancel, behind the one lock a start, an end
+/// and a close all take.
+struct Members {
+    phase: Phase,
+    /// The calls a close cancels: joined, in the calls table, and short of their terminal. A call
+    /// is counted from its join and listed only once it is in the table, where a close looks it
+    /// up.
+    listed: HashSet<ak_handle, BuildHasherDefault<Spread>>,
 }
 
 /// What a channel is, and how many calls are on it.
@@ -27,7 +40,7 @@ struct Phase {
 }
 
 /// The four transitions, as a table. Each answers with the phase it moves to, or nothing when it
-/// does not apply, which is what leaves the interleavings to `advance` alone.
+/// does not apply, which leaves the interleavings to the lock `Members` is behind.
 impl Phase {
     fn joined(self) -> Option<Self> {
         (self.state == ak_channel_state::AK_CHANNEL_OPEN).then(|| Self {
@@ -58,51 +71,92 @@ impl Phase {
     }
 }
 
-impl AkChannel {
-    pub(crate) fn state(&self) -> ak_channel_state {
-        self.phase
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .state
+impl Members {
+    fn open() -> Self {
+        Self {
+            phase: Phase {
+                state: ak_channel_state::AK_CHANNEL_OPEN,
+                calls: 0,
+            },
+            listed: HashSet::default(),
+        }
     }
 
-    /// Read and written under one lock, because every transition reads both halves of the phase:
-    /// a channel that began closing between the read and the write would otherwise take a call it
+    /// Read and written together, because every transition reads both halves of the phase: a
+    /// channel that began closing between the read and the write would otherwise take a call it
     /// has already refused.
-    fn advance(&self, step: fn(Phase) -> Option<Phase>) -> bool {
-        let mut phase = self.phase.lock().unwrap_or_else(PoisonError::into_inner);
-        match step(*phase) {
+    fn advance(&mut self, step: fn(Phase) -> Option<Phase>) -> bool {
+        match step(self.phase) {
             Some(next) => {
-                *phase = next;
+                self.phase = next;
                 true
             }
             None => false,
         }
     }
 
+    fn enlist(&mut self, call: ak_handle) -> bool {
+        let open = self.phase.state == ak_channel_state::AK_CHANNEL_OPEN;
+        if open {
+            self.listed.insert(call);
+        }
+        open
+    }
+
+    fn leave(&mut self, call: Option<ak_handle>) -> bool {
+        if let Some(call) = call {
+            self.listed.remove(&call);
+        }
+        self.advance(Phase::left)
+    }
+
+    fn close(&mut self) -> Option<Vec<ak_handle>> {
+        self.advance(Phase::closing)
+            .then(|| self.listed.iter().copied().collect())
+    }
+}
+
+impl AkChannel {
+    fn members(&self) -> MutexGuard<'_, Members> {
+        self.members.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn state(&self) -> ak_channel_state {
+        self.members().phase.state
+    }
+
     pub(crate) fn join(&self) -> Result<(), ak_status> {
-        if self.advance(Phase::joined) {
+        if self.members().advance(Phase::joined) {
             return Ok(());
         }
         Err(ak_status::AK_STATUS_INVALID_STATE)
     }
 
-    pub(crate) fn leave(&self) {
+    /// Lists a joined call once it is in the calls table, where a close looks it up. False when a
+    /// close has begun since the join: that close took its list without this call, which is then
+    /// the one to cancel itself.
+    pub(crate) fn enlist(&self, call: ak_handle) -> bool {
+        self.members().enlist(call)
+    }
+
+    /// A joined call going, by its handle once it has one: a terminal names it, a start that
+    /// failed before the call was in the table does not.
+    pub(crate) fn leave(&self, call: Option<ak_handle>) {
         // Refusing rather than wrapping: one join is one leave, so the count cannot already be
         // zero, and a wrong count that wrapped would be a channel that never closes again.
-        let counted = self.advance(Phase::left);
+        let counted = self.members().leave(call);
         debug_assert!(counted, "a call left a channel it had not joined");
         self.finish_closing();
     }
 
-    /// OPEN -> CLOSING, whatever the count.
+    /// OPEN -> CLOSING, whatever the count, and the calls to cancel; None when it was not OPEN.
     ///
     /// Through CLOSING even with nothing to drain, because that is what the header describes and
     /// what the model has as two steps. Nothing is lost by it: `release_channel` finishes the
     /// close before it returns, so a host that reads the status after the call still finds
     /// CLOSED.
-    pub(crate) fn start_closing(&self) -> bool {
-        self.advance(Phase::closing)
+    pub(crate) fn start_closing(&self) -> Option<Vec<ak_handle>> {
+        self.members().close()
     }
 
     /// CLOSING -> CLOSED, once the last call has left.
@@ -110,7 +164,7 @@ impl AkChannel {
     /// Called by whoever made that true - the call that left, or the release itself when there
     /// was no call to wait for.
     pub(crate) fn finish_closing(&self) {
-        self.advance(Phase::closed);
+        self.members().advance(Phase::closed);
     }
 }
 
@@ -137,10 +191,7 @@ pub(crate) fn create(
             runtime,
             delivery_credits,
             max_sends_in_flight,
-            phase: Mutex::new(Phase {
-                state: ak_channel_state::AK_CHANNEL_OPEN,
-                calls: 0,
-            }),
+            members: Mutex::new(Members::open()),
         }))
         .ok_or(ak_status::AK_STATUS_INTERNAL)
 }
@@ -195,6 +246,37 @@ mod tests {
     fn a_channel_already_closing_or_closed_starts_nothing() {
         assert_eq!(step((CLOSING, 2), Phase::closing), None);
         assert_eq!(step((CLOSED, 0), Phase::closing), None);
+    }
+
+    #[test]
+    fn a_close_cancels_the_listed_calls_and_not_one_still_being_entered() {
+        let mut members = Members::open();
+        assert!(members.advance(Phase::joined));
+        assert!(members.enlist(1));
+        assert!(members.advance(Phase::joined));
+
+        assert_eq!(members.close(), Some(vec![1]));
+    }
+
+    #[test]
+    fn a_call_listed_after_the_close_began_is_refused_and_left_off_the_list() {
+        let mut members = Members::open();
+        assert!(members.advance(Phase::joined));
+        assert_eq!(members.close(), Some(vec![]));
+
+        assert!(!members.enlist(1), "the call has to cancel itself");
+        assert!(members.listed.is_empty());
+    }
+
+    #[test]
+    fn a_call_that_leaves_is_off_the_list() {
+        let mut members = Members::open();
+        assert!(members.advance(Phase::joined));
+        assert!(members.enlist(1));
+        assert!(members.leave(Some(1)));
+
+        assert_eq!(members.close(), Some(vec![]));
+        assert_eq!(members.close(), None, "and a close takes its list once");
     }
 
     #[test]

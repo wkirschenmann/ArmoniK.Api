@@ -143,12 +143,12 @@ pub(crate) fn release_channel(handle: ak_handle) {
 }
 
 fn close_channel(channel: &Arc<AkChannel>) {
-    if !channel.start_closing() {
+    let Some(enlisted) = channel.start_closing() else {
         return;
-    }
+    };
 
-    for call in tables::calls().values() {
-        if call.belongs_to_channel(channel) {
+    for call in enlisted {
+        if let Some(call) = tables::calls().get(call) {
             call.cancel();
         }
     }

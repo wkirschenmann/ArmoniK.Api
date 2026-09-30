@@ -94,6 +94,69 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     host.stop();
 }
 
+/// A release cancels the calls of its channel and no other: two calls parked on a delivery credit,
+/// one on each of two channels, and the one whose channel stays open goes on to its answer.
+#[test]
+fn releasing_a_channel_cancels_its_calls_and_none_of_another_channels() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let released = host.channel(&server.endpoint);
+    let kept = host.channel(&server.endpoint);
+
+    host.recorder.hold_payloads();
+    let doomed = start_call(released, ECHO, &blob(&[]));
+    let spared = start_call(kept, ECHO, &blob(&[]));
+    send_one(doomed, b"doomed");
+    send_one(spared, b"spared");
+    let heads = || {
+        host.recorder
+            .kinds()
+            .iter()
+            .filter(|kind| **kind == ak_event_kind::AK_EVENT_INITIAL_METADATA)
+            .count()
+    };
+    support::poll_until(|| heads() == 2, || format!("{} of the two heads", heads()));
+
+    ak_channel_release(released);
+
+    assert_eq!(
+        host.recorder.await_terminal().status_code(),
+        Some(CANCELLED)
+    );
+    // Polled: the terminal is recorded inside the callback, and the call marks it delivered once
+    // the callback has returned.
+    support::poll_until(
+        || debt_of(doomed).terminal_delivered == 1,
+        || format!("the released call is {:?}", debt_of(doomed)),
+    );
+    assert_eq!(
+        debt_of(spared).terminal_delivered,
+        0,
+        "the other channel's call was cancelled too"
+    );
+
+    host.recorder.consume_all();
+    let answered = host.recorder.await_messages(1);
+    assert_eq!(answered.message_payloads(), vec![b"spared".to_vec()]);
+    support::poll_until(
+        || debt_of(spared).terminal_delivered == 1,
+        || format!("the kept call is {:?}", debt_of(spared)),
+    );
+    assert_eq!(
+        host.recorder
+            .last_of(ak_event_kind::AK_EVENT_STATUS)
+            .map(|terminal| terminal.status_code),
+        Some(0),
+        "the kept call's answer"
+    );
+
+    host.recorder.consume_all();
+    support::await_call_reclaimed(doomed);
+    support::await_call_reclaimed(spared);
+    ak_channel_release(kept);
+    host.stop();
+}
+
 #[test]
 fn a_closing_channel_takes_no_new_call() {
     let fixture = Host::connected();

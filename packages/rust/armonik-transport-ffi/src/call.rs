@@ -9,9 +9,7 @@ use armonik_transport::grpc::{
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
-use crate::abi::{
-    ak_buffer, ak_bytes, ak_call_debt, ak_channel_state, ak_event_kind, ak_handle, ak_status,
-};
+use crate::abi::{ak_buffer, ak_bytes, ak_call_debt, ak_event_kind, ak_handle, ak_status};
 use crate::blob;
 use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
@@ -96,10 +94,6 @@ pub(crate) struct CallState {
 impl CallState {
     pub(crate) fn debt(&self) -> ak_call_debt {
         self.debt.as_abi()
-    }
-
-    pub(crate) fn belongs_to_channel(&self, channel: &Arc<AkChannel>) -> bool {
-        Arc::ptr_eq(&self.channel, channel)
     }
 
     pub(crate) fn cancel(&self) {
@@ -559,7 +553,7 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
             // Inside the callback, so the call has left its channel before it can report
             // itself quiet - which is what `begin_shutdown` waits on for every call before the
             // runtime is quiescent.
-            state.channel.leave();
+            state.channel.leave(Some(state.handle));
         });
     }
 
@@ -647,7 +641,7 @@ impl Joined<'_> {
 impl Drop for Joined<'_> {
     fn drop(&mut self) {
         if let Some(channel) = self.0 {
-            channel.leave();
+            channel.leave(None);
         }
     }
 }
@@ -688,13 +682,11 @@ pub(crate) fn start_on(
         return Err(ak_status::AK_STATUS_INTERNAL);
     };
 
-    // A release runs down a snapshot of the calls table, so one taken between the join above and
-    // the insert holds no call of this channel and cancels nothing - and this one would be a live
-    // call on a closing channel, which the header says cannot be. Reading the state after the
-    // insert is what closes it: a release that missed the insert had already moved the channel
-    // off OPEN, and the table's lock puts that before this read. Exactly one of the two cancels,
-    // and `cancel` takes it twice without minding.
-    if channel.state() != ak_channel_state::AK_CHANNEL_OPEN {
+    // A release cancels the calls its channel lists, and one that ran since the join took its
+    // list without this call - which would then be a live call on a closing channel, which the
+    // header says cannot be. Listing it takes the lock the release took, so exactly one of the
+    // two cancels it.
+    if !channel.enlist(handle) {
         state.cancel();
     }
 
