@@ -103,25 +103,107 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
     }
   }
 
-  /// <summary>An endpoint as a message may carry it: the scheme, the host and the port.</summary>
-  /// <remarks>An endpoint may carry `user:password@`, and the engine refusing one is exactly the
-  /// case that reaches the message above - so the string as given would put a password in the
-  /// caller's log. The engine renders the same three parts, for the same reason. A string no
-  /// `Uri` parses is named rather than echoed: there is nothing in it this can promise is not a
-  /// secret.</remarks>
+  /// <summary>An endpoint as a message may carry it: its scheme, host and port, as written.</summary>
+  /// <remarks>
+  ///   An endpoint may carry `user:password@`, and the engine refusing one is exactly the case
+  ///   that reaches the message above - so the string as given would put a password in the
+  ///   caller's log. Read as text rather than by `Uri`, which takes the `localhost` of
+  ///   `localhost:5000` for a scheme and, on .NET Framework, reads a port out of a trailing
+  ///   newline. Everything up to the last `@` goes, because a password may contain a slash, so
+  ///   when that `@` is in a path or a query, which the engine refuses anyway, what follows it is
+  ///   shown as the host. A string with whitespace or a control character in it, or a port that
+  ///   is not digits, is named rather than echoed.
+  /// </remarks>
   internal static string Safely(string endpoint)
   {
-    if (!Uri.TryCreate(endpoint,
-                       UriKind.Absolute,
-                       out var parsed))
+    const string notAUri = "an endpoint that is not a URI";
+
+    foreach (var character in endpoint)
     {
-      return "an endpoint that is not a URI";
+      if (char.IsWhiteSpace(character) || char.IsControl(character))
+      {
+        return notAUri;
+      }
     }
 
-    return parsed.IsDefaultPort
-             ? $"{parsed.Scheme}://{parsed.Host}"
-             : $"{parsed.Scheme}://{parsed.Host}:{parsed.Port}";
+    var separator = endpoint.IndexOf("://",
+                                     StringComparison.Ordinal);
+    var scheme = separator > 0 && IsScheme(endpoint.Substring(0,
+                                                              separator))
+                   ? endpoint.Substring(0,
+                                        separator)
+                   : null;
+    var rest = scheme is null
+                 ? endpoint
+                 : endpoint.Substring(separator + 3);
+
+    rest = rest.Substring(rest.LastIndexOf('@') + 1);
+    var end = rest.IndexOfAny(AuthorityEnds);
+    var authority = end < 0
+                      ? rest
+                      : rest.Substring(0,
+                                       end);
+
+    // After the last `]`, so an IPv6 host's own colons are not taken for a port's.
+    var colon = authority.LastIndexOf(':');
+    if (colon > authority.LastIndexOf(']') && !IsDigits(authority.Substring(colon + 1)))
+    {
+      return notAUri;
+    }
+
+    if (scheme is not null)
+    {
+      return $"{scheme}://{authority}";
+    }
+
+    return authority.Length > 0
+             ? authority
+             : notAUri;
   }
+
+  private static bool IsDigits(string candidate)
+  {
+    foreach (var character in candidate)
+    {
+      if (character is < '0' or > '9')
+      {
+        return false;
+      }
+    }
+
+    return candidate.Length > 0;
+  }
+
+  // `\` as well, which .NET's own parser takes for a `/` in an http URI.
+  private static readonly char[] AuthorityEnds =
+  {
+    '/',
+    '?',
+    '#',
+    '\\',
+  };
+
+  // RFC 3986: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+  private static bool IsScheme(string candidate)
+  {
+    if (!IsAsciiLetter(candidate[0]))
+    {
+      return false;
+    }
+
+    foreach (var character in candidate)
+    {
+      if (!(IsAsciiLetter(character) || character is >= '0' and <= '9' or '+' or '-' or '.'))
+      {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private static bool IsAsciiLetter(char character)
+    => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z';
 
   internal ChannelDisposeState DisposeState
     => state_;

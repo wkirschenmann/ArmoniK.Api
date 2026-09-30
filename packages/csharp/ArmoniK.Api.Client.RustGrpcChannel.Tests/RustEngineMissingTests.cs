@@ -34,24 +34,73 @@ public class RustEngineMissingTests
   ///   their log. Asserted on what must be absent as well as on what must be there: a redaction
   ///   that keeps the host is worth nothing if it keeps the userinfo too.
   /// </remarks>
-  [Test]
-  public void AnEndpointInAMessageKeepsItsSchemeHostAndPortAndNothingElse()
-  {
-    Assert.Multiple(() =>
-                    {
-                      Assert.That(NativeChannel.Safely("http://user:secret@example.test:5000/some/path?q=1"),
-                                  Is.EqualTo("http://example.test:5000"));
-                      Assert.That(NativeChannel.Safely("https://user:secret@example.test/"),
-                                  Is.EqualTo("https://example.test"),
-                                  "a default port is not spelled out");
-                      Assert.That(NativeChannel.Safely("http://example.test:5000"),
-                                  Is.EqualTo("http://example.test:5000"),
-                                  "an endpoint carrying nothing secret is unchanged");
-                      Assert.That(NativeChannel.Safely("user:secret@example.test:5000"),
-                                  Does.Not.Contain("secret"),
-                                  "a string no Uri parses is named rather than echoed");
-                    });
-  }
+  [TestCase("http://user:secret@example.test:5000/some/path?q=1",
+            "http://example.test:5000",
+            TestName = "{m}(userinfo, path and query)")]
+  [TestCase("https://user:secret@example.test/",
+            "https://example.test",
+            TestName = "{m}(no port written)")]
+  [TestCase("http://example.test:5000",
+            "http://example.test:5000",
+            TestName = "{m}(nothing secret)")]
+  [TestCase("localhost:5000",
+            "localhost:5000",
+            TestName = "{m}(no scheme)")]
+  [TestCase("localhost:80",
+            "localhost:80",
+            TestName = "{m}(a port as written)")]
+  [TestCase("user:secret@example.test:5000",
+            "example.test:5000",
+            TestName = "{m}(no scheme, userinfo)")]
+  [TestCase("user:12/ab@example.test:5000",
+            "example.test:5000",
+            TestName = "{m}(no scheme, a slash in the password)")]
+  [TestCase("http://user:12/ab@example.test:5000",
+            "http://example.test:5000",
+            TestName = "{m}(a slash in the password)")]
+  [TestCase("user:pa://ss@example.test:5000",
+            "example.test:5000",
+            TestName = "{m}(a :// in the password)")]
+  [TestCase("user:p@ss@example.test:5000",
+            "example.test:5000",
+            TestName = "{m}(an @ in the password)")]
+  [TestCase("http://example.test:5000?token=abc",
+            "http://example.test:5000",
+            TestName = "{m}(a query)")]
+  [TestCase("http://example.test:5000#token",
+            "http://example.test:5000",
+            TestName = "{m}(a fragment)")]
+  [TestCase("http://example.test:5000\\token",
+            "http://example.test:5000",
+            TestName = "{m}(a backslash)")]
+  [TestCase("http://[::1]:5000",
+            "http://[::1]:5000",
+            TestName = "{m}(an IPv6 host)")]
+  [TestCase("http://[::1]",
+            "http://[::1]",
+            TestName = "{m}(an IPv6 host and no port)")]
+  [TestCase("example.test:hunter2",
+            "an endpoint that is not a URI",
+            TestName = "{m}(a port that is not digits)")]
+  [TestCase("dns:///example.test:5000",
+            "dns://",
+            TestName = "{m}(a scheme and no host)")]
+  [TestCase("example.test:5000\n",
+            "an endpoint that is not a URI",
+            TestName = "{m}(a trailing newline)")]
+  [TestCase("http://example.test:5000\n",
+            "an endpoint that is not a URI",
+            TestName = "{m}(a trailing newline after a scheme)")]
+  [TestCase("example.test\u0001:5000",
+            "an endpoint that is not a URI",
+            TestName = "{m}(a control character)")]
+  [TestCase("not an endpoint at all",
+            "an endpoint that is not a URI",
+            TestName = "{m}(not a URI)")]
+  public void AnEndpointInAMessageKeepsItsSchemeHostAndPortAndNothingElse(string endpoint,
+                                                                          string shown)
+    => Assert.That(NativeChannel.Safely(endpoint),
+                   Is.EqualTo(shown));
 
   /// <summary>The message is the whole point of this type, so it is asserted rather than assumed.</summary>
   [Test]
