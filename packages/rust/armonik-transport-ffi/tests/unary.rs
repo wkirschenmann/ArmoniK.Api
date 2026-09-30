@@ -516,10 +516,15 @@ fn a_call_reports_what_the_host_owes_it() {
     unsafe { ak_return_call_buffer(buffer) };
     assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
     host.recorder.await_terminal();
+    // Polled: the terminal is recorded inside the callback, and the call marks it delivered once
+    // the callback has returned.
+    support::poll_until(
+        || debt_of(call).terminal_delivered == 1,
+        || format!("the call is {:?}", debt_of(call)),
+    );
 
     let debt = debt_of(call);
     assert_eq!(debt.buffers_lent, 0);
-    assert_eq!(debt.terminal_delivered, 1);
     assert!(
         debt.payloads_owed >= 1,
         "the host is holding what it was given: {debt:?}"
