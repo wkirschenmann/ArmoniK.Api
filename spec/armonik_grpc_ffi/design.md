@@ -194,7 +194,12 @@ pub struct GrpcChannelConfig {
 }
 
 pub struct Http2Config {
-    pub initial_window_size: u32,
+    /// What one stream may have unread.
+    pub initial_stream_window_size: u32,
+    /// What the connection may have unread, shared by every stream of the
+    /// channel: a call its host does not read holds up to its stream window
+    /// of it.
+    pub initial_connection_window_size: u32,
     pub max_frame_size: u32,
     /// The HTTP/2 SETTINGS value this endpoint advertises, which bounds the
     /// streams the *peer* may open (RFC 9113 s5.1.2) - for a client, server

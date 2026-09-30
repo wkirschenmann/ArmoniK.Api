@@ -691,8 +691,8 @@ with no counterpart are listed rather than silently extra.
 
 **Status**: done, and the first half of that deliverable had nothing to do.  Measured rather than
 assumed: of `GrpcClient`'s twenty options, **none** has a counterpart in this vocabulary today.
-Seventeen wait on a phase that has not run - `AllowUnsafeConnection`, `CaCert` and
-`OverrideTargetName` on T4.1, the three certificate options on T4.2, the three proxy ones on
+Seventeen wait on a phase that has not run - `AllowUnsafeConnection`, `CaCert`,
+`OverrideTargetName`, `CertPem` and `KeyPem` on T4.1, `CertP12` on T4.2, the three proxy ones on
 T5.1, the four retry ones on T6.3, `RequestTimeout` on T6.2, and the three keepalive and idle
 ones on T4.1 - and three are answered by something that is not an option at all: the endpoint
 crosses the ABI as `ak_channel_create`'s own argument, `HttpMessageHandler` names the handler
@@ -749,6 +749,21 @@ trusted:
 checked by a build step as `CheckGeneratedOptionsMatchTheSchema` is; the layout tests pass
 unchanged on net4.7, net4.8 and net8.0.
 
+**And design.md is split by register once this lands.** With the ABI's reference in the Rust,
+the declarations the Rust carries leave design.md; what it specifies and nothing builds yet stays
+until it is built, `ak_error` first, which T4.0 builds from it. What remains mixes a normative
+contract, the reasoning that led to it, implementation sketches and the proof strategy, as the
+document says of itself near its end, and it splits as that passage says: the contract, the
+normative ABI, the implementation architecture, the formal model and a decision log. Layer 4 then
+keeps the obligations a reader has to hold rather than the walkthrough of one method.
+`check_abi_coverage.py` moves with the declarations: it compares design.md's with the header's,
+and would report every function that left as one the header declares and design.md does not
+describe. What it keeps is the rest - every acting function in the level-1 mapping table, and the
+table of which argument becomes what, wherever the split puts them - and `NOT_BUILT` still names
+what design.md specifies and nothing builds, `ak_error_release` among it. The other gates under
+`tla/ci` that read design.md by section - the derived invariants, the property manifest and the
+sketch actions - move with what they read.
+
 ---
 
 ## Phase 4 — TLS and secure connection
@@ -802,6 +817,28 @@ entries in the schema, and the properties generation puts on the C# type.
 **Deliverable**: a unary call over HTTPS, and one test per branch of the connector reached from
 the engine rather than from the connector's own tests. Every option of those three units reaches
 the engine from a structured JSON.
+
+**And the flow-control windows become options.** They belong to the `http2` unit this task
+brings, as audit-response.md's H-009 decided. Their defaults are hyper's, 2 MiB for a stream and
+5 MiB for the connection, stated in each option's description and applied by the engine's reader
+as design.md has it for every default, so that a change of hyper's does not change them; T6.7's
+benchmarks may choose others. The options state a hazard the host manages, not a rule a default
+keeps: the connection's window is shared by every stream of a channel, a call its host does not
+read holds up to one stream window of it, and nothing bounds how many calls a host leaves unread.
+Enough of them stop the others on the channel receiving.
+
+**And whether a duration reaches .NET as a `TimeSpan` is settled here**, before this task adds
+the keepalive and idle durations beside `ConnectTimeoutSeconds`. A caller setting the option in
+code holds a `TimeSpan`, and a `double?` of seconds lets `TotalMilliseconds` compile as readily
+as `TotalSeconds`. But the configuration binder reads a `TimeSpan` as `d.hh:mm:ss`, where "5" is
+five days and "2.5" fails, and a configuration is where most callers set it. `GrpcClient` already
+exposes its six durations as `TimeSpan`, `KeepAliveTime` and `RequestTimeout` among them, so that
+reading is the one its callers meet today. The document keeps its number of seconds, as design.md
+has it for every duration; what is settled is the C# type.
+
+**The options generator gains each shape when an option first needs it.** It emits five
+scalar shapes today, and TLS's options may want an enumeration, a list or a choice between groups.
+Each arrives with the option that uses it, and not ahead of it.
 
 ### T4.2: Client identity from a PKCS#12 bundle
 
@@ -1074,9 +1111,9 @@ ABI promises.
 
 **Why**: the runtime's ceiling bounds only the buffers a host fills to send. A message the engine
 receives and lends to the host is counted for quiescence and not in bytes, so what a runtime holds
-on the receive side is bounded per call - `DeliveryCredits` times `MaxReceiveMessageSize` - and not
-at all across calls. A client downloading large chunks on many calls at once can exhaust the
-process's memory with every bound respected.
+on the receive side is bounded per call - (`DeliveryCredits` plus the few messages the engine reads
+ahead of them) times `MaxReceiveMessageSize` - and not at all across calls. A client downloading
+large chunks on many calls at once can exhaust the process's memory with every bound respected.
 
 **Commit**: two thresholds over the one count of bytes that sends and receives then share.
 
@@ -1106,6 +1143,10 @@ process's memory with every bound respected.
   receive path is not this design, and that the budget's wake-up is a poll. Its reasons were
   that receive-side bytes belong to hyper and that a failed allocation aborts; neither holds
   against a count of messages already decoded, which needs no fallible allocation.
+- The runtime's own options - its worker count and its thresholds, however the second is set -
+  join the generated vocabulary: a schema, a default stated in each description, and a binding
+  from `IConfiguration`, as a channel's options have. Today the worker count and the one ceiling
+  are two bare parameters of `NativeRuntime.Create`.
 - `AK_ABI_VERSION` does not change, for the reason T4.0 gives.
 
 The models change first: level 1 charges a payload its length and gains the two thresholds and the
@@ -1125,8 +1166,9 @@ What to settle:
 
 **Deliverable**: many calls receiving messages the host does not read end with some of them
 waiting and none past the second threshold, read from `ak_runtime_memory_usage`; a message that
-would cross the second ends its call with `RESOURCE_EXHAUSTED`; and a send refused with
-`AK_STATUS_BUDGET_BUSY` resumes on the event when a received message is given back, with no poll.
+would cross the second ends its call with `RESOURCE_EXHAUSTED`; a send refused with
+`AK_STATUS_BUDGET_BUSY` resumes on the event when a received message is given back, with no poll;
+and the runtime's options are read from a configuration as a channel's are.
 
 ---
 
@@ -1154,6 +1196,14 @@ compiles fifteen mandatory dependencies where it compiled eight - `h2`, `http`, 
 does not use, and the only code the two stacks share is `chain` and `safe_endpoint`. That is paid
 deliberately rather than gated: a feature gate over the engine would be removed by this task, and
 a feature position nothing exercises rots before then.
+
+**And the client offers what it means to.** `pub use armonik_transport as transport` makes the
+whole engine part of the Rust client's public API; it gives way to the items the client offers.
+And the client's configuration converts into the engine's: `TransportConfig` carries an endpoint
+and a connect timeout, and nothing converts into it. What becomes of an option the engine has not
+got by then is settled here - `RateLimit`, which no task builds, and whichever of
+`TcpNagleAlgorithm` and `Http2MaxHeaderListSize` T4.1's units leave out: each is built, or
+refused by the client, and none is read and ignored.
 
 ---
 
