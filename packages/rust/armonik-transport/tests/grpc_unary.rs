@@ -1,7 +1,8 @@
 mod common;
 
 use armonik_transport::grpc::{
-    CallError, CallStartOptions, ChannelError, GrpcChannelConfig, GrpcStatusCode, MetadataValue,
+    CallError, CallStartOptions, ChannelError, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
+    MetadataValue,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use bytes::Bytes;
@@ -583,6 +584,95 @@ async fn a_stream_the_peer_resets_carries_the_reason_it_was_reset_with() {
     // reason being read at all: unread, every reset would be UNAVAILABLE, whatever it said.
     assert!(status.message.contains("http2 error"), "{status}");
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+}
+
+/// A stream a peer's GOAWAY left unprocessed is UNAVAILABLE, whatever reason the GOAWAY gives.
+///
+/// Once the call's HEADERS are in, the server says goodbye with a last stream id of 0, so the
+/// call's stream is above it and the server never processed it: gRPC's answer for that is the
+/// code a caller retries on. The three reasons are the ones the reset table would read as
+/// something else - NO_ERROR as INTERNAL, ENHANCE_YOUR_CALM and INADEQUATE_SECURITY as codes of
+/// their own. The reason still reaches the message, which is where it is read.
+#[tokio::test]
+async fn a_stream_a_peers_goaway_left_unprocessed_is_unavailable() {
+    for reason in [
+        h2::Reason::NO_ERROR,
+        h2::Reason::ENHANCE_YOUR_CALM,
+        h2::Reason::INADEQUATE_SECURITY,
+    ] {
+        let mut go_away = vec![0, 0, 8, 0x7, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        go_away.extend_from_slice(&u32::from(reason).to_be_bytes());
+
+        let status = call_answered_with(&go_away).await;
+
+        assert_eq!(
+            status.code,
+            GrpcStatusCode::Unavailable,
+            "{reason:?}: {status}"
+        );
+        assert!(
+            status.message.contains(&reason.to_string()),
+            "{reason:?}: {status}"
+        );
+    }
+}
+
+/// A GOAWAY this side sends keeps its reason.
+///
+/// Once the call's HEADERS are in, the server sends a DATA frame on stream 0, which h2 answers
+/// with GOAWAY(PROTOCOL_ERROR) and hands to the call. Retrying on that meets the same peer.
+#[tokio::test]
+async fn a_stream_ended_by_a_goaway_this_side_sent_keeps_its_reason() {
+    let data_on_stream_zero = [0, 0, 0, 0x0, 0, 0, 0, 0, 0];
+
+    let status = call_answered_with(&data_on_stream_zero).await;
+
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+}
+
+/// A unary call to a server that speaks HTTP/2 by hand: it reads up to the call's HEADERS, sends
+/// its SETTINGS and then `frames`, and reads on until the client hangs up.
+///
+/// By hand, so it can send what h2 would not, and so what it sends follows the HEADERS: a frame
+/// that reached the client first would end the connection before the call had a stream.
+async fn call_answered_with(frames: &[u8]) -> GrpcStatus {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const HEADERS: u8 = 0x1;
+    const EMPTY_SETTINGS: [u8; 9] = [0, 0, 0, 0x4, 0, 0, 0, 0, 0];
+
+    let (listener, endpoint) = loopback().await;
+    let frames = frames.to_vec();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("the client connects");
+        let mut preface = [0; 24];
+        socket.read_exact(&mut preface).await.expect("the preface");
+        loop {
+            let mut head = [0; 9];
+            socket.read_exact(&mut head).await.expect("a frame");
+            let length = u32::from_be_bytes([0, head[0], head[1], head[2]]) as usize;
+            let mut payload = vec![0; length];
+            socket.read_exact(&mut payload).await.expect("its payload");
+            if head[3] == HEADERS {
+                break;
+            }
+        }
+        socket
+            .write_all(&EMPTY_SETTINGS)
+            .await
+            .expect("the settings");
+        socket.write_all(&frames).await.expect("the frames");
+        let mut rest = Vec::new();
+        let _ = socket.read_to_end(&mut rest).await;
+    });
+
+    let (_, _, status) = unary(
+        &channel(&endpoint),
+        CallStartOptions::new(ECHO),
+        Bytes::from_static(b"x"),
+    )
+    .await;
+    status
 }
 
 #[tokio::test]

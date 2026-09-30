@@ -1246,8 +1246,8 @@ waits on it: the tripwires are what makes waiting safe.
 what this repository has measured and pinned.
 
 The engine is tonic's client over an HTTP/2 session of the channel's own, and tonic 0.14.6 gets
-seven cases wrong for a client. Each is worked around in `grpc/channel.rs` or `grpc/driver.rs`, and
-each workaround is pinned by a test that fails without it:
+eight cases wrong for a client. Each is worked around in `grpc/channel.rs`, `grpc/driver.rs` or
+`grpc/status.rs`, and each workaround is pinned by a test that fails without it:
 
 - **A message past the receive limit is OUT_OF_RANGE.** The gRPC status table gives
   RESOURCE_EXHAUSTED, and lists OUT_OF_RANGE among the codes the library never generates.
@@ -1263,6 +1263,12 @@ each workaround is pinned by a test that fails without it:
 - **An announced length is reserved before the limit can refuse it**, so on a 32-bit target with
   no limit a peer's length past what an address spans panics the reserve. The limit tonic is given
   is held under half the address space.
+- **A GOAWAY's reason is read as a reset's**, under tonic's `server` feature: h2 hands it to every
+  stream the GOAWAY ends, so a stream a server going away cleanly never processed is INTERNAL,
+  where PROTOCOL-HTTP2 has the client take it as UNAVAILABLE and retry. The engine's table reads
+  no reason from a peer's GOAWAY, pinned by
+  `a_stream_a_peers_goaway_left_unprocessed_is_unavailable`, and keeps the reason of one h2 sent
+  itself, pinned by `a_stream_ended_by_a_goaway_this_side_sent_keeps_its_reason`.
 - **The RST_STREAM reason is read only under tonic's `server` feature**, so a client built without
   it reports every reset as UNKNOWN. The engine keeps its own table.
 

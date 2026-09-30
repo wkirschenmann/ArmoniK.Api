@@ -43,14 +43,14 @@ impl GrpcStatus {
     pub(crate) fn request_lost(error: &hyper::Error) -> Self {
         Self::new(
             reset_code(error),
-            format!("the request did not reach the peer: {error}"),
+            format!("the request did not reach the peer: {}", described(error)),
         )
     }
 
     pub(crate) fn stream_broke(error: &hyper::Error) -> Self {
         Self::new(
             reset_code(error),
-            format!("the response stream broke: {error}"),
+            format!("the response stream broke: {}", described(error)),
         )
     }
 }
@@ -66,15 +66,15 @@ impl From<tonic::Status> for GrpcStatus {
     }
 }
 
-/// What a broken stream means, from the RST_STREAM the peer sent.
+/// What a broken stream means, from the reason of the h2 error behind it.
 ///
 /// gRPC's own table, in PROTOCOL-HTTP2. Reporting every reason as UNAVAILABLE would tell a host
 /// that retries on it to repeat a call the peer deliberately cancelled, and to keep repeating one
 /// that failed on a framing error that is never transient.
 ///
 /// UNAVAILABLE stays the answer for everything that is not a reset - an I/O error, a connection
-/// that died, a peer that never answered - and for REFUSED_STREAM, which is the one reason that
-/// does mean "try again".
+/// that died or that a GOAWAY ended, a peer that never answered - and for REFUSED_STREAM, which is
+/// the one reason that does mean "try again".
 fn reset_code(error: &hyper::Error) -> GrpcStatusCode {
     code_of(reset_reason(error))
 }
@@ -100,16 +100,32 @@ fn code_of(reason: Option<h2::Reason>) -> GrpcStatusCode {
     }
 }
 
+/// None for a GOAWAY the peer sent, whose reason is the connection's: gRPC answers UNAVAILABLE
+/// for a stream a peer's GOAWAY ended, whatever the reason. A GOAWAY h2 sent itself keeps it.
+fn reset_reason(error: &hyper::Error) -> Option<h2::Reason> {
+    let h2 = h2_error(error)?;
+    h2.reason().filter(|_| !(h2.is_go_away() && h2.is_remote()))
+}
+
+/// hyper's error and the h2 error behind it: hyper's own says only "http2 error", and a reason
+/// the code does not carry is read nowhere else.
+fn described(error: &hyper::Error) -> String {
+    match h2_error(error) {
+        Some(h2) => format!("{error}: {h2}"),
+        None => error.to_string(),
+    }
+}
+
 /// The `h2::Error` behind a hyper error, if that is what it is.
 ///
 /// Down the source chain rather than off the error itself: hyper wraps it and exposes neither the
-/// type nor the reason. Which means this is only a reason when hyper linked the same `h2` this
+/// type nor the reason. Which means this finds one only when hyper linked the same `h2` this
 /// crate names - see the note on the workspace dependency.
-fn reset_reason(error: &hyper::Error) -> Option<h2::Reason> {
+fn h2_error(error: &hyper::Error) -> Option<&h2::Error> {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
     while let Some(cause) = source {
         if let Some(h2) = cause.downcast_ref::<h2::Error>() {
-            return h2.reason();
+            return Some(h2);
         }
         source = cause.source();
     }
