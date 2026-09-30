@@ -1,7 +1,5 @@
 use std::future::Future;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
-use std::task::Poll;
 
 use bytes::{Buf, BufMut, Bytes};
 use http::uri::PathAndQuery;
@@ -13,6 +11,7 @@ use tonic::Code;
 
 use super::call::{CallControl, OwnedMessage, RequestMessages};
 use super::channel::Inner;
+use super::contained::contained;
 use super::metadata::Metadata;
 use super::status::GrpcStatus;
 
@@ -66,18 +65,9 @@ pub(crate) async fn drive(inner: Arc<Inner>, outgoing: Outgoing, driving: Drivin
     //
     // Contained, because a panic unwinding past `delivery` would drop the terminal unsent, and the
     // caller would read a driver gone with its runtime rather than a call that failed.
-    let status = {
-        let mut running = std::pin::pin!(run(&inner, outgoing, &mut stop, &mut delivery));
-        std::future::poll_fn(|cx| {
-            catch_unwind(AssertUnwindSafe(|| running.as_mut().poll(cx))).unwrap_or_else(|_| {
-                Poll::Ready(GrpcStatus::new(
-                    Code::Internal,
-                    "the task driving the call panicked",
-                ))
-            })
-        })
+    let status = contained(run(&inner, outgoing, &mut stop, &mut delivery))
         .await
-    };
+        .unwrap_or_else(|| GrpcStatus::new(Code::Internal, "the task driving the call panicked"));
 
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.

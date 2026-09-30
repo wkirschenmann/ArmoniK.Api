@@ -15,10 +15,11 @@ use tonic::metadata::MetadataMap;
 use tower_service::Service;
 
 use super::error::GrpcChannelConfigError;
-use crate::http2::{TransportConfig, TransportConnector};
+use crate::http2::{ConnectSnafu, TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
 use super::call::{self, CallStartOptions, GrpcCall};
+use super::contained::contained;
 use super::driver::{self, Outgoing};
 use super::error::ChannelError;
 use super::executor::Spawner;
@@ -251,12 +252,27 @@ impl Inner {
     /// the dial cleared before the outcome goes out, so a caller that arrives after the send finds
     /// the session rather than a dial that is no longer running.
     async fn dial(&self) {
-        let dialled = crate::http2::open(
-            &self.connector,
-            &self.endpoint,
-            Spawner(self.spawner.clone()),
-        )
-        .await;
+        // Contained, because a panic here would leave `dialling` set with no task behind it, and
+        // every caller waiting on it, and every caller after them, would wait for good.
+        let dialled = contained(async {
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::run_in_dial();
+
+            crate::http2::open(
+                &self.connector,
+                &self.endpoint,
+                Spawner(self.spawner.clone()),
+            )
+            .await
+        })
+        .await
+        .unwrap_or_else(|| {
+            Err(ConnectSnafu {
+                endpoint: safe_endpoint(&self.endpoint),
+                cause: "the dial panicked",
+            }
+            .build())
+        });
 
         let mut slot = self.connection.lock().await;
         let outcome = slot.dialling.take();
