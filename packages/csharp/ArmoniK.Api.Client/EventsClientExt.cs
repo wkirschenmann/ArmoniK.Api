@@ -20,6 +20,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using ArmoniK.Api.Client.Options;
 using ArmoniK.Api.Common.Exceptions;
 using ArmoniK.Api.gRPC.V1;
 using ArmoniK.Api.gRPC.V1.Events;
@@ -96,13 +97,48 @@ namespace ArmoniK.Api.Client
     /// <exception cref="Exception">if a result is aborted</exception>
     /// <exception cref="RpcException">if six subscriptions in a row fail with no event between them</exception>
     [PublicAPI]
+    public static Task WaitForResultsAsync(this Events.EventsClient client,
+                                           string                   sessionId,
+                                           ICollection<string>      resultIds,
+                                           int                      bucket_size       = 100,
+                                           int                      parallelism       = 1,
+                                           CancellationToken        cancellationToken = default)
+      => client.WaitForResultsAsync(sessionId,
+                                    resultIds,
+                                    new SubscriptionRetry(),
+                                    bucket_size,
+                                    parallelism,
+                                    cancellationToken);
+
+
+    /// <summary>
+    ///   Wait until the given results are completed, subscribing again after a failure as <paramref name="retry" />
+    ///   says
+    /// </summary>
+    /// <param name="client">gRPC result client</param>
+    /// <param name="sessionId">The session ID in which the results are located</param>
+    /// <param name="resultIds">A collection of results to wait for</param>
+    /// <param name="retry">How long to wait before subscribing again after a failure, and how many failures in a row end the wait</param>
+    /// <param name="parallelism">Number of parallel threads to use. One bucket per thread.</param>
+    /// <param name="bucket_size">Number of results Id to use to create the request to the event API</param>
+    /// <param name="cancellationToken">Token used to cancel the execution of the method</param>
+    /// <exception cref="Exception">if a result is aborted</exception>
+    /// <exception cref="RpcException">
+    ///   if <see cref="SubscriptionRetry.MaxAttempts" /> subscriptions in a row fail with no event between them
+    /// </exception>
+    /// <exception cref="ArgumentNullException"><paramref name="retry" /> is null</exception>
+    /// <exception cref="ArgumentOutOfRangeException">a value of <paramref name="retry" /> is outside what it admits</exception>
+    [PublicAPI]
     public static async Task WaitForResultsAsync(this Events.EventsClient client,
                                                  string                   sessionId,
                                                  ICollection<string>      resultIds,
+                                                 SubscriptionRetry        retry,
                                                  int                      bucket_size       = 100,
                                                  int                      parallelism       = 1,
                                                  CancellationToken        cancellationToken = default)
     {
+      var backoff = new Backoff(retry);
+
       var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
       try
@@ -118,10 +154,20 @@ namespace ArmoniK.Api.Client
                                           var resultsCompleted = new List<string>();
                                           var resultsNotFound  = new HashSet<string>(results);
                                           var retryCount       = 0;
+                                          var bound            = backoff.First;
+                                          var delay            = TimeSpan.Zero;
                                           while (resultsNotFound.Any() && !cts.IsCancellationRequested)
                                           {
                                             try
                                             {
+                                              if (delay > TimeSpan.Zero)
+                                              {
+                                                await Task.Delay(delay,
+                                                                 cts.Token)
+                                                          .ConfigureAwait(false);
+                                                delay = TimeSpan.Zero;
+                                              }
+
                                               using var streamingCall = client.GetEvents(new EventSubscriptionRequest
                                                                                          {
                                                                                            SessionId = sessionId,
@@ -145,6 +191,7 @@ namespace ArmoniK.Api.Client
                                               {
                                                 // Only an event shows the subscription holds: a refused one answers its headers too.
                                                 retryCount = 0;
+                                                bound      = backoff.First;
 
                                                 var resp = streamingCall.ResponseStream.Current;
                                                 if (resp.UpdateCase == EventSubscriptionResponse.UpdateOneofCase.ResultStatusUpdate &&
@@ -197,10 +244,13 @@ namespace ArmoniK.Api.Client
                                             catch (RpcException)
                                             {
                                               retryCount += 1;
-                                              if (retryCount > 5)
+                                              if (retryCount >= backoff.MaxAttempts)
                                               {
                                                 throw;
                                               }
+
+                                              delay = backoff.Drawn(bound);
+                                              bound = backoff.Grown(bound);
                                             }
                                           }
                                         });
@@ -210,6 +260,101 @@ namespace ArmoniK.Api.Client
       {
         cts.Cancel();
         throw;
+      }
+    }
+
+    /// <summary>A <see cref="SubscriptionRetry" />'s values, copied once and then checked.</summary>
+    /// <remarks>Copied first, so that a caller changing the options during the wait can neither slip a value past the
+    ///   checks nor change the wait.</remarks>
+    private sealed class Backoff
+    {
+      // Task.Delay's ceiling.
+      private static readonly TimeSpan LongestDelay = TimeSpan.FromMilliseconds(int.MaxValue);
+
+      // Shared by every wait and every bucket, so locked: Random is not thread-safe.
+      private static readonly Random Draws = new();
+
+      private readonly double   jitter_;
+      private readonly TimeSpan max_;
+      private readonly double   multiplier_;
+
+      internal Backoff(SubscriptionRetry retry)
+      {
+        if (retry is null)
+        {
+          throw new ArgumentNullException(nameof(retry));
+        }
+
+        MaxAttempts = retry.MaxAttempts;
+        var initial = retry.InitialBackOff;
+        multiplier_ = retry.BackoffMultiplier;
+        max_        = retry.MaxBackOff;
+        jitter_     = retry.Jitter;
+
+        if (MaxAttempts < 1)
+        {
+          throw new ArgumentOutOfRangeException(nameof(retry),
+                                                MaxAttempts,
+                                                "MaxAttempts has to be at least 1");
+        }
+
+        if (initial < TimeSpan.Zero || initial > LongestDelay)
+        {
+          throw new ArgumentOutOfRangeException(nameof(retry),
+                                                initial,
+                                                $"InitialBackOff has to be between zero and {LongestDelay}");
+        }
+
+        if (max_ < TimeSpan.Zero || max_ > LongestDelay)
+        {
+          throw new ArgumentOutOfRangeException(nameof(retry),
+                                                max_,
+                                                $"MaxBackOff has to be between zero and {LongestDelay}");
+        }
+
+        // Negated, so that NaN, which compares false to everything, is refused here and below.
+        if (!(multiplier_ > 0) || double.IsPositiveInfinity(multiplier_))
+        {
+          throw new ArgumentOutOfRangeException(nameof(retry),
+                                                multiplier_,
+                                                "BackoffMultiplier has to be greater than 0 and finite");
+        }
+
+        if (!(jitter_ >= 0 && jitter_ <= 1))
+        {
+          throw new ArgumentOutOfRangeException(nameof(retry),
+                                                jitter_,
+                                                "Jitter has to be between 0 and 1");
+        }
+
+        // gRFC A6 caps every bound, the first included.
+        First = initial < max_
+                  ? initial
+                  : max_;
+      }
+
+      internal int MaxAttempts { get; }
+
+      internal TimeSpan First { get; }
+
+      internal TimeSpan Drawn(TimeSpan bound)
+      {
+        double draw;
+        lock (Draws)
+        {
+          draw = Draws.NextDouble();
+        }
+
+        return TimeSpan.FromTicks((long)(bound.Ticks * (1 - jitter_ * draw)));
+      }
+
+      // Compared as a double, so a bound past what a TimeSpan holds is capped before it is converted.
+      internal TimeSpan Grown(TimeSpan bound)
+      {
+        var grown = bound.Ticks * multiplier_;
+        return grown >= max_.Ticks
+                 ? max_
+                 : TimeSpan.FromTicks((long)grown);
       }
     }
   }

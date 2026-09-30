@@ -15,9 +15,12 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
+using ArmoniK.Api.Client.Options;
 using ArmoniK.Api.gRPC.V1;
 using ArmoniK.Api.gRPC.V1.Events;
 using ArmoniK.Api.gRPC.V1.Results;
@@ -117,24 +120,251 @@ public class ArmoniKClientTests : RuntimeFixture
 
     // ArmoniK.Api.Mock's Events.DroppedSessionId.
     Assert.That(await WaitForResultsEnd(channel,
-                                        "dropped-session-id")
+                                        "dropped-session-id",
+                                        "dropped-at-once")
                   .ConfigureAwait(false),
                 Is.Null);
   }
 
+  /// <summary>Each new subscription waits for its bound, which the multiplier grows up to the
+  /// maximum, and the third refusal ends the wait.</summary>
+  /// <remarks>With no jitter the delays are the bounds: 100 then 300 ms, 0.4 s in all. An uncapped
+  /// bound would wait 1.1 s, and six attempts 1.3 s.</remarks>
+  [Test]
+  public async Task WaitForResultsWaitsItsBackoffBetweenSubscriptions()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    var watch = Stopwatch.StartNew();
+    var thrown = await WaitForResultsEnd(channel,
+                                         "refused-session-id",
+                                         retry: Backoff(3,
+                                                        10,
+                                                        300,
+                                                        0))
+                   .ConfigureAwait(false);
+    watch.Stop();
+
+    Assert.That((thrown as RpcException)?.StatusCode,
+                Is.EqualTo(StatusCode.PermissionDenied));
+    // A little under the bounds' sum, because a timer may fire just early.
+    Assert.That(watch.Elapsed,
+                Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(360)));
+    Assert.That(watch.Elapsed,
+                Is.LessThan(TimeSpan.FromMilliseconds(900)),
+                "the bound is capped and the attempts counted");
+  }
+
+  /// <summary>With full jitter each delay is drawn up to its bound.</summary>
+  /// <remarks>Eleven delays whose bounds - 100, 400, then 600 ms - add up to 5.9 s, and whose draws
+  /// add up to 2.95 s on average. Even with 300 ms spent on timers and subscriptions, the wait
+  /// reaches 5.6 s less than once in a million runs.</remarks>
+  [Test]
+  public async Task WaitForResultsDrawsItsDelaysAtRandom()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    var watch = Stopwatch.StartNew();
+    var thrown = await WaitForResultsEnd(channel,
+                                         "refused-session-id",
+                                         retry: Backoff(12,
+                                                        4,
+                                                        600,
+                                                        1))
+                   .ConfigureAwait(false);
+    watch.Stop();
+
+    Assert.That((thrown as RpcException)?.StatusCode,
+                Is.EqualTo(StatusCode.PermissionDenied));
+    Assert.That(watch.Elapsed,
+                Is.LessThan(TimeSpan.FromMilliseconds(5600)));
+  }
+
+  /// <summary>An event resets the bound along with the count.</summary>
+  /// <remarks>Seven drops, each after an event, so each waits the first bound: 0.7 s, where a bound
+  /// that kept growing would wait 1.9 s.</remarks>
+  [Test]
+  public async Task WaitForResultsStartsItsBackoffAgainAfterAnEvent()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    var watch = Stopwatch.StartNew();
+    Assert.That(await WaitForResultsEnd(channel,
+                                        "dropped-session-id",
+                                        "dropped-with-backoff",
+                                        Backoff(3,
+                                                10,
+                                                300,
+                                                0))
+                  .ConfigureAwait(false),
+                Is.Null);
+    watch.Stop();
+
+    // Well under the bounds' sum, because each of seven timers may fire just early.
+    Assert.That(watch.Elapsed,
+                Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(500)));
+    Assert.That(watch.Elapsed,
+                Is.LessThan(TimeSpan.FromMilliseconds(1500)),
+                "the bound started again");
+  }
+
+  /// <summary>The first bound is capped as well, as gRFC A6 caps every bound.</summary>
+  /// <remarks>One delay, of 100 ms rather than the 1 s InitialBackOff names.</remarks>
+  [Test]
+  public async Task WaitForResultsCapsItsFirstBound()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    var watch = Stopwatch.StartNew();
+    var thrown = await WaitForResultsEnd(channel,
+                                         "refused-session-id",
+                                         retry: new SubscriptionRetry
+                                                {
+                                                  MaxAttempts    = 2,
+                                                  InitialBackOff = TimeSpan.FromSeconds(1),
+                                                  MaxBackOff     = TimeSpan.FromMilliseconds(100),
+                                                  Jitter         = 0,
+                                                })
+                   .ConfigureAwait(false);
+    watch.Stop();
+
+    Assert.That((thrown as RpcException)?.StatusCode,
+                Is.EqualTo(StatusCode.PermissionDenied));
+    Assert.That(watch.Elapsed,
+                Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(80)));
+    Assert.That(watch.Elapsed,
+                Is.LessThan(TimeSpan.FromMilliseconds(700)));
+  }
+
+  /// <summary>A retry whose values are outside what they admit is refused before any subscription.</summary>
+  /// <remarks>Each case breaks one check alone, and would otherwise end another way: a refusal after
+  /// the first attempt, a Task.Delay that refuses its own argument, or no delay at all.</remarks>
+  [TestCaseSource(nameof(OutOfRange))]
+  public async Task WaitForResultsRefusesARetryOutsideWhatItAdmits(SubscriptionRetry retry)
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    Assert.That(await WaitForResultsEnd(channel,
+                                        "refused-session-id",
+                                        retry: retry)
+                  .ConfigureAwait(false),
+                Is.InstanceOf<ArgumentOutOfRangeException>()
+                  .And.Property(nameof(ArgumentException.ParamName))
+                  .EqualTo("retry"));
+  }
+
+  [Test]
+  public async Task WaitForResultsRefusesANullRetry()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    var thrown = Assert.ThrowsAsync<ArgumentNullException>(() => new gRPC.V1.Events.Events.EventsClient(channel).WaitForResultsAsync("refused-session-id",
+                                                                                                                                       new[]
+                                                                                                                                       {
+                                                                                                                                         "result-id",
+                                                                                                                                       },
+                                                                                                                                       null!));
+    Assert.That(thrown!.ParamName,
+                Is.EqualTo("retry"));
+  }
+
+  private static IEnumerable<TestCaseData> OutOfRange()
+  {
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    MaxAttempts = 0,
+                                  }).SetArgDisplayNames("MaxAttempts 0");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    InitialBackOff = TimeSpan.FromMilliseconds(-1),
+                                    Jitter         = 0,
+                                  }).SetArgDisplayNames("InitialBackOff -1 ms");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    InitialBackOff = TimeSpan.FromMilliseconds(int.MaxValue) + TimeSpan.FromMilliseconds(1),
+                                    MaxBackOff     = TimeSpan.FromMilliseconds(int.MaxValue),
+                                    Jitter         = 0,
+                                  }).SetArgDisplayNames("InitialBackOff past Task.Delay");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    MaxBackOff = TimeSpan.FromSeconds(-1),
+                                  }).SetArgDisplayNames("MaxBackOff -1 s");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    InitialBackOff    = TimeSpan.FromMilliseconds(1),
+                                    MaxBackOff        = TimeSpan.MaxValue,
+                                    BackoffMultiplier = 1e12,
+                                    Jitter            = 0,
+                                  }).SetArgDisplayNames("MaxBackOff past Task.Delay");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    BackoffMultiplier = double.NaN,
+                                  }).SetArgDisplayNames("BackoffMultiplier NaN");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    BackoffMultiplier = 0,
+                                  }).SetArgDisplayNames("BackoffMultiplier 0");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    BackoffMultiplier = -1,
+                                  }).SetArgDisplayNames("BackoffMultiplier -1");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    BackoffMultiplier = double.PositiveInfinity,
+                                  }).SetArgDisplayNames("BackoffMultiplier infinite");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    Jitter = 1.5,
+                                  }).SetArgDisplayNames("Jitter 1.5");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    Jitter = -0.5,
+                                  }).SetArgDisplayNames("Jitter -0.5");
+    yield return new TestCaseData(new SubscriptionRetry
+                                  {
+                                    Jitter = double.NaN,
+                                  }).SetArgDisplayNames("Jitter NaN");
+  }
+
+  /// <summary>A first bound of 100 ms.</summary>
+  private static SubscriptionRetry Backoff(int    maxAttempts,
+                                           double multiplier,
+                                           int    maxMilliseconds,
+                                           double jitter)
+    => new()
+       {
+         MaxAttempts       = maxAttempts,
+         InitialBackOff    = TimeSpan.FromMilliseconds(100),
+         BackoffMultiplier = multiplier,
+         MaxBackOff        = TimeSpan.FromMilliseconds(maxMilliseconds),
+         Jitter            = jitter,
+       };
+
   /// <summary>How <c>WaitForResultsAsync</c> ends, which it must within 30 s: the exception it
   /// fails with, or null when it completes.</summary>
-  private static async Task<Exception?> WaitForResultsEnd(NativeChannel channel,
-                                                          string        sessionId)
+  /// <remarks>With no <paramref name="retry" />, through the overload that takes none.</remarks>
+  private static async Task<Exception?> WaitForResultsEnd(NativeChannel      channel,
+                                                          string             sessionId,
+                                                          string             resultId = "result-id",
+                                                          SubscriptionRetry? retry    = null)
   {
-    var waiting = new gRPC.V1.Events.Events.EventsClient(channel).WaitForResultsAsync(sessionId,
-                                                                                      new[]
-                                                                                      {
-                                                                                        "result-id",
-                                                                                      },
-                                                                                      100,
-                                                                                      1,
-                                                                                      CancellationToken.None);
+    var client = new gRPC.V1.Events.Events.EventsClient(channel);
+    var results = new[]
+                  {
+                    resultId,
+                  };
+    var waiting = retry is null
+                    ? client.WaitForResultsAsync(sessionId,
+                                                 results,
+                                                 100,
+                                                 1,
+                                                 CancellationToken.None)
+                    : client.WaitForResultsAsync(sessionId,
+                                                 results,
+                                                 retry,
+                                                 100,
+                                                 1,
+                                                 CancellationToken.None);
     using var bound = new CancellationTokenSource();
     var settled = await Task.WhenAny(waiting,
                                      Task.Delay(TimeSpan.FromSeconds(30),

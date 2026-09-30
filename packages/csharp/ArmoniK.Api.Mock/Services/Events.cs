@@ -14,7 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Threading;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading.Tasks;
 
 using ArmoniK.Api.gRPC.V1;
@@ -31,13 +32,14 @@ public class Events : gRPC.V1.Events.Events.EventsBase
   /// the caller may not make.</summary>
   public const string RefusedSessionId = "refused-session-id";
 
-  /// <summary>A session whose subscriptions each send a NewResult and then fail with Unavailable,
-  /// except every eighth, which sends it Completed and ends.</summary>
-  /// <remarks>The subscriptions are counted across the process, so the session serves one
-  /// wait.</remarks>
+  /// <summary>A session whose subscriptions each send a NewResult for the first result they ask
+  /// about and then fail with Unavailable, except every eighth for that result, which sends it
+  /// Completed and ends.</summary>
+  /// <remarks>Counted per result across the process, so waits on different results do not share a
+  /// cycle.</remarks>
   public const string DroppedSessionId = "dropped-session-id";
 
-  private static int droppedSubscriptions_;
+  private static readonly ConcurrentDictionary<string, int> DroppedSubscriptions = new();
 
   /// <inheritdocs />
   [Count]
@@ -51,14 +53,23 @@ public class Events : gRPC.V1.Events.Events.EventsBase
                                         "the subscription is refused"));
     }
 
-    var completes = request.SessionId == DroppedSessionId && Interlocked.Increment(ref droppedSubscriptions_) % 8 == 0;
+    var dropped = request.SessionId == DroppedSessionId;
+    var resultId = dropped
+                     ? request.ResultsFilters?.Or.SelectMany(and => and.And)
+                              .Select(field => field.FilterString?.Value)
+                              .FirstOrDefault(value => value is not null) ?? "result-id"
+                     : "result-id";
+    var completes = dropped && DroppedSubscriptions.AddOrUpdate(resultId,
+                                                                 1,
+                                                                 (_,
+                                                                  count) => count + 1) % 8 == 0;
 
     await responseStream.WriteAsync(new EventSubscriptionResponse
                                     {
                                       SessionId = "session-id",
                                       NewResult = new EventSubscriptionResponse.Types.NewResult
                                                   {
-                                                    ResultId = "result-id",
+                                                    ResultId = resultId,
                                                     OwnerId  = "owner-id",
                                                     Status = completes
                                                                ? ResultStatus.Completed
@@ -67,7 +78,7 @@ public class Events : gRPC.V1.Events.Events.EventsBase
                                     })
                         .ConfigureAwait(false);
 
-    if (request.SessionId == DroppedSessionId && !completes)
+    if (dropped && !completes)
     {
       throw new RpcException(new Status(StatusCode.Unavailable,
                                         "the subscription is dropped"));
