@@ -129,7 +129,8 @@ pub struct ChannelOptions {
     )]
     pub max_sends_in_flight: Option<i32>,
 
-    /// How many events the engine may hold for a call the host has not read from.
+    /// How many of a call's payloads the host may hold at once, delivered and not yet given back.
+    /// The terminal status takes none, so a host holds at most one more.
     ///
     /// Defaults to 1.
     #[cfg_attr(

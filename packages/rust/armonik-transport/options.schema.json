@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "DeliveryCredits": {
-      "description": "How many events the engine may hold for a call the host has not read from.\n\nDefaults to 1.",
+      "description": "How many of a call's payloads the host may hold at once, delivered and not yet given back.\nThe terminal status takes none, so a host holds at most one more.\n\nDefaults to 1.",
       "type": "integer",
       "format": "int32",
       "maximum": 536870910,

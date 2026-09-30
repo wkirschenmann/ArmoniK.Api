@@ -5,8 +5,7 @@ use armonik_transport::http2::TransportConfig;
 use armonik_transport::options::{ChannelOptions, LARGEST_WINDOW};
 use armonik_transport::reexports::http::Uri;
 
-// What a configuration that names neither gets. One each, because the header promises a host that
-// asks for nothing a channel it can drive without ever holding two of anything.
+// What a configuration that names neither gets: one each, the smallest window either admits.
 const MAX_SENDS_IN_FLIGHT: i32 = 1;
 const DELIVERY_CREDITS: i32 = 1;
 

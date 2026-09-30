@@ -130,7 +130,7 @@ fn terminal(kinds: &[ak_event_kind]) -> usize {
         .expect("the terminal was awaited")
 }
 
-/// Sends and answers interleaved across the ABI, one window and one held event at a time.
+/// Sends and answers interleaved across the ABI, one message each way at a time.
 #[test]
 fn a_bidi_call_crosses_the_abi_with_sends_and_answers_interleaved() {
     let fixture = Host::connected();
@@ -140,11 +140,10 @@ fn a_bidi_call_crosses_the_abi_with_sends_and_answers_interleaved() {
     for (sent, message) in SENT.iter().enumerate() {
         write_one(host, call, message, sent + 1);
 
-        // The engine holds one undelivered event per call, so the answer to this message is
-        // what arrives next - and consuming it is what lets the following one through.
+        // The echo answers a message only after receiving it, so the answer to this message is
+        // what arrives next.
         let seen = host.recorder.await_messages(sent + 1);
         assert_eq!(seen.message_payloads()[sent], message.to_vec());
-        host.recorder.consume_all();
     }
 
     assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);

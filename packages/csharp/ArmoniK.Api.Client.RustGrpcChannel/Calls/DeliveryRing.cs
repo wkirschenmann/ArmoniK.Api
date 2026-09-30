@@ -23,11 +23,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 /// <summary>What one call has been delivered and has not given back.</summary>
 ///
-/// A bounded queue of exactly the delivery window, written by the engine's callback thread and
-/// read by one consumer. Two jobs, and they are the same array on purpose: the bound is what tells
-/// the engine the host is not keeping up, and the occupancy is the record of what is still owed -
-/// a payload stays the engine's until this releases it, so the queue is where an event waits for
-/// a consumer *and* what a drain finds if the reader goes away mid-decode.
+/// A bounded queue of the delivery window and one slot for the terminal, written by the engine's
+/// callback thread and read by one consumer. Two jobs, and they are the same array on purpose:
+/// the bound is what tells the engine the host is not keeping up, and the occupancy is the record
+/// of what is still owed - a payload stays the engine's until this releases it, so the queue is
+/// where an event waits for a consumer *and* what a drain finds if the reader goes away
+/// mid-decode.
 ///
 /// The borrow is the reason nothing here dequeues: the slot the consumer is decoding stays in the
 /// queue, at the tail, until <see cref="Release" /> gives its payload back. That is the lifetime

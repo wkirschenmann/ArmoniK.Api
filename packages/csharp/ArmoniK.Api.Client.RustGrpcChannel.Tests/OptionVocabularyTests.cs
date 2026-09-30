@@ -85,7 +85,7 @@ public class OptionVocabularyTests
   /// <summary>An option of this channel that `GrpcClient` has no name for.</summary>
   private static readonly IReadOnlyDictionary<string, string> Ours = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                      {
-                                                                       ["DeliveryCredits"] = "how many events the engine may hold for an unread call, which only this ABI has",
+                                                                       ["DeliveryCredits"] = "the delivery window, which only this ABI has",
                                                                        ["MaxSendsInFlight"] = "the send window, which only this ABI has",
                                                                        ["MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["UserAgent"] = "grpc-dotnet writes its own and offers no option",

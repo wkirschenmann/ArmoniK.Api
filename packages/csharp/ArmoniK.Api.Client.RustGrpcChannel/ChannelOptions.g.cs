@@ -62,7 +62,10 @@ public sealed class ChannelOptions
     UserAgent = other.UserAgent;
   }
 
-  /// <summary>How many events the engine may hold for a call the host has not read from.</summary>
+  /// <summary>
+  ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
+  ///   The terminal status takes none, so a host holds at most one more.
+  /// </summary>
   /// <remarks>Defaults to 1.</remarks>
   [JsonPropertyName("DeliveryCredits")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

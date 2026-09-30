@@ -112,8 +112,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <remarks>
   ///   Resolved into the document a channel sends, so the engine is never left to apply its own -
   ///   which is what keeps the ring this side sizes and the credits that side grants the same
-  ///   number. One, because a host that asks for nothing gets a channel it can drive without ever
-  ///   holding two of anything.
+  ///   number. One, the smallest window the option admits: a host that asks for nothing holds at
+  ///   most one payload of a call and its terminal status.
   /// </remarks>
   public const int DefaultDeliveryCredits = 1;
 
@@ -201,7 +201,7 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   /// <summary>Opens a channel with a delivery window, and the engine's defaults elsewhere.</summary>
   /// <param name="endpoint">Where the channel connects.</param>
-  /// <param name="deliveryCredits">How many events the engine may hold for an unread call.</param>
+  /// <param name="deliveryCredits">How many of a call's payloads the host may hold at once, the terminal status aside.</param>
   /// <exception cref="ArgumentOutOfRangeException">The window is outside what is admitted.</exception>
   /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
   /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
