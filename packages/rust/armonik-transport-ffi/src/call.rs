@@ -9,7 +9,9 @@ use armonik_transport::grpc::{
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
-use crate::abi::{ak_buffer, ak_bytes, ak_call_debt, ak_event_kind, ak_handle, ak_status};
+use crate::abi::{
+    ak_buffer, ak_bytes, ak_call_debt, ak_event_kind, ak_handle, ak_head_origin, ak_status,
+};
 use crate::blob;
 use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
@@ -562,14 +564,22 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
 
 /// Everything the read side does before the terminal: the head, then a message at a time.
 async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatus {
-    let head = match recv.recv_head().await {
-        Ok(head) => blob::encode_metadata(&head.metadata),
-        Err(_) => blob::encode_metadata(&Metadata::new()),
+    let (head, origin) = match recv.recv_head().await {
+        Ok(head) => (
+            blob::encode_metadata(&head.metadata),
+            ak_head_origin::from(head.origin),
+        ),
+        // The driver was dropped before it handed over a head, so none reached the call.
+        Err(_) => (
+            blob::encode_metadata(&Metadata::new()),
+            ak_head_origin::AK_HEAD_NO_RESPONSE,
+        ),
     };
     let delivered_head = deliver(
         state,
         ak_event_kind::AK_EVENT_INITIAL_METADATA,
         Bytes::from(head),
+        origin as i32,
     )
     .await;
 
@@ -584,7 +594,7 @@ async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatu
 
         match recv.next_message().await {
             Ok(RecvResult::Message(message)) => {
-                if !deliver(state, ak_event_kind::AK_EVENT_MESSAGE, message.data).await {
+                if !deliver(state, ak_event_kind::AK_EVENT_MESSAGE, message.data, 0).await {
                     break GrpcStatus::cancelled();
                 }
             }
@@ -600,7 +610,7 @@ async fn reclaim(state: &Arc<CallState>) {
     crate::lifecycle::call_settled(state.handle);
 }
 
-async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes) -> bool {
+async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes, code: i32) -> bool {
     let permit = tokio::select! {
         biased;
         permit = state.credits.acquire() => permit,
@@ -614,7 +624,7 @@ async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes) -> bo
     }
 
     let payload = lend_payload(state, data, true);
-    state.in_callback(|| state.host.deliver(state.ctx, kind, payload, 0));
+    state.in_callback(|| state.host.deliver(state.ctx, kind, payload, code));
     true
 }
 

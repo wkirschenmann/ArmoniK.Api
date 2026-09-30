@@ -332,7 +332,8 @@ pub enum HeadOrigin {
     /// The peer's response headers were delivered.
     Wire,
     /// A response arrived and delivered no head - the Trailers-Only shape, or
-    /// an answer refused before its body. The status says what it said.
+    /// an answer refused before its body. The status is the call's: the
+    /// peer's, unless the call was stopped here first.
     TrailersOnly,
     /// No response reached the call: it failed or was cancelled first.
     NoResponse,
@@ -1008,8 +1009,10 @@ ak_status ak_call_cancel(ak_call_handle call);
 // wire carried none. Hosts therefore need no special case, and the property the
 // binding relies on - the first event of a call is always the metadata - holds
 // at this boundary rather than being inherited from HTTP/2. A host that must
-// distinguish the two reads it off the terminal: Trailers-Only carries its
-// status in the trailing metadata with no headers preceding it.
+// tell them apart reads the event's status_code, an ak_head_origin: the peer's
+// headers (zero, so a host that ignores the field takes every head for the
+// peer's), a response that delivered none - Trailers-Only, whose trailers the
+// terminal carries - or no response at all.
 // The synthesized event is empty but not free: it takes a delivery credit like
 // any other, so it carries a real owner and must be consumed. len == 0 with a
 // non-NULL owner is the normal shape here.
@@ -1262,13 +1265,24 @@ typedef enum {
 // refinement rule allows, level 1 never writing level-0 state.
 
 typedef enum {
-    AK_EVENT_INITIAL_METADATA   = 1,  // payload = metadata blob (owned)
+    AK_EVENT_INITIAL_METADATA   = 1,  // payload = metadata blob (owned), status_code = its origin
     AK_EVENT_MESSAGE            = 2,  // payload = message bytes (owned)
     AK_EVENT_STATUS             = 3,  // terminal - payload = status + trailing metadata (owned)
     AK_EVENT_WRITE_DONE         = 4,  // the accepted send is settled; its slot is already free
     AK_EVENT_SHUTDOWN_COMPLETE  = 5,  // the runtime has stopped running
     AK_EVENT_RESOURCES_RELEASED = 6,  // and now nothing of it is outstanding
 } ak_event_kind;
+
+// Carried by AK_EVENT_INITIAL_METADATA in status_code: where the head came
+// from - see the normalization note at ak_call_cancel. Zero is the peer's
+// headers, so a host that ignores the field takes every head for the peer's.
+typedef enum {
+    AK_HEAD_RECEIVED      = 0,  // the peer's response headers
+    AK_HEAD_TRAILERS_ONLY = 1,  // a response came and delivered no head; the
+                                // terminal is the call's status, the peer's
+                                // unless the call was stopped here first
+    AK_HEAD_NO_RESPONSE   = 2,  // no response reached the call
+} ak_head_origin;
 
 // Carried by AK_EVENT_SHUTDOWN_COMPLETE and by nothing else: whether the host
 // still holds memory of this runtime - a payload not yet consumed, or a buffer
@@ -1319,7 +1333,8 @@ typedef enum {
 typedef struct {
     ak_event_kind    kind;
     ak_bytes         payload;      // owned - host must call ak_event_consumed
-    int32_t          status_code;  // grpc status (AK_EVENT_STATUS only)
+    int32_t          status_code;  // grpc status (AK_EVENT_STATUS), ak_head_origin
+                                   // (AK_EVENT_INITIAL_METADATA), zero otherwise
     ak_host_debt     host_debt;    // AK_EVENT_SHUTDOWN_COMPLETE only
 } ak_event;
 

@@ -19,8 +19,8 @@ pub enum HeadOrigin {
     /// The peer's response headers were delivered.
     Wire,
     /// A response arrived and no head was delivered from it: the Trailers-Only shape, or an
-    /// answer this engine refuses before its body, such as one that is not gRPC. What the
-    /// response said is in the status.
+    /// answer this engine refuses before its body, such as one that is not gRPC. The status is
+    /// the call's: the peer's, unless the call was stopped here first.
     TrailersOnly,
     /// No response reached the call: it failed or was cancelled before the peer answered.
     NoResponse,

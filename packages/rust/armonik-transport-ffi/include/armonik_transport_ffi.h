@@ -136,13 +136,25 @@ typedef enum {
 /* === Events === */
 
 typedef enum {
-    AK_EVENT_INITIAL_METADATA   = 1, /* payload = metadata blob (owned) */
+    AK_EVENT_INITIAL_METADATA   = 1, /* payload = metadata blob (owned), status_code = its origin */
     AK_EVENT_MESSAGE            = 2, /* payload = message bytes (owned) */
     AK_EVENT_STATUS             = 3, /* terminal - payload = reason + trailers (owned) */
     AK_EVENT_WRITE_DONE         = 4, /* an accepted send is settled; its slot is already free */
     AK_EVENT_SHUTDOWN_COMPLETE  = 5, /* the runtime has stopped running */
     AK_EVENT_RESOURCES_RELEASED = 6, /* and now nothing of it is outstanding */
 } ak_event_kind;
+
+/* Carried by AK_EVENT_INITIAL_METADATA in status_code: where the head came from. The event comes
+ * first on every call, and its metadata is empty unless the peer's headers were delivered. Zero is
+ * the peer's headers, so a host that ignores the field takes every head for the peer's. */
+typedef enum {
+    AK_HEAD_RECEIVED      = 0, /* the peer's response headers */
+    AK_HEAD_TRAILERS_ONLY = 1, /* a response came and delivered no head - the Trailers-Only shape,
+                                  or an answer refused before its body; the terminal is the
+                                  call's status, the peer's unless the call was stopped here
+                                  first */
+    AK_HEAD_NO_RESPONSE   = 2, /* no response reached the call */
+} ak_head_origin;
 
 /* Carried by AK_EVENT_SHUTDOWN_COMPLETE and by nothing else. */
 typedef enum {
@@ -159,7 +171,8 @@ typedef enum {
 typedef struct {
     ak_event_kind kind;
     ak_bytes      payload;
-    int32_t       status_code; /* gRPC status, AK_EVENT_STATUS only */
+    int32_t       status_code; /* gRPC status for AK_EVENT_STATUS, ak_head_origin for
+                                  AK_EVENT_INITIAL_METADATA, zero on every other event */
     ak_host_debt  host_debt;   /* AK_EVENT_SHUTDOWN_COMPLETE only */
 } ak_event;
 

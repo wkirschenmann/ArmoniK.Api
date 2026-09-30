@@ -51,6 +51,69 @@ fn a_second_runtime_is_refused_while_the_first_is_alive() {
     );
 }
 
+/// The head event says where the head came from, in its status_code: the peer's headers, a
+/// response that delivered none, or no response at all.
+#[test]
+fn a_head_event_says_where_the_head_came_from() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let served = host.channel(&server.endpoint);
+    // A port bound and let go, so nothing listens on it when the call dials.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("an ephemeral port")
+        .local_addr()
+        .expect("its address")
+        .port();
+    let unreachable = host.channel(&format!("http://127.0.0.1:{port}"));
+
+    for (what, channel, method, origin) in [
+        ("headers", served, ECHO, ak_head_origin::AK_HEAD_RECEIVED),
+        (
+            "a Trailers-Only error",
+            served,
+            FAIL,
+            ak_head_origin::AK_HEAD_TRAILERS_ONLY,
+        ),
+        (
+            "no peer",
+            unreachable,
+            ECHO,
+            ak_head_origin::AK_HEAD_NO_RESPONSE,
+        ),
+    ] {
+        let heads = || {
+            host.recorder
+                .kinds()
+                .iter()
+                .filter(|kind| **kind == ak_event_kind::AK_EVENT_INITIAL_METADATA)
+                .count()
+        };
+        let before = heads();
+        let call = start_call(channel, method, &blob(&[]));
+        // Nothing is lent to a call with no peer: it may have ended before the lend.
+        if origin == ak_head_origin::AK_HEAD_NO_RESPONSE {
+            let _ = ak_call_end_send(call);
+        } else {
+            send_one(call, b"x");
+        }
+        support::poll_until(|| heads() == before + 1, || format!("{what}: no head yet"));
+
+        let head = host
+            .recorder
+            .last_of(ak_event_kind::AK_EVENT_INITIAL_METADATA)
+            .expect("the head just seen");
+        assert_eq!(head.status_code, origin as i32, "{what}");
+        if origin != ak_head_origin::AK_HEAD_RECEIVED {
+            assert_eq!(head.payload, blob(&[]), "{what}: an empty head");
+        }
+        support::await_call_reclaimed(call);
+    }
+
+    ak_channel_release(served);
+    ak_channel_release(unreachable);
+    host.stop();
+}
+
 #[test]
 fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
     let fixture = Host::connected();

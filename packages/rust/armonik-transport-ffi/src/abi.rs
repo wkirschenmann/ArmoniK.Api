@@ -1,12 +1,14 @@
 //! The C ABI's types, as Rust sees them.
 //!
 //! Every discriminant, field order and size here is `include/armonik_transport_ffi.h`. Nothing in
-//! this file may be changed without changing that header and `ak_abi_version` with it: a binding
-//! built against the old header would keep loading, and read the wrong bytes.
+//! this file may be changed without changing that header, and once the ABI is published
+//! `ak_abi_version` with it: a binding built against the old header would keep loading, and read
+//! the wrong bytes. Until then no host outside this repository is compiled against it, which is
+//! why the version stays 1 (tasks.md, T4.0).
 
 use std::ffi::c_void;
 
-use armonik_transport::grpc::ChannelError;
+use armonik_transport::grpc::{ChannelError, HeadOrigin};
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +43,25 @@ pub enum ak_event_kind {
     AK_EVENT_WRITE_DONE = 4,
     AK_EVENT_SHUTDOWN_COMPLETE = 5,
     AK_EVENT_RESOURCES_RELEASED = 6,
+}
+
+/// Where a call's head came from, in its INITIAL_METADATA event's `status_code`.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ak_head_origin {
+    AK_HEAD_RECEIVED = 0,
+    AK_HEAD_TRAILERS_ONLY = 1,
+    AK_HEAD_NO_RESPONSE = 2,
+}
+
+impl From<HeadOrigin> for ak_head_origin {
+    fn from(origin: HeadOrigin) -> Self {
+        match origin {
+            HeadOrigin::Wire => Self::AK_HEAD_RECEIVED,
+            HeadOrigin::TrailersOnly => Self::AK_HEAD_TRAILERS_ONLY,
+            HeadOrigin::NoResponse => Self::AK_HEAD_NO_RESPONSE,
+        }
+    }
 }
 
 #[repr(i32)]

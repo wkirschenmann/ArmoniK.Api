@@ -83,6 +83,7 @@ fn every_enum_the_abi_crosses_is_an_int() {
     assert_eq!(size_of::<ak_event_kind>(), 4);
     assert_eq!(size_of::<ak_host_debt>(), 4);
     assert_eq!(size_of::<ak_channel_state>(), 4);
+    assert_eq!(size_of::<ak_head_origin>(), 4);
 }
 
 #[test]
@@ -157,11 +158,11 @@ fn without_comments(header: &str) -> String {
     kept
 }
 
-/// The header calls `ak_event.status_code` a gRPC status, and the library fills it by casting a
-/// `GrpcStatusCode` straight to `i32` - a dependency's discriminants, published under a promise
-/// about the specification's. Written out rather than derived, for the reason the enum list below
-/// is: two statements of the same numbering are what make a comparison, and reading them from one
-/// place would compare a thing to itself.
+/// The header calls `ak_event.status_code` a gRPC status on AK_EVENT_STATUS, and the library
+/// fills it by casting a `GrpcStatusCode` straight to `i32` - a dependency's discriminants,
+/// published under a promise about the specification's. Written out rather than derived, for the
+/// reason the enum list below is: two statements of the same numbering are what make a comparison,
+/// and reading them from one place would compare a thing to itself.
 ///
 /// Exhaustive on purpose. A variant added to that set, or renamed, does not compile here, which
 /// is the last moment before a host reads a number nothing checked.
@@ -279,6 +280,15 @@ fn every_enum_value_is_the_one_the_header_gives_it() {
         (
             "AK_EVENT_RESOURCES_RELEASED",
             ak_event_kind::AK_EVENT_RESOURCES_RELEASED as i32,
+        ),
+        ("AK_HEAD_RECEIVED", ak_head_origin::AK_HEAD_RECEIVED as i32),
+        (
+            "AK_HEAD_TRAILERS_ONLY",
+            ak_head_origin::AK_HEAD_TRAILERS_ONLY as i32,
+        ),
+        (
+            "AK_HEAD_NO_RESPONSE",
+            ak_head_origin::AK_HEAD_NO_RESPONSE as i32,
         ),
         (
             "AK_HOST_NOTHING_TO_RETURN",
