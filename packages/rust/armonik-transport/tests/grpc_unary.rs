@@ -2,7 +2,7 @@ mod common;
 
 use armonik_transport::grpc::{
     CallError, CallStartOptions, ChannelError, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
-    MetadataValue,
+    HeadOrigin, MetadataValue,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use bytes::Bytes;
@@ -566,6 +566,93 @@ async fn a_length_no_address_can_hold_is_refused_rather_than_reserved() {
     )
     .await;
     assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+}
+
+/// A head says where it came from: headers the peer sent, a response that delivered none, or no
+/// response at all. Only headers the peer sent have metadata, whatever the call ends with.
+#[tokio::test]
+async fn a_head_says_where_it_came_from() {
+    let server = TestServer::start().await;
+    let served = channel(&server.endpoint);
+    let unreachable = channel(&closed_port().await);
+
+    for (what, channel, method, origin, head_key) in [
+        // First, so nothing takes the port between its release and this dial.
+        ("no peer", &unreachable, ECHO, HeadOrigin::NoResponse, None),
+        ("headers", &served, ECHO, HeadOrigin::Wire, None),
+        (
+            "headers, then an error",
+            &served,
+            "/raw/HeadThenError",
+            HeadOrigin::Wire,
+            Some("x-head"),
+        ),
+        (
+            "a Trailers-Only OK",
+            &served,
+            "/raw/TrailersOnlyOk",
+            HeadOrigin::TrailersOnly,
+            None,
+        ),
+        (
+            "a Trailers-Only error",
+            &served,
+            FAIL,
+            HeadOrigin::TrailersOnly,
+            None,
+        ),
+        (
+            "an HTTP 404",
+            &served,
+            "/raw/NotFound",
+            HeadOrigin::TrailersOnly,
+            None,
+        ),
+        (
+            "an answer that is not gRPC",
+            &served,
+            "/raw/NotGrpc",
+            HeadOrigin::TrailersOnly,
+            None,
+        ),
+    ] {
+        let (mut send, mut recv, _control) = channel
+            .start_call(CallStartOptions::new(method))
+            .expect("the call starts")
+            .split();
+        let _ = send.send_message(Bytes::from_static(b"x")).await;
+        let _ = send.end_send().await;
+
+        let head = recv.recv_head().await.expect("a head, even an empty one");
+        assert_eq!(head.origin, origin, "{what}");
+        match head_key {
+            Some(key) => assert!(
+                head.metadata.get(key).is_some(),
+                "{what}: {:?}",
+                head.metadata
+            ),
+            None if origin != HeadOrigin::Wire => {
+                assert!(head.metadata.is_empty(), "{what}: {:?}", head.metadata)
+            }
+            None => {}
+        }
+    }
+
+    // A server that has the request and never answers, and a caller that gives up on it. Dialled
+    // first and given a moment, so the request is on its way when the call is cancelled.
+    served.connect().await.expect("the server is up");
+    let (mut send, mut recv, control) = served
+        .start_call(CallStartOptions::new(SLOW))
+        .expect("the call starts")
+        .split();
+    let _ = send.send_message(Bytes::from_static(b"x")).await;
+    let _ = send.end_send().await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    control.cancel();
+
+    let head = recv.recv_head().await.expect("a head, even an empty one");
+    assert_eq!(head.origin, HeadOrigin::NoResponse, "a call given up on");
+    assert!(head.metadata.is_empty(), "{:?}", head.metadata);
 }
 
 /// A reset is not a lost connection, and the code says which.

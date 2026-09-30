@@ -8,7 +8,8 @@ mod metadata;
 mod status;
 
 pub use call::{
-    CallControl, CallStartOptions, GrpcCall, OwnedMessage, RecvHalf, RecvResult, SendHalf,
+    CallControl, CallStartOptions, GrpcCall, HeadOrigin, OwnedMessage, RecvHalf, RecvResult,
+    ResponseHead, SendHalf,
 };
 pub use channel::{GrpcChannel, GrpcChannelConfig};
 pub use error::{CallError, ChannelError, GrpcChannelConfigError};

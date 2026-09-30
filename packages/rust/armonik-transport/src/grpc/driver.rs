@@ -9,7 +9,7 @@ use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tonic::metadata::MetadataMap;
 use tonic::Code;
 
-use super::call::{CallControl, OwnedMessage, RequestMessages};
+use super::call::{Answered, CallControl, HeadOrigin, OwnedMessage, RequestMessages, ResponseHead};
 use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
@@ -25,7 +25,7 @@ impl Driving {
     pub(crate) fn new(
         over: watch::Receiver<bool>,
         channel_closed: watch::Receiver<bool>,
-        head: oneshot::Sender<Metadata>,
+        head: oneshot::Sender<ResponseHead>,
         messages: mpsc::Sender<OwnedMessage>,
         terminal: oneshot::Sender<GrpcStatus>,
         control: CallControl,
@@ -37,6 +37,7 @@ impl Driving {
             },
             delivery: Delivery {
                 head: Some(head),
+                answered: Answered::default(),
                 messages,
                 terminal: Some(terminal),
             },
@@ -102,7 +103,8 @@ async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Opt
     }
 }
 
-/// The three things a call hands its reader, each on its own channel.
+/// The three things a call hands its reader, each on its own channel, and whether a response
+/// came, which decides the head when none was delivered.
 ///
 /// The terminal has one of its own because it is the only one that must arrive. Sharing the
 /// message queue would mean waiting for room in it, and that wait would need a bound: a channel
@@ -110,15 +112,16 @@ async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Opt
 /// answered OK would reach its reader as `Aborted` - through the FFI, a host reading `Cancelled`
 /// for a call it has the response to, and retrying what it must not repeat.
 struct Delivery {
-    head: Option<oneshot::Sender<Metadata>>,
+    head: Option<oneshot::Sender<ResponseHead>>,
+    answered: Answered,
     messages: mpsc::Sender<OwnedMessage>,
     terminal: Option<oneshot::Sender<GrpcStatus>>,
 }
 
 impl Delivery {
-    fn head(&mut self, metadata: Metadata) {
+    fn head(&mut self, metadata: Metadata, origin: HeadOrigin) {
         if let Some(head) = self.head.take() {
-            let _ = head.send(metadata);
+            let _ = head.send(ResponseHead { metadata, origin });
         }
     }
 
@@ -128,11 +131,19 @@ impl Delivery {
 
     /// Publishes the status and lets the message queue end.
     ///
+    /// A head still owed goes out first, empty: `TrailersOnly` if a response came, `NoResponse`
+    /// if none did.
+    ///
     /// Nothing to wait for: the reader takes what is queued, finds the sender gone, and reads the
     /// terminal here. `self` by value, so the queue closes when this returns even on the paths
     /// that never got a status out.
     fn end(mut self, status: GrpcStatus) {
-        self.head(Metadata::new());
+        let origin = if self.answered.marked() {
+            HeadOrigin::TrailersOnly
+        } else {
+            HeadOrigin::NoResponse
+        };
+        self.head(Metadata::new(), origin);
         if let Some(terminal) = self.terminal.take() {
             let _ = terminal.send(status);
         }
@@ -157,7 +168,7 @@ async fn run(
     let mut request = tonic::Request::new(messages);
     *request.metadata_mut() = MetadataMap::from_headers(metadata);
 
-    let mut client = inner.client();
+    let mut client = inner.client(delivery.answered.clone());
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return GrpcStatus::cancelled(),
         Some(Err(status)) => return GrpcStatus::from(status),
@@ -174,7 +185,7 @@ async fn run(
     if let Some(status) = tonic::Status::from_header_map(&head) {
         return GrpcStatus::from(status);
     }
-    delivery.head(Metadata::from_headers(&head));
+    delivery.head(Metadata::from_headers(&head), HeadOrigin::Wire);
 
     loop {
         match until_stopped(stop, body.message()).await {

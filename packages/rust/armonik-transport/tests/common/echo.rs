@@ -92,9 +92,10 @@ pub async fn ends_cancelled(recv: &mut RecvHalf, why: &str) {
 
 pub async fn read_to_terminal(recv: &mut RecvHalf) -> (Metadata, Vec<Bytes>, GrpcStatus) {
     let head = recv
-        .recv_initial_metadata()
+        .recv_head()
         .await
         .expect("a response head, even an empty one")
+        .metadata
         .clone();
 
     let mut messages = Vec::new();
@@ -460,6 +461,12 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             grpc_head()
                 .header("grpc-status", "5")
                 .header("grpc-message", "no%20such%20method"),
+            vec![],
+        ),
+        "TrailersOnlyOk" => (
+            grpc_head()
+                .header("grpc-status", "0")
+                .header("x-trailer", "present"),
             vec![],
         ),
         // A body that fails mid-stream, which is how hyper's server is made to send a

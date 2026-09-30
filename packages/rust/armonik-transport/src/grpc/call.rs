@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 
@@ -11,6 +12,41 @@ use super::driver::Driving;
 use super::error::CallError;
 use super::metadata::Metadata;
 use super::status::GrpcStatus;
+
+/// Where a call's response head came from. The head's metadata is empty unless it is `Wire`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HeadOrigin {
+    /// The peer's response headers were delivered.
+    Wire,
+    /// A response arrived and no head was delivered from it: the Trailers-Only shape, or an
+    /// answer this engine refuses before its body, such as one that is not gRPC. What the
+    /// response said is in the status.
+    TrailersOnly,
+    /// No response reached the call: it failed or was cancelled before the peer answered.
+    NoResponse,
+}
+
+/// A call's response head: its metadata, and where it came from.
+#[derive(Clone, Debug)]
+pub struct ResponseHead {
+    pub metadata: Metadata,
+    pub origin: HeadOrigin,
+}
+
+/// Marked by the call's service once the peer's HTTP response is in, which is what tells a call no
+/// response reached from one whose response delivered no head.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Answered(Arc<AtomicBool>);
+
+impl Answered {
+    pub(crate) fn mark(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn marked(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -102,18 +138,18 @@ pub struct RecvHalf {
 
 #[derive(Debug)]
 enum Head {
-    Pending(oneshot::Receiver<Metadata>),
-    Ready(Metadata),
+    Pending(oneshot::Receiver<ResponseHead>),
+    Ready(ResponseHead),
     Lost,
 }
 
 impl RecvHalf {
-    pub async fn recv_initial_metadata(&mut self) -> Result<&Metadata, CallError> {
+    pub async fn recv_head(&mut self) -> Result<&ResponseHead, CallError> {
         if let Head::Pending(pending) = &mut self.head {
             self.head = pending.await.map_or(Head::Lost, Head::Ready);
         }
         match &self.head {
-            Head::Ready(metadata) => Ok(metadata),
+            Head::Ready(head) => Ok(head),
             _ => Err(CallError::Aborted),
         }
     }

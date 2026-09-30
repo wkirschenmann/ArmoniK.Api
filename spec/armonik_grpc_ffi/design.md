@@ -306,16 +306,36 @@ impl SendHalf {
 }
 
 impl RecvHalf {
-    /// Retrieves the initial metadata (HTTP/2 headers from the response).
-    /// Blocks until reception or terminal. On a Trailers-Only response the
-    /// server sends no headers, and this yields an empty Metadata rather
-    /// than an error - see the normalization note in the ABI section.
-    pub async fn recv_initial_metadata(&mut self) -> Result<&Metadata, CallError>;
+    /// Retrieves the response head: the initial metadata (HTTP/2 headers
+    /// from the response) and where it came from - the peer's headers, a
+    /// response that delivered none (Trailers-Only), or no response at all.
+    /// Blocks until reception or terminal. Without headers from the peer the
+    /// metadata is empty rather than an error - see the normalization note
+    /// in the ABI section.
+    pub async fn recv_head(&mut self) -> Result<&ResponseHead, CallError>;
 
     /// Retrieves the next message or the terminal status.
     /// Each call implicitly constitutes a request for one message (natural backpressure).
     /// Returns End(GrpcStatus) when the stream is finished - this is the call's terminal.
     pub async fn next_message(&mut self) -> Result<RecvResult, CallError>;
+}
+
+/// A call's response head, first on every call.
+pub struct ResponseHead {
+    /// Empty unless the origin is Wire.
+    pub metadata: Metadata,
+    pub origin: HeadOrigin,
+}
+
+/// Where a response head came from.
+pub enum HeadOrigin {
+    /// The peer's response headers were delivered.
+    Wire,
+    /// A response arrived and delivered no head - the Trailers-Only shape, or
+    /// an answer refused before its body. The status says what it said.
+    TrailersOnly,
+    /// No response reached the call: it failed or was cancelled first.
+    NoResponse,
 }
 
 /// Reception result: a message or the end of the stream (status + trailing metadata).

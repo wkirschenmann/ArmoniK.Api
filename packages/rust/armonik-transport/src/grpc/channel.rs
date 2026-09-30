@@ -18,7 +18,7 @@ use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
-use super::call::{self, CallStartOptions, GrpcCall};
+use super::call::{self, Answered, CallStartOptions, GrpcCall};
 use super::contained::contained;
 use super::driver::{self, Outgoing};
 use super::error::ChannelError;
@@ -199,10 +199,17 @@ struct Session {
 
 impl Inner {
     /// A tonic client over this channel's session. One per call, and cheap: it holds the
-    /// session's handle and its configuration, not a connection of its own.
-    pub(crate) fn client(self: &Arc<Self>) -> tonic::client::Grpc<Http2> {
-        tonic::client::Grpc::with_origin(Http2(Arc::clone(self)), self.endpoint.clone())
-            .max_decoding_message_size(addressable(self.max_recv_message_size))
+    /// session's handle and its configuration, not a connection of its own - and the call's
+    /// marker, which it sets once the peer's response is in.
+    pub(crate) fn client(self: &Arc<Self>, answered: Answered) -> tonic::client::Grpc<Http2> {
+        tonic::client::Grpc::with_origin(
+            Http2 {
+                inner: Arc::clone(self),
+                answered,
+            },
+            self.endpoint.clone(),
+        )
+        .max_decoding_message_size(addressable(self.max_recv_message_size))
     }
 
     /// The channel's connection, dialling it if there is none.
@@ -311,7 +318,10 @@ impl Inner {
 /// Ready at once: the session is dialled or joined inside `call`, where a call that goes away
 /// detaches from the dial instead of cancelling it for every call waiting on it.
 #[derive(Clone)]
-pub(crate) struct Http2(Arc<Inner>);
+pub(crate) struct Http2 {
+    inner: Arc<Inner>,
+    answered: Answered,
+}
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
 /// `expect` wherever it reads a status, so a peer that sent it malformed would panic the call's
@@ -338,7 +348,8 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
     }
 
     fn call(&mut self, mut request: http::Request<tonic::body::Body>) -> Self::Future {
-        let inner = Arc::clone(&self.0);
+        let inner = Arc::clone(&self.inner);
+        let answered = self.answered.clone();
         Box::pin(async move {
             request
                 .headers_mut()
@@ -357,6 +368,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 .send_request(request)
                 .await
                 .map_err(|error| worded(GrpcStatus::request_lost(&error)))?;
+            answered.mark();
             response.headers_mut().remove(GRPC_STATUS_DETAILS);
             refuse_what_is_not_grpc(&response)?;
             let response = refuse_a_message_behind_a_stated_status(response).await?;

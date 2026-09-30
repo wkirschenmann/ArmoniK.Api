@@ -562,8 +562,8 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
 
 /// Everything the read side does before the terminal: the head, then a message at a time.
 async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatus {
-    let head = match recv.recv_initial_metadata().await {
-        Ok(metadata) => blob::encode_metadata(metadata),
+    let head = match recv.recv_head().await {
+        Ok(head) => blob::encode_metadata(&head.metadata),
         Err(_) => blob::encode_metadata(&Metadata::new()),
     };
     let delivered_head = deliver(
