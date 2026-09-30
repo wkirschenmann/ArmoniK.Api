@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
@@ -23,44 +24,42 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 ///   A waiter takes <see cref="Next" /> before it looks at what it waits for, and awaits it only
 ///   when the look found nothing: a change after the look sets the wait already taken, and one
 ///   before it the look saw. With nothing kept, no waiter can take a wake-up another needed.
+///   <see cref="Set" /> never blocks and takes no lock: the engine's callback thread is among the
+///   threads that run it, and it must not wait on a host thread.
 /// </remarks>
 internal sealed class ArrivalSignal
 {
-  private readonly object gate_ = new();
-
   private TaskCompletionSource<bool> arrived_ = Pending();
 
-  // Whether a wait was taken on `arrived_`, so a set with no wait taken since the last one
-  // allocates nothing.
-  private bool waited_;
+  // 1 once a wait may have been taken on `arrived_`, so a set with none taken since the last one
+  // allocates nothing. A waiter that read the task just before a swap raises it against the old
+  // one, which costs the next set an allocation for nobody.
+  private int waited_;
 
   private static TaskCompletionSource<bool> Pending()
     => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
   internal Task Next()
   {
-    lock (gate_)
-    {
-      waited_ = true;
-      return arrived_.Task;
-    }
+    // The task, then the flag, the flag with a full fence. A set that swaps the task after it
+    // was read completes it; one that finds no flag came before the flag went up, so the look
+    // that follows this sees whatever that set was for.
+    var arrived = Volatile.Read(ref arrived_);
+    Interlocked.Exchange(ref waited_,
+                         1);
+    return arrived.Task;
   }
 
   internal void Set()
   {
-    TaskCompletionSource<bool> arrived;
-    lock (gate_)
+    if (Interlocked.Exchange(ref waited_,
+                             0) == 0)
     {
-      if (!waited_)
-      {
-        return;
-      }
-
-      waited_  = false;
-      arrived  = arrived_;
-      arrived_ = Pending();
+      return;
     }
 
-    arrived.TrySetResult(true);
+    Interlocked.Exchange(ref arrived_,
+                         Pending())
+               .TrySetResult(true);
   }
 }

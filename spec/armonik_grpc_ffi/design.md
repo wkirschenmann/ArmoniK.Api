@@ -1959,9 +1959,9 @@ native actor free to make progress, so it is a rule and not a preference:
 
 - every `TaskCompletionSource` is built with `RunContinuationsAsynchronously`;
 - `RingSignal` wakes every wait taken before a `Set` and keeps nothing for one
-  taken after, and its `Set` never runs a waiter inline - a `TaskCompletionSource`
-  built with `RunContinuationsAsynchronously`, completed and replaced by a `Set`
-  that has a wait to wake;
+  taken after, and its `Set` never runs a waiter inline and takes no lock - a
+  `TaskCompletionSource` built with `RunContinuationsAsynchronously`, swapped out
+  atomically and completed by a `Set` that has a wait to wake;
 - **never `SemaphoreSlim`.** Its `Release` can complete a `WaitAsync` waiter inline
   depending on the runtime version, which would put application code on the Tokio thread
   through the back door the two flags close at the front.
