@@ -561,12 +561,12 @@ makes the JSON strict: the type in the schema is the type the reader enforces.
 - **A duration is a number of seconds, and the option's name carries the unit** -
   `ConnectTimeoutSeconds`, not `ConnectTimeout`. A `Duration` derives `{ secs, nanos }`, which is
   a memory layout rather than anything a document writes. ISO-8601 was weighed and refused: it is
-  the registered `format: duration`, and it would justify a `TimeSpan`, but `exclusiveMinimum` is
-  a numeric keyword that a string instance makes *ignored* rather than violated - so the schema
-  would silently stop stating that zero is refused, against the rule that every constraint which
-  can be said in the schema is said there. It also admits `P1Y`, which is not a fixed duration, so
-  a conforming validator would accept documents the engine refuses. The unit therefore lives in
-  the name, where it costs no converter on either side.
+  the registered `format: duration`, and it would justify a `TimeSpan`, but `minimum` is a numeric
+  keyword that a string instance makes *ignored* rather than violated - so the schema would
+  silently stop stating the shortest duration it admits, against the rule that every constraint
+  which can be said in the schema is said there. It also admits `P1Y`, which is not a fixed
+  duration, so a conforming validator would accept documents the engine refuses. The unit
+  therefore lives in the name, where it costs no converter on either side.
 - **A count is an `int`, not a `uint`, and a check is what states the constraint.** `uint`
   excludes a negative but not zero, and zero is the value that actually breaks a window or a
   credit; it buys half the check while costing CLS compliance and a binder that handles `int`
