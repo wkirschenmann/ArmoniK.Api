@@ -68,8 +68,8 @@ impl From<tonic::Status> for GrpcStatus {
 
 /// What a broken stream means, from the RST_STREAM the peer sent.
 ///
-/// gRPC's own table, in PROTOCOL-HTTP2. Reporting every reason as UNAVAILABLE told a host that
-/// retries on it to repeat a call the peer had deliberately cancelled, and to keep repeating one
+/// gRPC's own table, in PROTOCOL-HTTP2. Reporting every reason as UNAVAILABLE would tell a host
+/// that retries on it to repeat a call the peer deliberately cancelled, and to keep repeating one
 /// that failed on a framing error that is never transient.
 ///
 /// UNAVAILABLE stays the answer for everything that is not a reset - an I/O error, a connection

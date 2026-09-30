@@ -580,7 +580,7 @@ async fn a_stream_the_peer_resets_carries_the_reason_it_was_reset_with() {
     // Both halves, because either alone would pass for the wrong reason. The message carries the
     // h2 error, which is what tells this apart from a stream that merely ended without a status -
     // that one is Internal too. And the code is Internal rather than Unavailable, which is the
-    // reason being read at all: every reset was UNAVAILABLE before, whatever it said.
+    // reason being read at all: unread, every reset would be UNAVAILABLE, whatever it said.
     assert!(status.message.contains("http2 error"), "{status}");
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
 }
