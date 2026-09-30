@@ -18,6 +18,14 @@ serde = ["dep:serde"]
 # `serde_json` because the prefix helper rewrites the generated schema's property names, and a
 # schemars 1.x schema is edited as the JSON value it wraps.
 schema = ["serde", "dep:schemars", "dep:serde_json"]
+# Points where a test runs its own code inside the engine. Off unless a test asks for it; no
+# shipped build enables it.
+test-hooks = []
+
+# Skipped without the feature: run it with `--features test-hooks`, or `--all-features`.
+[[test]]
+name = "panics"
+required-features = ["test-hooks"]
 
 [dependencies]
 # `channel` for `tonic::transport::Endpoint`, which is what `connect` builds; `codegen` for the

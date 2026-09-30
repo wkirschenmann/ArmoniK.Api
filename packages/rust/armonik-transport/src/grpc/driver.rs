@@ -1,5 +1,7 @@
 use std::future::Future;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
+use std::task::Poll;
 
 use bytes::{Buf, BufMut, Bytes};
 use http::uri::PathAndQuery;
@@ -61,7 +63,21 @@ pub(crate) async fn drive(inner: Arc<Inner>, outgoing: Outgoing, driving: Drivin
     // Held for the whole call, not released after the head. `Inner` owns the `closed` sender,
     // and a watch receiver whose senders are all gone answers like one that was told to close - so
     // a driver that let go of it would read a dropped channel handle as a cancellation.
-    let status = run(&inner, outgoing, &mut stop, &mut delivery).await;
+    //
+    // Contained, because a panic unwinding past `delivery` would drop the terminal unsent, and the
+    // caller would read a driver gone with its runtime rather than a call that failed.
+    let status = {
+        let mut running = std::pin::pin!(run(&inner, outgoing, &mut stop, &mut delivery));
+        std::future::poll_fn(|cx| {
+            catch_unwind(AssertUnwindSafe(|| running.as_mut().poll(cx))).unwrap_or_else(|_| {
+                Poll::Ready(GrpcStatus::new(
+                    Code::Internal,
+                    "the task driving the call panicked",
+                ))
+            })
+        })
+        .await
+    };
 
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.
@@ -139,6 +155,9 @@ async fn run(
     stop: &mut Stop,
     delivery: &mut Delivery,
 ) -> GrpcStatus {
+    #[cfg(feature = "test-hooks")]
+    crate::hooks::run_in_driver();
+
     let Outgoing {
         path,
         metadata,

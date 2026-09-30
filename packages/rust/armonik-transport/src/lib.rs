@@ -17,6 +17,8 @@
 mod config;
 mod connect;
 pub mod grpc;
+#[cfg(feature = "test-hooks")]
+pub mod hooks;
 pub mod http2;
 pub mod options;
 mod utils;
