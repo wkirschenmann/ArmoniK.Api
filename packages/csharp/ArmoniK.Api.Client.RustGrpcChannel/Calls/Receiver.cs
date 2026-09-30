@@ -223,11 +223,9 @@ internal sealed class Receiver<TResponse>
             throw Cancelled();
           }
 
-          // The prologue's end, not the ring's signal. The signal keeps a wake-up nobody waited
-          // for, and the next wait takes it: a read that took the head's, looped and waited again
-          // would leave the prologue, which found the ring empty just before, waiting beside it
-          // for an arrival already in the ring. The token ends this wait too, and the check above
-          // then reads it.
+          // The prologue's end, which is what this read waits for: the ring's arrivals are the
+          // prologue's until it lets go. The token ends this wait too, and the check above then
+          // reads it.
           await PrologueEndsOr(token)
             .ConfigureAwait(false);
 
@@ -277,12 +275,14 @@ internal sealed class Receiver<TResponse>
     try
     {
       // The transition is the only thing that confers ownership - the signal is a wake-up and
-      // grants nothing - and it is latched, so a publication landing between the empty
-      // observation and the wait is not lost. Leaving `waiting` is the reaction's job, not the
-      // waiter's: whatever cancels sets the signal, and the claim then answers Lost.
+      // grants nothing - and the wait is taken before the claim, so a publication landing
+      // between the empty observation and the await sets it. Leaving `waiting` is the
+      // reaction's job, not the waiter's: whatever cancels sets the signal, and the claim then
+      // answers Lost.
       // TLA: BeginParseEvent against HandoffToDrain
       while (true)
       {
+        var arrival = delivered_.NextArrival();
         var claim = TryBeginParse(op,
                                   out slot);
         if (claim == Claim.Acquired)
@@ -295,8 +295,14 @@ internal sealed class Receiver<TResponse>
           throw Cancelled();
         }
 
-        await delivered_.WaitAsync()
-                        .ConfigureAwait(false);
+#if DEBUG
+        if (TestHooks.FoundTheRingEmpty is { } hook)
+        {
+          await hook(RingConsumer.Reader)
+            .ConfigureAwait(false);
+        }
+#endif
+        await arrival.ConfigureAwait(false);
       }
     }
     catch
@@ -576,10 +582,22 @@ internal sealed class Receiver<TResponse>
     while (true)
     {
       DeliveryRing.Slot slot;
-      while (!delivered_.TryPeek(out slot))
+      while (true)
       {
-        await delivered_.WaitAsync()
-                        .ConfigureAwait(false);
+        var arrival = delivered_.NextArrival();
+        if (delivered_.TryPeek(out slot))
+        {
+          break;
+        }
+
+#if DEBUG
+        if (TestHooks.FoundTheRingEmpty is { } hook)
+        {
+          await hook(RingConsumer.Drain)
+            .ConfigureAwait(false);
+        }
+#endif
+        await arrival.ConfigureAwait(false);
       }
 
       var terminal = slot.Kind == NativeMethods.AkEventKind.Status;
@@ -758,8 +776,14 @@ internal sealed class Receiver<TResponse>
   {
     try
     {
-      while (delivered_.IsEmpty)
+      while (true)
       {
+        var arrival = delivered_.NextArrival();
+        if (!delivered_.IsEmpty)
+        {
+          break;
+        }
+
         if (call_.Ending.IsCancellationRequested)
         {
           // Cancelled or settled with nothing published. Whatever arrives now is the drain's.
@@ -767,14 +791,13 @@ internal sealed class Receiver<TResponse>
         }
 
 #if DEBUG
-        if (TestHooks.PrologueFoundTheRingEmpty is { } hook)
+        if (TestHooks.FoundTheRingEmpty is { } hook)
         {
-          await hook()
+          await hook(RingConsumer.Prologue)
             .ConfigureAwait(false);
         }
 #endif
-        await delivered_.WaitAsync()
-                        .ConfigureAwait(false);
+        await arrival.ConfigureAwait(false);
       }
 
       delivered_.TryPeek(out var slot);
@@ -803,8 +826,14 @@ internal sealed class Receiver<TResponse>
         // No headers of the peer's: the terminal comes next and nothing else does, and it
         // answers the headers. Waited for here so that they are answered without a read.
         DeliveryRing.Slot terminal;
-        while (!delivered_.TryPeekBehind(out terminal))
+        while (true)
         {
+          var arrival = delivered_.NextArrival();
+          if (delivered_.TryPeekBehind(out terminal))
+          {
+            break;
+          }
+
           if (call_.Ending.IsCancellationRequested)
           {
             // The call is ending: whoever consumes the ring next takes the head again, and the
@@ -812,8 +841,7 @@ internal sealed class Receiver<TResponse>
             return;
           }
 
-          await delivered_.WaitAsync()
-                          .ConfigureAwait(false);
+          await arrival.ConfigureAwait(false);
         }
 
         AnswerHeadsFrom(terminal);

@@ -24,9 +24,17 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 /// reaches only by chance. Debug builds only.</summary>
 internal static class TestHooks
 {
-  /// <summary>Awaited in a call's prologue each time it finds the ring empty, before it waits.</summary>
+  /// <summary>Awaited by a consumer of a call's ring each time it finds the ring empty, between
+  /// taking its wait and awaiting it.</summary>
   /// <remarks>Awaited rather than run: the prologue's first pass is on the thread that starts the
   /// call, which a hook that blocked would stop before the call is handed out.</remarks>
-  internal static Func<Task>? PrologueFoundTheRingEmpty;
+  internal static Func<RingConsumer, Task>? FoundTheRingEmpty;
+}
+
+internal enum RingConsumer
+{
+  Prologue,
+  Reader,
+  Drain,
 }
 #endif

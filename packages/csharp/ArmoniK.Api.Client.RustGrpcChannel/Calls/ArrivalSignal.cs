@@ -18,26 +18,31 @@ using System.Threading.Tasks;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
+/// <summary>Wakes every wait taken before it, and keeps nothing for a wait taken after.</summary>
+/// <remarks>
+///   A waiter takes <see cref="Next" /> before it looks at what it waits for, and awaits it only
+///   when the look found nothing: a change after the look sets the wait already taken, and one
+///   before it the look saw. With nothing kept, no waiter can take a wake-up another needed.
+/// </remarks>
 internal sealed class ArrivalSignal
 {
   private readonly object gate_ = new();
 
   private TaskCompletionSource<bool> arrived_ = Pending();
 
+  // Whether a wait was taken on `arrived_`, so a set with no wait taken since the last one
+  // allocates nothing.
+  private bool waited_;
+
   private static TaskCompletionSource<bool> Pending()
     => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-  internal Task WaitAsync()
+  internal Task Next()
   {
     lock (gate_)
     {
-      var arrived = arrived_;
-      if (arrived.Task.IsCompleted)
-      {
-        arrived_ = Pending();
-      }
-
-      return arrived.Task;
+      waited_ = true;
+      return arrived_.Task;
     }
   }
 
@@ -46,7 +51,14 @@ internal sealed class ArrivalSignal
     TaskCompletionSource<bool> arrived;
     lock (gate_)
     {
-      arrived = arrived_;
+      if (!waited_)
+      {
+        return;
+      }
+
+      waited_  = false;
+      arrived  = arrived_;
+      arrived_ = Pending();
     }
 
     arrived.TrySetResult(true);

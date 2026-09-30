@@ -144,6 +144,88 @@ public class ReceiverTests
     }
   }
 
+#if DEBUG
+  /// <remarks>
+  ///   The interleaving held open: a read finds the ring empty, and before it waits a cancel ends
+  ///   it and hands the ring to the drain, which finds the ring empty too and takes the terminal
+  ///   once it lands. The cancel's wake-up has to reach the read, which then finds itself ended,
+  ///   and not go to the drain alone. The hook is Debug-only and process-wide.
+  /// </remarks>
+  [Test]
+  [NonParallelizable]
+  public async Task AReadHeldBeforeItsWaitSeesTheCancelThatEndedIt()
+  {
+    var receiver = new Receiver<EchoReply>(new EndingCall(),
+                                           1,
+                                           Marshallers.Create<EchoReply>(reply => reply.ToByteArray(),
+                                                                         EchoReply.Parser.ParseFrom));
+    receiver.StartPrologue();
+    receiver.Publish(NativeMethods.AkEventKind.InitialMetadata,
+                     default,
+                     (int)NativeMethods.AkHeadOrigin.Received);
+    await receiver.PrologueFinished.ConfigureAwait(false);
+
+    using var readerHeld    = new SemaphoreSlim(0);
+    using var releaseReader = new SemaphoreSlim(0);
+    using var drainHeld     = new SemaphoreSlim(0);
+    using var releaseDrain  = new SemaphoreSlim(0);
+    TestHooks.FoundTheRingEmpty = consumer => consumer switch
+                                              {
+                                                RingConsumer.Reader => Hold(readerHeld,
+                                                                            releaseReader),
+                                                RingConsumer.Drain => Hold(drainHeld,
+                                                                           releaseDrain),
+                                                _ => Task.CompletedTask,
+                                              };
+    try
+    {
+      var reading = receiver.MoveNext(CancellationToken.None);
+      Assert.That(await readerHeld.WaitAsync(TimeSpan.FromSeconds(10))
+                                  .ConfigureAwait(false),
+                  Is.True,
+                  "the read found the ring empty");
+
+      receiver.CancelAndDrain();
+      Assert.That(await drainHeld.WaitAsync(TimeSpan.FromSeconds(10))
+                                 .ConfigureAwait(false),
+                  Is.True,
+                  "the drain found the ring empty");
+
+      receiver.Publish(NativeMethods.AkEventKind.Status,
+                       default,
+                       (int)StatusCode.Cancelled);
+      releaseDrain.Release();
+      Assert.That(await Task.WhenAny(receiver.Settled,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false),
+                  Is.SameAs(receiver.Settled),
+                  "the drain took the terminal");
+
+      releaseReader.Release();
+      Assert.That(await Task.WhenAny(reading,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false),
+                  Is.SameAs(reading),
+                  "the read waits for a wake-up that went to the drain");
+      Assert.ThrowsAsync<RpcException>(async () => await reading.ConfigureAwait(false));
+    }
+    finally
+    {
+      TestHooks.FoundTheRingEmpty = null;
+      releaseReader.Release();
+      releaseDrain.Release();
+    }
+  }
+
+  private static async Task Hold(SemaphoreSlim held,
+                                 SemaphoreSlim release)
+  {
+    held.Release();
+    await release.WaitAsync()
+                 .ConfigureAwait(false);
+  }
+#endif
+
   private sealed class EndingCall : ICallState
   {
     private readonly CancellationTokenSource ending_ = new();

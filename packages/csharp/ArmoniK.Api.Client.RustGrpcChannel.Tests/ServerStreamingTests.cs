@@ -71,30 +71,29 @@ public class ServerStreamingTests : EchoServerFixture
 #if DEBUG
   /// <summary>A read started while the prologue waits takes nothing the prologue needs.</summary>
   /// <remarks>
-  ///   The interleaving in which a read and the prologue would both wait on the ring's signal,
-  ///   held open: the prologue finds the ring empty, the head lands and its wake-up is kept, a
-  ///   read begins, and only then does the prologue wait. A read that waited on the ring would
-  ///   take that wake-up and wait again, and the prologue would wait beside it for an arrival
-  ///   already in the ring. The hook it holds the prologue with is Debug-only and process-wide.
+  ///   The interleaving held open: the prologue finds the ring empty, the head lands, a read
+  ///   begins, and only then does the prologue wait. The read waits for the prologue's end and the
+  ///   prologue for the head already in the ring, so both go on. The hook it holds the prologue
+  ///   with is Debug-only and process-wide.
   /// </remarks>
   [Test]
   [NonParallelizable]
-  public async Task AReadStartedWhileThePrologueWaitsTakesNoWakeUpFromIt()
+  public async Task AReadStartedWhileThePrologueWaitsLetsItFinish()
   {
     using var reached = new SemaphoreSlim(0);
     using var resume  = new SemaphoreSlim(0);
     var       held    = 0;
-    Calls.TestHooks.PrologueFoundTheRingEmpty = () =>
-                                                {
-                                                  if (Interlocked.Exchange(ref held,
-                                                                           1) != 0)
-                                                  {
-                                                    return Task.CompletedTask;
-                                                  }
+    Calls.TestHooks.FoundTheRingEmpty = consumer =>
+                                        {
+                                          if (consumer != Calls.RingConsumer.Prologue || Interlocked.Exchange(ref held,
+                                                                                                              1) != 0)
+                                          {
+                                            return Task.CompletedTask;
+                                          }
 
-                                                  reached.Release();
-                                                  return resume.WaitAsync();
-                                                };
+                                          reached.Release();
+                                          return resume.WaitAsync();
+                                        };
     try
     {
       await using var channel = Runtime.Channel(Endpoint);
@@ -128,7 +127,7 @@ public class ServerStreamingTests : EchoServerFixture
     }
     finally
     {
-      Calls.TestHooks.PrologueFoundTheRingEmpty = null;
+      Calls.TestHooks.FoundTheRingEmpty = null;
       resume.Release();
     }
   }

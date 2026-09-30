@@ -417,7 +417,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// </para>
   private Task QuiescentAsync()
     => QuiescentAsync(() => NativeMethods.ak_runtime_status(handle_),
-                      announced_.WaitAsync);
+                      announced_.Next);
 
   /// <summary>The wait itself, over the state it reads and the announcement it wakes on.</summary>
   internal static async Task QuiescentAsync(Func<NativeMethods.AkRuntimeState> status,
@@ -425,7 +425,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   {
     while (true)
     {
-      var state = status();
+      // Taken before the read, so an announcement that lands between the two wakes the wait below.
+      var announcement = announced();
+      var state        = status();
 
       switch (state)
       {
@@ -439,10 +441,9 @@ public sealed class NativeRuntime : IAsyncDisposable
 
         case NativeMethods.AkRuntimeState.Running:
         case NativeMethods.AkRuntimeState.GrpcStopping:
-          // Latched, so an announcement that landed between the read above and this wait is not
-          // lost, and the state above is what is believed rather than the event. The timer is for
-          // the failure: the engine stores it and announces nothing.
-          await Task.WhenAny(announced(),
+          // The state above is what is believed rather than the event. The timer is for the
+          // failure: the engine stores it and announces nothing.
+          await Task.WhenAny(announcement,
                              Task.Delay(FailurePollInterval))
                     .ConfigureAwait(false);
           break;

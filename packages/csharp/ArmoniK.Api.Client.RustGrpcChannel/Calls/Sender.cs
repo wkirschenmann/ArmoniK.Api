@@ -88,10 +88,15 @@ internal sealed class Sender
   /// whatever its terminal says.</remarks>
   internal async Task HandedEverythingBackAsync()
   {
-    while (Volatile.Read(ref holding_) != 0)
+    while (true)
     {
-      await handedBack_.WaitAsync()
-                       .ConfigureAwait(false);
+      var handedBack = handedBack_.Next();
+      if (Volatile.Read(ref holding_) == 0)
+      {
+        return;
+      }
+
+      await handedBack.ConfigureAwait(false);
     }
   }
 

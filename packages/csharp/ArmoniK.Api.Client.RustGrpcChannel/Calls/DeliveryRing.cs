@@ -127,8 +127,9 @@ internal sealed class DeliveryRing
     tail_++;
   }
 
-  internal Task WaitAsync()
-    => arrived_.WaitAsync();
+  /// <summary>A wait for the next arrival, taken before looking at the queue.</summary>
+  internal Task NextArrival()
+    => arrived_.Next();
 
   /// <summary>Wakes whoever waits, granting nothing.</summary>
   /// <remarks>What a cancelled call needs: whoever waits - a read, or a prologue with no read

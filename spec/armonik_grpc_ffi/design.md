@@ -1825,7 +1825,7 @@ class CallState
     Slot[] Ring; int Mask;
     long Head;                     // published by the actor thread
     long Tail;                     // private to the consumer
-    IAsyncSignal RingSignal;       // latched auto-reset, never SemaphoreSlim
+    IAsyncSignal RingSignal;       // wakes the waits taken before a Set, never SemaphoreSlim
 
     Task HeadersTask;              // slot 0, driven by whoever asks first
     Metadata Headers;              // decoded on the pool, from slot 0
@@ -1939,7 +1939,7 @@ states it (`DisposeLeavesNoManagedWaiter`).
 WRITE_DONE must never queue behind a slow message handler - the ABI states it may arrive
 in parallel with data callbacks for the same call - so it stays out of the delivery ring
 and frees its slot on the spot. That is safe because it runs no user code: a counter
-increment and a latched signal.
+increment and a signal.
 
 ### No dispatcher: the ring is the queue
 
@@ -1958,18 +1958,23 @@ between the trampoline and the application, this is the *only* thing that keeps 
 native actor free to make progress, so it is a rule and not a preference:
 
 - every `TaskCompletionSource` is built with `RunContinuationsAsynchronously`;
-- `RingSignal` is a latched auto-reset signal whose `Set` never runs a
-  waiter inline - `ManualResetValueTaskSourceCore<bool>` with
-  `RunContinuationsAsynchronously = true`, or a `TaskCompletionSource`-based
-  `AsyncAutoResetEvent` where that type is unavailable;
+- `RingSignal` wakes every wait taken before a `Set` and keeps nothing for one
+  taken after, and its `Set` never runs a waiter inline - a `TaskCompletionSource`
+  built with `RunContinuationsAsynchronously`, completed and replaced by a `Set`
+  that has a wait to wake;
 - **never `SemaphoreSlim`.** Its `Release` can complete a `WaitAsync` waiter inline
   depending on the runtime version, which would put application code on the Tokio thread
   through the back door the two flags close at the front.
 
 The signal only says "something may have changed"; the truth is `Head != Tail`, so merged
-wakeups cost nothing and the consumer drains what is there before waiting again. Latched
-is what matters: a `Set` with no waiter must be remembered, or the window between finding
-the ring empty and arming the wait loses the event.
+wakeups cost nothing and the consumer drains what is there before waiting again. The order
+is what matters: every consumer of the ring - the prologue, a read, the drain - takes its
+wait before it looks at the ring and at its own phase, and awaits it only when the look
+found nothing, so a publication in the window between the look and the await sets the wait
+already taken, and one before the look the look saw. A signal that kept a wake-up for the
+next wait would close that window for one consumer and open it for another: whichever
+waited next would take it, and a read that looked, stalled and then waited could find the
+drain had taken the one that told it it was cancelled.
 
 ```csharp
 private bool TryPeek(out Slot slot)
@@ -2065,15 +2070,17 @@ public async Task<bool> MoveNext(CancellationToken ct)
         // because a bool cannot: nothing published yet means wait, the drain
         // holding the consumer means end exceptionally.  The transition is
         // the only thing that confers ownership - the signal is a wake-up
-        // and grants nothing - and it is latched, so a publication landing
-        // between the empty observation and the wait is not lost.
+        // and grants nothing - and the wait is taken before the claim, so a
+        // publication landing between the empty observation and the await
+        // sets it.
         // TLA: BeginParseEvent against HandoffToDrain
         while (true)
         {
+            var arrival = _ringSignal.Next();
             var claim = TryBeginParse(out slot);   // waiting -> parsing, or not
             if (claim == Claim.Acquired) break;
             if (claim == Claim.Lost) throw Cancelled();
-            await _ringSignal.WaitAsync(_callCancelled).ConfigureAwait(false);
+            await arrival.WaitAsync(_callCancelled).ConfigureAwait(false);
         }
     }
     catch (OperationCanceledException)
@@ -2252,7 +2259,7 @@ and never `OperationCanceledException` - no caller has to ask which token fired.
 the reader out of `waiting` is `CancelAndDrain`, and its contract is per state, which its
 name does not say: on a `waiting` reader it performs the reaction of `CancelWaitingRead` -
 cancel the call, fault the read, fault the headers if they are still pending, take the
-consumer to the drain, and set the latched signal so the wait observes it; on a `parsing`
+consumer to the drain, and set the ring's signal so the wait observes it; on a `parsing`
 reader it cancels the call and marks the drain owed but never takes the slot, which stays
 the marshaller's until it returns; on an idle or finished reader it cancels the call and
 drains. It is idempotent, non-blocking and non-throwing in all three, because the token's
@@ -2327,9 +2334,9 @@ for no message or terminal to have been published yet, and the model simply stay
 `waiting` until `BeginParseEvent` becomes enabled. A boolean `Try` cannot say which
 happened, so the claim is three-valued: acquired, empty, lost. Empty waits on the signal;
 lost means the drain holds the consumer and the read ends exceptionally. The signal is a
-wake-up and confers nothing - only the transition does - and it must be latched, or a
-publication landing between the empty observation and the wait is lost and the read hangs
-on a stream that has already spoken.
+wake-up and confers nothing - only the transition does - and the read takes its wait before
+the claim, or a publication landing between the empty observation and the wait is lost and
+the read hangs on a stream that has already spoken.
 
 These are what the model states: `ReadCancellationSettled` says a posted request is not
 carried away by the normal end of a read, `LiveRequestOnlyDischargedByReaction` says only
@@ -3501,8 +3508,8 @@ actions rather than by induction, and this document must not imply a theorem exi
 
 - **ContinuationsAsync**: no completion runs a continuation on the callback's thread.
   In the model, no action both returns a callback and performs an application step; in
-  the implementation, every TCS is `RunContinuationsAsynchronously` and every signal is
-  latched - an implementation rule verified by review and tests, deliberately not
+  the implementation, every TCS is `RunContinuationsAsynchronously`, the signals' included
+  - an implementation rule verified by review and tests, deliberately not
   restated as a counter the model would prove things about.  With no dispatcher between
   the trampoline and the application this is the only thing keeping user code off the
   Tokio thread, and it is what makes the callback-return fairness the binding's to
@@ -3698,7 +3705,7 @@ race. Ordered by what a defect would cost.
 | Serializer running while the call is disposed | the buffer returned under a marshaller still writing into it - use after return | one owner for the wrapper, commit and abort atomic and exclusive, returned exactly once |
 | GCHandle on a refused start, or a terminal arriving at once | a root leaked, or freed twice | root before the start; local rollback if the start refuses (no callback is promised); after acceptance the terminal callback is the only releaser |
 | A channel created beside the runtime's disposal | a channel the sweep misses, whose handle nobody closes | one lock orders the creation and the sweep, so a creation is either swept or refused; a concurrent create/dispose test |
-| The ring's memory ordering | a slot published half-visible, a lost wake-up - and only on ARM64 | documented `Volatile`/acquire-release pairs, padding, an ARM64 stress test, latched signals |
+| The ring's memory ordering | a slot published half-visible, a lost wake-up - and only on ARM64 | documented `Volatile`/acquire-release pairs, padding, an ARM64 stress test, a wait taken before the look it follows |
 | An exception crossing the reverse P/Invoke into the engine | undefined on the engine's side, which it would unwind through | catch-all at the trampoline, no user code inside it, and a `finally` that gives back the payload and the call's root a throw would have kept |
 | A continuation running inline on the callback thread | arbitrary reentrancy, the Tokio thread blocked by user code | `RunContinuationsAsynchronously` everywhere, signals never inline, a test capturing the thread identity |
 | Dispose called twice or concurrently | a double cancel, two drains, or two different tasks for one dispose | decide idempotence and share one completion; a test with N concurrent calls |
@@ -3747,7 +3754,7 @@ encodings, or of code the models abstract on purpose.
 | Subject | Verified by |
 |---------|-------------|
 | **The ring's memory model** - `Volatile` pairing, acquire/release, false sharing | Code review and a race test, ARM64 included |
-| **No inline continuation** - every TCS `RunContinuationsAsynchronously`, every signal latched | Review, plus a test that no user code runs on a callback thread |
+| **No inline continuation** - every TCS `RunContinuationsAsynchronously`, the signals' included | Review, plus a test that no user code runs on a callback thread |
 | **Serialized bytes** - arbitrary `Marshaller<T>` round-trips | Protobuf round-trip tests |
 | **Exact metadata, status and trailers**, and the .NET exception mapping | gRPC conformance tests |
 | **The five `CallInvoker` shapes' cardinalities** - the model is the generic bidirectional call | A test per shape |
@@ -4007,7 +4014,7 @@ table above maps the five call shapes and stops there.
 | Crate for X509Store Windows | Direct native APIs / `schannel` crate / `windows` crate | Layer 1 |
 | Exact handle format | **A monotonic counter per kind, over three disjoint ranges of 64 bits, and no reuse** - the slot map with per-slot generations was reversed on 2026-09-05. A stale handle is refused with a status instead of dereferenced, which is what makes runtime-driven reclamation safe: the host may still hold a token for a call already reclaimed | Layer 3, decided |
 | Default replay buffer (`max_buffer_size`) | 0 (no streaming retry) vs 4KB vs 64KB | Layer 2 config. Sets how many sent bytes the engine keeps a copy of for a replay, which is the one knob between replayability and memory held. Choosable alone: a replay resends the engine's copy and takes no slot in the send window, so the window does not bound it |
-| Host queue signal mechanism | **Moot: there is no host queue.** The per-call ring replaces it, and its signal must be latched auto-reset - never `SemaphoreSlim`, whose `Release` can run a waiter inline on the callback's thread | Layer 4, decided |
+| Host queue signal mechanism | **Moot: there is no host queue.** The per-call ring replaces it, and its signal wakes the waits taken before a `Set` - never `SemaphoreSlim`, whose `Release` can run a waiter inline on the callback's thread | Layer 4, decided |
 | Generator for the C# options | **A build-time tool reading the schema with `Corvus.Json.CodeGeneration`.** A Roslyn generator cannot carry `System.Text.Json`: an analyzer loads inside the compiler, and the documented failure is green under `dotnet build` and red under Visual Studio, which is the one shape no CI can catch. Corvus's own generator has no such problem but emits `readonly struct` readers over a `JsonElement`, which is the wrong shape for a class `IConfiguration` binds and would need a hand-written mutable facade anyway. So its `TypeDeclaration` model does the reading - `$ref`, `$defs`, draft 2020-12 - and this repository decides the C#. The tool runs at build time, so none of Corvus reaches a consumer | Layer 4, decided |
 | Connection pool management (idle eviction) | Internal timer vs lazy check | Layer 2 |
 | Command delivery to a call actor | Per-actor channel vs atomic flags + notify | Layer 3. Cancel is a flag the actor polls; send and end_send carry data. Reclamation is neither - it is the actor's own step when the debt counters reach zero, so it is a wake rather than a command. A single channel is simpler, two mechanisms are faster |
