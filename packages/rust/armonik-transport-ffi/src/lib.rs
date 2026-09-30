@@ -5,6 +5,7 @@ mod blob;
 mod call;
 mod channel;
 mod config;
+mod held;
 #[cfg(feature = "test-hooks")]
 pub mod hooks;
 mod host;

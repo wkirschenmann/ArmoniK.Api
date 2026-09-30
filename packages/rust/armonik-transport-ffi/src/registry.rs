@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::abi::ak_handle;
+use crate::held::Held;
 
 /// The three handle spaces, disjoint, so a handle of one kind is absent from the others' tables
 /// rather than naming whatever lives there.
@@ -65,12 +66,12 @@ impl<T> Registry<T> {
         }
     }
 
-    fn read(&self) -> RwLockReadGuard<'_, Handles<T>> {
-        self.live.read().unwrap_or_else(PoisonError::into_inner)
+    fn read(&self) -> Held<RwLockReadGuard<'_, Handles<T>>> {
+        Held::new(self.live.read().unwrap_or_else(PoisonError::into_inner))
     }
 
-    fn write(&self) -> RwLockWriteGuard<'_, Handles<T>> {
-        self.live.write().unwrap_or_else(PoisonError::into_inner)
+    fn write(&self) -> Held<RwLockWriteGuard<'_, Handles<T>>> {
+        Held::new(self.live.write().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Whether this handle was drawn from this table's space.

@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 
 use crate::abi::{ak_event_kind, ak_host_debt, ak_runtime_state, ak_status, AK_MAX_WORKER_THREADS};
 use crate::call::CallServices;
+use crate::held::Held;
 use crate::host::Host;
 use crate::ledger::Ledger;
 
@@ -123,12 +124,7 @@ impl AkRuntime {
         if stored != ak_runtime_state::AK_RUNTIME_GRPC_STOPPED {
             return stored;
         }
-        match self
-            .teardown
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-        {
+        match Held::new(self.teardown.lock().unwrap_or_else(PoisonError::into_inner)).as_ref() {
             Some(thread) if thread.is_finished() => ak_runtime_state::AK_RUNTIME_QUIESCENT,
             _ => stored,
         }
@@ -152,15 +148,17 @@ impl AkRuntime {
     /// A pass that lasts as long as the caller holds it, which is what makes the shutdown below
     /// wait rather than race: the state is read under the read lock, so a shutdown that has not
     /// taken the write lock yet cannot have changed it.
-    pub(crate) fn pass_the_gate(&self) -> Option<RwLockReadGuard<'_, ()>> {
-        let pass = self.gate.read().unwrap_or_else(PoisonError::into_inner);
+    pub(crate) fn pass_the_gate(&self) -> Option<Held<RwLockReadGuard<'_, ()>>> {
+        let pass = Held::new(self.gate.read().unwrap_or_else(PoisonError::into_inner));
         (self.state() == ak_runtime_state::AK_RUNTIME_RUNNING).then_some(pass)
     }
 
     /// Taken and dropped for the wait alone: once this returns, every pass handed out before the
     /// state changed has been given back.
     pub(crate) fn close_the_gate(&self) {
-        drop(self.gate.write().unwrap_or_else(PoisonError::into_inner));
+        drop(Held::new(
+            self.gate.write().unwrap_or_else(PoisonError::into_inner),
+        ));
     }
 
     /// Hands the rest of the shutdown to a thread of its own.
@@ -189,7 +187,8 @@ impl AkRuntime {
         // still running, and no RESOURCES_RELEASED either: a failure suspends what is owed.
         match thread {
             Ok(thread) => {
-                *self.teardown.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+                *Held::new(self.teardown.lock().unwrap_or_else(PoisonError::into_inner)) =
+                    Some(thread);
             }
             Err(_) => self.set_state(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED),
         }
@@ -197,11 +196,7 @@ impl AkRuntime {
 
     /// Waits for every worker to stop, which only a thread outside tokio may do.
     fn release_threads(&self) {
-        let taken = self
-            .tokio
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let taken = Held::new(self.tokio.lock().unwrap_or_else(PoisonError::into_inner)).take();
         if let Some(tokio) = taken {
             // Dropped rather than given a deadline. This thread finishing is what `state` reports
             // as QUIESCENT, and the header promises that state alone permits `ak_runtime_destroy`
@@ -215,11 +210,7 @@ impl AkRuntime {
 
     /// Reaps the teardown thread, which quiescence says has finished.
     pub(crate) fn join_teardown(&self) {
-        let taken = self
-            .teardown
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let taken = Held::new(self.teardown.lock().unwrap_or_else(PoisonError::into_inner)).take();
         if let Some(thread) = taken {
             let _ = thread.join();
         }

@@ -495,6 +495,23 @@ T6.4 carry it.
   longer holds to the closed state it left in, which a history variable recording the release
   carries. A channel the shutdown closed stays in the table, because the host still names it -
   `ak_call_start` on it answers `AK_STATUS_INVALID_STATE`, as a closed channel's does
+- **No deadlock crosses the ABI.** A deadlock needs a cycle, and one through the boundary has
+  three ways to form; each is closed:
+  1. Rust holding a lock while it calls the host. The callback may make a downcall that needs
+     that lock, or a host thread in a downcall may wait for it while the callback waits for that
+     thread. No callback starts with a lock of this crate held: in a debug build every lock is
+     counted per thread, and emitting an event with one held panics, so the test suite checks
+     the rule at every event.
+  2. The host holding a lock the trampoline needs. The binding's trampoline takes none: the
+     ring's signal swaps its task atomically, and a WRITE_DONE is a counter and a completion.
+  3. A downcall waiting for a callback. The header forbids it, and the one downcall that
+     blocks, `ak_runtime_destroy`, is accepted only at QUIESCENT, when every callback has
+     returned. An end of sending waits only for a send downcall still queueing, and that send
+     waits on nothing.
+  The other locks - the handle tables, a channel's phase, the runtime's tokio and teardown
+  slots - are held for a few instructions; the runtime's gate is held across a channel's
+  creation and a call's start, and neither emits. None is held across a callback, so they cost
+  waits and not deadlocks.
 
 - Received message payloads are **owned**: the host receives an `ak_bytes` that it must
   release. This prepares for future zero-copy (the host will be able to deserialize directly

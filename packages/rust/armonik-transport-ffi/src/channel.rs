@@ -6,6 +6,7 @@ use armonik_transport::grpc::GrpcChannel;
 
 use crate::abi::{ak_channel_state, ak_handle, ak_status};
 use crate::config;
+use crate::held::Held;
 use crate::registry::Spread;
 use crate::tables;
 
@@ -132,8 +133,8 @@ impl Members {
 }
 
 impl AkChannel {
-    fn members(&self) -> MutexGuard<'_, Members> {
-        self.members.lock().unwrap_or_else(PoisonError::into_inner)
+    fn members(&self) -> Held<MutexGuard<'_, Members>> {
+        Held::new(self.members.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     pub(crate) fn state(&self) -> ak_channel_state {

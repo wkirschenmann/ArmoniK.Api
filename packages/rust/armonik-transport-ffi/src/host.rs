@@ -28,6 +28,7 @@ impl Host {
     }
 
     fn emit(&self, call_ctx: HostPtr, event: &ak_event) {
+        crate::held::assert_none_held();
         unsafe { (self.callback)(self.runtime_ctx.0, call_ctx.0, event) }
     }
 
