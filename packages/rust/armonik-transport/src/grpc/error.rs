@@ -34,6 +34,8 @@ pub enum GrpcChannelConfigError {
 pub enum ChannelError {
     #[snafu(display("the channel is closed and takes no new calls"))]
     Closed,
+    #[snafu(display("the engine panicked while connecting to `{endpoint}`"))]
+    DialPanicked { endpoint: String },
     #[snafu(display("{source}"), context(false))]
     Transport { source: TransportError },
     #[snafu(display("`{method}` is not a method path; it has to be `/Service/Method`"))]

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use armonik_transport::grpc::{
-    CallStartOptions, GrpcChannel, GrpcStatus, GrpcStatusCode, RecvResult,
+    CallStartOptions, ChannelError, GrpcChannel, GrpcStatus, GrpcStatusCode, RecvResult,
 };
 use armonik_transport::hooks::{self, Hook};
 use bytes::Bytes;
@@ -29,8 +29,9 @@ async fn a_driver_that_panics_ends_its_call_with_an_internal_status() {
     assert_eq!(status.code, GrpcStatusCode::Internal, "{status:?}");
 }
 
-/// A dial that panics fails the calls waiting on it rather than leaving them waiting, and leaves
-/// the channel free to dial again for the next.
+/// A dial that panics fails the calls waiting on it with INTERNAL rather than leaving them
+/// waiting, says where it was connecting to, and leaves the channel free to dial again for the
+/// next. `connect` meets the same panic as a call does.
 #[tokio::test]
 #[serial]
 async fn a_dial_that_panics_fails_its_calls_and_the_next_call_dials_again() {
@@ -40,7 +41,15 @@ async fn a_dial_that_panics_fails_its_calls_and_the_next_call_dials_again() {
     let server = TestServer::start().await;
     let channel = channel(&server.endpoint);
     let refused = ended(&channel).await;
-    assert_eq!(refused.code, GrpcStatusCode::Unavailable, "{refused:?}");
+    assert_eq!(refused.code, GrpcStatusCode::Internal, "{refused:?}");
+    assert!(refused.message.contains(&server.endpoint), "{refused:?}");
+    assert!(
+        matches!(
+            channel.connect().await,
+            Err(ChannelError::DialPanicked { .. })
+        ),
+        "connect meets the panic too"
+    );
 
     drop(unhook);
     let (_, _, served) = unary(

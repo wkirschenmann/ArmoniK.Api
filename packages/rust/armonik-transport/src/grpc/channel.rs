@@ -15,7 +15,7 @@ use tonic::metadata::MetadataMap;
 use tower_service::Service;
 
 use super::error::GrpcChannelConfigError;
-use crate::http2::{ConnectSnafu, TransportConfig, TransportConnector};
+use crate::http2::{TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
 use super::call::{self, CallStartOptions, GrpcCall};
@@ -265,14 +265,7 @@ impl Inner {
             )
             .await
         })
-        .await
-        .unwrap_or_else(|| {
-            Err(ConnectSnafu {
-                endpoint: safe_endpoint(&self.endpoint),
-                cause: "the dial panicked",
-            }
-            .build())
-        });
+        .await;
 
         let mut slot = self.connection.lock().await;
         let outcome = slot.dialling.take();
@@ -288,8 +281,13 @@ impl Inner {
         };
 
         let (sender, connection) = match dialled {
-            Ok(session) => session,
-            Err(error) => return told(Err(ChannelError::from(error))),
+            Some(Ok(session)) => session,
+            Some(Err(error)) => return told(Err(ChannelError::from(error))),
+            None => {
+                return told(Err(ChannelError::DialPanicked {
+                    endpoint: safe_endpoint(&self.endpoint),
+                }))
+            }
         };
 
         if *self.closed.borrow() {
@@ -348,6 +346,11 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
 
             let mut sender = inner.sender().await.map_err(|error| match error {
                 ChannelError::Closed => worded(GrpcStatus::cancelled()),
+                // A fault on this side, as the driver's own panic is, and not a peer out of
+                // reach: UNAVAILABLE would tell a caller the connection or the server failed.
+                ChannelError::DialPanicked { .. } => {
+                    worded(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string()))
+                }
                 error => worded(GrpcStatus::unreachable(error)),
             })?;
             let mut response = sender
