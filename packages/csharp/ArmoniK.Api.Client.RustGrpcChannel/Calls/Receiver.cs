@@ -219,8 +219,16 @@ internal sealed class Receiver<TResponse>
             throw Cancelled();
           }
 
-          await delivered_.WaitAsync()
-                          .ConfigureAwait(false);
+          // The token wakes this wait as an arrival would, and the check above then reads it. The
+          // wait is taken before the registration: the prologue waits on the same latch and
+          // consumes a wake it finds, so a wait taken after it could be one the wake never reaches.
+          var arrival = delivered_.WaitAsync();
+          using (token.Register(static ring => ((DeliveryRing)ring!).Wake(),
+                                delivered_))
+          {
+            await arrival.ConfigureAwait(false);
+          }
+
           continue;
 
         case Phase.Finished:

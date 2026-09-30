@@ -144,4 +144,30 @@ public class DuplexStreamingTests : EchoServerFixture
                     .StatusCode,
                 Is.EqualTo(StatusCode.OK));
   }
+
+  /// <summary>A read cancelled while the response head has not arrived ends as cancelled.</summary>
+  /// <remarks>Nothing is sent, so the server writes no head and the read waits in the prologue,
+  /// where no published read carries the token: the token has to wake that wait itself.</remarks>
+  [Test]
+  public async Task AReadCancelledBeforeTheHeadArrivesEndsAsCancelled()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+    using var call = Client(channel)
+      .Chat();
+
+    using var cancelled = new CancellationTokenSource();
+    var read = call.ResponseStream.MoveNext(cancelled.Token);
+    cancelled.CancelAfter(TimeSpan.FromMilliseconds(100));
+
+    var ended = await Task.WhenAny(read,
+                                   Task.Delay(TimeSpan.FromSeconds(10)))
+                          .ConfigureAwait(false);
+
+    Assert.That(ended,
+                Is.SameAs(read),
+                "the read outlived its token");
+    var refused = Assert.ThrowsAsync<RpcException>(async () => await read.ConfigureAwait(false));
+    Assert.That(refused!.Status.StatusCode,
+                Is.EqualTo(StatusCode.Cancelled));
+  }
 }
