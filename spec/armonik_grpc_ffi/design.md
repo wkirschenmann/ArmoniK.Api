@@ -2390,7 +2390,8 @@ before it consumes slot 0, so the headers are answered without a read - the mode
 call that ends first leaves the head to the reader or the drain, and the terminal answers
 the headers there. grpc-go's `Header()` answers a call no response reached with no
 headers and no error, and leaves the error to the read; the binding does not, because
-`WaitForResultsAsync` resets its retry count once the headers are in.
+.NET code is written against grpc-dotnet and may take answered headers as a sign that a
+response came.
 
 The ring carries a sum, not just messages - the managed mirror of the Rust
 `RecvResult::Message | RecvResult::End`. The terminal takes its place *in* the ring

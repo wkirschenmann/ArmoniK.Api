@@ -22,6 +22,8 @@ using ArmoniK.Api.gRPC.V1;
 using ArmoniK.Api.gRPC.V1.Events;
 using ArmoniK.Api.gRPC.V1.Results;
 
+using Grpc.Core;
+
 using NUnit.Framework;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
@@ -77,13 +79,55 @@ public class ArmoniKClientTests : RuntimeFixture
   }
 
   /// <summary><c>WaitForResultsAsync</c> gives up on a server that does not answer.</summary>
-  /// <remarks>It resets its retry count once the headers are in, so headers that answered a call
-  /// no response reached would have it retry for as long as the server stays away.</remarks>
   [Test]
   public async Task WaitForResultsGivesUpOnAServerThatDoesNotAnswer()
   {
     await using var channel = Runtime.Channel(ClosedPort.Endpoint());
-    var waiting = new gRPC.V1.Events.Events.EventsClient(channel).WaitForResultsAsync("session-id",
+
+    Assert.That(await WaitForResultsEnd(channel,
+                                        "session-id")
+                  .ConfigureAwait(false),
+                Is.InstanceOf<RpcException>());
+  }
+
+  /// <summary><c>WaitForResultsAsync</c> gives up on a subscription the server refuses.</summary>
+  /// <remarks>Refused before any event, the response is Trailers-Only, and its headers answer as
+  /// grpc-dotnet's do: only an event shows the subscription holds.</remarks>
+  [Test]
+  public async Task WaitForResultsGivesUpOnASubscriptionTheServerRefuses()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    // ArmoniK.Api.Mock's Events.RefusedSessionId.
+    var thrown = await WaitForResultsEnd(channel,
+                                         "refused-session-id")
+                   .ConfigureAwait(false);
+
+    Assert.That((thrown as RpcException)?.StatusCode,
+                Is.EqualTo(StatusCode.PermissionDenied));
+  }
+
+  /// <summary><c>WaitForResultsAsync</c> outlasts a subscription dropped after each event.</summary>
+  /// <remarks>Seven drops in a row, each after an event, then the result completes: more drops than
+  /// it tolerates with no event between them.</remarks>
+  [Test]
+  public async Task WaitForResultsOutlastsDropsBetweenEvents()
+  {
+    await using var channel = Runtime.Channel(endpoint_);
+
+    // ArmoniK.Api.Mock's Events.DroppedSessionId.
+    Assert.That(await WaitForResultsEnd(channel,
+                                        "dropped-session-id")
+                  .ConfigureAwait(false),
+                Is.Null);
+  }
+
+  /// <summary>How <c>WaitForResultsAsync</c> ends, which it must within 30 s: the exception it
+  /// fails with, or null when it completes.</summary>
+  private static async Task<Exception?> WaitForResultsEnd(NativeChannel channel,
+                                                          string        sessionId)
+  {
+    var waiting = new gRPC.V1.Events.Events.EventsClient(channel).WaitForResultsAsync(sessionId,
                                                                                       new[]
                                                                                       {
                                                                                         "result-id",
@@ -101,8 +145,7 @@ public class ArmoniKClientTests : RuntimeFixture
     Assert.That(settled,
                 Is.SameAs(waiting),
                 "it retries for good");
-    Assert.That(waiting.Exception?.InnerException,
-                Is.InstanceOf<Grpc.Core.RpcException>());
+    return waiting.Exception?.InnerException;
   }
 
   [Test]

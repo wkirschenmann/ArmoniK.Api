@@ -70,6 +70,7 @@ namespace ArmoniK.Api.Client
     /// <param name="resultIds">A collection of results to wait for</param>
     /// <param name="cancellationToken">Token used to cancel the execution of the method</param>
     /// <exception cref="Exception">if a result is aborted</exception>
+    /// <exception cref="RpcException">if six subscriptions in a row fail with no event between them</exception>
     [PublicAPI]
     [Obsolete("Use the overload with the bucket size and the parallelism")]
     public static Task WaitForResultsAsync(this Events.EventsClient client,
@@ -93,6 +94,7 @@ namespace ArmoniK.Api.Client
     /// <param name="bucket_size">Number of results Id to use to create the request to the event API</param>
     /// <param name="cancellationToken">Token used to cancel the execution of the method</param>
     /// <exception cref="Exception">if a result is aborted</exception>
+    /// <exception cref="RpcException">if six subscriptions in a row fail with no event between them</exception>
     [PublicAPI]
     public static async Task WaitForResultsAsync(this Events.EventsClient client,
                                                  string                   sessionId,
@@ -138,10 +140,12 @@ namespace ArmoniK.Api.Client
                                                                                          },
                                                                                          cancellationToken: cancellationToken);
                                               await streamingCall.ResponseHeadersAsync.ConfigureAwait(false);
-                                              retryCount = 0;
 
                                               while (await streamingCall.ResponseStream.MoveNext(cancellationToken))
                                               {
+                                                // Only an event shows the subscription holds: a refused one answers its headers too.
+                                                retryCount = 0;
+
                                                 var resp = streamingCall.ResponseStream.Current;
                                                 if (resp.UpdateCase == EventSubscriptionResponse.UpdateOneofCase.ResultStatusUpdate &&
                                                     resultsNotFound.Contains(resp.ResultStatusUpdate.ResultId))
