@@ -97,6 +97,37 @@ is over or cancelled, a second end of sending - which is not a fault, and callin
 runtime. `AK_STATUS_INTERNAL` is the fault the ABI cannot attribute, a genuine allocator failure
 included.
 
+#### Errors
+
+A status says whether a call worked and, when it did not, whether waiting would help. It cannot
+carry a message or name a family, which requirements 11.1, 11.2 and 11.5 ask for, so every entry
+point that can refuse takes an `ak_error *out_error` as its last argument.
+
+A host that passes NULL pays nothing for it: the message is rendered only when there is an
+`ak_error` to write it into. A constant message crosses as itself, with a NULL owner, so the
+refusals a host meets on its hot path - backpressure, a stale handle - allocate nothing either
+way; only a message built from a cause chain, a refused document's for one, is allocated.
+
+`AK_ERROR_NONE` is the family of the refusals the status already says everything about:
+backpressure, a request larger than the ceiling, a fault the library cannot attribute.
+`AK_ERROR_USAGE` is the host's misuse of the ABI - a null pointer, a stale handle, a downcall its
+object refuses at that moment - kept apart from the families that describe the network, because a
+retry may cure those and only a change of code cures this one.
+
+The message carries no source location: the engine's errors record one for tracing, and
+requirement 11.4 keeps it out of what crosses the ABI. Nor does it carry the credentials an
+endpoint's userinfo may hold: a message that names the endpoint names it without them.
+
+`ak_error` has a fixed layout, without the size prefix of the records the host fills: this library
+fills it, and `ak_abi_version()` is how the two sides agree at load time.
+
+No release callback travels in `ak_error`. The host would copy a live code pointer into its own
+memory, and only quiescence permits unloading this library: a host that retires the runtime
+before formatting the message would call into an unmapped page. `ak_error_release` is a symbol
+the host's own loader resolved, which keeps the module referenced for as long as its stub
+exists. It is not `ak_event_consumed`: a refusal is not a delivery, and takes no delivery
+credit.
+
 #### Runtime lifecycle
 
 `ak_runtime_status` is the guarantee criterion, and no callback can be: a callback runs on the
@@ -290,46 +321,6 @@ nor freeing it.
 What this document specifies and nothing builds yet keeps its declarations here, until the code
 that builds it carries them in the header.
 
-The error channel, which T4.0 builds:
-
-```c
-// === Errors ===
-
-// Why a fallible entry point refused. A status says whether a call worked and,
-// when it did not, whether waiting would help; it cannot carry a message or
-// name a family, which is what requirements 11.1, 11.2 and 11.5 ask for.
-typedef enum {
-    AK_ERROR_CONFIG     = 1,  // the configuration document, before any socket
-    AK_ERROR_CONNECTION = 2,  // DNS, TCP, TLS handshake
-    AK_ERROR_TRANSPORT  = 3,  // HTTP/2 or gRPC framing, after a connection
-    AK_ERROR_TIMEOUT    = 4,
-    AK_ERROR_CANCELLED  = 5,
-} ak_error_kind;
-
-// Filled by this library, read by the host. Fixed layout: the two sides agree
-// through ak_abi_version() at load time, so there is no size prefix to read -
-// that mechanism serves the records the host fills, and this one travels the
-// other way.
-typedef struct {
-    int32_t kind;      // ak_error_kind
-    ak_bytes detail;   // UTF-8, the cause chain flattened into one message.
-                       // detail.owner == NULL means there is nothing to free,
-                       // which is how a constant message crosses without an
-                       // allocation. Released by ak_error_release, never by
-                       // ak_event_consumed: a refusal is not a delivery, and it
-                       // takes no delivery credit.
-} ak_error;
-
-// No release callback travels in the struct. The host would copy a live code
-// pointer into its own memory, and only quiescence permits unloading this
-// library: a host that retires the runtime before formatting the message would
-// call into an unmapped page. A symbol the host's own loader resolved keeps the
-// module referenced for as long as its stub exists.
-//
-// A no-op when detail.owner is NULL, so a host may route every error through it.
-void ak_error_release(ak_bytes detail);
-```
-
 The detailed form of the memory usage, an observability tool rather than one a retry needs. Its
 `ak_runtime_handle` is the header's `ak_handle`:
 
@@ -377,10 +368,13 @@ typedef struct {
 } ak_memory_usage_detailed;
 
 ak_status ak_runtime_memory_usage_detailed(ak_runtime_handle runtime,
-                                           ak_memory_usage_detailed *out);
+                                           ak_memory_usage_detailed *out,
+                                           ak_error *out_error);
 ```
 
 ### Unary call sequence
+
+Every fallible downcall below also takes `out_error`, left out for width.
 
 ```text
 Host (C#)                          FFI (Rust)
@@ -518,9 +512,3 @@ tracked, and it is an observability tool rather than one a retry needs. `AK_RUNT
 task that dies under its guard and a shutdown that cannot get the thread quiescence is
 defined as, and two defensive readings: `ak_runtime_status` faulting, and a stored state it
 cannot read.
-
-`ak_error` and `ak_error_release` are specified above and implemented nowhere: every failing
-entry point answers with a status alone, `From<ChannelError> for ak_status` sends everything
-but `Closed` to `AK_STATUS_INVALID_ARG`, and the configuration reader returns an `Option`, so
-it discards the reason for a refusal before anything could report it. The engine's error types
-are careful and no host can read one.

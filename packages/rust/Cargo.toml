@@ -49,6 +49,7 @@ schemars = "1"
 # the `serde` feature would not compile.
 serde = { version = "1.0", features = ["derive", "std"], default-features = false }
 serde_json = "1"
+serde_path_to_error = "0.1"
 serial_test = "3.5"
 snafu = "0.9"
 tokio = { version = "1.52", default-features = false }

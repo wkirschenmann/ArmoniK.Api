@@ -11,9 +11,11 @@ pub mod hooks;
 mod host;
 mod ledger;
 mod lifecycle;
+mod refusal;
 mod registry;
 mod runtime;
 mod tables;
+mod tagged;
 
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -21,14 +23,30 @@ use std::sync::Arc;
 
 pub use abi::*;
 use host::{Host, HostPtr};
+use refusal::Refusal;
 use registry::Registry;
 
 fn guard_with<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(body)).unwrap_or(fallback)
 }
 
-fn guard(body: impl FnOnce() -> ak_status) -> ak_status {
-    guard_with(ak_status::AK_STATUS_INTERNAL, body)
+/// Runs an entry point's body, a panic answering AK_STATUS_INTERNAL.
+fn guard(body: impl FnOnce() -> Result<(), Refusal>) -> Result<(), Refusal> {
+    catch_unwind(AssertUnwindSafe(body)).unwrap_or(Err(PANICKED))
+}
+
+const PANICKED: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INTERNAL,
+    ak_error_kind::AK_ERROR_NONE,
+    "this library panicked inside the downcall",
+);
+
+/// A status as an answer: OK is success, anything else the refusal the status alone makes.
+fn done(status: ak_status) -> Result<(), Refusal> {
+    match status {
+        ak_status::AK_STATUS_OK => Ok(()),
+        refused => Err(refused.into()),
+    }
 }
 
 fn guard_void(body: impl FnOnce()) {
@@ -59,14 +77,10 @@ async fn guarded<T>(body: impl std::future::Future<Output = T>) -> Option<T> {
 /// # Safety
 ///
 /// `out` must be writable for its type.
-unsafe fn hand_over<T>(out: *mut T, made: Result<T, ak_status>) -> ak_status {
-    match made {
-        Err(status) => status,
-        Ok(value) => {
-            unsafe { *out = value };
-            ak_status::AK_STATUS_OK
-        }
-    }
+unsafe fn hand_over<T, R: Into<Refusal>>(out: *mut T, made: Result<T, R>) -> Result<(), Refusal> {
+    let value = made.map_err(Into::into)?;
+    unsafe { *out = value };
+    Ok(())
 }
 
 /// Looks a handle up and writes what it answers, leaving `*out` untouched on any refusal.
@@ -80,25 +94,17 @@ unsafe fn hand_over<T>(out: *mut T, made: Result<T, ak_status>) -> ak_status {
 /// # Safety
 ///
 /// `out` must be null or writable for its type.
-unsafe fn observe<T, V>(
+unsafe fn observe<T, V, R: Into<Refusal>>(
     table: &Registry<T>,
     handle: ak_handle,
     out: *mut V,
-    read: impl FnOnce(&Arc<T>) -> Result<V, ak_status>,
-) -> ak_status {
+    read: impl FnOnce(&Arc<T>) -> Result<V, R>,
+) -> Result<(), Refusal> {
     if out.is_null() {
-        return ak_status::AK_STATUS_INVALID_ARG;
+        return Err(ak_status::AK_STATUS_INVALID_ARG.into());
     }
-    let Some(found) = table.get(handle) else {
-        return ak_status::AK_STATUS_HANDLE_STALE;
-    };
-    match read(&found) {
-        Err(status) => status,
-        Ok(value) => {
-            unsafe { *out = value };
-            ak_status::AK_STATUS_OK
-        }
-    }
+    let found = table.get(handle).ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+    unsafe { hand_over(out, read(&found)) }
 }
 
 /// Creates a runtime, synchronously; it starts in AK_RUNTIME_RUNNING. One exists at a time: a
@@ -108,20 +114,20 @@ unsafe fn observe<T, V>(
 ///
 /// `config` and `out` must be valid for their types, and `callback` must stay callable with
 /// `runtime_ctx` until the runtime's last event.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_runtime_create(
     config: *const ak_runtime_config,
     callback: ak_callback,
     runtime_ctx: *mut c_void,
     out: *mut ak_handle,
+    out_error: *mut ak_error,
 ) -> ak_status {
-    guard(|| {
+    let answered = guard(|| {
         let (Some(callback), false, false) = (callback, config.is_null(), out.is_null()) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
+            return Err(NULL_ARGUMENT);
         };
-        let Some(config) = (unsafe { read_versioned(config) }) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
+        let config = (unsafe { read_versioned(config) }).ok_or(UNKNOWN_SIZE)?;
 
         unsafe {
             hand_over(
@@ -133,8 +139,20 @@ pub unsafe extern "C" fn ak_runtime_create(
                 ),
             )
         }
-    })
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
+
+const NULL_ARGUMENT: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "a pointer argument is null",
+);
+const UNKNOWN_SIZE: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "struct_size names a version of the record this library does not read",
+);
 
 /// The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
 /// inside a callback.
@@ -150,15 +168,23 @@ pub extern "C" fn ak_runtime_status(runtime: ak_handle) -> ak_runtime_state {
 }
 
 /// Closes the start gate and drains. AK_EVENT_SHUTDOWN_COMPLETE follows. Idempotent.
+///
+/// # Safety
+///
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
-pub extern "C" fn ak_runtime_begin_shutdown(runtime: ak_handle) -> ak_status {
-    guard(|| match tables::runtimes().get(runtime) {
-        None => ak_status::AK_STATUS_HANDLE_STALE,
-        Some(runtime) => {
-            lifecycle::begin_shutdown(&runtime);
-            ak_status::AK_STATUS_OK
-        }
-    })
+pub unsafe extern "C" fn ak_runtime_begin_shutdown(
+    runtime: ak_handle,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| {
+        let runtime = tables::runtimes()
+            .get(runtime)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        lifecycle::begin_shutdown(&runtime);
+        Ok(())
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// Frees the runtime. Refused before AK_RUNTIME_QUIESCENT, and that is the only reason.
@@ -167,9 +193,17 @@ pub extern "C" fn ak_runtime_begin_shutdown(runtime: ak_handle) -> ak_status {
 /// once, and a later downcall on one returns AK_STATUS_HANDLE_STALE. A handle names runtime-owned
 /// state, so the runtime may reclaim it; a payload or a lent buffer is memory the host may still
 /// be reading or writing, so only the host can end it.
+///
+/// # Safety
+///
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
-pub extern "C" fn ak_runtime_destroy(runtime: ak_handle) -> ak_status {
-    guard(|| lifecycle::destroy_runtime(runtime))
+pub unsafe extern "C" fn ak_runtime_destroy(
+    runtime: ak_handle,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| done(lifecycle::destroy_runtime(runtime)));
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// What the runtime-wide byte ceiling is holding. Synchronous, non-blocking and observational: it
@@ -178,16 +212,19 @@ pub extern "C" fn ak_runtime_destroy(runtime: ak_handle) -> ak_status {
 /// # Safety
 ///
 /// `out` must be writable.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_runtime_memory_usage(
     runtime: ak_handle,
     out: *mut ak_memory_usage,
+    out_error: *mut ak_error,
 ) -> ak_status {
-    guard(|| unsafe {
+    let answered = guard(|| unsafe {
         observe(tables::runtimes(), runtime, out, |found| {
-            Ok(found.ledger().usage())
+            Ok::<_, ak_status>(found.ledger().usage())
         })
-    })
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// Creates a channel on an endpoint, configured by a JSON document. Synchronous and performs no
@@ -220,27 +257,38 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 ///
 /// `config_json` must point at its bytes for the duration of the call, and `out` must be
 /// writable.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_channel_create(
     runtime: ak_handle,
     endpoint: ak_bytes_in,
     config_json: ak_bytes_in,
     out: *mut ak_handle,
+    out_error: *mut ak_error,
 ) -> ak_status {
-    guard(|| {
+    let answered = guard(|| {
         observe(tables::runtimes(), runtime, out, |found| {
-            // Held across the create, so a shutdown that closed the gate cannot miss the channel
-            // this is about to insert.
-            let _pass = found
-                .pass_the_gate()
-                .ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
-            let endpoint =
-                unsafe { endpoint.as_slice() }.ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
-            let json = unsafe { config_json.as_slice() }.ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
+            // Held across the create, so a shutdown that closed the gate cannot miss the
+            // channel this is about to insert.
+            let _pass = found.pass_the_gate().ok_or(RUNTIME_STOPPING)?;
+            let endpoint = unsafe { endpoint.as_slice() }.ok_or(NULL_SLICE)?;
+            let json = unsafe { config_json.as_slice() }.ok_or(NULL_SLICE)?;
             channel::create(runtime, found.spawner(), endpoint, json)
         })
-    })
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
+
+const RUNTIME_STOPPING: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_STATE,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the runtime is shutting down and takes no new channel or call",
+);
+const NULL_SLICE: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "a byte view has a null pointer and a length that is not zero",
+);
 
 /// Frees the channel, cancelling its calls first.
 ///
@@ -293,44 +341,36 @@ pub extern "C" fn ak_channel_status(channel: ak_handle) -> ak_channel_state {
 /// # Safety
 ///
 /// `options` must be valid for its type and its byte views, and `out` must be writable.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_call_start(
     channel: ak_handle,
     options: *const ak_call_start_options,
     call_ctx: ak_call_ctx,
     out: *mut ak_handle,
+    out_error: *mut ak_error,
 ) -> ak_status {
-    guard(|| {
+    let answered = guard(|| {
         if options.is_null() || out.is_null() {
-            return ak_status::AK_STATUS_INVALID_ARG;
+            return Err(NULL_ARGUMENT);
         }
-        let Some(options) = (unsafe { read_versioned(options) }) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
+        let options = (unsafe { read_versioned(options) }).ok_or(UNKNOWN_SIZE)?;
 
-        let Some(found) = tables::channels().get(channel) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        let Some(runtime) = tables::runtimes().get(found.runtime) else {
-            return ak_status::AK_STATUS_HANDLE_STALE;
-        };
-        let Some(_pass) = runtime.pass_the_gate() else {
-            return ak_status::AK_STATUS_INVALID_STATE;
-        };
+        let found = tables::channels()
+            .get(channel)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        let runtime = tables::runtimes()
+            .get(found.runtime)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        let _pass = runtime.pass_the_gate().ok_or(RUNTIME_STOPPING)?;
         if found.state() != ak_channel_state::AK_CHANNEL_OPEN {
-            return ak_status::AK_STATUS_INVALID_STATE;
+            return Err(CHANNEL_CLOSING);
         }
 
-        let (Some(method), Some(metadata)) = (unsafe { options.method.as_slice() }, unsafe {
-            options.metadata.as_slice()
-        }) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
-        let (Ok(method), Some(metadata)) =
-            (std::str::from_utf8(method), blob::decode_metadata(metadata))
-        else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
+        let method = unsafe { options.method.as_slice() }.ok_or(NULL_SLICE)?;
+        let metadata = unsafe { options.metadata.as_slice() }.ok_or(NULL_SLICE)?;
+        let method = std::str::from_utf8(method).map_err(|_| METHOD_NOT_UTF8)?;
+        let metadata = blob::decode_metadata(metadata).ok_or(METADATA_UNREADABLE)?;
 
         unsafe {
             hand_over(
@@ -344,8 +384,25 @@ pub unsafe extern "C" fn ak_call_start(
                 ),
             )
         }
-    })
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
+
+const CHANNEL_CLOSING: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_STATE,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the channel is closing and starts no new call",
+);
+const METHOD_NOT_UTF8: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the method is not UTF-8",
+);
+const METADATA_UNREADABLE: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the metadata is not a blob of the layout the header states",
+);
 
 /// Lends a buffer out of the call's arena to serialize into. The exact length is known before the
 /// first byte is written, so no growable writer is needed.
@@ -364,13 +421,17 @@ pub unsafe extern "C" fn ak_call_start(
 /// # Safety
 ///
 /// `out` must be writable.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_get_call_buffer(
     call: ak_handle,
     len: usize,
     out: *mut ak_buffer,
+    out_error: *mut ak_error,
 ) -> ak_status {
-    guard(|| unsafe { observe(tables::calls(), call, out, |found| found.lend(len)) })
+    let answered =
+        guard(|| unsafe { observe(tables::calls(), call, out, |found| found.lend(len)) });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// Commits a lent buffer as the next message. Ownership passes back to this library.
@@ -388,23 +449,39 @@ pub unsafe extern "C" fn ak_get_call_buffer(
 /// # Safety
 ///
 /// `buffer` must be one this call lent and the host has not given back.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
-pub unsafe extern "C" fn ak_call_send_message(call: ak_handle, buffer: ak_buffer) -> ak_status {
-    guard(|| {
-        let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
-            return ak_status::AK_STATUS_INVALID_ARG;
-        };
+pub unsafe extern "C" fn ak_call_send_message(
+    call: ak_handle,
+    buffer: ak_buffer,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| {
+        let lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
         let Some(found) = tables::calls().get(call) else {
-            return call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE);
+            return done(call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE));
         };
         // The buffer names its own call, so a handle that names another one is the host's
         // mistake and not this library's to resolve.
         if !Arc::ptr_eq(lent.call(), &found) {
-            return call::keep(lent, ak_status::AK_STATUS_INVALID_ARG);
+            call::keep(lent, ak_status::AK_STATUS_INVALID_ARG);
+            return Err(ANOTHER_CALLS_BUFFER);
         }
-        found.commit(lent)
-    })
+        done(found.commit(lent))
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
+
+const NOT_LENT: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the buffer is not one this library lent",
+);
+const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the buffer was lent to another call than the one the handle names",
+);
 
 /// Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only exit for
 /// a buffer whose send is refused, and the call is not reclaimed until it happens.
@@ -431,12 +508,19 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
 /// An end that comes while an ak_call_send_message has not yet returned on another thread - from
 /// inside that send's own AK_EVENT_WRITE_DONE, which may arrive first - waits for it to return, so
 /// it never goes ahead of a message the host has been told left.
+///
+/// # Safety
+///
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
-pub extern "C" fn ak_call_end_send(call: ak_handle) -> ak_status {
-    guard(|| match tables::calls().get(call) {
-        None => ak_status::AK_STATUS_HANDLE_STALE,
-        Some(found) => found.end_send(),
-    })
+pub unsafe extern "C" fn ak_call_end_send(call: ak_handle, out_error: *mut ak_error) -> ak_status {
+    let answered = guard(|| {
+        let found = tables::calls()
+            .get(call)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        done(found.end_send())
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// Cancels the call, which then reaches a terminal - carrying CANCELLED, unless the peer's own
@@ -445,15 +529,20 @@ pub extern "C" fn ak_call_end_send(call: ak_handle) -> ak_status {
 /// Asynchronous: the request takes effect when the call's task observes it, so callbacks already
 /// committed may still arrive after this returns, and a status the peer had already sent is the
 /// one delivered. INITIAL_METADATA is never skipped.
+///
+/// # Safety
+///
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
-pub extern "C" fn ak_call_cancel(call: ak_handle) -> ak_status {
-    guard(|| match tables::calls().get(call) {
-        None => ak_status::AK_STATUS_HANDLE_STALE,
-        Some(found) => {
-            found.cancel();
-            ak_status::AK_STATUS_OK
-        }
-    })
+pub unsafe extern "C" fn ak_call_cancel(call: ak_handle, out_error: *mut ak_error) -> ak_status {
+    let answered = guard(|| {
+        let found = tables::calls()
+            .get(call)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        found.cancel();
+        Ok(())
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// What the call still owes. Purely observational; it is legal never to call it. It exists because
@@ -462,9 +551,19 @@ pub extern "C" fn ak_call_cancel(call: ak_handle) -> ak_status {
 /// # Safety
 ///
 /// `out` must be writable.
+/// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
-pub unsafe extern "C" fn ak_call_debt_of(call: ak_handle, out: *mut ak_call_debt) -> ak_status {
-    guard(|| unsafe { observe(tables::calls(), call, out, |found| Ok(found.debt())) })
+pub unsafe extern "C" fn ak_call_debt_of(
+    call: ak_handle,
+    out: *mut ak_call_debt,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| unsafe {
+        observe(tables::calls(), call, out, |found| {
+            Ok::<_, ak_status>(found.debt())
+        })
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 #[no_mangle]
@@ -494,6 +593,17 @@ pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
     guard_void(|| {
         drop(unsafe { call::take_payload(payload.owner) });
     });
+}
+
+/// Frees an ak_error's detail. A no-op when detail.owner is NULL, so a host may route every error
+/// through it. Legal in any runtime state, and after ak_runtime_destroy.
+///
+/// # Safety
+///
+/// `detail` must be one this library wrote into an ak_error and the host has not released.
+#[no_mangle]
+pub unsafe extern "C" fn ak_error_release(detail: ak_bytes) {
+    guard_void(|| unsafe { refusal::release(detail.owner) });
 }
 
 #[cfg(test)]

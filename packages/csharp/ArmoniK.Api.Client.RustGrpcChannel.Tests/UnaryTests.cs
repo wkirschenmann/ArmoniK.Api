@@ -1167,7 +1167,8 @@ public class UnaryTests : EchoServerFixture
   {
     ak_memory_usage usage;
     return NativeMethods.ak_runtime_memory_usage(runtime,
-                                                 &usage) == ak_status.AK_STATUS_OK
+                                                 &usage,
+                                                 null) == ak_status.AK_STATUS_OK
              ? usage.bytes_used
              : null;
   }

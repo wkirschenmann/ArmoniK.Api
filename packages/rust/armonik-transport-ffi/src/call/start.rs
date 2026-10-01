@@ -3,9 +3,10 @@ use std::sync::Arc;
 use armonik_transport::grpc::{CallStartOptions, Metadata};
 
 use super::{actor, CallServices};
-use crate::abi::{ak_handle, ak_status};
+use crate::abi::{ak_error_kind, ak_handle, ak_status};
 use crate::channel::AkChannel;
 use crate::host::HostPtr;
+use crate::refusal::Refusal;
 use crate::tables;
 
 /// The channel's count, given back unless the call that took it is started.
@@ -35,7 +36,7 @@ pub(crate) fn start_on(
     method: &str,
     metadata: Metadata,
     ctx: HostPtr,
-) -> Result<ak_handle, ak_status> {
+) -> Result<ak_handle, Refusal> {
     channel.join()?;
     let joined = Joined(Some(channel));
 
@@ -44,7 +45,7 @@ pub(crate) fn start_on(
 
     let grpc_call = match channel.grpc.start_call(options) {
         Ok(call) => call,
-        Err(error) => return Err(ak_status::from(error)),
+        Err(error) => return Err(Refusal::call(error)),
     };
 
     let (send, recv, control) = grpc_call.split();
@@ -62,7 +63,11 @@ pub(crate) fn start_on(
     });
 
     let Some((handle, (state, commands))) = inserted else {
-        return Err(ak_status::AK_STATUS_INTERNAL);
+        return Err(Refusal::fixed(
+            ak_status::AK_STATUS_INTERNAL,
+            ak_error_kind::AK_ERROR_NONE,
+            "every call handle this library can hand out is spent",
+        ));
     };
 
     // A release cancels the calls its channel lists, and one that ran since the join took its

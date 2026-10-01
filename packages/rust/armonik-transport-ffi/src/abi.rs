@@ -9,7 +9,7 @@
 
 use std::ffi::c_void;
 
-use armonik_transport::grpc::{ChannelError, HeadOrigin};
+use armonik_transport::grpc::HeadOrigin;
 
 /// Returned by every entry point that can fail. ak_event_consumed, ak_return_call_buffer and
 /// ak_channel_release are void because a wrong token is a host bug the ABI cannot report anywhere
@@ -299,13 +299,36 @@ pub struct ak_call_debt {
     pub terminal_delivered: i32,
 }
 
-impl From<ChannelError> for ak_status {
-    fn from(error: ChannelError) -> Self {
-        match error {
-            ChannelError::Closed => Self::AK_STATUS_INVALID_STATE,
-            _ => Self::AK_STATUS_INVALID_ARG,
-        }
-    }
+/// Why a fallible entry point refused, beyond what its status says.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ak_error_kind {
+    /// No family: the status says what happened - backpressure, a request too large for the
+    /// ceiling, a fault this library cannot attribute. Zero, so a zero-initialized ak_error reads
+    /// as nothing more to say.
+    AK_ERROR_NONE = 0,
+    /// The configuration document or the endpoint, before any socket.
+    AK_ERROR_CONFIG = 1,
+    /// DNS, TCP, TLS handshake.
+    AK_ERROR_CONNECTION = 2,
+    /// HTTP/2 or gRPC framing, after a connection.
+    AK_ERROR_TRANSPORT = 3,
+    AK_ERROR_TIMEOUT = 4,
+    AK_ERROR_CANCELLED = 5,
+    /// The host used the ABI in a way it does not admit: a null pointer, a handle that names
+    /// nothing, a downcall at a moment its object refuses it.
+    AK_ERROR_USAGE = 6,
+}
+
+/// Filled by this library, read by the host, and written only when the status is not
+/// AK_STATUS_OK. Fixed layout, with no size prefix: ak_abi_version() is the agreement.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ak_error {
+    pub kind: ak_error_kind,
+    /// UTF-8, the cause chain flattened into one message. detail.owner == NULL means there is
+    /// nothing to free. Released by ak_error_release, never by ak_event_consumed.
+    pub detail: ak_bytes,
 }
 
 pub const AK_ABI_VERSION: i32 = 1;

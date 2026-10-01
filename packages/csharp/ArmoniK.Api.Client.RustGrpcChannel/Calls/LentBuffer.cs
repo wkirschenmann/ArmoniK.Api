@@ -134,10 +134,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   /// <remarks>What the engine takes back this stops naming, so a view a serializer kept is a
   /// disposed view rather than an arena lent to the next call. A refusal leaves the buffer here,
   /// and disposal returns it.</remarks>
-  internal ak_status Commit()
+  internal unsafe ak_status Commit()
   {
     var status = NativeMethods.ak_call_send_message(call_,
-                                                    buffer_);
+                                                    buffer_,
+                                                    null);
     if (status == ak_status.AK_STATUS_OK)
     {
       ReleaseBlock();
@@ -186,7 +187,8 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     {
       status = NativeMethods.ak_get_call_buffer(call_,
                                                 (nuint)length,
-                                                lent);
+                                                lent,
+                                                null);
     }
 
     switch (status)

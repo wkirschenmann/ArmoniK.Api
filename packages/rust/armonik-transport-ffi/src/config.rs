@@ -1,3 +1,4 @@
+use std::fmt;
 use std::time::Duration;
 
 use armonik_transport::grpc::GrpcChannelConfig;
@@ -45,28 +46,89 @@ impl ChannelSettings {
     }
 }
 
-/// Reads the document, refusing exactly what the schema refuses.
+/// Why a document was refused, named by the key it was refused over.
+#[derive(Debug)]
+pub(crate) enum ConfigRefusal {
+    /// Not a document of this vocabulary: not JSON, a key it does not have, or a value of the
+    /// wrong type, with the path of the key it was refused at.
+    Document(serde_path_to_error::Error<serde_json::Error>),
+    /// A window outside what the schema admits.
+    Window { key: &'static str, value: i32 },
+    /// A receive limit that admits no message at all.
+    NoMessage { value: i32 },
+    /// An empty user agent.
+    EmptyUserAgent,
+    /// A connect timeout no `Duration` holds, or one below what it holds.
+    ConnectTimeout { seconds: f64 },
+}
+
+impl fmt::Display for ConfigRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // The path is `.` for the document itself, which a syntax error is refused at.
+            Self::Document(error) => match error.path().to_string().as_str() {
+                "." => write!(
+                    f,
+                    "the configuration document is refused: {}",
+                    error.inner()
+                ),
+                path => write!(f, "{path} is refused: {}", error.inner()),
+            },
+            Self::Window { key, value } => write!(
+                f,
+                "{key} is {value}, and has to be between 1 and {LARGEST_WINDOW}"
+            ),
+            Self::NoMessage { value } => write!(
+                f,
+                "MaxReceiveMessageSize is {value}, and has to be at least 1 - a channel that \
+                 receives no message at all"
+            ),
+            Self::EmptyUserAgent => f.write_str("UserAgent is empty, and has to name something"),
+            Self::ConnectTimeout { seconds } => write!(
+                f,
+                "Transport.ConnectTimeoutSeconds is {seconds}, and has to be at least 1e-9 and \
+                 less than 2^64"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConfigRefusal {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Document(error) => Some(error.inner()),
+            _ => None,
+        }
+    }
+}
+
+/// Reads the document, refusing exactly what the schema refuses, and saying over which key.
 ///
 /// Every bound checked here is stated in the schema the options type derives - a minimum, a
 /// maximum, a minimum length - so a document a validator would reject is one this refuses too.
 /// They are checked again rather than trusted: nothing obliges a host to have validated, and the
 /// engine is what a bad value would break.
-pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
-    let options: ChannelOptions = serde_json::from_slice(json).ok()?;
+pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
+    let options: ChannelOptions =
+        serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(json))
+            .map_err(ConfigRefusal::Document)?;
 
-    let window =
-        |asked: Option<i32>| asked.is_none_or(|asked| (1..=LARGEST_WINDOW).contains(&asked));
-    if !window(options.delivery_credits) || !window(options.max_sends_in_flight) {
-        return None;
-    }
+    let window = |key: &'static str, asked: Option<i32>| match asked {
+        Some(value) if !(1..=LARGEST_WINDOW).contains(&value) => {
+            Err(ConfigRefusal::Window { key, value })
+        }
+        _ => Ok(()),
+    };
+    window("DeliveryCredits", options.delivery_credits)?;
+    window("MaxSendsInFlight", options.max_sends_in_flight)?;
 
     // Zero is refused: it is a channel that can receive no message at all.
-    if options.max_receive_message_size.is_some_and(|max| max < 1) {
-        return None;
+    if let Some(value) = options.max_receive_message_size.filter(|max| *max < 1) {
+        return Err(ConfigRefusal::NoMessage { value });
     }
 
     if options.user_agent.as_deref().is_some_and(str::is_empty) {
-        return None;
+        return Err(ConfigRefusal::EmptyUserAgent);
     }
 
     // Below a nanosecond is refused, as the schema's `minimum` refuses it: `Duration` holds
@@ -75,11 +137,16 @@ pub(crate) fn parse(json: &[u8]) -> Option<ChannelSettings> {
     // conversion is what says whether the document named one.
     let connect_timeout = match options.transport.connect_timeout_seconds {
         None => None,
-        Some(seconds) if seconds.0 < 1e-9 => return None,
-        Some(seconds) => Some(Duration::try_from(seconds).ok()?),
+        Some(seconds) => {
+            let refused = ConfigRefusal::ConnectTimeout { seconds: seconds.0 };
+            if seconds.0 < 1e-9 {
+                return Err(refused);
+            }
+            Some(Duration::try_from(seconds).map_err(|_| refused)?)
+        }
     };
 
-    Some(ChannelSettings {
+    Ok(ChannelSettings {
         options,
         connect_timeout,
     })
@@ -150,7 +217,7 @@ mod tests {
         let schema: serde_json::Value = serde_json::from_str(&armonik_transport::options::schema())
             .expect("the schema renders as JSON");
         let stated = |pointer: &str| schema.pointer(pointer).and_then(serde_json::Value::as_i64);
-        let admits = |document: String| parse(document.as_bytes()).is_some();
+        let admits = |document: String| parse(document.as_bytes()).is_ok();
 
         for option in [
             "DeliveryCredits",
@@ -234,8 +301,8 @@ mod tests {
     fn a_channel_that_could_receive_no_message_is_refused() {
         // Every other size is a channel that refuses some messages; zero refuses all of them,
         // which is a configuration with no use and a call that can only ever fail.
-        assert!(parse(br#"{"MaxReceiveMessageSize":0}"#).is_none());
-        assert!(parse(br#"{"MaxReceiveMessageSize":1}"#).is_some());
+        assert!(parse(br#"{"MaxReceiveMessageSize":0}"#).is_err());
+        assert!(parse(br#"{"MaxReceiveMessageSize":1}"#).is_ok());
     }
 
     #[test]
@@ -253,15 +320,15 @@ mod tests {
 
     #[test]
     fn an_option_spelled_wrong_is_refused_rather_than_ignored() {
-        assert!(parse(br#"{"UserAgnt":"typo"}"#).is_none());
+        assert!(parse(br#"{"UserAgnt":"typo"}"#).is_err());
     }
 
     #[test]
     fn an_option_spelled_as_the_wrong_type_is_refused() {
         // The schema says a number, so a string spelled like one is not the same document. A
         // reader that took it would make the schema a suggestion.
-        assert!(parse(br#"{"DeliveryCredits":"2"}"#).is_none());
-        assert!(parse(br#"{"DeliveryCredits":2}"#).is_some());
+        assert!(parse(br#"{"DeliveryCredits":"2"}"#).is_err());
+        assert!(parse(br#"{"DeliveryCredits":2}"#).is_ok());
     }
 
     #[test]
@@ -280,12 +347,12 @@ mod tests {
         // holds it. Refusing it here is what keeps the conversion below infallible in practice:
         // a value this admits and that panics one line later reaches a host as INTERNAL, which
         // says a fault where the truth is a configuration error.
-        assert!(parse(br#"{"Transport":{"ConnectTimeoutSeconds":1e300}}"#).is_none());
+        assert!(parse(br#"{"Transport":{"ConnectTimeoutSeconds":1e300}}"#).is_err());
     }
 
     #[test]
     fn every_document_this_reader_admits_becomes_a_config() {
-        // The reader's own promise: what it returns `Some` for is what `into_channel_config`
+        // The reader's own promise: what it returns `Ok` for is what `into_channel_config`
         // can build, so no admitted document panics on the way through.
         for admitted in [
             &b"{}"[..],
@@ -293,7 +360,7 @@ mod tests {
             &br#"{"Transport":{"ConnectTimeoutSeconds":2.5}}"#[..],
             &br#"{"Transport":{"ConnectTimeoutSeconds":1.7976931348623157e308}}"#[..],
         ] {
-            if parse(admitted).is_some() {
+            if parse(admitted).is_ok() {
                 let _ = config_of(admitted);
             }
         }
@@ -308,7 +375,7 @@ mod tests {
             &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
         ] {
             assert!(
-                parse(refused).is_none(),
+                parse(refused).is_err(),
                 "{}",
                 String::from_utf8_lossy(refused)
             );
@@ -316,8 +383,45 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_names_the_key_it_was_refused_over() {
+        for (document, key) in [
+            (&br#"{"UserAgnt":"typo"}"#[..], "UserAgnt"),
+            (&br#"{"DeliveryCredits":"2"}"#[..], "DeliveryCredits"),
+            (&br#"{"DeliveryCredits":0}"#[..], "DeliveryCredits"),
+            (&br#"{"MaxSendsInFlight":0}"#[..], "MaxSendsInFlight"),
+            (
+                &br#"{"MaxReceiveMessageSize":0}"#[..],
+                "MaxReceiveMessageSize",
+            ),
+            (&br#"{"UserAgent":""}"#[..], "UserAgent"),
+            (
+                &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
+                "ConnectTimeoutSeconds",
+            ),
+            (
+                &br#"{"Transport":{"ConnectTimeoutSeconds":1e300}}"#[..],
+                "ConnectTimeoutSeconds",
+            ),
+            (
+                &br#"{"Transport":{"ConnectTimeoutSeconds":"1"}}"#[..],
+                "Transport.ConnectTimeoutSeconds",
+            ),
+        ] {
+            let Err(refused) = parse(document) else {
+                panic!("{} is admitted", String::from_utf8_lossy(document));
+            };
+            let said = refused.to_string();
+            assert!(
+                said.contains(key),
+                "{} is refused without naming {key}: {said}",
+                String::from_utf8_lossy(document)
+            );
+        }
+    }
+
+    #[test]
     fn a_window_past_what_the_schema_admits_is_refused() {
         let past = format!(r#"{{"DeliveryCredits":{}}}"#, LARGEST_WINDOW as i64 + 1);
-        assert!(parse(past.as_bytes()).is_none());
+        assert!(parse(past.as_bytes()).is_err());
     }
 }

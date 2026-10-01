@@ -81,7 +81,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
           status = NativeMethods.ak_channel_create(runtime.Handle,
                                                    where,
                                                    config,
-                                                   created);
+                                                   created,
+                                                   null);
         }
 
         if (status != ak_status.AK_STATUS_OK)

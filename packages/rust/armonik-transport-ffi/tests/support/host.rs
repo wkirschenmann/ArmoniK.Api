@@ -101,6 +101,7 @@ impl Host {
                     len: json.len(),
                 },
                 &mut channel,
+                std::ptr::null_mut(),
             )
         };
         assert_eq!(status, ak_status::AK_STATUS_OK, "{endpoint} {json}");
@@ -109,7 +110,7 @@ impl Host {
 
     pub fn stop(&self) {
         assert_eq!(
-            ak_runtime_begin_shutdown(self.runtime),
+            unsafe { ak_runtime_begin_shutdown(self.runtime, std::ptr::null_mut()) },
             ak_status::AK_STATUS_OK
         );
         self.await_state(ak_runtime_state::AK_RUNTIME_QUIESCENT);
@@ -126,7 +127,7 @@ impl Host {
     /// It reports nothing and asserts nothing: the caller is unwinding.
     fn wind_down(&self) {
         self.recorder.stop_holding();
-        let _ = ak_runtime_begin_shutdown(self.runtime);
+        let _ = unsafe { ak_runtime_begin_shutdown(self.runtime, std::ptr::null_mut()) };
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline
             && ak_runtime_status(self.runtime) != ak_runtime_state::AK_RUNTIME_QUIESCENT
@@ -172,7 +173,7 @@ impl Drop for Host {
             }
         }
 
-        let destroyed = ak_runtime_destroy(self.runtime);
+        let destroyed = unsafe { ak_runtime_destroy(self.runtime, std::ptr::null_mut()) };
         if destroyed == ak_status::AK_STATUS_OK {
             // A destroyed runtime makes no further callback, so the reference it held as its
             // context comes back here. On any other answer the runtime may still call back, and
@@ -194,7 +195,7 @@ impl Drop for Host {
 
 pub fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     let mut buffer = empty_buffer();
-    let status = unsafe { ak_get_call_buffer(call, len, &mut buffer) };
+    let status = unsafe { ak_get_call_buffer(call, len, &mut buffer, std::ptr::null_mut()) };
     if status != ak_status::AK_STATUS_OK {
         assert!(buffer.owner.is_null(), "a refusal leaves *out as it was");
     }
@@ -214,7 +215,7 @@ pub fn write_one(host: &Host, call: ak_handle, message: &[u8], acquitted: usize)
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer) },
+        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
     host.recorder.await_write_dones(acquitted);
@@ -228,10 +229,13 @@ pub fn send_one(call: ak_handle, message: &[u8]) {
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer) },
+        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
-    assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_end_send(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
 }
 
 pub fn try_create_runtime(
@@ -245,14 +249,22 @@ pub fn try_create_runtime(
         memory_ceiling,
     };
     let mut runtime = AK_HANDLE_NONE;
-    let status = unsafe { ak_runtime_create(&config, Some(on_event), runtime_ctx, &mut runtime) };
+    let status = unsafe {
+        ak_runtime_create(
+            &config,
+            Some(on_event),
+            runtime_ctx,
+            &mut runtime,
+            std::ptr::null_mut(),
+        )
+    };
     (status, runtime)
 }
 
 pub fn debt_of(call: ak_handle) -> ak_call_debt {
     let mut debt = ak_call_debt::default();
     assert_eq!(
-        unsafe { ak_call_debt_of(call, &mut debt) },
+        unsafe { ak_call_debt_of(call, &mut debt, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
     debt
@@ -261,7 +273,7 @@ pub fn debt_of(call: ak_handle) -> ak_call_debt {
 pub fn memory_usage(runtime: ak_handle) -> ak_memory_usage {
     let mut usage = ak_memory_usage::default();
     assert_eq!(
-        unsafe { ak_runtime_memory_usage(runtime, &mut usage) },
+        unsafe { ak_runtime_memory_usage(runtime, &mut usage, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
     usage
@@ -280,7 +292,15 @@ pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_
         },
     };
     let mut call = AK_HANDLE_NONE;
-    let status = unsafe { ak_call_start(channel, &options, std::ptr::null_mut(), &mut call) };
+    let status = unsafe {
+        ak_call_start(
+            channel,
+            &options,
+            std::ptr::null_mut(),
+            &mut call,
+            std::ptr::null_mut(),
+        )
+    };
     (status, call)
 }
 

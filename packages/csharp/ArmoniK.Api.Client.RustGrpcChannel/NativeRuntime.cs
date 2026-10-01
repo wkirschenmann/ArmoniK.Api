@@ -94,7 +94,8 @@ public sealed class NativeRuntime : IAsyncDisposable
         status = NativeMethods.ak_runtime_create(&config,
                                                  Trampoline,
                                                  (void*)GCHandle.ToIntPtr(self_),
-                                                 created);
+                                                 created,
+                                                 null);
       }
     }
 
@@ -395,13 +396,14 @@ public sealed class NativeRuntime : IAsyncDisposable
   {
     ak_memory_usage usage;
     return NativeMethods.ak_runtime_memory_usage(runtime,
-                                                 &usage) != ak_status.AK_STATUS_OK || usage.ceiling == 0 ||
+                                                 &usage,
+                                                 null) != ak_status.AK_STATUS_OK || usage.ceiling == 0 ||
            usage.bytes_used < usage.ceiling;
   }
 
   private async Task RetireAsync()
   {
-    NativeMethods.ak_runtime_begin_shutdown(handle_);
+    BeginShutdown();
     await QuiescentAsync()
       .ConfigureAwait(false);
     Destroy();
@@ -410,6 +412,11 @@ public sealed class NativeRuntime : IAsyncDisposable
     // pointer, and freeing the root would hand its next callback whatever the slot is reused for.
     self_.Free();
   }
+
+  // Out of RetireAsync, which as an async method may not pass a pointer.
+  private unsafe void BeginShutdown()
+    => NativeMethods.ak_runtime_begin_shutdown(handle_,
+                                               null);
 
   /// <summary>Waits for the one fact the header names as the guarantee.</summary>
   ///
@@ -475,9 +482,10 @@ public sealed class NativeRuntime : IAsyncDisposable
   private static InvalidOperationException NotQuiescent(ak_runtime_state state)
     => new($"the runtime cannot quiesce ({state})");
 
-  private void Destroy()
+  private unsafe void Destroy()
   {
-    var status = NativeMethods.ak_runtime_destroy(handle_);
+    var status = NativeMethods.ak_runtime_destroy(handle_,
+                                                  null);
     if (status != ak_status.AK_STATUS_OK)
     {
       throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");

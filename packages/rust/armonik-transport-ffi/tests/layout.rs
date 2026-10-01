@@ -74,6 +74,9 @@ fn every_field_has_the_type_the_header_declares() {
 
     let _: fn(&ak_memory_usage) -> &u64 = |usage| &usage.bytes_used;
     let _: fn(&ak_memory_usage) -> &u64 = |usage| &usage.ceiling;
+
+    let _: fn(&ak_error) -> &ak_error_kind = |error| &error.kind;
+    let _: fn(&ak_error) -> &ak_bytes = |error| &error.detail;
 }
 
 #[test]
@@ -84,6 +87,7 @@ fn every_enum_the_abi_crosses_is_an_int() {
     assert_eq!(size_of::<ak_host_debt>(), 4);
     assert_eq!(size_of::<ak_channel_state>(), 4);
     assert_eq!(size_of::<ak_head_origin>(), 4);
+    assert_eq!(size_of::<ak_error_kind>(), 4);
 }
 
 #[test]
@@ -97,6 +101,13 @@ fn an_options_struct_starts_with_the_size_that_versions_it() {
     assert_eq!(offset_of!(ak_call_start_options, method), PTR);
     assert_eq!(offset_of!(ak_call_start_options, metadata), 3 * PTR);
     assert_eq!(size_of::<ak_call_start_options>(), 5 * PTR);
+}
+
+#[test]
+fn an_error_carries_its_detail_inline() {
+    assert_eq!(size_of::<ak_error>(), 4 * PTR);
+    assert_eq!(offset_of!(ak_error, kind), 0);
+    assert_eq!(offset_of!(ak_error, detail), PTR);
 }
 
 #[test]
@@ -298,6 +309,22 @@ fn every_enum_value_is_the_one_the_header_gives_it() {
             "AK_HOST_MUST_RETURN",
             ak_host_debt::AK_HOST_MUST_RETURN as i32,
         ),
+        ("AK_ERROR_NONE", ak_error_kind::AK_ERROR_NONE as i32),
+        ("AK_ERROR_CONFIG", ak_error_kind::AK_ERROR_CONFIG as i32),
+        (
+            "AK_ERROR_CONNECTION",
+            ak_error_kind::AK_ERROR_CONNECTION as i32,
+        ),
+        (
+            "AK_ERROR_TRANSPORT",
+            ak_error_kind::AK_ERROR_TRANSPORT as i32,
+        ),
+        ("AK_ERROR_TIMEOUT", ak_error_kind::AK_ERROR_TIMEOUT as i32),
+        (
+            "AK_ERROR_CANCELLED",
+            ak_error_kind::AK_ERROR_CANCELLED as i32,
+        ),
+        ("AK_ERROR_USAGE", ak_error_kind::AK_ERROR_USAGE as i32),
     ];
 
     let declared = header_constants(&header());
@@ -361,15 +388,21 @@ fn every_entry_point_has_the_signature_the_header_declares() {
         ak_callback,
         *mut c_void,
         *mut ak_handle,
+        *mut ak_error,
     ) -> ak_status = ak_runtime_create;
     let _: extern "C" fn(ak_handle) -> ak_runtime_state = ak_runtime_status;
-    let _: extern "C" fn(ak_handle) -> ak_status = ak_runtime_begin_shutdown;
-    let _: extern "C" fn(ak_handle) -> ak_status = ak_runtime_destroy;
-    let _: unsafe extern "C" fn(ak_handle, *mut ak_memory_usage) -> ak_status =
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_runtime_begin_shutdown;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_runtime_destroy;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_memory_usage, *mut ak_error) -> ak_status =
         ak_runtime_memory_usage;
 
-    let _: unsafe extern "C" fn(ak_handle, ak_bytes_in, ak_bytes_in, *mut ak_handle) -> ak_status =
-        ak_channel_create;
+    let _: unsafe extern "C" fn(
+        ak_handle,
+        ak_bytes_in,
+        ak_bytes_in,
+        *mut ak_handle,
+        *mut ak_error,
+    ) -> ak_status = ak_channel_create;
     let _: extern "C" fn(ak_handle) = ak_channel_release;
     let _: extern "C" fn(ak_handle) -> ak_channel_state = ak_channel_status;
 
@@ -378,16 +411,21 @@ fn every_entry_point_has_the_signature_the_header_declares() {
         *const ak_call_start_options,
         *mut c_void,
         *mut ak_handle,
+        *mut ak_error,
     ) -> ak_status = ak_call_start;
-    let _: unsafe extern "C" fn(ak_handle, usize, *mut ak_buffer) -> ak_status = ak_get_call_buffer;
-    let _: unsafe extern "C" fn(ak_handle, ak_buffer) -> ak_status = ak_call_send_message;
+    let _: unsafe extern "C" fn(ak_handle, usize, *mut ak_buffer, *mut ak_error) -> ak_status =
+        ak_get_call_buffer;
+    let _: unsafe extern "C" fn(ak_handle, ak_buffer, *mut ak_error) -> ak_status =
+        ak_call_send_message;
     let _: unsafe extern "C" fn(ak_buffer) = ak_return_call_buffer;
-    let _: extern "C" fn(ak_handle) -> ak_status = ak_call_end_send;
-    let _: extern "C" fn(ak_handle) -> ak_status = ak_call_cancel;
-    let _: unsafe extern "C" fn(ak_handle, *mut ak_call_debt) -> ak_status = ak_call_debt_of;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_call_end_send;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_call_cancel;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_call_debt, *mut ak_error) -> ak_status =
+        ak_call_debt_of;
 
     let _: extern "C" fn() -> i32 = ak_abi_version;
     let _: unsafe extern "C" fn(ak_bytes) = ak_event_consumed;
+    let _: unsafe extern "C" fn(ak_bytes) = ak_error_release;
 }
 
 #[test]
@@ -418,6 +456,7 @@ fn every_entry_point_the_header_declares_is_exported() {
         ("ak_call_debt_of", ak_call_debt_of as *const ()),
         ("ak_abi_version", ak_abi_version as *const ()),
         ("ak_event_consumed", ak_event_consumed as *const ()),
+        ("ak_error_release", ak_error_release as *const ()),
     ];
 
     for (name, address) in exported {
@@ -464,18 +503,25 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
                 "ak_callback",
                 "void *",
                 "ak_handle *",
+                "ak_error *",
             ],
         ),
         ("ak_runtime_status", &["ak_handle"]),
-        ("ak_runtime_begin_shutdown", &["ak_handle"]),
-        ("ak_runtime_destroy", &["ak_handle"]),
+        ("ak_runtime_begin_shutdown", &["ak_handle", "ak_error *"]),
+        ("ak_runtime_destroy", &["ak_handle", "ak_error *"]),
         (
             "ak_runtime_memory_usage",
-            &["ak_handle", "ak_memory_usage *"],
+            &["ak_handle", "ak_memory_usage *", "ak_error *"],
         ),
         (
             "ak_channel_create",
-            &["ak_handle", "ak_bytes_in", "ak_bytes_in", "ak_handle *"],
+            &[
+                "ak_handle",
+                "ak_bytes_in",
+                "ak_bytes_in",
+                "ak_handle *",
+                "ak_error *",
+            ],
         ),
         ("ak_channel_release", &["ak_handle"]),
         ("ak_channel_status", &["ak_handle"]),
@@ -488,19 +534,27 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
                 // the header sees; `typedef void *ak_call_ctx` is what makes it the same type.
                 "ak_call_ctx",
                 "ak_handle *",
+                "ak_error *",
             ],
         ),
         (
             "ak_get_call_buffer",
-            &["ak_handle", "size_t", "ak_buffer *"],
+            &["ak_handle", "size_t", "ak_buffer *", "ak_error *"],
         ),
-        ("ak_call_send_message", &["ak_handle", "ak_buffer"]),
+        (
+            "ak_call_send_message",
+            &["ak_handle", "ak_buffer", "ak_error *"],
+        ),
         ("ak_return_call_buffer", &["ak_buffer"]),
-        ("ak_call_end_send", &["ak_handle"]),
-        ("ak_call_cancel", &["ak_handle"]),
-        ("ak_call_debt_of", &["ak_handle", "ak_call_debt *"]),
+        ("ak_call_end_send", &["ak_handle", "ak_error *"]),
+        ("ak_call_cancel", &["ak_handle", "ak_error *"]),
+        (
+            "ak_call_debt_of",
+            &["ak_handle", "ak_call_debt *", "ak_error *"],
+        ),
         ("ak_abi_version", &[]),
         ("ak_event_consumed", &["ak_bytes"]),
+        ("ak_error_release", &["ak_bytes"]),
     ];
 
     for (name, parameters) in declared {

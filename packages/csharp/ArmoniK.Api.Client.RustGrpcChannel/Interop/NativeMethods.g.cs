@@ -59,9 +59,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///
         ///  `config` and `out` must be valid for their types, and `callback` must stay callable with
         ///  `runtime_ctx` until the runtime's last event.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_runtime_create(ak_runtime_config* config, ak_runtime_create_callback_delegate callback, void* runtime_ctx, ulong* @out);
+        internal static extern ak_status ak_runtime_create(ak_runtime_config* config, ak_runtime_create_callback_delegate callback, void* runtime_ctx, ulong* @out, ak_error* out_error);
 
         /// <summary>
         ///  The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
@@ -72,9 +73,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
         /// <summary>
         ///  Closes the start gate and drains. AK_EVENT_SHUTDOWN_COMPLETE follows. Idempotent.
+        ///
+        ///  # Safety
+        ///
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_begin_shutdown", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_runtime_begin_shutdown(ulong runtime);
+        internal static extern ak_status ak_runtime_begin_shutdown(ulong runtime, ak_error* out_error);
 
         /// <summary>
         ///  Frees the runtime. Refused before AK_RUNTIME_QUIESCENT, and that is the only reason.
@@ -83,9 +88,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  once, and a later downcall on one returns AK_STATUS_HANDLE_STALE. A handle names runtime-owned
         ///  state, so the runtime may reclaim it; a payload or a lent buffer is memory the host may still
         ///  be reading or writing, so only the host can end it.
+        ///
+        ///  # Safety
+        ///
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_runtime_destroy(ulong runtime);
+        internal static extern ak_status ak_runtime_destroy(ulong runtime, ak_error* out_error);
 
         /// <summary>
         ///  What the runtime-wide byte ceiling is holding. Synchronous, non-blocking and observational: it
@@ -94,9 +103,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  # Safety
         ///
         ///  `out` must be writable.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_memory_usage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_runtime_memory_usage(ulong runtime, ak_memory_usage* @out);
+        internal static extern ak_status ak_runtime_memory_usage(ulong runtime, ak_memory_usage* @out, ak_error* out_error);
 
         /// <summary>
         ///  Creates a channel on an endpoint, configured by a JSON document. Synchronous and performs no
@@ -129,9 +139,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///
         ///  `config_json` must point at its bytes for the duration of the call, and `out` must be
         ///  writable.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_channel_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_channel_create(ulong runtime, ak_bytes_in endpoint, ak_bytes_in config_json, ulong* @out);
+        internal static extern ak_status ak_channel_create(ulong runtime, ak_bytes_in endpoint, ak_bytes_in config_json, ulong* @out, ak_error* out_error);
 
         /// <summary>
         ///  Frees the channel, cancelling its calls first.
@@ -179,9 +190,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  # Safety
         ///
         ///  `options` must be valid for its type and its byte views, and `out` must be writable.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_call_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_call_start(ulong channel, ak_call_start_options* options, void* call_ctx, ulong* @out);
+        internal static extern ak_status ak_call_start(ulong channel, ak_call_start_options* options, void* call_ctx, ulong* @out, ak_error* out_error);
 
         /// <summary>
         ///  Lends a buffer out of the call's arena to serialize into. The exact length is known before the
@@ -201,9 +213,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  # Safety
         ///
         ///  `out` must be writable.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_get_call_buffer", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_get_call_buffer(ulong call, nuint len, ak_buffer* @out);
+        internal static extern ak_status ak_get_call_buffer(ulong call, nuint len, ak_buffer* @out, ak_error* out_error);
 
         /// <summary>
         ///  Commits a lent buffer as the next message. Ownership passes back to this library.
@@ -221,9 +234,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  # Safety
         ///
         ///  `buffer` must be one this call lent and the host has not given back.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_call_send_message", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_call_send_message(ulong call, ak_buffer buffer);
+        internal static extern ak_status ak_call_send_message(ulong call, ak_buffer buffer, ak_error* out_error);
 
         /// <summary>
         ///  Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only exit for
@@ -246,9 +260,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  An end that comes while an ak_call_send_message has not yet returned on another thread - from
         ///  inside that send's own AK_EVENT_WRITE_DONE, which may arrive first - waits for it to return, so
         ///  it never goes ahead of a message the host has been told left.
+        ///
+        ///  # Safety
+        ///
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_call_end_send", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_call_end_send(ulong call);
+        internal static extern ak_status ak_call_end_send(ulong call, ak_error* out_error);
 
         /// <summary>
         ///  Cancels the call, which then reaches a terminal - carrying CANCELLED, unless the peer's own
@@ -257,9 +275,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  Asynchronous: the request takes effect when the call's task observes it, so callbacks already
         ///  committed may still arrive after this returns, and a status the peer had already sent is the
         ///  one delivered. INITIAL_METADATA is never skipped.
+        ///
+        ///  # Safety
+        ///
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_call_cancel", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_call_cancel(ulong call);
+        internal static extern ak_status ak_call_cancel(ulong call, ak_error* out_error);
 
         /// <summary>
         ///  What the call still owes. Purely observational; it is legal never to call it. It exists because
@@ -268,9 +290,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  # Safety
         ///
         ///  `out` must be writable.
+        ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_call_debt_of", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ak_status ak_call_debt_of(ulong call, ak_call_debt* @out);
+        internal static extern ak_status ak_call_debt_of(ulong call, ak_call_debt* @out, ak_error* out_error);
 
         [DllImport(__DllName, EntryPoint = "ak_abi_version", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern int ak_abi_version();
@@ -296,6 +319,17 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_event_consumed", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern void ak_event_consumed(ak_bytes payload);
+
+        /// <summary>
+        ///  Frees an ak_error's detail. A no-op when detail.owner is NULL, so a host may route every error
+        ///  through it. Legal in any runtime state, and after ak_runtime_destroy.
+        ///
+        ///  # Safety
+        ///
+        ///  `detail` must be one this library wrote into an ak_error and the host has not released.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_error_release", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void ak_error_release(ak_bytes detail);
 
 
     }
@@ -428,6 +462,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  0 or 1.
         /// </summary>
         public int terminal_delivered;
+    }
+
+    /// <summary>
+    ///  Filled by this library, read by the host, and written only when the status is not
+    ///  AK_STATUS_OK. Fixed layout, with no size prefix: ak_abi_version() is the agreement.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct ak_error
+    {
+        public ak_error_kind kind;
+        /// <summary>
+        ///  UTF-8, the cause chain flattened into one message. detail.owner == NULL means there is
+        ///  nothing to free. Released by ak_error_release, never by ak_event_consumed.
+        /// </summary>
+        public ak_bytes detail;
     }
 
 
@@ -601,6 +650,38 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  And nothing of it is active any more.
         /// </summary>
         AK_CHANNEL_CLOSED = 3,
+    }
+
+    /// <summary>
+    ///  Why a fallible entry point refused, beyond what its status says.
+    /// </summary>
+    internal enum ak_error_kind : int
+    {
+        /// <summary>
+        ///  No family: the status says what happened - backpressure, a request too large for the
+        ///  ceiling, a fault this library cannot attribute. Zero, so a zero-initialized ak_error reads
+        ///  as nothing more to say.
+        /// </summary>
+        AK_ERROR_NONE = 0,
+        /// <summary>
+        ///  The configuration document or the endpoint, before any socket.
+        /// </summary>
+        AK_ERROR_CONFIG = 1,
+        /// <summary>
+        ///  DNS, TCP, TLS handshake.
+        /// </summary>
+        AK_ERROR_CONNECTION = 2,
+        /// <summary>
+        ///  HTTP/2 or gRPC framing, after a connection.
+        /// </summary>
+        AK_ERROR_TRANSPORT = 3,
+        AK_ERROR_TIMEOUT = 4,
+        AK_ERROR_CANCELLED = 5,
+        /// <summary>
+        ///  The host used the ABI in a way it does not admit: a null pointer, a handle that names
+        ///  nothing, a downcall at a moment its object refuses it.
+        /// </summary>
+        AK_ERROR_USAGE = 6,
     }
 
 

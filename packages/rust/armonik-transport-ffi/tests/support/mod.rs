@@ -229,7 +229,7 @@ pub fn poll_until(ready: impl Fn() -> bool, diagnose: impl Fn() -> String) {
 
 pub fn await_call_reclaimed(call: ak_handle) {
     poll_until(
-        || ak_call_cancel(call) == ak_status::AK_STATUS_HANDLE_STALE,
+        || unsafe { ak_call_cancel(call, std::ptr::null_mut()) } == ak_status::AK_STATUS_HANDLE_STALE,
         || "the call was not reclaimed".to_owned(),
     );
 }

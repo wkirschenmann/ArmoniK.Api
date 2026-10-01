@@ -35,6 +35,11 @@ header = """
  *     a pointer, so giving one back twice reads memory this library has freed. Undefined
  *     behaviour, not a refusal - there is nothing left to refuse with.
  *
+ * Every entry point that can refuse takes ak_error *out_error as its last argument, which may be
+ * NULL. On a refusal, and only then, a non-NULL out_error receives the refusal's family and its
+ * message, which the host gives back through ak_error_release. A NULL out_error gets the status
+ * alone, and no message is built for it.
+ *
  * Every options struct starts with struct_size, which the host sets to sizeof of its own
  * definition. A size this library does not know is refused with AK_STATUS_INVALID_ARG rather than
  * read: it names a version whose fields are not the ones read here.

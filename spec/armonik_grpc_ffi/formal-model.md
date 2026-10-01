@@ -1421,6 +1421,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
+| every `out_error` | **not modelled.** It is written only on a refusal, and a refusal takes no step: the model says why a downcall is refused by the guard that does not hold, and what `out_error` adds is the message for a human |
 
 Two rows carry the ownership argument, and they are asymmetric. `EmitWriteDone` is the
 only producer of WRITE_DONE and it is per-actor, so a send really is acquitted exactly

@@ -132,7 +132,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
           status = NativeMethods.ak_call_start(channel,
                                                &options,
                                                (void*)GCHandle.ToIntPtr(call.self_),
-                                               started);
+                                               started,
+                                               null);
         }
 
         if (status != ak_status.AK_STATUS_OK)
@@ -377,11 +378,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   public void Cancel()
     => receiving_.CancelAndDrain();
 
-  private void EndNative()
+  private unsafe void EndNative()
   {
     if (!TerminalAsync.IsCompleted)
     {
-      NativeMethods.ak_call_cancel(handle_);
+      NativeMethods.ak_call_cancel(handle_,
+                                   null);
     }
   }
 }

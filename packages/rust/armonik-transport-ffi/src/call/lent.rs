@@ -6,6 +6,7 @@ use bytes::Bytes;
 
 use super::CallState;
 use crate::abi::{ak_bytes, ak_status};
+use crate::tagged::take_tagged;
 
 // Written into the boxes the host is given a pointer to, and checked before either is read back:
 // what comes back over the ABI is whatever the host passed, and the tag is all that tells a buffer
@@ -34,31 +35,6 @@ impl Lent {
 pub(crate) fn keep(lent: Box<Lent>, status: ak_status) -> ak_status {
     let _ = Box::into_raw(lent);
     status
-}
-
-/// Takes back a box this library lent, named by the pointer it handed the host.
-///
-/// The tag tells a buffer from a payload, and either from a pointer that is neither. What it
-/// cannot tell is a box already taken back: the read below happens before the check, so a second
-/// return reads eight bytes out of a freed allocation, and whether the tag survived there is the
-/// allocator's business. The header says a second return is undefined behaviour rather than a
-/// no-op, because that is what it is - a token would be needed to make it reportable, and the
-/// event path is where that token would be looked up.
-///
-/// Unaligned, because nothing promises the host's pointer is aligned for a `u64` - it is aligned
-/// for whatever the host thinks `owner` points at, which is `void`.
-///
-/// # Safety
-///
-/// `owner` must be null, or a pointer this library handed out and the host has not given back.
-unsafe fn take_tagged<T>(owner: *mut c_void, tag: u64) -> Option<Box<T>> {
-    if owner.is_null() {
-        return None;
-    }
-    if unsafe { owner.cast::<u64>().read_unaligned() } != tag {
-        return None;
-    }
-    Some(unsafe { Box::from_raw(owner as *mut T) })
 }
 
 pub(crate) unsafe fn take_lent(owner: *mut c_void) -> Option<Box<Lent>> {

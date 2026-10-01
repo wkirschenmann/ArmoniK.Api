@@ -49,12 +49,17 @@ OBSERVATIONAL = {
     "ak_runtime_memory_usage",
 }
 
+# Functions that act, but on nothing the model holds.  ak_error_release frees a
+# refusal's message, and a refusal takes no step at any level.
+UNMODELLED = {
+    "ak_error_release",
+}
+
 # Functions abi.md specifies and the header does not declare yet, with what
 # builds each.  Listed by name for the same reason as the exemptions above: a
 # design that runs ahead of the ABI is a deliberate act, and an entry that
 # stops being true is reported rather than assumed.
 NOT_BUILT = {
-    "ak_error_release": "T4.0, the ABI's error channel",
     "ak_runtime_memory_usage_detailed":
         "nothing yet: abi.md's \"Specified, not built\" holds it",
 }
@@ -147,8 +152,9 @@ def main():
             break
         rows.append(line)
     args_region = "\n".join(rows)
+    exempt = OBSERVATIONAL | UNMODELLED
     for fn, args in declared_arguments(abi).items():
-        if fn in OBSERVATIONAL:
+        if fn in exempt:
             continue
         for a in args:
             key = ARG_CLASSES.get(a, "`" + a + "`")
@@ -156,7 +162,7 @@ def main():
                 ok = False
                 print("  %s's argument %s is in no row of the argument table"
                       % (fn, a))
-    for fn in sorted(declared - named - OBSERVATIONAL):
+    for fn in sorted(declared - named - exempt):
         ok = False
         print("  %s is declared in the ABI but has no row in the mapping table"
               % fn)
@@ -167,6 +173,10 @@ def main():
     for fn in sorted(OBSERVATIONAL - declared):
         ok = False
         print("  %s is listed as observational but the ABI does not declare it"
+              % fn)
+    for fn in sorted(UNMODELLED - declared):
+        ok = False
+        print("  %s is listed as unmodelled but the ABI does not declare it"
               % fn)
     for fn in sorted(designed - declared - set(NOT_BUILT)):
         ok = False

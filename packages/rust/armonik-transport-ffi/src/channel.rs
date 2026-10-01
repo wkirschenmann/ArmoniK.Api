@@ -4,9 +4,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use armonik_transport::grpc::GrpcChannel;
 
-use crate::abi::{ak_channel_state, ak_handle, ak_status};
+use crate::abi::{ak_channel_state, ak_error_kind, ak_handle, ak_status};
 use crate::config;
 use crate::held::Held;
+use crate::refusal::Refusal;
 use crate::registry::Spread;
 use crate::tables;
 
@@ -203,17 +204,18 @@ pub(crate) fn create(
     spawner: &tokio::runtime::Handle,
     endpoint: &[u8],
     json: &[u8],
-) -> Result<ak_handle, ak_status> {
+) -> Result<ak_handle, Refusal> {
+    // The endpoint is not echoed: a URI may carry credentials in its userinfo.
     let endpoint = std::str::from_utf8(endpoint)
-        .ok()
-        .and_then(|endpoint| endpoint.parse().ok())
-        .ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
-    let settings = config::parse(json).ok_or(ak_status::AK_STATUS_INVALID_ARG)?;
+        .map_err(|_| ENDPOINT_NOT_UTF8)?
+        .parse()
+        .map_err(|_| ENDPOINT_NOT_A_URI)?;
+    let settings = config::parse(json).map_err(Refusal::config)?;
     let delivery_credits = settings.delivery_credits();
     let max_sends_in_flight = settings.max_sends_in_flight();
 
     let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), spawner.clone())
-        .map_err(|_| ak_status::AK_STATUS_INVALID_ARG)?;
+        .map_err(Refusal::channel)?;
 
     tables::channels()
         .insert_with(|handle| {
@@ -228,8 +230,24 @@ pub(crate) fn create(
             (channel, ())
         })
         .map(|(handle, ())| handle)
-        .ok_or(ak_status::AK_STATUS_INTERNAL)
+        .ok_or(CHANNELS_SPENT)
 }
+
+const ENDPOINT_NOT_UTF8: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_CONFIG,
+    "the endpoint is not UTF-8",
+);
+const ENDPOINT_NOT_A_URI: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_CONFIG,
+    "the endpoint is not a URI",
+);
+const CHANNELS_SPENT: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INTERNAL,
+    ak_error_kind::AK_ERROR_NONE,
+    "every channel handle this library can hand out is spent",
+);
 
 #[cfg(test)]
 mod tests {

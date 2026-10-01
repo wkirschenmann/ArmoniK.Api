@@ -170,11 +170,12 @@ internal sealed class Sender
   }
 
   /// <summary>Says nothing more is coming.</summary>
-  internal void HalfClose()
+  internal unsafe void HalfClose()
   {
     // The two the engine answers for a call that is already over, which the sender cannot rule
     // out and which the terminal reports anyway.
-    var closed = NativeMethods.ak_call_end_send(call_.Handle);
+    var closed = NativeMethods.ak_call_end_send(call_.Handle,
+                                                null);
     if (closed is not (ak_status.AK_STATUS_OK or ak_status.AK_STATUS_HANDLE_STALE
                                               or ak_status.AK_STATUS_INVALID_STATE))
     {

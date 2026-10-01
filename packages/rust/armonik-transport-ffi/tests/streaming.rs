@@ -32,7 +32,10 @@ fn every_message_of_a_client_stream_crosses_the_abi_before_its_one_reply() {
         "every lent buffer went back with its send"
     );
 
-    assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_end_send(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
 
     let seen = host.recorder.await_terminal();
 
@@ -91,11 +94,14 @@ fn a_send_the_transport_abandoned_is_acquitted_like_one_it_wrote() {
     assert_eq!(status, ak_status::AK_STATUS_OK);
     unsafe { std::ptr::copy_nonoverlapping(ABANDONED.as_ptr(), buffer.ptr, ABANDONED.len()) };
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer) },
+        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK,
         "the send is accepted while the call is live"
     );
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
 
     let seen = host.recorder.await_terminal();
     let kinds = seen.kinds();
@@ -146,7 +152,10 @@ fn a_bidi_call_crosses_the_abi_with_sends_and_answers_interleaved() {
         assert_eq!(seen.message_payloads()[sent], message.to_vec());
     }
 
-    assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_end_send(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
 
     let seen = host.recorder.await_terminal();
     assert_eq!(seen.status_code(), Some(0), "{}", seen.status_message());
@@ -180,7 +189,10 @@ fn a_client_stream_that_sends_nothing_still_reaches_its_reply() {
     let (host, channel) = (&fixture.host, fixture.channel);
     let call = start_call(channel, COLLECT, &[]);
 
-    assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_end_send(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
 
     let seen = host.recorder.await_terminal();
 

@@ -17,6 +17,11 @@
  *     a pointer, so giving one back twice reads memory this library has freed. Undefined
  *     behaviour, not a refusal - there is nothing left to refuse with.
  *
+ * Every entry point that can refuse takes ak_error *out_error as its last argument, which may be
+ * NULL. On a refusal, and only then, a non-NULL out_error receives the refusal's family and its
+ * message, which the host gives back through ak_error_release. A NULL out_error gets the status
+ * alone, and no message is built for it.
+ *
  * Every options struct starts with struct_size, which the host sets to sizeof of its own
  * definition. A size this library does not know is refused with AK_STATUS_INVALID_ARG rather than
  * read: it names a version whose fields are not the ones read here.
@@ -174,6 +179,48 @@ enum ak_host_debt
 typedef enum ak_host_debt ak_host_debt;
 #else
 typedef int32_t ak_host_debt;
+#endif // __STDC_VERSION__ >= 202311L
+#endif // __cplusplus
+
+/**
+ * Why a fallible entry point refused, beyond what its status says.
+ */
+enum ak_error_kind
+#if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+  : int32_t
+#endif // defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+ {
+    /**
+     * No family: the status says what happened - backpressure, a request too large for the
+     * ceiling, a fault this library cannot attribute. Zero, so a zero-initialized ak_error reads
+     * as nothing more to say.
+     */
+    AK_ERROR_NONE = 0,
+    /**
+     * The configuration document or the endpoint, before any socket.
+     */
+    AK_ERROR_CONFIG = 1,
+    /**
+     * DNS, TCP, TLS handshake.
+     */
+    AK_ERROR_CONNECTION = 2,
+    /**
+     * HTTP/2 or gRPC framing, after a connection.
+     */
+    AK_ERROR_TRANSPORT = 3,
+    AK_ERROR_TIMEOUT = 4,
+    AK_ERROR_CANCELLED = 5,
+    /**
+     * The host used the ABI in a way it does not admit: a null pointer, a handle that names
+     * nothing, a downcall at a moment its object refuses it.
+     */
+    AK_ERROR_USAGE = 6,
+};
+#ifndef __cplusplus
+#if __STDC_VERSION__ >= 202311L
+typedef enum ak_error_kind ak_error_kind;
+#else
+typedef int32_t ak_error_kind;
 #endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
@@ -370,6 +417,19 @@ typedef void (*ak_callback)(void *runtime_ctx, ak_call_ctx call_ctx, const ak_ev
 
 typedef uint64_t ak_handle;
 
+/**
+ * Filled by this library, read by the host, and written only when the status is not
+ * AK_STATUS_OK. Fixed layout, with no size prefix: ak_abi_version() is the agreement.
+ */
+typedef struct {
+    ak_error_kind kind;
+    /**
+     * UTF-8, the cause chain flattened into one message. detail.owner == NULL means there is
+     * nothing to free. Released by ak_error_release, never by ak_event_consumed.
+     */
+    ak_bytes detail;
+} ak_error;
+
 typedef struct {
     /**
      * Occupied against the ceiling, atomic snapshot.
@@ -448,11 +508,13 @@ extern "C" {
  *
  * `config` and `out` must be valid for their types, and `callback` must stay callable with
  * `runtime_ctx` until the runtime's last event.
+ * `out_error` must be null or writable for an `ak_error`.
  */
 ak_status ak_runtime_create(const ak_runtime_config *config,
                             ak_callback callback,
                             void *runtime_ctx,
-                            ak_handle *out);
+                            ak_handle *out,
+                            ak_error *out_error);
 
 /**
  * The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
@@ -462,8 +524,12 @@ ak_runtime_state ak_runtime_status(ak_handle runtime);
 
 /**
  * Closes the start gate and drains. AK_EVENT_SHUTDOWN_COMPLETE follows. Idempotent.
+ *
+ * # Safety
+ *
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_runtime_begin_shutdown(ak_handle runtime);
+ak_status ak_runtime_begin_shutdown(ak_handle runtime, ak_error *out_error);
 
 /**
  * Frees the runtime. Refused before AK_RUNTIME_QUIESCENT, and that is the only reason.
@@ -472,8 +538,12 @@ ak_status ak_runtime_begin_shutdown(ak_handle runtime);
  * once, and a later downcall on one returns AK_STATUS_HANDLE_STALE. A handle names runtime-owned
  * state, so the runtime may reclaim it; a payload or a lent buffer is memory the host may still
  * be reading or writing, so only the host can end it.
+ *
+ * # Safety
+ *
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_runtime_destroy(ak_handle runtime);
+ak_status ak_runtime_destroy(ak_handle runtime, ak_error *out_error);
 
 /**
  * What the runtime-wide byte ceiling is holding. Synchronous, non-blocking and observational: it
@@ -482,8 +552,9 @@ ak_status ak_runtime_destroy(ak_handle runtime);
  * # Safety
  *
  * `out` must be writable.
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
+ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out, ak_error *out_error);
 
 /**
  * Creates a channel on an endpoint, configured by a JSON document. Synchronous and performs no
@@ -516,11 +587,13 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out);
  *
  * `config_json` must point at its bytes for the duration of the call, and `out` must be
  * writable.
+ * `out_error` must be null or writable for an `ak_error`.
  */
 ak_status ak_channel_create(ak_handle runtime,
                             ak_bytes_in endpoint,
                             ak_bytes_in config_json,
-                            ak_handle *out);
+                            ak_handle *out,
+                            ak_error *out_error);
 
 /**
  * Frees the channel, cancelling its calls first.
@@ -566,11 +639,13 @@ ak_channel_state ak_channel_status(ak_handle channel);
  * # Safety
  *
  * `options` must be valid for its type and its byte views, and `out` must be writable.
+ * `out_error` must be null or writable for an `ak_error`.
  */
 ak_status ak_call_start(ak_handle channel,
                         const ak_call_start_options *options,
                         ak_call_ctx call_ctx,
-                        ak_handle *out);
+                        ak_handle *out,
+                        ak_error *out_error);
 
 /**
  * Lends a buffer out of the call's arena to serialize into. The exact length is known before the
@@ -590,8 +665,9 @@ ak_status ak_call_start(ak_handle channel,
  * # Safety
  *
  * `out` must be writable.
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_get_call_buffer(ak_handle call, size_t len, ak_buffer *out);
+ak_status ak_get_call_buffer(ak_handle call, size_t len, ak_buffer *out, ak_error *out_error);
 
 /**
  * Commits a lent buffer as the next message. Ownership passes back to this library.
@@ -609,8 +685,9 @@ ak_status ak_get_call_buffer(ak_handle call, size_t len, ak_buffer *out);
  * # Safety
  *
  * `buffer` must be one this call lent and the host has not given back.
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_call_send_message(ak_handle call, ak_buffer buffer);
+ak_status ak_call_send_message(ak_handle call, ak_buffer buffer, ak_error *out_error);
 
 /**
  * Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only exit for
@@ -632,8 +709,12 @@ void ak_return_call_buffer(ak_buffer buffer);
  * An end that comes while an ak_call_send_message has not yet returned on another thread - from
  * inside that send's own AK_EVENT_WRITE_DONE, which may arrive first - waits for it to return, so
  * it never goes ahead of a message the host has been told left.
+ *
+ * # Safety
+ *
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_call_end_send(ak_handle call);
+ak_status ak_call_end_send(ak_handle call, ak_error *out_error);
 
 /**
  * Cancels the call, which then reaches a terminal - carrying CANCELLED, unless the peer's own
@@ -642,8 +723,12 @@ ak_status ak_call_end_send(ak_handle call);
  * Asynchronous: the request takes effect when the call's task observes it, so callbacks already
  * committed may still arrive after this returns, and a status the peer had already sent is the
  * one delivered. INITIAL_METADATA is never skipped.
+ *
+ * # Safety
+ *
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_call_cancel(ak_handle call);
+ak_status ak_call_cancel(ak_handle call, ak_error *out_error);
 
 /**
  * What the call still owes. Purely observational; it is legal never to call it. It exists because
@@ -652,8 +737,9 @@ ak_status ak_call_cancel(ak_handle call);
  * # Safety
  *
  * `out` must be writable.
+ * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_call_debt_of(ak_handle call, ak_call_debt *out);
+ak_status ak_call_debt_of(ak_handle call, ak_call_debt *out, ak_error *out_error);
 
 int32_t ak_abi_version(void);
 
@@ -677,6 +763,16 @@ int32_t ak_abi_version(void);
  * `payload` must be one this library delivered and the host has not consumed.
  */
 void ak_event_consumed(ak_bytes payload);
+
+/**
+ * Frees an ak_error's detail. A no-op when detail.owner is NULL, so a host may route every error
+ * through it. Legal in any runtime state, and after ak_runtime_destroy.
+ *
+ * # Safety
+ *
+ * `detail` must be one this library wrote into an ak_error and the host has not released.
+ */
+void ak_error_release(ak_bytes detail);
 
 #ifdef __cplusplus
 }  // extern "C"

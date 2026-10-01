@@ -27,7 +27,10 @@ fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
     assert_eq!(third, ak_status::AK_STATUS_OK);
     unsafe { ak_return_call_buffer(third_buffer) };
 
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
     host.recorder.await_terminal();
 
     fixture.close();
@@ -92,7 +95,7 @@ fn a_head_event_says_where_the_head_came_from() {
         let call = start_call(channel, method, &blob(&[]));
         // Nothing is lent to a call with no peer: it may have ended before the lend.
         if origin == ak_head_origin::AK_HEAD_NO_RESPONSE {
-            let _ = ak_call_end_send(call);
+            let _ = unsafe { ak_call_end_send(call, std::ptr::null_mut()) };
         } else {
             send_one(call, b"x");
         }
@@ -236,12 +239,15 @@ fn nothing_is_sent_after_the_sending_has_ended() {
     send_one(call, b"hello");
     host.recorder.await_write_done();
     host.recorder.await_metadata();
-    assert_eq!(ak_call_end_send(call), ak_status::AK_STATUS_INVALID_STATE);
+    assert_eq!(
+        unsafe { ak_call_end_send(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_INVALID_STATE
+    );
 
     let (status, buffer) = lend(call, 1);
     assert_eq!(status, ak_status::AK_STATUS_OK, "the call is still live");
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer) },
+        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
         ak_status::AK_STATUS_INVALID_STATE
     );
     unsafe { ak_return_call_buffer(buffer) };
@@ -392,7 +398,7 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
 
     support::await_call_reclaimed(call);
     assert_eq!(
-        ak_call_cancel(call),
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
         ak_status::AK_STATUS_HANDLE_STALE,
         "a reclaimed call names nothing"
     );
@@ -436,7 +442,7 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_INVALID_STATE);
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, first) },
+        unsafe { ak_call_send_message(call, first, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
 
@@ -447,7 +453,10 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     assert_eq!(status, ak_status::AK_STATUS_OK);
     unsafe { ak_return_call_buffer(second) };
 
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
     host.recorder.await_terminal();
     fixture.close();
 }
@@ -476,7 +485,10 @@ fn a_length_no_frame_can_carry_is_refused_and_charges_nothing() {
     assert_eq!(status, ak_status::AK_STATUS_OK, "the window is intact");
     unsafe { ak_return_call_buffer(buffer) };
 
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
     host.recorder.await_terminal();
     fixture.close();
 }
@@ -489,10 +501,13 @@ fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
 
     let (status, buffer) = lend(call, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer) },
+        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
         ak_status::AK_STATUS_INVALID_STATE
     );
     unsafe { ak_return_call_buffer(buffer) };
@@ -514,7 +529,10 @@ fn a_call_reports_what_the_host_owes_it() {
     assert_eq!(debt.terminal_delivered, 0);
 
     unsafe { ak_return_call_buffer(buffer) };
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
     host.recorder.await_terminal();
     // Polled: the terminal is recorded inside the callback, and the call marks it delivered once
     // the callback has returned.
@@ -557,7 +575,10 @@ fn the_ceiling_refuses_what_will_never_fit_apart_from_what_does_not_fit_yet() {
     let usage = memory_usage(host.runtime);
     assert_eq!(usage.bytes_used, 0);
 
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
     host.recorder.await_terminal();
     fixture.close();
 }
@@ -575,7 +596,7 @@ fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid(
 
     ak_channel_release(channel);
     assert_eq!(
-        ak_runtime_begin_shutdown(host.runtime),
+        unsafe { ak_runtime_begin_shutdown(host.runtime, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
 
@@ -593,7 +614,7 @@ fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid(
         "stopped is not quiescent while the host holds something"
     );
     assert_eq!(
-        ak_runtime_destroy(host.runtime),
+        unsafe { ak_runtime_destroy(host.runtime, std::ptr::null_mut()) },
         ak_status::AK_STATUS_INVALID_STATE,
         "destroying before quiescence is refused"
     );
@@ -669,7 +690,15 @@ fn a_struct_of_an_unknown_size_is_refused_rather_than_read() {
         },
     };
     let mut call = AK_HANDLE_NONE;
-    let status = unsafe { ak_call_start(channel, &options, std::ptr::null_mut(), &mut call) };
+    let status = unsafe {
+        ak_call_start(
+            channel,
+            &options,
+            std::ptr::null_mut(),
+            &mut call,
+            std::ptr::null_mut(),
+        )
+    };
 
     assert_eq!(status, ak_status::AK_STATUS_INVALID_ARG);
     assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
@@ -679,15 +708,15 @@ fn a_struct_of_an_unknown_size_is_refused_rather_than_read() {
 #[test]
 fn a_token_naming_nothing_is_refused_rather_than_dereferenced() {
     assert_eq!(
-        ak_call_cancel(AK_HANDLE_NONE),
+        unsafe { ak_call_cancel(AK_HANDLE_NONE, std::ptr::null_mut()) },
         ak_status::AK_STATUS_HANDLE_STALE
     );
     assert_eq!(
-        ak_call_end_send(u64::MAX),
+        unsafe { ak_call_end_send(u64::MAX, std::ptr::null_mut()) },
         ak_status::AK_STATUS_HANDLE_STALE
     );
     assert_eq!(
-        ak_runtime_begin_shutdown(u64::MAX),
+        unsafe { ak_runtime_begin_shutdown(u64::MAX, std::ptr::null_mut()) },
         ak_status::AK_STATUS_HANDLE_STALE
     );
     ak_channel_release(u64::MAX);
@@ -740,7 +769,7 @@ fn nothing_starts_on_a_runtime_that_has_begun_stopping() {
     let (host, channel) = (&fixture.host, fixture.channel);
 
     assert_eq!(
-        ak_runtime_begin_shutdown(host.runtime),
+        unsafe { ak_runtime_begin_shutdown(host.runtime, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
 
@@ -763,6 +792,7 @@ fn nothing_starts_on_a_runtime_that_has_begun_stopping() {
                 len: json.len(),
             },
             &mut opened,
+            std::ptr::null_mut(),
         )
     };
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
@@ -804,7 +834,10 @@ fn destroying_a_runtime_leaves_none_of_its_handles_naming_anything() {
             ak_channel_state::AK_CHANNEL_NONE
         );
     }
-    assert_eq!(ak_call_cancel(call), ak_status::AK_STATUS_HANDLE_STALE);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_HANDLE_STALE
+    );
 }
 
 #[test]
