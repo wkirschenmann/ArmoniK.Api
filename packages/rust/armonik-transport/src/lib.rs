@@ -23,6 +23,8 @@ pub mod http2;
 pub mod options;
 mod tls;
 mod utils;
+#[cfg(windows)]
+mod windows_store;
 
 pub use config::{ClientConfig, ClientConfigArgs, ConfigError};
 pub use connect::{connect, https_connector, ConnectionError};

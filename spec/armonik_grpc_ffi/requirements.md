@@ -166,8 +166,11 @@ infrastructure's security policy.
 7. A TLS error produces a diagnosable error message (without exposing secrets: private key paths,
    passwords).
 
-**Status**: 1, 2, 3, 5, 6 and 7 are met; 4 is T4.4's. Each file is read by `armonik-transport`
-when the channel is created, and a refusal names its option, never the path or the password.
+**Status**: met, 4 for a key the store lets out. Each file is read by `armonik-transport` when the
+channel is created, and a refusal names its option, never the path or the password. The
+certificate leaves the store as a PKCS#12 export, so one whose key the store keeps unexportable - a
+TPM, a smart card, an import without the exportable flag - is refused by the option that names it,
+saying so.
 
 ---
 

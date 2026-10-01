@@ -96,6 +96,7 @@ dependencies = [
  "p12-keystore",
  "rcgen",
  "rustls",
+ "schannel",
  "schemars",
  "secrecy",
  "serde",
@@ -107,6 +108,7 @@ dependencies = [
  "tonic",
  "tower-service",
  "tracing",
+ "x509-parser",
 ]
 
 [[package]]

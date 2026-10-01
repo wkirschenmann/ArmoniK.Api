@@ -80,6 +80,14 @@ serde_json = { workspace = true, optional = true }
 name = "schema"
 required-features = ["schema"]
 
+# The Windows certificate store, which a client identity and a root may be resolved from, and
+# the reader of a certificate's subject and issuer that matching and chain-building need.
+[target.'cfg(windows)'.dependencies]
+schannel.workspace = true
+# `verify`: an issuer is the certificate whose key signed the one below it, which the subject
+# alone does not settle when a store holds an intermediate and its renewal.
+x509-parser = { workspace = true, features = ["verify"] }
+
 [dev-dependencies]
 # The boolean options are read straight from the environment, so testing which spellings they accept
 # means setting variables: process-global state, hence one test at a time.

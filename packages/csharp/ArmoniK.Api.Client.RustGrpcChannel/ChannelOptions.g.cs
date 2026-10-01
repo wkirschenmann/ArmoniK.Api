@@ -424,9 +424,15 @@ public sealed class TlsOptions
 
     AllowUnsafeConnection = other.AllowUnsafeConnection;
     CaCertPath = other.CaCertPath;
+    CaStore = other.CaStore is null
+                ? null
+                : new StoreCertificate(other.CaStore);
     CertP12 = other.CertP12;
     CertP12Password = other.CertP12Password;
     CertPem = other.CertPem;
+    CertStore = other.CertStore is null
+                  ? null
+                  : new StoreCertificate(other.CertStore);
     KeyPem = other.KeyPem;
     OverrideTargetName = other.OverrideTargetName;
   }
@@ -446,6 +452,15 @@ public sealed class TlsOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? CaCertPath { get; set; }
 
+  /// <summary>
+  ///   The root the server certificate is verified against, from a Windows certificate store,
+  ///   <c>Root</c> unless <c>Name</c> says otherwise, in place of the system's.
+  /// </summary>
+  /// <remarks>Refused together with <c>CaCertPath</c> or <c>AllowUnsafeConnection</c>, and off Windows.</remarks>
+  [JsonPropertyName("CaStore")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public StoreCertificate? CaStore { get; set; }
+
   /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
   /// <remarks>Refused together with <c>CertPem</c> or <c>KeyPem</c>, which name an identity too.</remarks>
   [JsonPropertyName("CertP12")]
@@ -463,6 +478,15 @@ public sealed class TlsOptions
   [JsonPropertyName("CertPem")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? CertPem { get; set; }
+
+  /// <summary>
+  ///   The client's certificate and key from a Windows certificate store, <c>My</c> unless <c>Name</c>
+  ///   says otherwise, with the issuers the store's <c>CA</c> holds. Its key has to be exportable.
+  /// </summary>
+  /// <remarks>Refused together with <c>CertPem</c>, <c>KeyPem</c> or <c>CertP12</c>, and off Windows.</remarks>
+  [JsonPropertyName("CertStore")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public StoreCertificate? CertStore { get; set; }
 
   /// <summary>Path to a PEM file of the key of the client's certificate.</summary>
   /// <remarks>Set together with <c>CertPem</c>.</remarks>
@@ -516,6 +540,110 @@ public sealed class TlsOptions
       throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
                                             overrideTargetName,
                                             "OverrideTargetName has to be at least 1 character long.");
+    }
+
+    CaStore?.Validate();
+    CertStore?.Validate();
+  }
+}
+
+/// <summary>
+///   A certificate of a Windows certificate store, named by exactly one of <c>Thumbprint</c>,
+///   <c>SubjectName</c> and <c>FriendlyName</c>.
+/// </summary>
+public sealed class StoreCertificate
+{
+  /// <summary>Options nobody has set.</summary>
+  public StoreCertificate()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public StoreCertificate(StoreCertificate other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    FriendlyName = other.FriendlyName;
+    Location = other.Location;
+    Name = other.Name;
+    SubjectName = other.SubjectName;
+    Thumbprint = other.Thumbprint;
+  }
+
+  /// <summary>The certificate's friendly name, exactly.</summary>
+  [JsonPropertyName("FriendlyName")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? FriendlyName { get; set; }
+
+  /// <summary><c>CurrentUser</c> or <c>LocalMachine</c>.</summary>
+  /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
+  [JsonPropertyName("Location")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Location { get; set; }
+
+  /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
+  [JsonPropertyName("Name")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Name { get; set; }
+
+  /// <summary>
+  ///   A text the certificate's subject contains, compared without case, as .NET's
+  ///   <c>FindBySubjectName</c> compares it.
+  /// </summary>
+  [JsonPropertyName("SubjectName")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? SubjectName { get; set; }
+
+  /// <summary>
+  ///   The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between
+  ///   them are ignored.
+  /// </summary>
+  [JsonPropertyName("Thumbprint")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Thumbprint { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (FriendlyName is string friendlyName && friendlyName.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(FriendlyName),
+                                            friendlyName,
+                                            "FriendlyName has to be at least 1 character long.");
+    }
+
+    if (Location is string location && location.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Location),
+                                            location,
+                                            "Location has to be at least 1 character long.");
+    }
+
+    if (Name is string name && name.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Name),
+                                            name,
+                                            "Name has to be at least 1 character long.");
+    }
+
+    if (SubjectName is string subjectName && subjectName.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(SubjectName),
+                                            subjectName,
+                                            "SubjectName has to be at least 1 character long.");
+    }
+
+    if (Thumbprint is string thumbprint && thumbprint.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Thumbprint),
+                                            thumbprint,
+                                            "Thumbprint has to be at least 1 character long.");
     }
   }
 }

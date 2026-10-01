@@ -48,11 +48,17 @@ impl Leaf {
                 p12_keystore::Certificate::from_der(certificate.as_ref()).expect("a certificate")
             }),
         );
+        // Its own alias: Windows names the container an import persists the key in after it,
+        // so bundles sharing one would overwrite each other's keys.
+        let alias = self.chain[0]
+            .as_ref()
+            .iter()
+            .rev()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         let mut store = p12_keystore::KeyStore::new();
-        store.add_entry(
-            "identity",
-            p12_keystore::KeyStoreEntry::PrivateKeyChain(chain),
-        );
+        store.add_entry(&alias, p12_keystore::KeyStoreEntry::PrivateKeyChain(chain));
         store.writer(password).write().expect("a bundle")
     }
 }
@@ -150,6 +156,9 @@ impl Pki {
                 .collect::<Vec<_>>(),
         )
         .expect("leaf parameters");
+        params
+            .distinguished_name
+            .push(DnType::CommonName, names[0].to_owned());
         params.extended_key_usages = vec![usage];
         let certificate = params
             .signed_by(&key, &self.issuer)

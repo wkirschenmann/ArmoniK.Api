@@ -79,6 +79,38 @@
       "format": "double",
       "exclusiveMaximum": 1.8446744073709552e+19
     },
+    "StoreCertificate": {
+      "description": "A certificate of a Windows certificate store, named by exactly one of `Thumbprint`,\n`SubjectName` and `FriendlyName`.",
+      "type": "object",
+      "properties": {
+        "FriendlyName": {
+          "description": "The certificate's friendly name, exactly.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Location": {
+          "description": "`CurrentUser` or `LocalMachine`.\n\nDefaults to `CurrentUser`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Name": {
+          "description": "The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.",
+          "type": "string",
+          "minLength": 1
+        },
+        "SubjectName": {
+          "description": "A text the certificate's subject contains, compared without case, as .NET's\n`FindBySubjectName` compares it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Thumbprint": {
+          "description": "The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between\nthem are ignored.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "TcpKeepaliveOptions": {
       "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.",
       "type": "object",
@@ -118,6 +150,10 @@
           "type": "string",
           "minLength": 1
         },
+        "CaStore": {
+          "description": "The root the server certificate is verified against, from a Windows certificate store,\n`Root` unless `Name` says otherwise, in place of the system's.\n\nRefused together with `CaCertPath` or `AllowUnsafeConnection`, and off Windows.",
+          "$ref": "#/$defs/StoreCertificate"
+        },
         "CertP12": {
           "description": "Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.\n\nRefused together with `CertPem` or `KeyPem`, which name an identity too.",
           "type": "string",
@@ -132,6 +168,10 @@
           "description": "Path to a PEM file of the client's certificate, then each issuer the server may not hold.\n\nSet together with `KeyPem`.",
           "type": "string",
           "minLength": 1
+        },
+        "CertStore": {
+          "description": "The client's certificate and key from a Windows certificate store, `My` unless `Name`\nsays otherwise, with the issuers the store's `CA` holds. Its key has to be exportable.\n\nRefused together with `CertPem`, `KeyPem` or `CertP12`, and off Windows.",
+          "$ref": "#/$defs/StoreCertificate"
         },
         "KeyPem": {
           "description": "Path to a PEM file of the key of the client's certificate.\n\nSet together with `CertPem`.",

@@ -924,6 +924,17 @@ that loads them.
 
 **Deliverable**: mTLS from the store, on the Windows CI.
 
+**Status**: done. `Transport.Tls.CertStore` names the client's certificate and
+`Transport.Tls.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
+`LocalMachine`), `Name` (`My` and `Root` by default) and exactly one of `Thumbprint`, `SubjectName`
+- a text the subject contains, without case, as .NET's `FindBySubjectName` reads it - and
+`FriendlyName`. The identity leaves the store as a PKCS#12 export read by T4.2's loader, followed by
+the issuers the store's `CA` holds; a key the store keeps unexportable is refused with a message
+that names the possible causes, decided on 2026-10-01 rather than signing through CNG. Off Windows
+either option is refused. `tests/windows_store.rs` runs on the Windows rows of the Rust job, against
+stores of the current user's own, and adds to the real `CA` store throwaway intermediates it then
+removes.
+
 ---
 
 ## Phase 5 — Proxy

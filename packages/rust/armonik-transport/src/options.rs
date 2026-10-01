@@ -155,6 +155,28 @@ pub struct TlsOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub cert_p12_password: Option<Password>,
 
+    /// The client's certificate and key from a Windows certificate store, `My` unless `Name`
+    /// says otherwise, with the issuers the store's `CA` holds. Its key has to be exportable.
+    ///
+    /// Refused together with `CertPem`, `KeyPem` or `CertP12`, and off Windows.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "StoreCertificate"))]
+    pub cert_store: Option<StoreCertificate>,
+
+    /// The root the server certificate is verified against, from a Windows certificate store,
+    /// `Root` unless `Name` says otherwise, in place of the system's.
+    ///
+    /// Refused together with `CaCertPath` or `AllowUnsafeConnection`, and off Windows.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "StoreCertificate"))]
+    pub ca_store: Option<StoreCertificate>,
+
     /// Accept any server certificate. The connection is still encrypted, to whoever answers.
     ///
     /// Defaults to false.
@@ -174,6 +196,199 @@ pub struct TlsOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub override_target_name: Option<String>,
+}
+
+/// A certificate of a Windows certificate store, named by exactly one of `Thumbprint`,
+/// `SubjectName` and `FriendlyName`.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct StoreCertificate {
+    /// `CurrentUser` or `LocalMachine`.
+    ///
+    /// Defaults to `CurrentUser`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub location: Option<String>,
+
+    /// The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub name: Option<String>,
+
+    /// The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between
+    /// them are ignored.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub thumbprint: Option<String>,
+
+    /// A text the certificate's subject contains, compared without case, as .NET's
+    /// `FindBySubjectName` compares it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub subject_name: Option<String>,
+
+    /// The certificate's friendly name, exactly.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub friendly_name: Option<String>,
+}
+
+/// A thumbprint as the 20 bytes it writes, with what a copy from a certificate dialog carries
+/// around them - spaces, colons, and the left-to-right mark - taken out.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn thumbprint(written: &str) -> Result<[u8; 20], OptionRefusal> {
+    let digits: String = written
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ':' && *c != '\u{200e}')
+        .collect();
+    if digits.len() != 40 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(OptionRefusal::new(
+            "Thumbprint",
+            "it has to be 40 hexadecimal digits, a SHA-1 fingerprint",
+        ));
+    }
+    let mut bytes = [0u8; 20];
+    for (byte, pair) in bytes.iter_mut().zip(digits.as_bytes().chunks(2)) {
+        let pair = std::str::from_utf8(pair).expect("ASCII digits");
+        *byte = u8::from_str_radix(pair, 16).expect("hexadecimal digits");
+    }
+    Ok(bytes)
+}
+
+impl StoreCertificate {
+    /// The store this names, `default` unless `Name` is set, and where it sits.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn place<'a>(&'a self, default: &'a str) -> Result<(bool, &'a str), OptionRefusal> {
+        // An empty text would match every certificate's subject, and pick one silently.
+        for (key, text) in [
+            ("Location", &self.location),
+            ("Name", &self.name),
+            ("SubjectName", &self.subject_name),
+            ("FriendlyName", &self.friendly_name),
+        ] {
+            if text.as_deref() == Some("") {
+                return Err(OptionRefusal::new(key, "it is empty"));
+            }
+        }
+        let local_machine = match self.location.as_deref() {
+            None | Some("CurrentUser") => false,
+            Some("LocalMachine") => true,
+            Some(other) => {
+                return Err(OptionRefusal::new(
+                    "Location",
+                    format!("`{other}` is neither CurrentUser nor LocalMachine"),
+                ))
+            }
+        };
+        Ok((local_machine, self.name.as_deref().unwrap_or(default)))
+    }
+
+    /// The one certificate this names, in the store `default` unless `Name` is set, where the
+    /// store sits, and the option that named it, which a later refusal is reported against.
+    #[cfg(windows)]
+    fn find(
+        &self,
+        default: &str,
+    ) -> Result<(schannel::cert_context::CertContext, bool, &'static str), OptionRefusal> {
+        use crate::windows_store::By;
+
+        let (local_machine, name) = self.place(default)?;
+        let by =
+            match (&self.thumbprint, &self.subject_name, &self.friendly_name) {
+                (Some(written), None, None) => By::Thumbprint(thumbprint(written)?),
+                (None, Some(subject), None) => By::SubjectName(subject),
+                (None, None, Some(friendly)) => By::FriendlyName(friendly),
+                (None, None, None) => return Err(OptionRefusal::new(
+                    "Thumbprint",
+                    "one of Thumbprint, SubjectName and FriendlyName has to name the certificate",
+                )),
+                _ => return Err(OptionRefusal::new(
+                    "Thumbprint",
+                    "only one of Thumbprint, SubjectName and FriendlyName may name the certificate",
+                )),
+            };
+        let key = match by {
+            By::Thumbprint(_) => "Thumbprint",
+            By::SubjectName(_) => "SubjectName",
+            By::FriendlyName(_) => "FriendlyName",
+        };
+        crate::windows_store::find(local_machine, name, &by)
+            .map(|found| (found, local_machine, key))
+            .map_err(|why| OptionRefusal::new(key, why))
+    }
+
+    /// The client identity this names: the certificate, its key, and its issuers.
+    #[cfg(windows)]
+    fn identity(&self) -> Result<ClientIdentity, OptionRefusal> {
+        let (certificate, local_machine, named) = self.find("My")?;
+        let bundle = crate::windows_store::export(&certificate)
+            .map_err(|why| OptionRefusal::new(named, why))?;
+        // Windows exports a certificate without its key, and without an error, when the key is
+        // not one it lets out, so the absence is all there is to report.
+        let mut identity = open_pkcs12(&bundle, crate::windows_store::EXPORT_PASSWORD).map_err(
+            |why| match why {
+                Unopened::NoKey => OptionRefusal::new(
+                    named,
+                    "the certificate it names leaves the store without a key: it has none, or \
+                     the store keeps its key unexportable - a TPM, a smart card, or an import \
+                     without the exportable flag - and only a key the store lets out can be used",
+                ),
+                why => OptionRefusal::new(
+                    named,
+                    format!("the bundle its certificate exports to {why}"),
+                ),
+            },
+        )?;
+        identity.chain.truncate(1);
+        identity
+            .chain
+            .extend(crate::windows_store::issuers(&certificate, local_machine));
+        Ok(identity)
+    }
+
+    /// The root this names.
+    #[cfg(windows)]
+    fn root(&self) -> Result<CertificateDer<'static>, OptionRefusal> {
+        let (certificate, _, _) = self.find("Root")?;
+        Ok(CertificateDer::from(certificate.to_der().to_vec()))
+    }
+
+    #[cfg(not(windows))]
+    fn identity(&self) -> Result<ClientIdentity, OptionRefusal> {
+        Err(OptionRefusal::new(
+            "Name",
+            "a Windows certificate store exists on Windows only",
+        ))
+    }
+
+    #[cfg(not(windows))]
+    fn root(&self) -> Result<CertificateDer<'static>, OptionRefusal> {
+        Err(OptionRefusal::new(
+            "Name",
+            "a Windows certificate store exists on Windows only",
+        ))
+    }
 }
 
 /// A password: no Debug print shows it, no message quotes it, and it is zeroed when dropped.
@@ -488,34 +703,46 @@ fn pkcs12(
 ) -> Result<ClientIdentity, OptionRefusal> {
     let bundle = read(key, path)?;
     let password = password.map_or("", |password| password.0.expose_secret());
+    open_pkcs12(&bundle, password)
+        .map_err(|why| OptionRefusal::new(key, format!("the bundle it names {why}")))
+}
+
+/// Why a bundle carries no identity; it reads after "the bundle".
+enum Unopened {
+    Refused(String),
+    Keys(usize),
+    NoKey,
+}
+
+impl std::fmt::Display for Unopened {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(error) => write!(f, "could not be opened: {error}"),
+            Self::Keys(many) => write!(f, "holds {many} keys, and nothing says which to use"),
+            Self::NoKey => f.write_str("holds no key and certificate"),
+        }
+    }
+}
+
+/// The identity `bundle` carries.
+fn open_pkcs12(bundle: &[u8], password: &str) -> Result<ClientIdentity, Unopened> {
     // Strict: a bundle whose chain cannot be rebuilt is a mistake to report, not one to paper
     // over with part of an identity.
     let store = p12_keystore::KeyStore::from_pkcs12(
-        &bundle,
+        bundle,
         password,
         p12_keystore::Pkcs12ImportPolicy::Strict,
     )
-    .map_err(|error| {
-        OptionRefusal::new(
-            key,
-            format!("the bundle it names could not be opened: {error}"),
-        )
-    })?;
+    .map_err(|error| Unopened::Refused(error.to_string()))?;
     let identities = store
         .entries()
         .filter(|(_, entry)| matches!(entry, p12_keystore::KeyStoreEntry::PrivateKeyChain(_)))
         .count();
     if identities > 1 {
-        return Err(OptionRefusal::new(
-            key,
-            format!("the bundle it names holds {identities} keys, and nothing says which to use"),
-        ));
+        return Err(Unopened::Keys(identities));
     }
     let Some((_, chain)) = store.private_key_chain() else {
-        return Err(OptionRefusal::new(
-            key,
-            "the bundle it names holds no key and certificate",
-        ));
+        return Err(Unopened::NoKey);
     };
     Ok(ClientIdentity {
         chain: chain
@@ -538,9 +765,27 @@ impl TlsOptions {
             ));
         }
 
-        let roots = match &self.ca_cert_path {
-            Some(path) => certificates("CaCertPath", path)?,
-            None => Vec::new(),
+        if self.ca_store.is_some() && (self.ca_cert_path.is_some() || accept_any_server) {
+            return Err(OptionRefusal::new(
+                "CaStore",
+                "it names a root, and so does CaCertPath, or AllowUnsafeConnection verifies nothing",
+            ));
+        }
+        if self.cert_store.is_some()
+            && (self.cert_pem.is_some() || self.key_pem.is_some() || self.cert_p12.is_some())
+        {
+            return Err(OptionRefusal::new(
+                "CertStore",
+                "it names a client identity, and so do CertPem, KeyPem or CertP12",
+            ));
+        }
+
+        let roots = match (&self.ca_cert_path, &self.ca_store) {
+            (Some(path), _) => certificates("CaCertPath", path)?,
+            (None, Some(store)) => {
+                vec![store.root().map_err(|refused| refused.under("CaStore"))?]
+            }
+            (None, None) => Vec::new(),
         };
 
         if self.cert_p12.is_some() && (self.cert_pem.is_some() || self.key_pem.is_some()) {
@@ -557,9 +802,14 @@ impl TlsOptions {
         }
 
         let identity = match (&self.cert_pem, &self.key_pem) {
-            (None, None) => match &self.cert_p12 {
-                Some(path) => Some(pkcs12("CertP12", path, self.cert_p12_password.as_ref())?),
-                None => None,
+            (None, None) => match (&self.cert_p12, &self.cert_store) {
+                (Some(path), _) => Some(pkcs12("CertP12", path, self.cert_p12_password.as_ref())?),
+                (None, Some(store)) => Some(
+                    store
+                        .identity()
+                        .map_err(|refused| refused.under("CertStore"))?,
+                ),
+                (None, None) => None,
             },
             (Some(_), None) => {
                 return Err(OptionRefusal::new(
@@ -1095,6 +1345,33 @@ mod tests {
                 !format!("{options:?}").contains("s3cret-word"),
                 "{options:?}"
             );
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_windows_store_is_refused_off_windows_by_the_option_naming_it() {
+        let mut store = StoreCertificate::default();
+        store.friendly_name = Some("anything".to_owned());
+        for (options, unit) in [
+            (
+                TlsOptions {
+                    cert_store: Some(store.clone()),
+                    ..TlsOptions::default()
+                },
+                "CertStore",
+            ),
+            (
+                TlsOptions {
+                    ca_store: Some(store.clone()),
+                    ..TlsOptions::default()
+                },
+                "CaStore",
+            ),
+        ] {
+            let refused = options.load().expect_err(unit);
+            assert!(refused.key().starts_with(unit), "{refused}");
+            assert!(refused.to_string().contains("Windows only"), "{refused}");
         }
     }
 
