@@ -113,6 +113,13 @@ impl Recorder {
         self.holding.store(true, Ordering::Release);
     }
 
+    /// Back to consuming each payload as it arrives, for a fixture winding down after a failure:
+    /// the shutdown waits for every payload to come back, and a recorder that keeps holding them
+    /// keeps the runtime from ever reaching quiescence.
+    pub fn stop_holding(&self) {
+        self.holding.store(false, Ordering::Release);
+    }
+
     fn wait_for(&self, what: &str, ready: impl Fn(&[Event]) -> bool) -> Seen {
         let (seen, waited) = self
             .arrived

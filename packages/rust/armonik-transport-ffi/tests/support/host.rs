@@ -5,7 +5,8 @@
 //! same ABI and there is one shape for driving it.
 
 use std::ffi::c_void;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
 
@@ -41,7 +42,11 @@ impl Connected {
 
 pub struct Host {
     pub runtime: ak_handle,
-    pub recorder: Box<Recorder>,
+    /// Shared with the runtime, which holds a reference of its own as its callback context and
+    /// gives it back only when `ak_runtime_destroy` succeeds. A runtime that is never destroyed
+    /// keeps the recorder for the life of the process: its callbacks still run, and they write
+    /// into the recorder whatever happened to the test that made it.
+    pub recorder: Arc<Recorder>,
     _turn: MutexGuard<'static, ()>,
 }
 
@@ -52,12 +57,13 @@ impl Host {
 
     pub fn with_ceiling(memory_ceiling: u64) -> Self {
         let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
-        let mut recorder = Box::new(Recorder::default());
-        let (status, runtime) = try_create_runtime(
-            2,
-            memory_ceiling,
-            recorder.as_mut() as *mut Recorder as *mut c_void,
-        );
+        let recorder = Arc::new(Recorder::default());
+        let lent = Arc::into_raw(Arc::clone(&recorder));
+        let (status, runtime) = try_create_runtime(2, memory_ceiling, lent as *mut c_void);
+        if status != ak_status::AK_STATUS_OK {
+            // No runtime, so no callback, and the reference it would have held is this one's.
+            drop(unsafe { Arc::from_raw(lent) });
+        }
         assert_eq!(status, ak_status::AK_STATUS_OK);
         assert_eq!(
             ak_runtime_status(runtime),
@@ -108,6 +114,29 @@ impl Host {
         self.await_state(ak_runtime_state::AK_RUNTIME_QUIESCENT);
     }
 
+    /// The shutdown of a test that is already failing, which pays what the test still owes.
+    ///
+    /// The engine reaches quiescence only once every payload is back, and a test that fails while
+    /// the recorder holds them never returns them. So this stops the holding and returns what is
+    /// held until the runtime gets there, which is what lets the destroy after it succeed and the
+    /// next test take the claim. A buffer the test was lent and kept is not the recorder's to
+    /// return; that runtime stays stopped, and the reference it holds keeps the recorder alive.
+    ///
+    /// It reports nothing and asserts nothing: the caller is unwinding.
+    fn wind_down(&self) {
+        self.recorder.stop_holding();
+        let _ = ak_runtime_begin_shutdown(self.runtime);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline
+            && ak_runtime_status(self.runtime) != ak_runtime_state::AK_RUNTIME_QUIESCENT
+        {
+            // Each round, because an event that read the holding before it stopped can still
+            // record an owner after the previous round.
+            self.recorder.consume_all();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     pub fn await_state(&self, wanted: ak_runtime_state) {
         poll_until(
             || ak_runtime_status(self.runtime) == wanted,
@@ -136,19 +165,20 @@ impl Drop for Host {
 
         if ak_runtime_status(self.runtime) != ak_runtime_state::AK_RUNTIME_QUIESCENT {
             if failing {
-                let _ = ak_runtime_begin_shutdown(self.runtime);
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-                while std::time::Instant::now() < deadline
-                    && ak_runtime_status(self.runtime) != ak_runtime_state::AK_RUNTIME_QUIESCENT
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
+                self.wind_down();
             } else {
                 self.stop();
             }
         }
 
         let destroyed = ak_runtime_destroy(self.runtime);
+        if destroyed == ak_status::AK_STATUS_OK {
+            // A destroyed runtime makes no further callback, so the reference it held as its
+            // context comes back here. On any other answer the runtime may still call back, and
+            // the reference stays where it is. `as_ptr` is the pointer `into_raw` gave the
+            // runtime at creation, since both name the one allocation.
+            drop(unsafe { Arc::from_raw(Arc::as_ptr(&self.recorder)) });
+        }
         if failing {
             eprintln!(
                 "the fixture tore down after a failure: status {:?}, destroy {destroyed:?}, {} events held",
