@@ -467,11 +467,19 @@ impl TransportConnector {
             None => builder,
         };
 
+        let proxied = ProxyConnector::new(http, &config.proxy);
+        // The environment is read once, so a proxy it names that cannot be used for this
+        // endpoint is refused here rather than on every dial.
+        if let Err(refused) = proxied.route_to(&config.endpoint) {
+            return Err(ConfigurationSnafu {
+                message: refused.to_string(),
+            }
+            .build());
+        }
+
         Ok(Self {
             // HTTP/2 alone, which is also what ALPN offers: gRPC has no HTTP/1 mapping.
-            https: builder
-                .enable_http2()
-                .wrap_connector(ProxyConnector::new(http, &config.proxy)),
+            https: builder.enable_http2().wrap_connector(proxied),
             connect_timeout: config.connect_timeout,
             http2: config.http2,
         })

@@ -49,7 +49,7 @@ pub struct TransportConfig {
     pub tls: TlsConfig,             // read for https://, refused on http:// unless default
     pub tcp: TcpConfig,             // the socket's keepalive
     pub http2: Http2Config,         // the session's PING keepalive and windows
-    pub proxy: ProxyConfig,         // disabled | explicit; env is T5.2's, windows_system T5.3's
+    pub proxy: ProxyConfig,         // disabled | explicit | system; windows_system is T5.3's
 }
 
 /// Loaded material, which a handshake uses as it stands. Built from the paths a
@@ -94,32 +94,25 @@ pub struct Http2Config {
 
 pub struct ProxyConfig {
     pub source: ProxySource,
+    /// `Basic` credentials, empty when unset. Beside `System`, each half set
+    /// here takes the place of the one the environment's proxy URL carries.
+    pub username: String,
+    pub password: SecretString,
 }
 
 pub enum ProxySource {
     /// No proxy, unconditionally: a direct connection whatever NO_PROXY says.
-    /// Deserialized from "none" or "disabled". NO_PROXY is consulted by the
-    /// Environment variant, which is where it belongs; making it apply here
-    /// too would mean this variant sometimes yields to configuration, and
-    /// "no proxy" would stop meaning one thing.
-    None,
-    /// Read proxy from environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
-    Environment,
-    /// Windows system proxy (WinHTTP resolver).
-    #[cfg(windows)]
-    WindowsSystem,
-    /// Clean URI (without userinfo) + mandatory separate credentials.
-    ExplicitWithCredentials { uri: CleanUri, username: String, password: SecretString },
-    /// Raw URI (may contain credentials in the authority, or not).
-    /// No-auth case: URI without userinfo. Inline-auth case: user:pass@host in the URI.
-    ExplicitUri(Uri),
-}
-
-/// URI guaranteed without userinfo (no user:password@). Validated by construction.
-pub struct CleanUri(Uri);
-
-impl CleanUri {
-    pub fn new(uri: Uri) -> Result<Self, ConfigError>;
+    /// The engine's default; the options' is `System`. NO_PROXY is consulted
+    /// by `System`, which is where it belongs: making it apply here too would
+    /// mean "no proxy" sometimes yields to configuration.
+    Disabled,
+    /// An `http://` URI without userinfo: the options move credentials written
+    /// in the URL into the fields above.
+    Explicit(Uri),
+    /// ALL_PROXY, HTTPS_PROXY, HTTP_PROXY and NO_PROXY, read when the channel
+    /// is created; a loopback endpoint is dialled directly. On Windows, the
+    /// user's network settings when the environment names no proxy - T5.3.
+    System,
 }
 ```
 

@@ -395,7 +395,9 @@ command line, in the order its own configuration system layers them. That divisi
 rather than chosen - the files and the command line are .NET's, so a separate environment read on
 the Rust side would sit outside that ordering and break the precedence between the three. So the
 JSON handed to `ak_channel_create` is complete and authoritative, and **the engine consults no
-environment variable on the FFI path**. `from_env` stays for the crate's own Rust consumers.
+environment variable on the FFI path** other than the proxy's: those are the operating system's
+convention, which no .NET configuration layer carries, rather than options (T5.2). `from_env` stays
+for the crate's own Rust consumers.
 Empty means unset means take the default; it no longer means look at the environment.
 
 **The options have two shapes, and only one of them is flat.** Across the FFI the JSON is
@@ -951,15 +953,14 @@ carries.
 **Deliverable**: a unary call through an explicit HTTP proxy, and no credential in any message.
 
 **Status**: done. `Transport.Proxy` carries `Address` - `none`, or the proxy's `http://` URL - and
-`Username` and `Password`, the same three `GrpcClient` has; `system` waits for T5.2 and is refused
-until then, rather than dialled as a host of that name. The engine's connector tunnels through it
-with `hyper_util`'s `Tunnel` below TLS, so TLS stays end to end, and the connect timeout bounds the
-whole dial, tunnel included; a target naming no port is tunnelled to its scheme's. A failure is
-`TransportErrorKind::ProxyConnect`, saying whether the proxy was out of reach, refused the tunnel, or
-asked for credentials it was not given. No message carries a userinfo or the password, an option's
-refusal does not quote the address at all, and the options' Debug elides both. `tests/grpc_proxy.rs`
-calls through a `CONNECT` proxy of its own, in the clear and over TLS, with and without
-credentials.
+`Username` and `Password`, the same three `GrpcClient` has; `system` follows the environment. The
+engine's connector tunnels through it with `hyper_util`'s `Tunnel` below TLS, so TLS stays end to
+end, and the connect timeout bounds the whole dial, tunnel included; a target naming no port is
+tunnelled to its scheme's. A failure is `TransportErrorKind::ProxyConnect`, saying whether the proxy
+was out of reach, refused the tunnel, or asked for credentials it was not given. No message carries
+a userinfo or the password, an option's refusal does not quote the address at all, and the options'
+Debug elides both. `tests/grpc_proxy.rs` calls through a `CONNECT` proxy of its own, in the clear and over
+TLS, with and without credentials.
 
 ### T5.2: Proxy from the environment
 
@@ -973,6 +974,18 @@ them honoured, and .NET has no counterpart to bind. That is the one deliberate e
 phase 3's rule, and it is recorded here rather than discovered later.
 
 **Deliverable**: a call through a proxy named only by the environment.
+
+**Status**: done. `ProxySource::System` reads the environment once, when the channel is created,
+with `hyper_util`'s `Matcher`: `ALL_PROXY`, `HTTPS_PROXY` and `HTTP_PROXY` by the endpoint's scheme,
+in either case, and `NO_PROXY` as curl reads it. Each dial asks it for a route, so a host
+`NO_PROXY` names is dialled directly; so is a loopback endpoint, as .NET's environment proxy dials
+it, which keeps a local server reachable under a corporate `HTTP_PROXY`. A proxy the environment
+names by `https://` or a `socks` scheme is refused when the channel is created, without quoting
+its userinfo; any other value the matcher cannot read as a proxy is ignored. `Username` and
+`Password`, when set, take the place of the URL's own, half by half. In the options, an absent
+`Address` or `system` is this source - the default, as it is `GrpcClient`'s - while the engine's own
+`ProxyConfig` defaults to none. `tests/grpc_proxy_env.rs` is serialised and restores the variables;
+a `.test` name only the test proxy resolves shows which dials went through it.
 
 ### T5.3: Windows system proxy
 

@@ -300,7 +300,7 @@ public sealed class TransportOptions
   public double? ConnectTimeoutSeconds { get; set; }
 
   /// <summary>The HTTP proxy every dial tunnels through.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which tunnels through none.</remarks>
+  /// <remarks>Defaults to <c>{}</c>, which tunnels through the proxy the environment names, if any.</remarks>
   [JsonPropertyName("Proxy")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public ProxyOptions? Proxy { get; set; }
@@ -364,19 +364,28 @@ public sealed class ProxyOptions
   }
 
   /// <summary>
-  ///   <c>none</c> for no proxy, or the proxy's <c>http://</c> URL, with no path; <c>http://</c> is assumed when
-  ///   no scheme is written. The URL may carry <c>user:password@</c>, percent-encoded, when <c>Username</c>
-  ///   and <c>Password</c> are not set - which a serialized document then carries too.
+  ///   <c>none</c> for no proxy, <c>system</c> for the environment's, or the proxy's <c>http://</c> URL, with no
+  ///   path; <c>http://</c> is assumed when no scheme is written. The URL may carry <c>user:password@</c>,
+  ///   percent-encoded, when <c>Username</c> and <c>Password</c> are not set - which a serialized document
+  ///   then carries too.
   /// </summary>
-  /// <remarks>Defaults to no proxy.</remarks>
+  /// <remarks>
+  ///   The environment's proxy is <c>ALL_PROXY</c>, <c>HTTPS_PROXY</c> or <c>HTTP_PROXY</c>, in either case and
+  ///   by the endpoint's scheme, unless <c>NO_PROXY</c> names the endpoint's host; it is read when the
+  ///   channel is created. An <c>https://</c> or <c>socks</c> one is refused, and any other value the
+  ///   environment cannot read as a proxy is ignored. The environment's proxy is never used for a
+  ///   loopback endpoint.
+  ///   Defaults to <c>system</c>.
+  /// </remarks>
   [JsonPropertyName("Address")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? Address { get; set; }
 
   /// <summary>The password that goes with <c>Username</c>.</summary>
   /// <remarks>
-  ///   Refused without an <c>Address</c>, and beside credentials the URL carries; ignored beside
-  ///   <c>none</c>.
+  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
+  ///   environment names no proxy. Beside the environment's proxy, it takes the place of the
+  ///   password that proxy's URL carries.
   /// </remarks>
   [JsonPropertyName("Password")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -384,8 +393,9 @@ public sealed class ProxyOptions
 
   /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
   /// <remarks>
-  ///   Refused without an <c>Address</c>, and beside credentials the URL carries; ignored beside
-  ///   <c>none</c>.
+  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
+  ///   environment names no proxy. Beside the environment's proxy, it takes the place of the
+  ///   username that proxy's URL carries.
   /// </remarks>
   [JsonPropertyName("Username")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

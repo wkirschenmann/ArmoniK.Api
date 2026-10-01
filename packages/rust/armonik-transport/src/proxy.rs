@@ -6,12 +6,14 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use base64::Engine;
 use hyper::http::HeaderValue;
 use hyper::Uri;
 use hyper_util::client::legacy::connect::proxy::Tunnel;
+use hyper_util::client::proxy::matcher::Matcher;
 use hyper_util::rt::TokioIo;
 use secrecy::{ExposeSecret, SecretString};
 use snafu::Snafu;
@@ -32,6 +34,10 @@ pub enum ProxySource {
     Disabled,
     /// This proxy, an `http://` URI carrying no credentials.
     Explicit(Uri),
+    /// The environment's: `ALL_PROXY`, `HTTPS_PROXY` and `HTTP_PROXY` in either case, with
+    /// `NO_PROXY` matched as curl matches it, read when the channel is made. A loopback endpoint
+    /// is dialled directly, so a local server stays reachable under a corporate proxy.
+    System,
 }
 
 /// The URI is printed without its userinfo, which a hand-built `Explicit` may still carry.
@@ -39,6 +45,7 @@ impl std::fmt::Debug for ProxySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Disabled => f.write_str("Disabled"),
+            Self::System => f.write_str("System"),
             Self::Explicit(uri) => f
                 .debug_tuple("Explicit")
                 .field(&format_args!("{}", safe_endpoint(uri)))
@@ -74,12 +81,82 @@ impl ProxyConfig {
         if self.username.is_empty() && password.is_empty() {
             return None;
         }
-        let encoded = base64::engine::general_purpose::STANDARD
-            .encode(format!("{}:{password}", self.username));
-        let mut value = HeaderValue::from_str(&format!("Basic {encoded}"))
-            .expect("base64 is always a valid header value");
-        value.set_sensitive(true);
-        Some(value)
+        Some(basic(&self.username, password))
+    }
+
+    /// The value for a proxy the environment names, given the one `Matcher` built from that
+    /// proxy's URL: each half of the credentials set here takes the place of the URL's.
+    fn merged(&self, from_env: Option<&HeaderValue>) -> Option<HeaderValue> {
+        let password = self.password.expose_secret();
+        if self.username.is_empty() && password.is_empty() {
+            return from_env.cloned();
+        }
+        let (url_username, url_password) = from_env.map(unbasic).unwrap_or_default();
+        let username = if self.username.is_empty() {
+            &url_username
+        } else {
+            &self.username
+        };
+        let password = if password.is_empty() {
+            &url_password
+        } else {
+            password
+        };
+        Some(basic(username, password))
+    }
+}
+
+/// A `Basic` `Proxy-Authorization` value, marked sensitive so it is never logged.
+fn basic(username: &str, password: &str) -> HeaderValue {
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
+    let mut value = HeaderValue::from_str(&format!("Basic {encoded}"))
+        .expect("base64 is always a valid header value");
+    value.set_sensitive(true);
+    value
+}
+
+/// The username and password a `Basic` value carries, split at the first `:`, which RFC 7617
+/// forbids in the username: one the URL's username percent-encodes moves into the password. A
+/// value `hyper_util` did not build decodes as nothing.
+fn unbasic(value: &HeaderValue) -> (String, String) {
+    let encoded = value
+        .to_str()
+        .unwrap_or_default()
+        .trim_start_matches("Basic ");
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .unwrap_or_default();
+    let decoded = String::from_utf8_lossy(&decoded);
+    match decoded.split_once(':') {
+        Some((username, password)) => (username.to_owned(), password.to_owned()),
+        None => (decoded.into_owned(), String::new()),
+    }
+}
+
+/// Whether `target` names this machine: `localhost` and its subdomains, which RFC 6761 keeps
+/// loopback, or a loopback address. The environment's proxy is never asked to reach it.
+fn is_loopback(target: &Uri) -> bool {
+    let Some(host) = target.host() else {
+        return false;
+    };
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(address)) => address.is_loopback(),
+        Ok(std::net::IpAddr::V6(address)) => {
+            address.is_loopback()
+                || address
+                    .to_ipv4_mapped()
+                    .is_some_and(|address| address.is_loopback())
+        }
+        Err(_) => false,
     }
 }
 
@@ -110,16 +187,54 @@ fn with_default_port(target: Uri) -> Uri {
 #[derive(Debug, Clone)]
 pub struct ProxyConnector<S> {
     inner: S,
-    route: Option<(Uri, Option<HeaderValue>)>,
+    route: Route,
+}
+
+#[derive(Debug, Clone)]
+enum Route {
+    Direct,
+    Via(Uri, Option<HeaderValue>),
+    /// The matcher, and the credentials that take the place of the URL's. Behind an `Arc`
+    /// because a connector is cloned per dial and a `Matcher` is not `Clone`.
+    Environment(Arc<(Matcher, ProxyConfig)>),
 }
 
 impl<S> ProxyConnector<S> {
     pub(crate) fn new(inner: S, proxy: &ProxyConfig) -> Self {
         let route = match &proxy.source {
-            ProxySource::Disabled => None,
-            ProxySource::Explicit(uri) => Some((uri.clone(), proxy.authorization())),
+            ProxySource::Disabled => Route::Direct,
+            ProxySource::Explicit(uri) => Route::Via(uri.clone(), proxy.authorization()),
+            ProxySource::System => {
+                Route::Environment(Arc::new((Matcher::from_env(), proxy.clone())))
+            }
         };
         Self { inner, route }
+    }
+
+    /// The proxy `target` is reached through, and the `Proxy-Authorization` it is shown; none
+    /// for a direct dial.
+    pub(crate) fn route_to(
+        &self,
+        target: &Uri,
+    ) -> Result<Option<(Uri, Option<HeaderValue>)>, ProxyError> {
+        match &self.route {
+            Route::Direct => Ok(None),
+            Route::Via(proxy, authorization) => Ok(Some((proxy.clone(), authorization.clone()))),
+            Route::Environment(_) if is_loopback(target) => Ok(None),
+            Route::Environment(environment) => {
+                let (matcher, dedicated) = environment.as_ref();
+                let Some(intercept) = matcher.intercept(target) else {
+                    return Ok(None);
+                };
+                let proxy = intercept.uri().clone();
+                if proxy.scheme_str() != Some("http") {
+                    return Err(ProxyError::NotHttp {
+                        proxy: safe_endpoint(&proxy),
+                    });
+                }
+                Ok(Some((proxy, dedicated.merged(intercept.basic_auth()))))
+            }
+        }
     }
 }
 
@@ -139,9 +254,13 @@ where
     }
 
     fn call(&mut self, target: Uri) -> Self::Future {
-        let Some((proxy, authorization)) = self.route.clone() else {
-            let dialling = self.inner.call(target);
-            return Box::pin(async move { dialling.await.map_err(Into::into) });
+        let (proxy, authorization) = match self.route_to(&target) {
+            Ok(Some(route)) => route,
+            Ok(None) => {
+                let dialling = self.inner.call(target);
+                return Box::pin(async move { dialling.await.map_err(Into::into) });
+            }
+            Err(refused) => return Box::pin(std::future::ready(Err(refused.into()))),
         };
 
         // `Tunnel` asks for port 443 when the target names none, whatever its scheme, where a
@@ -217,4 +336,37 @@ pub enum ProxyError {
     AuthenticationRequired { proxy: String },
     #[snafu(display("the proxy `{proxy}` did not open the tunnel: {cause}"))]
     TunnelRefused { proxy: String, cause: String },
+    #[snafu(display(
+        "the proxy `{proxy}` the environment names is not an `http://` URL, the only kind this \
+         connector tunnels through"
+    ))]
+    NotHttp { proxy: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_name_and_address_of_this_machine_is_loopback() {
+        for endpoint in [
+            "http://localhost:1",
+            "http://LocalHost.:1",
+            "http://node.localhost:1",
+            "http://127.0.0.1:1",
+            "http://127.1.2.3:1",
+            "http://[::1]:1",
+            "http://[::ffff:127.0.0.1]:1",
+        ] {
+            assert!(is_loopback(&Uri::from_static(endpoint)), "{endpoint}");
+        }
+        for endpoint in [
+            "http://localhost.test:1",
+            "http://mylocalhost:1",
+            "http://10.0.0.1:1",
+            "http://[::ffff:10.0.0.1]:1",
+        ] {
+            assert!(!is_loopback(&Uri::from_static(endpoint)), "{endpoint}");
+        }
+    }
 }

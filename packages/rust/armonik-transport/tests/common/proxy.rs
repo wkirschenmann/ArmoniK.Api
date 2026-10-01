@@ -28,6 +28,15 @@ pub struct TestProxy {
 
 impl TestProxy {
     pub async fn start(demands: Demands) -> Self {
+        Self::spawn(demands, false).await
+    }
+
+    /// One that tunnels to a `.test` name as to loopback: a server only the proxy can reach.
+    pub async fn reaching_test_names(demands: Demands) -> Self {
+        Self::spawn(demands, true).await
+    }
+
+    async fn spawn(demands: Demands, test_names: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind the proxy");
@@ -40,7 +49,7 @@ impl TestProxy {
                 let (opened, heard) = (Arc::clone(&opened), Arc::clone(&heard));
                 tokio::spawn(async move {
                     // A refused tunnel is what a test asserts on, not a failure here.
-                    let _ = serve(client, demands, opened, heard).await;
+                    let _ = serve(client, demands, test_names, opened, heard).await;
                 });
             }
         });
@@ -78,6 +87,7 @@ async fn read_head(stream: &mut TcpStream) -> std::io::Result<String> {
 async fn serve(
     mut client: TcpStream,
     demands: Demands,
+    test_names: bool,
     tunnels: Arc<AtomicUsize>,
     asked: Arc<std::sync::Mutex<Vec<String>>>,
 ) -> std::io::Result<()> {
@@ -113,7 +123,11 @@ async fn serve(
         }
     }
 
-    let mut upstream = TcpStream::connect(&target).await?;
+    let reached = match target.rsplit_once(':') {
+        Some((host, port)) if test_names && host.ends_with(".test") => format!("127.0.0.1:{port}"),
+        _ => target,
+    };
+    let mut upstream = TcpStream::connect(&reached).await?;
     client
         .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
         .await?;

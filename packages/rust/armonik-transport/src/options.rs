@@ -98,7 +98,7 @@ pub struct TransportOptions {
 
     /// The HTTP proxy every dial tunnels through.
     ///
-    /// Defaults to `{}`, which tunnels through none.
+    /// Defaults to `{}`, which tunnels through the proxy the environment names, if any.
     #[cfg_attr(feature = "serde", serde(default))]
     pub proxy: ProxyOptions,
 }
@@ -114,11 +114,18 @@ pub struct TransportOptions {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ProxyOptions {
-    /// `none` for no proxy, or the proxy's `http://` URL, with no path; `http://` is assumed when
-    /// no scheme is written. The URL may carry `user:password@`, percent-encoded, when `Username`
-    /// and `Password` are not set - which a serialized document then carries too.
+    /// `none` for no proxy, `system` for the environment's, or the proxy's `http://` URL, with no
+    /// path; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,
+    /// percent-encoded, when `Username` and `Password` are not set - which a serialized document
+    /// then carries too.
     ///
-    /// Defaults to no proxy.
+    /// The environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and
+    /// by the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the
+    /// channel is created. An `https://` or `socks` one is refused, and any other value the
+    /// environment cannot read as a proxy is ignored. The environment's proxy is never used for a
+    /// loopback endpoint.
+    ///
+    /// Defaults to `system`.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -128,8 +135,9 @@ pub struct ProxyOptions {
 
     /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
     ///
-    /// Refused without an `Address`, and beside credentials the URL carries; ignored beside
-    /// `none`.
+    /// Refused beside credentials the `Address` URL carries; ignored beside `none`, and when the
+    /// environment names no proxy. Beside the environment's proxy, it takes the place of the
+    /// username that proxy's URL carries.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -139,8 +147,9 @@ pub struct ProxyOptions {
 
     /// The password that goes with `Username`.
     ///
-    /// Refused without an `Address`, and beside credentials the URL carries; ignored beside
-    /// `none`.
+    /// Refused beside credentials the `Address` URL carries; ignored beside `none`, and when the
+    /// environment names no proxy. Beside the environment's proxy, it takes the place of the
+    /// password that proxy's URL carries.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -193,24 +202,12 @@ impl ProxyOptions {
     pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         let dedicated = self.username.is_some() || self.password.is_some();
         let address = match self.address.as_deref() {
-            None => {
-                if dedicated {
-                    return Err(OptionRefusal::new(
-                        "Address",
-                        "it names no proxy, and Username or Password is set",
-                    ));
-                }
-                return Ok(ProxyConfig::default());
-            }
+            None => return self.with_dedicated(ProxySource::System),
             // Credentials beside `none` are left unread: a deployment that turned its proxy off
             // without clearing the credentials it needed is in a normal state.
             Some(none) if none.eq_ignore_ascii_case("none") => return Ok(ProxyConfig::default()),
-            // What `GrpcClient` reads as the system's proxy, and not a host to dial.
             Some(system) if system.eq_ignore_ascii_case("system") => {
-                return Err(OptionRefusal::new(
-                    "Address",
-                    "`system`, the system's proxy, is not one this engine reads",
-                ))
+                return self.with_dedicated(ProxySource::System)
             }
             Some(address) => address,
         };
@@ -278,40 +275,48 @@ impl ProxyOptions {
                 .map(|text| text.into_owned())
                 .map_err(|_| not_a_url())
         };
-        let (username, password) = match userinfo {
-            Some(userinfo) => match userinfo.split_once(':') {
-                Some((username, password)) => (decoded(username)?, decoded(password)?),
-                None => (decoded(userinfo)?, String::new()),
-            },
-            None => (
-                self.username.clone().unwrap_or_default(),
-                self.password
-                    .as_ref()
-                    .map(|password| password.0.expose_secret().to_owned())
-                    .unwrap_or_default(),
-            ),
-        };
-        // `Basic` splits user and password at the first `:`, so one in the user moves the rest
-        // into the password.
-        if username.contains(':') {
-            let key = if userinfo.is_some() {
-                "Address"
-            } else {
-                "Username"
-            };
-            return Err(OptionRefusal::new(
-                key,
-                "the username holds a `:`, which `Basic` authentication cannot carry",
-            ));
+        let source = ProxySource::Explicit(proxy);
+        match userinfo {
+            Some(userinfo) => {
+                let (username, password) = match userinfo.split_once(':') {
+                    Some((username, password)) => (decoded(username)?, decoded(password)?),
+                    None => (decoded(userinfo)?, String::new()),
+                };
+                if username.contains(':') {
+                    return Err(OptionRefusal::new("Address", NO_COLON));
+                }
+                Ok(ProxyConfig {
+                    source,
+                    username,
+                    password: password.into(),
+                })
+            }
+            None => self.with_dedicated(source),
         }
+    }
 
+    /// `source`, authenticated to with `Username` and `Password`, empty when unset.
+    fn with_dedicated(&self, source: ProxySource) -> Result<ProxyConfig, OptionRefusal> {
+        let username = self.username.clone().unwrap_or_default();
+        if username.contains(':') {
+            return Err(OptionRefusal::new("Username", NO_COLON));
+        }
+        let password = self
+            .password
+            .as_ref()
+            .map(|password| password.0.expose_secret().to_owned())
+            .unwrap_or_default();
         Ok(ProxyConfig {
-            source: ProxySource::Explicit(proxy),
+            source,
             username,
             password: password.into(),
         })
     }
 }
+
+/// `Basic` splits user and password at the first `:`, so one in the user moves the rest into the
+/// password.
+const NO_COLON: &str = "the username holds a `:`, which `Basic` authentication cannot carry";
 
 /// How an `https://` endpoint is secured. Each file is read when the channel is created, so a
 /// path that names nothing usable is refused then, by its option's name.
@@ -1608,7 +1613,7 @@ mod tests {
     fn a_proxy_url_becomes_the_proxy_tunnelled_through_with_its_credentials() {
         let explicit = |config: ProxyConfig| match config.source {
             ProxySource::Explicit(uri) => (uri.to_string(), config.username, config.password),
-            ProxySource::Disabled => panic!("no proxy"),
+            other => panic!("{other:?}"),
         };
 
         let (uri, username, password) = explicit(
@@ -1636,8 +1641,8 @@ mod tests {
             ("alice", "s@cret")
         );
 
-        for none in [None, Some("none"), Some("NONE")] {
-            let config = proxy(none, None, None).to_config().expect("no proxy");
+        for none in ["none", "NONE"] {
+            let config = proxy(Some(none), None, None).to_config().expect("no proxy");
             assert_eq!(config.source, ProxySource::Disabled, "{none:?}");
         }
         let config = proxy(Some("none"), Some("alice"), Some("s3cret"))
@@ -1653,6 +1658,22 @@ mod tests {
         assert_eq!(uri, "http://[::1]:3128/");
 
         let refused = proxy(Some("proxy.test:3128"), Some("corp:alice"), Some("s3cret"))
+            .to_config()
+            .expect_err("a `:` in the username");
+        assert_eq!(refused.key(), "Username");
+    }
+
+    #[test]
+    fn no_address_or_system_is_the_environments_proxy_with_the_dedicated_credentials() {
+        for address in [None, Some("system"), Some("System")] {
+            let config = proxy(address, Some("alice"), None)
+                .to_config()
+                .expect("the environment's proxy");
+            assert_eq!(config.source, ProxySource::System, "{address:?}");
+            assert_eq!(config.username, "alice");
+            assert_eq!(config.password.expose_secret(), "");
+        }
+        let refused = proxy(None, Some("corp:alice"), None)
             .to_config()
             .expect_err("a `:` in the username");
         assert_eq!(refused.key(), "Username");
@@ -1682,11 +1703,9 @@ mod tests {
             proxy(Some("https://proxy.test:443"), None, None),
             proxy(Some("http://alice:s3cret@proxy.test"), Some("bob"), None),
             proxy(Some("http://alice:s3cret@proxy.test"), None, Some("other")),
-            proxy(None, Some("alice"), Some("s3cret")),
             proxy(Some("http://proxy.test:99999"), None, None),
             proxy(Some("http://proxy.test:s3cret"), None, None),
             proxy(Some("http://:3128"), None, None),
-            proxy(Some("system"), None, None),
             proxy(Some("not a url"), None, None),
             proxy(Some("http://proxy.test:3128/pac.js"), None, None),
             proxy(Some("http://proxy.test:3128/?s3cret"), None, None),

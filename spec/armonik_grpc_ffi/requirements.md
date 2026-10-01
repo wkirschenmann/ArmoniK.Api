@@ -190,10 +190,11 @@ configuration, so that my gRPC calls can traverse enterprise network infrastruct
 5. Basic proxy authentication is supported.
 6. Windows system proxy resolution does not block the calling thread (async with timeout).
 
-**Status**: 1, 2 and 5 are met: `Transport.Proxy` names a proxy by its `http://` URL, or `none`,
-and authenticates to it by `Basic`, the credentials written in the URL or in `Username` and
-`Password` and refused in both. 3 is T5.2's and 4 and 6 are T5.3's; until then `system` is refused
-and no proxy is read from anywhere but the document.
+**Status**: 1, 2, 3 and 5 are met: `Transport.Proxy` names a proxy by its `http://` URL, `none`,
+or `system`, its default, and authenticates to it by `Basic`, the credentials written in the URL or
+in `Username` and `Password` and refused in both. `system` reads `ALL_PROXY`, `HTTPS_PROXY`,
+`HTTP_PROXY` and `NO_PROXY`, in either case, when the channel is created, and dials a loopback
+endpoint directly. 4 and 6 are T5.3's.
 
 ---
 
