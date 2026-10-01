@@ -28,30 +28,30 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 ///
 /// It takes the record the ABI handed over rather than a pointer and a length, so the two cannot
 /// be paired with anything but each other, and disposal is what says the engine has it back.
-internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
+internal sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte>
 {
-  private readonly IntPtr start_;
+  private readonly byte* start_;
   private readonly int length_;
 
   private bool returned_;
 
-  internal UnmanagedMemoryManager(in NativeMethods.AkBuffer buffer)
-    : this(buffer.Ptr,
-           buffer.Len)
+  internal UnmanagedMemoryManager(in ak_buffer buffer)
+    : this(buffer.ptr,
+           buffer.len)
   {
   }
 
-  internal UnmanagedMemoryManager(in NativeMethods.AkBytes payload)
-    : this(payload.Ptr,
-           payload.Len)
+  internal UnmanagedMemoryManager(in ak_bytes payload)
+    : this(payload.ptr,
+           payload.len)
   {
   }
 
-  private UnmanagedMemoryManager(IntPtr start,
+  private UnmanagedMemoryManager(byte*   start,
                                  UIntPtr length)
   {
     length_ = Length(length);
-    if (start == IntPtr.Zero && length_ != 0)
+    if (start == null && length_ != 0)
     {
       throw new ArgumentException($"{length_} bytes at no address",
                                   nameof(start));
@@ -64,7 +64,7 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
     => Span(Lent,
             length_);
 
-  public override unsafe MemoryHandle Pin(int elementIndex = 0)
+  public override MemoryHandle Pin(int elementIndex = 0)
   {
     if (elementIndex < 0 || elementIndex > length_)
     {
@@ -73,7 +73,7 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
                                             $"outside the {length_} bytes this names");
     }
 
-    return new MemoryHandle((byte*)Lent + elementIndex);
+    return new MemoryHandle(Lent + elementIndex);
   }
 
   public override void Unpin()
@@ -89,14 +89,14 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
   internal static int Length(UIntPtr length)
     => checked((int)length);
 
-  internal static Span<byte> Span(IntPtr start,
+  internal static Span<byte> Span(byte*   start,
                                   UIntPtr length)
     => Span(start,
             Length(length));
 
-  internal static unsafe Span<byte> Span(IntPtr start,
-                                         int length)
-    => new((void*)start,
+  internal static Span<byte> Span(byte* start,
+                                  int   length)
+    => new(start,
            length);
 
   /// <summary>Ends every view this handed out.</summary>
@@ -106,7 +106,7 @@ internal sealed class UnmanagedMemoryManager : MemoryManager<byte>
   protected override void Dispose(bool disposing)
     => returned_ = true;
 
-  private IntPtr Lent
+  private byte* Lent
     => returned_
          ? throw new ObjectDisposedException(nameof(UnmanagedMemoryManager),
                                             "this names memory the engine has taken back")

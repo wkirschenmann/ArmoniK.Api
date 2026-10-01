@@ -70,16 +70,21 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
       fixed (byte* pinnedEndpoint = named)
       fixed (byte* pinned = json)
       {
-        var where = NativeMethods.AkBytesIn.Borrow(pinnedEndpoint,
-                                                   named.Length);
-        var config = NativeMethods.AkBytesIn.Borrow(pinned,
-                                                    json.Length);
+        var where = ak_bytes_in.Borrow(pinnedEndpoint,
+                                       named.Length);
+        var config = ak_bytes_in.Borrow(pinned,
+                                        json.Length);
 
-        var status = NativeMethods.ak_channel_create(runtime.Handle,
-                                                     where,
-                                                     config,
-                                                     out handle_);
-        if (status != NativeMethods.AkStatus.Ok)
+        ak_status status;
+        fixed (ulong* created = &handle_)
+        {
+          status = NativeMethods.ak_channel_create(runtime.Handle,
+                                                   where,
+                                                   config,
+                                                   created);
+        }
+
+        if (status != ak_status.AK_STATUS_OK)
         {
           // Three answers, because this door means three things by a refusal, and the caller can
           // act on which. `InvalidArg` is what was handed over: an endpoint that is not UTF-8,
@@ -92,8 +97,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
           // and two different bugs to go and find.
           throw status switch
                 {
-                  NativeMethods.AkStatus.InvalidArg => new ArgumentException($"`{Safely(endpoint)}` or an option given with it was refused ({status})"),
-                  NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale =>
+                  ak_status.AK_STATUS_INVALID_ARG => new ArgumentException($"`{Safely(endpoint)}` or an option given with it was refused ({status})"),
+                  ak_status.AK_STATUS_INVALID_STATE or ak_status.AK_STATUS_HANDLE_STALE =>
                     new ObjectDisposedException(nameof(NativeRuntime),
                                                 $"the runtime was gone before `{Safely(endpoint)}` could be opened ({status})"),
                   _ => new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status})"),
@@ -208,7 +213,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   internal ChannelDisposeState DisposeState
     => state_;
 
-  internal NativeMethods.AkChannelState NativeState
+  internal ak_channel_state NativeState
     => NativeMethods.ak_channel_status(handle_);
 
   /// <summary>The invoker a generated client calls through.</summary>

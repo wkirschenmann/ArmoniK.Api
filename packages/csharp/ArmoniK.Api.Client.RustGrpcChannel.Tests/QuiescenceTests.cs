@@ -39,8 +39,8 @@ public class QuiescenceTests
     var silence = new TaskCompletionSource<bool>().Task;
 
     var waiting = NativeRuntime.QuiescentAsync(() => ++reads < 3
-                                                       ? NativeMethods.AkRuntimeState.GrpcStopping
-                                                       : NativeMethods.AkRuntimeState.FailedUnquiesced,
+                                                       ? ak_runtime_state.AK_RUNTIME_GRPC_STOPPING
+                                                       : ak_runtime_state.AK_RUNTIME_FAILED_UNQUIESCED,
                                                () => silence);
 
     var ended = await Task.WhenAny(waiting,

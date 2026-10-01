@@ -33,7 +33,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, IDisposable
 {
   private readonly ulong call_;
-  private NativeMethods.AkBuffer buffer_;
+  private ak_buffer buffer_;
   private UnmanagedMemoryManager? block_;
   private int written_;
 
@@ -86,7 +86,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
                                         $"the serializer announced a length twice: {Capacity} bytes, then {payloadLength}"));
     }
 
-    if (Take(payloadLength) == NativeMethods.AkStatus.BudgetBusy)
+    if (Take(payloadLength) == ak_status.AK_STATUS_BUDGET_BUSY)
     {
       // Serializing onto the managed heap instead would answer backpressure with the very
       // allocation the ceiling exists to refuse, and `bytes_used` would never see those bytes.
@@ -121,7 +121,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       GiveBack();
     }
 
-    if (Take(payload.Length) == NativeMethods.AkStatus.BudgetBusy)
+    if (Take(payload.Length) == ak_status.AK_STATUS_BUDGET_BUSY)
     {
       throw new NoRoomYet();
     }
@@ -134,11 +134,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   /// <remarks>What the engine takes back this stops naming, so a view a serializer kept is a
   /// disposed view rather than an arena lent to the next call. A refusal leaves the buffer here,
   /// and disposal returns it.</remarks>
-  internal NativeMethods.AkStatus Commit()
+  internal ak_status Commit()
   {
     var status = NativeMethods.ak_call_send_message(call_,
                                                     buffer_);
-    if (status == NativeMethods.AkStatus.Ok)
+    if (status == ak_status.AK_STATUS_OK)
     {
       ReleaseBlock();
       buffer_ = default;
@@ -164,34 +164,39 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   }
 
   /// <summary>The token a lend hands over and a return consumes, so it is the lend.</summary>
-  private bool Holding
-    => buffer_.Owner != IntPtr.Zero;
+  private unsafe bool Holding
+    => buffer_.owner != null;
 
   private int Capacity
-    => UnmanagedMemoryManager.Length(buffer_.Len);
+    => UnmanagedMemoryManager.Length(buffer_.len);
 
-  private Span<byte> Arena
-    => UnmanagedMemoryManager.Span(buffer_.Ptr,
-                                   buffer_.Len);
+  private unsafe Span<byte> Arena
+    => UnmanagedMemoryManager.Span(buffer_.ptr,
+                                   buffer_.len);
 
   private UnmanagedMemoryManager Block
     => block_ ??= new UnmanagedMemoryManager(buffer_);
 
   // Reached holding nothing, both callers having made sure of it, so no view can be naming an
   // older buffer here.
-  private NativeMethods.AkStatus Take(int length)
+  private unsafe ak_status Take(int length)
   {
-    var status = NativeMethods.ak_get_call_buffer(call_,
-                                                  (UIntPtr)length,
-                                                  out buffer_);
+    ak_status status;
+    fixed (ak_buffer* lent = &buffer_)
+    {
+      status = NativeMethods.ak_get_call_buffer(call_,
+                                                (nuint)length,
+                                                lent);
+    }
+
     switch (status)
     {
-      case NativeMethods.AkStatus.Ok:
-      case NativeMethods.AkStatus.BudgetBusy:
+      case ak_status.AK_STATUS_OK:
+      case ak_status.AK_STATUS_BUDGET_BUSY:
         return status;
 
-      case NativeMethods.AkStatus.InvalidState:
-      case NativeMethods.AkStatus.HandleStale:
+      case ak_status.AK_STATUS_INVALID_STATE:
+      case ak_status.AK_STATUS_HANDLE_STALE:
         throw new CallEnded(status);
 
       // The send window is full, which means another send of this call is unacquitted. The header
@@ -199,12 +204,12 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
       // pipelining deeper than one message waits on; this binding admits one writer and has it
       // wait for the acquittal, so reaching this is its own bookkeeping being wrong rather than a
       // resource to wait for.
-      case NativeMethods.AkStatus.SlotBusy:
+      case ak_status.AK_STATUS_SLOT_BUSY:
         throw new RpcException(new Status(StatusCode.Internal,
                                           "a send was begun while this call still had one unacquitted"));
 
       default:
-        throw new RpcException(new Status(status == NativeMethods.AkStatus.MessageTooLarge
+        throw new RpcException(new Status(status == ak_status.AK_STATUS_MESSAGE_TOO_LARGE
                                             ? StatusCode.ResourceExhausted
                                             : StatusCode.Internal,
                                           $"no buffer to serialize into ({status})"));

@@ -123,6 +123,44 @@
     </ItemGroup>
   </Target>
 
+  <!-- Interop/NativeMethods.g.cs is rendered from the engine's Rust and committed, beside the C
+       header rendered from the same declarations. A stale one is a P/Invoke that reads the wrong
+       bytes, so the build compares both with what the Rust renders now and fails on a
+       difference; it never rewrites them. Skipped with the engine, for the same image that has
+       no Rust toolchain. -->
+  <ItemGroup>
+    <AbiDeclaration Include="$(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/src/abi.rs;
+                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/src/lib.rs;
+                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/cbindgen.toml;
+                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/include/armonik_transport_ffi.h;
+                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi-bindgen/src/main.rs;
+                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi-bindgen/Cargo.toml;
+                             $(MSBuildThisFileDirectory)../../rust/Cargo.toml;
+                             $(MSBuildThisFileDirectory)../../rust/Cargo.lock;
+                             $(MSBuildThisFileDirectory)Interop/NativeMethods.g.cs" />
+  </ItemGroup>
+
+  <Target Name="CheckGeneratedBindingsMatchTheAbi" BeforeTargets="BeforeBuild"
+          Condition="'$(SkipNativeEngine)' != 'true'"
+          Inputs="@(AbiDeclaration)"
+          Outputs="$(IntermediateOutputPath)bindings-checked.stamp">
+    <Exec Command="cargo run -q -p armonik-transport-ffi-bindgen -- --check"
+          WorkingDirectory="$(RustWorkspace)"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="BindingsCheckExitCode" />
+    </Exec>
+    <!-- The generator exits 1 for a stale file and only for that; any other code is cargo or the
+         generator failing, which writing the files again does not mend. -->
+    <Error Condition="'$(BindingsCheckExitCode)' == '1'"
+           Text="Interop/NativeMethods.g.cs or the C header is not what armonik-transport-ffi declares. Write them again with `cargo run -p armonik-transport-ffi-bindgen` in packages/rust; on Windows that needs a Visual Studio environment." />
+    <Error Condition="'$(BindingsCheckExitCode)' != '0' AND '$(BindingsCheckExitCode)' != '1'"
+           Text="Interop/NativeMethods.g.cs and the C header could not be checked: `cargo run -p armonik-transport-ffi-bindgen -- --check` in packages/rust exited $(BindingsCheckExitCode). On Windows it needs a Visual Studio environment." />
+    <Touch Files="$(IntermediateOutputPath)bindings-checked.stamp" AlwaysCreate="true" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)bindings-checked.stamp" />
+    </ItemGroup>
+  </Target>
+
   <!-- For a build that wants the managed surface and no engine: the documentation, which reads
        this assembly's public types on an image with no Rust toolchain. The assembly is pure
        managed, so it compiles without one; what it cannot do is load a call at run time. -->

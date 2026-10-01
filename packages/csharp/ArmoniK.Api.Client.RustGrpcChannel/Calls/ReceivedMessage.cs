@@ -32,21 +32,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 /// to it must have copied itself - which is what protobuf's parser does with every field it reads.
 internal sealed class ReceivedMessage : DeserializationContext
 {
-  private readonly NativeMethods.AkBytes payload_;
+  private readonly ak_bytes payload_;
   private readonly int length_;
 
   private UnmanagedMemoryManager? view_;
 
-  internal ReceivedMessage(in NativeMethods.AkBytes payload)
+  internal ReceivedMessage(in ak_bytes payload)
   {
     payload_ = payload;
-    length_  = UnmanagedMemoryManager.Length(payload.Len);
+    length_  = UnmanagedMemoryManager.Length(payload.len);
   }
 
   public override int PayloadLength
     => length_;
 
-  public override byte[] PayloadAsNewBuffer()
+  public override unsafe byte[] PayloadAsNewBuffer()
   {
     if (length_ == 0)
     {
@@ -54,7 +54,7 @@ internal sealed class ReceivedMessage : DeserializationContext
     }
 
     var bytes = new byte[length_];
-    Marshal.Copy(payload_.Ptr,
+    Marshal.Copy((IntPtr)payload_.ptr,
                  bytes,
                  0,
                  length_);

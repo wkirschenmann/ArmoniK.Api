@@ -35,8 +35,8 @@ internal interface ICallSink
   void Cancel();
 
   /// <summary>Answers whether returning the payload is now the consumer's obligation.</summary>
-  bool Publish(NativeMethods.AkEventKind kind,
-               in NativeMethods.AkBytes payload,
+  bool Publish(ak_event_kind kind,
+               in ak_bytes payload,
                int statusCode);
 }
 
@@ -53,7 +53,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
   private readonly CancellationTokenSource ending_ = new();
 
-  private static readonly uint StartOptionsSize = (uint)Marshal.SizeOf<NativeMethods.AkCallStartOptions>();
+  private static readonly uint StartOptionsSize = (uint)Marshal.SizeOf<ak_call_start_options>();
 
   private static readonly ConditionalWeakTable<string, byte[]> MethodNames = new();
 
@@ -117,20 +117,25 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
       fixed (byte* methodPinned = methodBytes)
       fixed (byte* metadataPinned = metadataBytes)
       {
-        var options = new NativeMethods.AkCallStartOptions
+        var options = new ak_call_start_options
                       {
-                        StructSize = StartOptionsSize,
-                        Method = NativeMethods.AkBytesIn.Borrow(methodPinned,
-                                                                methodBytes.Length),
-                        Metadata = NativeMethods.AkBytesIn.Borrow(metadataPinned,
-                                                                  metadataBytes.Length),
+                        struct_size = StartOptionsSize,
+                        method = ak_bytes_in.Borrow(methodPinned,
+                                                    methodBytes.Length),
+                        metadata = ak_bytes_in.Borrow(metadataPinned,
+                                                      metadataBytes.Length),
                       };
 
-        var status = NativeMethods.ak_call_start(channel,
-                                                 ref options,
-                                                 GCHandle.ToIntPtr(call.self_),
-                                                 out call.handle_);
-        if (status != NativeMethods.AkStatus.Ok)
+        ak_status status;
+        fixed (ulong* started = &call.handle_)
+        {
+          status = NativeMethods.ak_call_start(channel,
+                                               &options,
+                                               (void*)GCHandle.ToIntPtr(call.self_),
+                                               started);
+        }
+
+        if (status != ak_status.AK_STATUS_OK)
         {
           call.self_.Free();
 
@@ -143,8 +148,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
           // binding's fault to own.
           throw new RpcException(new Status(status switch
                                             {
-                                              NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale => StatusCode.Unavailable,
-                                              NativeMethods.AkStatus.InvalidArg => StatusCode.InvalidArgument,
+                                              ak_status.AK_STATUS_INVALID_STATE or ak_status.AK_STATUS_HANDLE_STALE => StatusCode.Unavailable,
+                                              ak_status.AK_STATUS_INVALID_ARG => StatusCode.InvalidArgument,
                                               _ => StatusCode.Internal,
                                             },
                                             $"the call could not be started ({status})"));
@@ -161,11 +166,11 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     return call;
   }
 
-  public bool Publish(NativeMethods.AkEventKind kind,
-                      in NativeMethods.AkBytes payload,
+  public bool Publish(ak_event_kind kind,
+                      in ak_bytes payload,
                       int statusCode)
   {
-    if (kind == NativeMethods.AkEventKind.WriteDone)
+    if (kind == ak_event_kind.AK_EVENT_WRITE_DONE)
     {
       sending_.Acquitted();
       return false;

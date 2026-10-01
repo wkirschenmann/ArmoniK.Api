@@ -37,8 +37,8 @@ internal sealed class DeliveryRing
 {
   internal struct Slot
   {
-    internal NativeMethods.AkBytes Payload;
-    internal NativeMethods.AkEventKind Kind;
+    internal ak_bytes Payload;
+    internal ak_event_kind Kind;
 
     // A gRPC status on a terminal, an ak_head_origin on a head.
     internal int Status;
@@ -71,8 +71,8 @@ internal sealed class DeliveryRing
   /// <summary>Takes an event from the engine's callback thread.</summary>
   /// <remarks>From the volatile write the slot is the consumer's, and so is giving the payload
   /// back.</remarks>
-  internal void Publish(NativeMethods.AkEventKind kind,
-                        in NativeMethods.AkBytes payload,
+  internal void Publish(ak_event_kind kind,
+                        in ak_bytes payload,
                         int statusCode)
   {
     var at = (int)(head_ & mask_);

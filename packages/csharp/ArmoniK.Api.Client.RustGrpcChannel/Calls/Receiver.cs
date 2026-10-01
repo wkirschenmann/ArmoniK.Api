@@ -47,7 +47,7 @@ internal sealed class Receiver<TResponse>
 
   // Where the head came from, once one of the ring's consumers has taken it: what the terminal
   // answers the headers with when the head did not.
-  private NativeMethods.AkHeadOrigin headOrigin_ = NativeMethods.AkHeadOrigin.Received;
+  private ak_head_origin headOrigin_ = ak_head_origin.AK_HEAD_RECEIVED;
 
   internal Receiver(ICallState call,
                     int deliveryCredits,
@@ -79,8 +79,8 @@ internal sealed class Receiver<TResponse>
 
   /// <summary>Takes an event, and answers whether returning its payload is now this half's
   /// obligation.</summary>
-  internal bool Publish(NativeMethods.AkEventKind kind,
-                        in NativeMethods.AkBytes payload,
+  internal bool Publish(ak_event_kind kind,
+                        in ak_bytes payload,
                         int statusCode)
   {
     delivered_.Publish(kind,
@@ -325,8 +325,8 @@ internal sealed class Receiver<TResponse>
     // The slot is this read's from here, and the borrow lasts exactly as long as the decode:
     // native bytes are readable while the reader is parsing and not after.
     // TLA: ParsingReadOwnsItsSlot
-    var terminal = slot.Kind == NativeMethods.AkEventKind.Status;
-    var metadata = slot.Kind == NativeMethods.AkEventKind.InitialMetadata;
+    var terminal = slot.Kind == ak_event_kind.AK_EVENT_STATUS;
+    var metadata = slot.Kind == ak_event_kind.AK_EVENT_INITIAL_METADATA;
     TResponse? message = null;
     Status? end = null;
     Exception? decodeFailure = null;
@@ -600,7 +600,7 @@ internal sealed class Receiver<TResponse>
         await arrival.ConfigureAwait(false);
       }
 
-      var terminal = slot.Kind == NativeMethods.AkEventKind.Status;
+      var terminal = slot.Kind == ak_event_kind.AK_EVENT_STATUS;
 
       try
       {
@@ -608,7 +608,7 @@ internal sealed class Receiver<TResponse>
         {
           Resolve(DecodedStatus(slot));
         }
-        else if (slot.Kind == NativeMethods.AkEventKind.InitialMetadata)
+        else if (slot.Kind == ak_event_kind.AK_EVENT_INITIAL_METADATA)
         {
           TakeHead(slot);
         }
@@ -677,12 +677,12 @@ internal sealed class Receiver<TResponse>
   /// promises a host that ignores the field.</remarks>
   private void TakeHead(in DeliveryRing.Slot head)
   {
-    var origin = (NativeMethods.AkHeadOrigin)head.Status;
-    headOrigin_ = origin is NativeMethods.AkHeadOrigin.TrailersOnly or NativeMethods.AkHeadOrigin.NoResponse
+    var origin = (ak_head_origin)head.Status;
+    headOrigin_ = origin is ak_head_origin.AK_HEAD_TRAILERS_ONLY or ak_head_origin.AK_HEAD_NO_RESPONSE
                     ? origin
-                    : NativeMethods.AkHeadOrigin.Received;
+                    : ak_head_origin.AK_HEAD_RECEIVED;
 
-    if (headOrigin_ == NativeMethods.AkHeadOrigin.Received)
+    if (headOrigin_ == ak_head_origin.AK_HEAD_RECEIVED)
     {
       headers_.TrySetResult(RawMetadata.Decode(Bytes(head.Payload)));
     }
@@ -695,7 +695,7 @@ internal sealed class Receiver<TResponse>
   /// none and any other its status.</remarks>
   private void AnswerHeadsAt(Status ended)
   {
-    if (headOrigin_ == NativeMethods.AkHeadOrigin.TrailersOnly)
+    if (headOrigin_ == ak_head_origin.AK_HEAD_TRAILERS_ONLY)
     {
       headers_.TrySetResult(trailers_);
     }
@@ -748,7 +748,7 @@ internal sealed class Receiver<TResponse>
   /// ring's.</summary>
   private void AnswerHeadsFrom(in DeliveryRing.Slot terminal)
   {
-    if (terminal.Kind != NativeMethods.AkEventKind.Status)
+    if (terminal.Kind != ak_event_kind.AK_EVENT_STATUS)
     {
       FailHead(new RpcException(new Status(StatusCode.Internal,
                                            "a message followed a head that said no response body would come")));
@@ -801,7 +801,7 @@ internal sealed class Receiver<TResponse>
       }
 
       delivered_.TryPeek(out var slot);
-      if (slot.Kind != NativeMethods.AkEventKind.InitialMetadata)
+      if (slot.Kind != ak_event_kind.AK_EVENT_INITIAL_METADATA)
       {
         // No head came first, which the ABI does not do. Left for the reader or the drain, and
         // the terminal answers the headers.
@@ -821,7 +821,7 @@ internal sealed class Receiver<TResponse>
                                              thrown)));
       }
 
-      if (headOrigin_ != NativeMethods.AkHeadOrigin.Received)
+      if (headOrigin_ != ak_head_origin.AK_HEAD_RECEIVED)
       {
         // No headers of the peer's: the terminal comes next and nothing else does, and it
         // answers the headers. Waited for here so that they are answered without a read.
@@ -860,7 +860,7 @@ internal sealed class Receiver<TResponse>
     }
   }
 
-  private static ReadOnlySpan<byte> Bytes(in NativeMethods.AkBytes payload)
-    => UnmanagedMemoryManager.Span(payload.Ptr,
-                                   payload.Len);
+  private static unsafe ReadOnlySpan<byte> Bytes(in ak_bytes payload)
+    => UnmanagedMemoryManager.Span(payload.ptr,
+                                   payload.len);
 }

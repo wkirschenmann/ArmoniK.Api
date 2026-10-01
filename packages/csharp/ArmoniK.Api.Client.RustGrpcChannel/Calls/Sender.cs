@@ -175,8 +175,8 @@ internal sealed class Sender
     // The two the engine answers for a call that is already over, which the sender cannot rule
     // out and which the terminal reports anyway.
     var closed = NativeMethods.ak_call_end_send(call_.Handle);
-    if (closed is not (NativeMethods.AkStatus.Ok or NativeMethods.AkStatus.HandleStale
-                                                 or NativeMethods.AkStatus.InvalidState))
+    if (closed is not (ak_status.AK_STATUS_OK or ak_status.AK_STATUS_HANDLE_STALE
+                                              or ak_status.AK_STATUS_INVALID_STATE))
     {
       throw Failed($"the half-close was refused ({closed})");
     }
@@ -233,7 +233,7 @@ internal sealed class Sender
     {
       using var lent = new LentBuffer(call_.Handle);
 
-      NativeMethods.AkStatus status;
+      ak_status status;
       try
       {
         marshaller.ContextualSerializer(request,
@@ -247,21 +247,21 @@ internal sealed class Sender
       }
       catch (NoRoomYet)
       {
-        status = NativeMethods.AkStatus.BudgetBusy;
+        status = ak_status.AK_STATUS_BUDGET_BUSY;
       }
 
-      if (status == NativeMethods.AkStatus.Ok)
+      if (status == ak_status.AK_STATUS_OK)
       {
         Interlocked.Increment(ref inFlight_);
         break;
       }
 
-      if (status is NativeMethods.AkStatus.InvalidState or NativeMethods.AkStatus.HandleStale)
+      if (status is ak_status.AK_STATUS_INVALID_STATE or ak_status.AK_STATUS_HANDLE_STALE)
       {
         throw new CallEnded(status);
       }
 
-      if (status != NativeMethods.AkStatus.BudgetBusy)
+      if (status != ak_status.AK_STATUS_BUDGET_BUSY)
       {
         throw Failed($"the message was refused ({status})");
       }

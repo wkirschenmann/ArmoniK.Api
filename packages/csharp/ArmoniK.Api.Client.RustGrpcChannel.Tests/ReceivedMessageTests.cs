@@ -29,19 +29,19 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 [TestFixture]
 public class ReceivedMessageTests
 {
-  private static void Over(byte[] bytes,
-                           Action<ReceivedMessage> read)
+  private static unsafe void Over(byte[] bytes,
+                                  Action<ReceivedMessage> read)
   {
     var pin = GCHandle.Alloc(bytes,
                              GCHandleType.Pinned);
     try
     {
-      read(new ReceivedMessage(new NativeMethods.AkBytes
+      read(new ReceivedMessage(new ak_bytes
                                {
-                                 Ptr = bytes.Length == 0
-                                         ? IntPtr.Zero
-                                         : pin.AddrOfPinnedObject(),
-                                 Len = (UIntPtr)bytes.Length,
+                                 ptr = bytes.Length == 0
+                                         ? null
+                                         : (byte*)pin.AddrOfPinnedObject(),
+                                 len = (nuint)bytes.Length,
                                }));
     }
     finally

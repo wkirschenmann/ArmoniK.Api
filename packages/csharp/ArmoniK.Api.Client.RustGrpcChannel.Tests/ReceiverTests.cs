@@ -38,6 +38,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 [TestFixture]
 public class ReceiverTests
 {
+  // Built here, because the tests that publish it are async and an async method may not hold a
+  // pointer.
+  private static unsafe ak_bytes Payload(IntPtr at,
+                                         int    length)
+    => new()
+       {
+         ptr = (byte*)at,
+         len = (nuint)length,
+       };
+
   /// <remarks>
   ///   The prologue leaves the head in the ring when the call is ending before the terminal is in,
   ///   and a send that failed ends it so with no drain owed: the reader takes the head. That head
@@ -55,13 +65,13 @@ public class ReceiverTests
 
     // Ended before the head lands, so the prologue finds no terminal behind it and leaves.
     call.EndCall();
-    receiver.Publish(NativeMethods.AkEventKind.InitialMetadata,
+    receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
                      default,
-                     (int)NativeMethods.AkHeadOrigin.NoResponse);
+                     (int)ak_head_origin.AK_HEAD_NO_RESPONSE);
     await receiver.PrologueFinished.ConfigureAwait(false);
 
     var reading = receiver.MoveNext(CancellationToken.None);
-    receiver.Publish(NativeMethods.AkEventKind.Status,
+    receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
                      default,
                      (int)StatusCode.Cancelled);
 
@@ -108,20 +118,17 @@ public class ReceiverTests
       receiver.StartPrologue();
 
       call.EndCall();
-      receiver.Publish(NativeMethods.AkEventKind.InitialMetadata,
+      receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
                        default,
-                       (int)NativeMethods.AkHeadOrigin.TrailersOnly);
+                       (int)ak_head_origin.AK_HEAD_TRAILERS_ONLY);
       await receiver.PrologueFinished.ConfigureAwait(false);
 
       var reading = drained
                       ? null
                       : receiver.MoveNext(CancellationToken.None);
-      receiver.Publish(NativeMethods.AkEventKind.Status,
-                       new NativeMethods.AkBytes
-                       {
-                         Ptr = memory,
-                         Len = (UIntPtr)blob.Count,
-                       },
+      receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
+                       Payload(memory,
+                               blob.Count),
                        (int)StatusCode.OK);
 
       if (reading is null)
@@ -160,9 +167,9 @@ public class ReceiverTests
                                            Marshallers.Create<EchoReply>(reply => reply.ToByteArray(),
                                                                          EchoReply.Parser.ParseFrom));
     receiver.StartPrologue();
-    receiver.Publish(NativeMethods.AkEventKind.InitialMetadata,
+    receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
                      default,
-                     (int)NativeMethods.AkHeadOrigin.Received);
+                     (int)ak_head_origin.AK_HEAD_RECEIVED);
     await receiver.PrologueFinished.ConfigureAwait(false);
 
     using var readerHeld    = new SemaphoreSlim(0);
@@ -191,7 +198,7 @@ public class ReceiverTests
                   Is.True,
                   "the drain found the ring empty");
 
-      receiver.Publish(NativeMethods.AkEventKind.Status,
+      receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
                        default,
                        (int)StatusCode.Cancelled);
       releaseDrain.Release();

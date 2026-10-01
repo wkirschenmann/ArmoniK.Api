@@ -1736,17 +1736,15 @@ extension is the channel's asynchronous one.
 // UnmanagedCallersOnly. Runs on a Tokio thread, hands the event to whoever it
 // names, and returns. No user code, and no binding-managed payload allocation on
 // the measured fast path.
-private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
+private static readonly unsafe NativeMethods.ak_runtime_create_callback_delegate Trampoline = OnEvent;
 
-internal static unsafe void OnEvent(IntPtr runtimeCtx, IntPtr callCtx, IntPtr eventPtr)
+internal static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* evt)
 {
-    var evt = (NativeMethods.AkEvent*)eventPtr;
-
     // A call's events carry its call_ctx; the runtime's two carry runtime_ctx alone.
     // A root that resolves to nothing is an event nobody can take.
     object? target;
-    try { target = GCHandle.FromIntPtr(callCtx != IntPtr.Zero ? callCtx : runtimeCtx).Target; }
-    catch { NativeMethods.ak_event_consumed(evt->Payload); return; }
+    try { target = GCHandle.FromIntPtr((IntPtr)(callCtx != null ? callCtx : runtimeCtx)).Target; }
+    catch { NativeMethods.ak_event_consumed(evt->payload); return; }
 
     var call  = target as ICallSink;
     var taken = false;
@@ -1756,7 +1754,7 @@ internal static unsafe void OnEvent(IntPtr runtimeCtx, IntPtr callCtx, IntPtr ev
             // Metadata, message, terminal: the next ring slot, published with a
             // release store on the head. WRITE_DONE: the armed write's acquittal,
             // which takes no slot and must not queue behind a data callback.
-            taken = call.Publish(evt->Kind, evt->Payload, evt->StatusCode);
+            taken = call.Publish(evt->kind, evt->payload, evt->status_code);
         else if (target is NativeRuntime runtime)
             // SHUTDOWN_COMPLETE or RESOURCES_RELEASED: a wake-up, and the waiter
             // reads the state again. Neither frees the runtime's root.
@@ -1770,12 +1768,12 @@ internal static unsafe void OnEvent(IntPtr runtimeCtx, IntPtr callCtx, IntPtr ev
     {
         // What the ring did not take is given back here, and only here.
         if (!taken)
-            NativeMethods.ak_event_consumed(evt->Payload);
+            NativeMethods.ak_event_consumed(evt->payload);
 
         // The call's last callback: its root goes, whatever the publish did.
         // Managed references keep the object alive, so this collects nothing -
         // it stops the ABI from resolving a call_ctx that no longer names anything.
-        if (call is not null && evt->Kind == NativeMethods.AkEventKind.Status)
+        if (call is not null && evt->kind == ak_event_kind.AK_EVENT_STATUS)
             call.TerminalReturned();
     }
 }

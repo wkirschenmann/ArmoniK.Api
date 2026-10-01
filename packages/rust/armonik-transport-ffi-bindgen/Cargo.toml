@@ -1,6 +1,6 @@
 [package]
 name = "armonik-transport-ffi-bindgen"
-description = "Renders armonik-transport-ffi's C header from its Rust"
+description = "Renders armonik-transport-ffi's C header and C# declarations from its Rust"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ rust-version.workspace = true
 version.workspace = true
 
 # A crate of its own rather than an example of armonik-transport-ffi, which would build that
-# crate's dev-dependencies - a gRPC server among them - every time it runs.
+# crate's dev-dependencies - a gRPC server among them - every time the .NET build checks two files.
 [dependencies]
 cbindgen.workspace = true
+csbindgen.workspace = true

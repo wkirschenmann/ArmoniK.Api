@@ -30,24 +30,24 @@ public class TrampolineTests
 {
   /// <summary>A terminal whose publish throws still lets its call go.</summary>
   [Test]
-  public void ATerminalWhosePublishThrowsStillLetsItsCallGo()
+  public unsafe void ATerminalWhosePublishThrowsStillLetsItsCallGo()
   {
     var sink  = new ThrowingSink();
     var root  = GCHandle.Alloc(sink);
-    var raised = Marshal.AllocHGlobal(Marshal.SizeOf<NativeMethods.AkEvent>());
+    var raised = Marshal.AllocHGlobal(Marshal.SizeOf<ak_event>());
     try
     {
       // A status with no payload, which `ak_event_consumed` answers as a no-op.
-      Marshal.StructureToPtr(new NativeMethods.AkEvent
+      Marshal.StructureToPtr(new ak_event
                              {
-                               Kind = NativeMethods.AkEventKind.Status,
+                               kind = ak_event_kind.AK_EVENT_STATUS,
                              },
                              raised,
                              false);
 
-      NativeRuntime.OnEvent(IntPtr.Zero,
-                            GCHandle.ToIntPtr(root),
-                            raised);
+      NativeRuntime.OnEvent(null,
+                            (void*)GCHandle.ToIntPtr(root),
+                            (ak_event*)raised);
 
       Assert.That(sink.Returned,
                   Is.True);
@@ -70,9 +70,9 @@ public class TrampolineTests
     {
     }
 
-    public bool Publish(NativeMethods.AkEventKind kind,
-                        in NativeMethods.AkBytes  payload,
-                        int                       statusCode)
+    public bool Publish(ak_event_kind kind,
+                        in ak_bytes   payload,
+                        int           statusCode)
       => throw new InvalidOperationException("a publish that fails");
   }
 }

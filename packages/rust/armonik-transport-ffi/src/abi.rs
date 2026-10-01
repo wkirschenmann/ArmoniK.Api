@@ -44,8 +44,8 @@ pub enum ak_status {
 /// AK_EVENT_SHUTDOWN_COMPLETE callback says so through its host_debt field. Polling for QUIESCENT
 /// before returning what it holds is therefore a deadlock.
 ///
-/// NONE is the value that keeps the first rule at the top of this header: a handle this library
-/// does not know - never created, or reclaimed by ak_runtime_destroy - is reported, not resolved.
+/// NONE is what keeps a handle a token rather than a pointer: a handle this library does not
+/// know - never created, or reclaimed by ak_runtime_destroy - is reported, not resolved.
 /// It is not QUIESCENT, which would tell a host that passed a channel handle by mistake that it
 /// may destroy the runtime and unload the library while one is running.
 #[repr(i32)]
@@ -281,7 +281,8 @@ pub struct ak_call_start_options {
     pub struct_size: u32,
     /// "/Service/Method", not NUL-terminated.
     pub method: ak_bytes_in,
-    /// A metadata blob, as the top of this header lays it out; may be empty.
+    /// A metadata blob - a uint32_t count, then each key and each value as a uint32_t length and
+    /// its bytes; may be empty.
     pub metadata: ak_bytes_in,
 }
 

@@ -26,11 +26,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>What `armonik-transport-ffi/tests/layout.rs` asserts, from the other side.</summary>
 ///
-/// The two declarations of the ABI are written out separately, in Rust and here, and the header
-/// is the contract both answer to. Rust pins its own sizes and offsets; nothing pinned these,
-/// so a field reordered or widened on one side alone would have been read as whatever the other
-/// side's bytes happened to mean. This fixture runs under whichever architecture the test host
-/// was built for, which is where such a mistake shows.
+/// The declarations here are rendered from the Rust, so they agree with it by construction. That
+/// says nothing about what the CLR does with them: `Marshal.SizeOf` and
+/// `Marshal.OffsetOf` measure the layout this runtime gives a declaration, per target framework
+/// and per architecture, and a declaration right in C# and laid out otherwise is read as whatever
+/// the other side's bytes happened to mean. This fixture runs under whichever architecture the
+/// test host was built for, which is where such a mistake shows.
 [TestFixture]
 public class AbiLayoutTests
 {
@@ -38,23 +39,23 @@ public class AbiLayoutTests
 
   [Test]
   public void ABorrowedViewIsAPointerAndALength()
-    => Assert.That(Marshal.SizeOf<NativeMethods.AkBytesIn>(),
+    => Assert.That(Marshal.SizeOf<ak_bytes_in>(),
                    Is.EqualTo(2 * Ptr));
 
   [Test]
   public void AnOwnedViewAndALentBufferHaveTheSameShape()
     => Assert.Multiple(() =>
                        {
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkBytes>(),
+                         Assert.That(Marshal.SizeOf<ak_bytes>(),
                                      Is.EqualTo(3 * Ptr));
-                         Assert.That(Offset<NativeMethods.AkBytes>("Len"),
+                         Assert.That(Offset<ak_bytes>("len"),
                                      Is.EqualTo(Ptr));
-                         Assert.That(Offset<NativeMethods.AkBytes>("Owner"),
+                         Assert.That(Offset<ak_bytes>("owner"),
                                      Is.EqualTo(2 * Ptr));
 
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkBuffer>(),
+                         Assert.That(Marshal.SizeOf<ak_buffer>(),
                                      Is.EqualTo(3 * Ptr));
-                         Assert.That(Offset<NativeMethods.AkBuffer>("Owner"),
+                         Assert.That(Offset<ak_buffer>("owner"),
                                      Is.EqualTo(2 * Ptr));
                        });
 
@@ -62,15 +63,15 @@ public class AbiLayoutTests
   public void AnEventCarriesItsPayloadInline()
     => Assert.Multiple(() =>
                        {
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkEvent>(),
+                         Assert.That(Marshal.SizeOf<ak_event>(),
                                      Is.EqualTo(4 * Ptr + 8));
-                         Assert.That(Offset<NativeMethods.AkEvent>("Kind"),
+                         Assert.That(Offset<ak_event>("kind"),
                                      Is.EqualTo(0));
-                         Assert.That(Offset<NativeMethods.AkEvent>("Payload"),
+                         Assert.That(Offset<ak_event>("payload"),
                                      Is.EqualTo(Ptr));
-                         Assert.That(Offset<NativeMethods.AkEvent>("StatusCode"),
+                         Assert.That(Offset<ak_event>("status_code"),
                                      Is.EqualTo(4 * Ptr));
-                         Assert.That(Offset<NativeMethods.AkEvent>("HostDebt"),
+                         Assert.That(Offset<ak_event>("host_debt"),
                                      Is.EqualTo(4 * Ptr + 4));
                        });
 
@@ -80,12 +81,12 @@ public class AbiLayoutTests
                        {
                          foreach (var crossing in new[]
                                                   {
-                                                    typeof(NativeMethods.AkStatus),
-                                                    typeof(NativeMethods.AkRuntimeState),
-                                                    typeof(NativeMethods.AkEventKind),
-                                                    typeof(NativeMethods.AkHostDebt),
-                                                    typeof(NativeMethods.AkChannelState),
-                                                    typeof(NativeMethods.AkHeadOrigin),
+                                                    typeof(ak_status),
+                                                    typeof(ak_runtime_state),
+                                                    typeof(ak_event_kind),
+                                                    typeof(ak_host_debt),
+                                                    typeof(ak_channel_state),
+                                                    typeof(ak_head_origin),
                                                   })
                          {
                            Assert.That(Enum.GetUnderlyingType(crossing),
@@ -98,22 +99,22 @@ public class AbiLayoutTests
   public void AnOptionsStructStartsWithTheSizeThatVersionsIt()
     => Assert.Multiple(() =>
                        {
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkRuntimeConfig>(),
+                         Assert.That(Marshal.SizeOf<ak_runtime_config>(),
                                      Is.EqualTo(16));
-                         Assert.That(Offset<NativeMethods.AkRuntimeConfig>("StructSize"),
+                         Assert.That(Offset<ak_runtime_config>("struct_size"),
                                      Is.EqualTo(0));
-                         Assert.That(Offset<NativeMethods.AkRuntimeConfig>("WorkerThreads"),
+                         Assert.That(Offset<ak_runtime_config>("worker_threads"),
                                      Is.EqualTo(4));
-                         Assert.That(Offset<NativeMethods.AkRuntimeConfig>("MemoryCeiling"),
+                         Assert.That(Offset<ak_runtime_config>("memory_ceiling"),
                                      Is.EqualTo(8));
 
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkCallStartOptions>(),
+                         Assert.That(Marshal.SizeOf<ak_call_start_options>(),
                                      Is.EqualTo(5 * Ptr));
-                         Assert.That(Offset<NativeMethods.AkCallStartOptions>("StructSize"),
+                         Assert.That(Offset<ak_call_start_options>("struct_size"),
                                      Is.EqualTo(0));
-                         Assert.That(Offset<NativeMethods.AkCallStartOptions>("Method"),
+                         Assert.That(Offset<ak_call_start_options>("method"),
                                      Is.EqualTo(Ptr));
-                         Assert.That(Offset<NativeMethods.AkCallStartOptions>("Metadata"),
+                         Assert.That(Offset<ak_call_start_options>("metadata"),
                                      Is.EqualTo(3 * Ptr));
                        });
 
@@ -121,22 +122,22 @@ public class AbiLayoutTests
   public void TheObservationalStructsArePlainIntegers()
     => Assert.Multiple(() =>
                        {
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkCallDebt>(),
+                         Assert.That(Marshal.SizeOf<ak_call_debt>(),
                                      Is.EqualTo(16));
-                         Assert.That(Offset<NativeMethods.AkCallDebt>("PayloadsOwed"),
+                         Assert.That(Offset<ak_call_debt>("payloads_owed"),
                                      Is.EqualTo(0));
-                         Assert.That(Offset<NativeMethods.AkCallDebt>("BuffersLent"),
+                         Assert.That(Offset<ak_call_debt>("buffers_lent"),
                                      Is.EqualTo(4));
-                         Assert.That(Offset<NativeMethods.AkCallDebt>("CallbacksInFlight"),
+                         Assert.That(Offset<ak_call_debt>("callbacks_in_flight"),
                                      Is.EqualTo(8));
-                         Assert.That(Offset<NativeMethods.AkCallDebt>("TerminalDelivered"),
+                         Assert.That(Offset<ak_call_debt>("terminal_delivered"),
                                      Is.EqualTo(12));
 
-                         Assert.That(Marshal.SizeOf<NativeMethods.AkMemoryUsage>(),
+                         Assert.That(Marshal.SizeOf<ak_memory_usage>(),
                                      Is.EqualTo(16));
-                         Assert.That(Offset<NativeMethods.AkMemoryUsage>("BytesUsed"),
+                         Assert.That(Offset<ak_memory_usage>("bytes_used"),
                                      Is.EqualTo(0));
-                         Assert.That(Offset<NativeMethods.AkMemoryUsage>("Ceiling"),
+                         Assert.That(Offset<ak_memory_usage>("ceiling"),
                                      Is.EqualTo(8));
                        });
 
@@ -145,78 +146,78 @@ public class AbiLayoutTests
   public void EveryDiscriminantIsTheOneTheHeaderGives()
     => Assert.Multiple(() =>
                        {
-                         Assert.That((int)NativeMethods.AkStatus.Ok,
+                         Assert.That((int)ak_status.AK_STATUS_OK,
                                      Is.EqualTo(0));
-                         Assert.That((int)NativeMethods.AkStatus.HandleStale,
+                         Assert.That((int)ak_status.AK_STATUS_HANDLE_STALE,
                                      Is.EqualTo(1));
-                         Assert.That((int)NativeMethods.AkStatus.SlotBusy,
+                         Assert.That((int)ak_status.AK_STATUS_SLOT_BUSY,
                                      Is.EqualTo(2));
-                         Assert.That((int)NativeMethods.AkStatus.InvalidArg,
+                         Assert.That((int)ak_status.AK_STATUS_INVALID_ARG,
                                      Is.EqualTo(3));
-                         Assert.That((int)NativeMethods.AkStatus.Internal,
+                         Assert.That((int)ak_status.AK_STATUS_INTERNAL,
                                      Is.EqualTo(4));
-                         Assert.That((int)NativeMethods.AkStatus.BudgetBusy,
+                         Assert.That((int)ak_status.AK_STATUS_BUDGET_BUSY,
                                      Is.EqualTo(5));
-                         Assert.That((int)NativeMethods.AkStatus.InvalidState,
+                         Assert.That((int)ak_status.AK_STATUS_INVALID_STATE,
                                      Is.EqualTo(6));
-                         Assert.That((int)NativeMethods.AkStatus.MessageTooLarge,
+                         Assert.That((int)ak_status.AK_STATUS_MESSAGE_TOO_LARGE,
                                      Is.EqualTo(7));
 
-                         Assert.That((int)NativeMethods.AkRuntimeState.None,
+                         Assert.That((int)ak_runtime_state.AK_RUNTIME_NONE,
                                      Is.EqualTo(0));
-                         Assert.That((int)NativeMethods.AkRuntimeState.Running,
+                         Assert.That((int)ak_runtime_state.AK_RUNTIME_RUNNING,
                                      Is.EqualTo(1));
-                         Assert.That((int)NativeMethods.AkRuntimeState.GrpcStopping,
+                         Assert.That((int)ak_runtime_state.AK_RUNTIME_GRPC_STOPPING,
                                      Is.EqualTo(2));
-                         Assert.That((int)NativeMethods.AkRuntimeState.GrpcStopped,
+                         Assert.That((int)ak_runtime_state.AK_RUNTIME_GRPC_STOPPED,
                                      Is.EqualTo(3));
-                         Assert.That((int)NativeMethods.AkRuntimeState.Quiescent,
+                         Assert.That((int)ak_runtime_state.AK_RUNTIME_QUIESCENT,
                                      Is.EqualTo(4));
-                         Assert.That((int)NativeMethods.AkRuntimeState.FailedUnquiesced,
+                         Assert.That((int)ak_runtime_state.AK_RUNTIME_FAILED_UNQUIESCED,
                                      Is.EqualTo(5));
 
-                         Assert.That((int)NativeMethods.AkChannelState.None,
+                         Assert.That((int)ak_channel_state.AK_CHANNEL_NONE,
                                      Is.EqualTo(0));
-                         Assert.That((int)NativeMethods.AkChannelState.Open,
+                         Assert.That((int)ak_channel_state.AK_CHANNEL_OPEN,
                                      Is.EqualTo(1));
-                         Assert.That((int)NativeMethods.AkChannelState.Closing,
+                         Assert.That((int)ak_channel_state.AK_CHANNEL_CLOSING,
                                      Is.EqualTo(2));
-                         Assert.That((int)NativeMethods.AkChannelState.Closed,
+                         Assert.That((int)ak_channel_state.AK_CHANNEL_CLOSED,
                                      Is.EqualTo(3));
 
-                         Assert.That((int)NativeMethods.AkEventKind.InitialMetadata,
+                         Assert.That((int)ak_event_kind.AK_EVENT_INITIAL_METADATA,
                                      Is.EqualTo(1));
-                         Assert.That((int)NativeMethods.AkEventKind.Message,
+                         Assert.That((int)ak_event_kind.AK_EVENT_MESSAGE,
                                      Is.EqualTo(2));
-                         Assert.That((int)NativeMethods.AkEventKind.Status,
+                         Assert.That((int)ak_event_kind.AK_EVENT_STATUS,
                                      Is.EqualTo(3));
-                         Assert.That((int)NativeMethods.AkEventKind.WriteDone,
+                         Assert.That((int)ak_event_kind.AK_EVENT_WRITE_DONE,
                                      Is.EqualTo(4));
-                         Assert.That((int)NativeMethods.AkEventKind.ShutdownComplete,
+                         Assert.That((int)ak_event_kind.AK_EVENT_SHUTDOWN_COMPLETE,
                                      Is.EqualTo(5));
-                         Assert.That((int)NativeMethods.AkEventKind.ResourcesReleased,
+                         Assert.That((int)ak_event_kind.AK_EVENT_RESOURCES_RELEASED,
                                      Is.EqualTo(6));
 
-                         Assert.That((int)NativeMethods.AkHostDebt.NothingToReturn,
+                         Assert.That((int)ak_host_debt.AK_HOST_NOTHING_TO_RETURN,
                                      Is.EqualTo(0));
-                         Assert.That((int)NativeMethods.AkHostDebt.MustReturn,
+                         Assert.That((int)ak_host_debt.AK_HOST_MUST_RETURN,
                                      Is.EqualTo(1));
 
-                         Assert.That((int)NativeMethods.AkHeadOrigin.Received,
+                         Assert.That((int)ak_head_origin.AK_HEAD_RECEIVED,
                                      Is.EqualTo(0));
-                         Assert.That((int)NativeMethods.AkHeadOrigin.TrailersOnly,
+                         Assert.That((int)ak_head_origin.AK_HEAD_TRAILERS_ONLY,
                                      Is.EqualTo(1));
-                         Assert.That((int)NativeMethods.AkHeadOrigin.NoResponse,
+                         Assert.That((int)ak_head_origin.AK_HEAD_NO_RESPONSE,
                                      Is.EqualTo(2));
                        });
 
   /// <summary>The version this binding was written against, as a literal.</summary>
-  /// <remarks>Not a check against the header - `layout.rs` does that, and this one cannot: it
-  /// compares the constant to the number it is. What it catches is the constant being edited
-  /// without anyone meaning to.</remarks>
+  /// <remarks>Not a check against the header - both are rendered from the same Rust constant, and
+  /// this compares that constant to the number it is. What it catches is the constant being
+  /// edited without anyone meaning to.</remarks>
   [Test]
   public void TheAbiVersionThisBindingSpeaksIsOne()
-    => Assert.That(NativeMethods.AbiVersion,
+    => Assert.That(NativeMethods.AK_ABI_VERSION,
                    Is.EqualTo(1));
 
   private static int Offset<T>(string field)

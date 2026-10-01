@@ -49,7 +49,7 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   // The engine holds this pointer for as long as the runtime lives, and a delegate is only as
   // alive as the reference kept to it.
-  private static readonly NativeMethods.AkCallback Trampoline = OnEvent;
+  private static readonly unsafe NativeMethods.ak_runtime_create_callback_delegate Trampoline = OnEvent;
 
   private GCHandle self_;
   private readonly ulong handle_;
@@ -79,18 +79,26 @@ public sealed class NativeRuntime : IAsyncDisposable
   {
     self_ = GCHandle.Alloc(this);
 
-    var config = new NativeMethods.AkRuntimeConfig
+    var config = new ak_runtime_config
                  {
-                   StructSize    = (uint)Marshal.SizeOf<NativeMethods.AkRuntimeConfig>(),
-                   WorkerThreads = workerThreads,
-                   MemoryCeiling = memoryCeiling,
+                   struct_size    = (uint)Marshal.SizeOf<ak_runtime_config>(),
+                   worker_threads = workerThreads,
+                   memory_ceiling = memoryCeiling,
                  };
 
-    var status = NativeMethods.ak_runtime_create(ref config,
+    ak_status status;
+    unsafe
+    {
+      fixed (ulong* created = &handle_)
+      {
+        status = NativeMethods.ak_runtime_create(&config,
                                                  Trampoline,
-                                                 GCHandle.ToIntPtr(self_),
-                                                 out handle_);
-    if (status != NativeMethods.AkStatus.Ok)
+                                                 (void*)GCHandle.ToIntPtr(self_),
+                                                 created);
+      }
+    }
+
+    if (status != ak_status.AK_STATUS_OK)
     {
       self_.Free();
       throw new InvalidOperationException($"the native runtime could not be created ({status})");
@@ -140,9 +148,9 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw RustEngineMissingException.For(absent);
     }
 
-    if (found != NativeMethods.AbiVersion)
+    if (found != NativeMethods.AK_ABI_VERSION)
     {
-      throw new InvalidOperationException($"the native library speaks ABI {found}, this binding speaks {NativeMethods.AbiVersion}");
+      throw new InvalidOperationException($"the native library speaks ABI {found}, this binding speaks {NativeMethods.AK_ABI_VERSION}");
     }
 
     return new NativeRuntime(workerThreads,
@@ -374,14 +382,21 @@ public sealed class NativeRuntime : IAsyncDisposable
                        token)
                 .ConfigureAwait(false);
 
-      if (NativeMethods.ak_runtime_memory_usage(handle_,
-                                                out var usage) != NativeMethods.AkStatus.Ok
-          || usage.Ceiling == 0
-          || usage.BytesUsed < usage.Ceiling)
+      if (HasRoom(handle_))
       {
         return;
       }
     }
+  }
+
+  // Out of WaitForRoomAsync, because the usage is read through its address and an async method
+  // may not take one.
+  private static unsafe bool HasRoom(ulong runtime)
+  {
+    ak_memory_usage usage;
+    return NativeMethods.ak_runtime_memory_usage(runtime,
+                                                 &usage) != ak_status.AK_STATUS_OK || usage.ceiling == 0 ||
+           usage.bytes_used < usage.ceiling;
   }
 
   private async Task RetireAsync()
@@ -420,7 +435,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                       announced_.Next);
 
   /// <summary>The wait itself, over the state it reads and the announcement it wakes on.</summary>
-  internal static async Task QuiescentAsync(Func<NativeMethods.AkRuntimeState> status,
+  internal static async Task QuiescentAsync(Func<ak_runtime_state> status,
                                             Func<Task>                         announced)
   {
     while (true)
@@ -431,16 +446,16 @@ public sealed class NativeRuntime : IAsyncDisposable
 
       switch (state)
       {
-        case NativeMethods.AkRuntimeState.Quiescent:
+        case ak_runtime_state.AK_RUNTIME_QUIESCENT:
           return;
 
         // The engine says it will never quiesce - a shutdown task that died, a teardown thread it
         // could not start - so this wait ends without the fact it waited for.
-        case NativeMethods.AkRuntimeState.FailedUnquiesced:
+        case ak_runtime_state.AK_RUNTIME_FAILED_UNQUIESCED:
           throw NotQuiescent(state);
 
-        case NativeMethods.AkRuntimeState.Running:
-        case NativeMethods.AkRuntimeState.GrpcStopping:
+        case ak_runtime_state.AK_RUNTIME_RUNNING:
+        case ak_runtime_state.AK_RUNTIME_GRPC_STOPPING:
           // The state above is what is believed rather than the event. The timer is for the
           // failure: the engine stores it and announces nothing.
           await Task.WhenAny(announcement,
@@ -456,35 +471,33 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
   }
 
-  private static InvalidOperationException NotQuiescent(NativeMethods.AkRuntimeState state)
+  private static InvalidOperationException NotQuiescent(ak_runtime_state state)
     => new($"the runtime cannot quiesce ({state})");
 
   private void Destroy()
   {
     var status = NativeMethods.ak_runtime_destroy(handle_);
-    if (status != NativeMethods.AkStatus.Ok)
+    if (status != ak_status.AK_STATUS_OK)
     {
       throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");
     }
   }
 
-  internal static unsafe void OnEvent(IntPtr runtimeCtx,
-                                      IntPtr callCtx,
-                                      IntPtr eventPtr)
+  internal static unsafe void OnEvent(void*     runtimeCtx,
+                                      void*     callCtx,
+                                      ak_event* @event)
   {
-    var @event = (NativeMethods.AkEvent*)eventPtr;
-
     object? target;
     try
     {
-      target = GCHandle.FromIntPtr(callCtx != IntPtr.Zero
-                                     ? callCtx
-                                     : runtimeCtx)
+      target = GCHandle.FromIntPtr((IntPtr)(callCtx != null
+                                              ? callCtx
+                                              : runtimeCtx))
                        .Target;
     }
     catch
     {
-      NativeMethods.ak_event_consumed(@event->Payload);
+      NativeMethods.ak_event_consumed(@event->payload);
       return;
     }
 
@@ -494,9 +507,9 @@ public sealed class NativeRuntime : IAsyncDisposable
     {
       if (call is not null)
       {
-        taken = call.Publish(@event->Kind,
-                             @event->Payload,
-                             @event->StatusCode);
+        taken = call.Publish(@event->kind,
+                             @event->payload,
+                             @event->status_code);
       }
 
       else if (target is NativeRuntime runtime)
@@ -520,12 +533,12 @@ public sealed class NativeRuntime : IAsyncDisposable
       // reader's to return, and returning it twice would free it under the reader.
       if (!taken)
       {
-        NativeMethods.ak_event_consumed(@event->Payload);
+        NativeMethods.ak_event_consumed(@event->payload);
       }
 
       // The terminal is the call's last callback, so its root goes with it whatever the publish
       // did: kept, it would hold the call for the life of the process.
-      if (call is not null && @event->Kind == NativeMethods.AkEventKind.Status)
+      if (call is not null && @event->kind == ak_event_kind.AK_EVENT_STATUS)
       {
         call.TerminalReturned();
       }

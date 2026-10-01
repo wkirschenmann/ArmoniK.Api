@@ -25,7 +25,7 @@ using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 [TestFixture]
-public class UnmanagedMemoryManagerTests
+public unsafe class UnmanagedMemoryManagerTests
 {
   [Test]
   public void EveryLengthASpanCanHoldIsHeld()
@@ -50,10 +50,10 @@ public class UnmanagedMemoryManagerTests
     var arena = Marshal.AllocHGlobal(4);
     try
     {
-      var view = new UnmanagedMemoryManager(new NativeMethods.AkBuffer
+      var view = new UnmanagedMemoryManager(new ak_buffer
                                             {
-                                              Ptr = arena,
-                                              Len = (UIntPtr)4,
+                                              ptr = (byte*)arena,
+                                              len = 4,
                                             });
       var kept = view.Memory;
       Assert.That(kept.Length,
@@ -78,9 +78,9 @@ public class UnmanagedMemoryManagerTests
   /// <summary>A pair the ABI cannot have produced, refused where it is built.</summary>
   [Test]
   public void BytesAtNoAddressAreRefused()
-    => Assert.Throws<ArgumentException>(() => _ = new UnmanagedMemoryManager(new NativeMethods.AkBytes
+    => Assert.Throws<ArgumentException>(() => _ = new UnmanagedMemoryManager(new ak_bytes
                                                                              {
-                                                                               Ptr = IntPtr.Zero,
-                                                                               Len = (UIntPtr)4,
+                                                                               ptr = null,
+                                                                               len = 4,
                                                                              }));
 }

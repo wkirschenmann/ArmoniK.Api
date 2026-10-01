@@ -140,7 +140,7 @@ public class UnaryTests : EchoServerFixture
                                               });
 
     Assert.That(channel.NativeState,
-                Is.EqualTo(NativeMethods.AkChannelState.Open));
+                Is.EqualTo(ak_channel_state.AK_CHANNEL_OPEN));
   }
 
   /// <summary>A configuration with no section for this is refused, not defaulted.</summary>
@@ -593,11 +593,10 @@ public class UnaryTests : EchoServerFixture
                             {
                               while (!over.IsCancellationRequested)
                               {
-                                if (NativeMethods.ak_runtime_memory_usage(runtime.Handle,
-                                                                          out var usage) == NativeMethods.AkStatus.Ok)
+                                if (Usage(runtime.Handle) is { } used)
                                 {
                                   high = Math.Max(high,
-                                                  usage.BytesUsed);
+                                                  used);
                                 }
 
                                 // Yielded rather than spun: the peak lasts as long as a lend
@@ -1064,7 +1063,7 @@ public class UnaryTests : EchoServerFixture
   {
     var channel = Channel();
     Assert.That(channel.NativeState,
-                Is.EqualTo(NativeMethods.AkChannelState.Open));
+                Is.EqualTo(ak_channel_state.AK_CHANNEL_OPEN));
 
     await Client(channel)
           .SayAsync(new EchoRequest
@@ -1081,7 +1080,7 @@ public class UnaryTests : EchoServerFixture
     Assert.Multiple(() =>
                     {
                       Assert.That(channel.NativeState,
-                                  Is.EqualTo(NativeMethods.AkChannelState.None));
+                                  Is.EqualTo(ak_channel_state.AK_CHANNEL_NONE));
                       Assert.That(channel.DisposeState,
                                   Is.EqualTo(ChannelDisposeState.Disposed));
                     });
@@ -1161,5 +1160,15 @@ public class UnaryTests : EchoServerFixture
                                   Does.Contain("takes no new calls"),
                                   "refused for being disposed, not for something else");
                     });
+  }
+
+  /// <summary>The bytes the runtime has lent out, or nothing when it answers no usage.</summary>
+  private static unsafe ulong? Usage(ulong runtime)
+  {
+    ak_memory_usage usage;
+    return NativeMethods.ak_runtime_memory_usage(runtime,
+                                                 &usage) == ak_status.AK_STATUS_OK
+             ? usage.bytes_used
+             : null;
   }
 }

@@ -27,7 +27,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 /// call ended, and the reader is what carries it. Never leaves the binding.
 internal sealed class CallEnded : Exception
 {
-  internal CallEnded(NativeMethods.AkStatus status)
+  internal CallEnded(ak_status status)
     : base($"the call was already over ({status})")
   {
   }

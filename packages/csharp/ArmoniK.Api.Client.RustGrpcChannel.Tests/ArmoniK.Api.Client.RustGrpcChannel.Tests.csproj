@@ -9,6 +9,9 @@
     <Version>3.29.2</Version>
     <LangVersion>10</LangVersion>
     <Nullable>enable</Nullable>
+    <!-- The generated declarations take pointers, and these tests build what the engine hands
+         over. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- The engine is a native library of one architecture, so the host must not silently be of
          another: AnyCPU on a 64-bit machine would run 64-bit and load the x64 engine, which is
          right, but only by accident. -->
