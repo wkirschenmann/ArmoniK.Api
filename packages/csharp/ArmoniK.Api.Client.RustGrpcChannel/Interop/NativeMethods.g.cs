@@ -52,8 +52,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
 
         /// <summary>
-        ///  Creates a runtime. One exists at a time: a second create before the first is destroyed is
-        ///  refused with AK_STATUS_INVALID_STATE.
+        ///  Creates a runtime, synchronously; it starts in AK_RUNTIME_RUNNING. One exists at a time: a
+        ///  second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE.
         ///
         ///  # Safety
         ///
@@ -63,6 +63,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         [DllImport(__DllName, EntryPoint = "ak_runtime_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern ak_status ak_runtime_create(ak_runtime_config* config, ak_runtime_create_callback_delegate callback, void* runtime_ctx, ulong* @out);
 
+        /// <summary>
+        ///  The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
+        ///  inside a callback.
+        /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_status", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern ak_runtime_state ak_runtime_status(ulong runtime);
 
@@ -84,6 +88,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         internal static extern ak_status ak_runtime_destroy(ulong runtime);
 
         /// <summary>
+        ///  What the runtime-wide byte ceiling is holding. Synchronous, non-blocking and observational: it
+        ///  changes nothing.
+        ///
         ///  # Safety
         ///
         ///  `out` must be writable.
@@ -186,8 +193,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
         ///  is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
         ///  runtime-wide ceiling, and has no single event announcing room: poll ak_runtime_memory_usage.
-        ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. On every refusal no buffer is lent and `*out` is
-        ///  untouched.
+        ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. A call that is over, or whose cancellation has been
+        ///  requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no buffer is lent and
+        ///  `*out` is untouched.
         ///
         ///  # Safety
         ///
@@ -204,6 +212,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  the callback. It says nothing about the network: the message may have been written, or
         ///  abandoned because the call was cancelled. It arrives exactly once per accepted send, in send
         ///  order, and always before the terminal.
+        ///
+        ///  Refused with AK_STATUS_INVALID_STATE once the call is over or its cancellation has been
+        ///  requested, and after ak_call_end_send. The buffer then stays the host's, to give back with
+        ///  ak_return_call_buffer.
         ///
         ///  # Safety
         ///

@@ -2,10 +2,11 @@
 """Checks that every acting ABI function appears in the level-1 mapping table,
 and that every function the table names exists in the ABI.
 
-The ABI is the committed header. What is checked against it is the design:
-the declarations abi.md specifies, and the tables of formal-model.md - so a
-symbol the header declares and the design forgot is reported, and so is a
-declaration the design carries and nothing implements.
+The ABI is the committed header, and what is checked against it is the
+design: the tables of formal-model.md, and the declarations abi.md keeps for
+what it specifies and nothing builds.  A declaration the header carries has
+no copy in abi.md, so one abi.md declares and the header does not is either
+listed below as not built or a design gone ahead of the ABI unannounced.
 
 An acting function changes state the model carries, so it has a linearization
 point and the table is where that point is recorded - the table calls itself
@@ -30,7 +31,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TLA = os.path.dirname(HERE)
 SPEC = os.path.dirname(TLA)
 REPO = os.path.dirname(os.path.dirname(SPEC))
-# The ABI as the design specifies it, and the model the tables map it to.
+# What the design specifies and nothing builds, and the model the tables map
+# the ABI to.
 ABI_DOC = os.path.join(SPEC, "abi.md")
 MODEL_DOC = os.path.join(SPEC, "formal-model.md")
 ABI = os.path.join(REPO, "packages", "rust", "armonik-transport-ffi", "include",
@@ -54,7 +56,7 @@ OBSERVATIONAL = {
 NOT_BUILT = {
     "ak_error_release": "T4.0, the ABI's error channel",
     "ak_runtime_memory_usage_detailed":
-        "abi.md's own \"What the ABI does not yet implement\"",
+        "nothing yet: abi.md's \"Specified, not built\" holds it",
 }
 
 TABLE_START = "### Where each level-1 action happens"
@@ -169,10 +171,10 @@ def main():
     for fn in sorted(designed - declared - set(NOT_BUILT)):
         ok = False
         print("  abi.md declares %s and the header does not" % fn)
-    for fn in sorted(declared - designed):
+    for fn in sorted(set(NOT_BUILT) - designed):
         ok = False
-        print("  the header declares %s and abi.md does not describe it"
-              % fn)
+        print("  %s is listed as not built (%s) and abi.md no longer"
+              " specifies it" % (fn, NOT_BUILT[fn]))
     for fn in sorted(set(NOT_BUILT) & declared):
         ok = False
         print("  %s is listed as not built (%s) and the header declares it"

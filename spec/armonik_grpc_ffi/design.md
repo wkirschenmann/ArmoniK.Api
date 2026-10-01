@@ -24,7 +24,7 @@ and what explains it cannot be mistaken for each other:
 | Document | What it holds |
 |----------|---------------|
 | [contract.md](contract.md) | What layers 1 and 2 promise the code that uses them: the public types of `armonik-transport`, their errors, and the gRPC behaviour a caller relies on |
-| [abi.md](abi.md) | The normative C ABI of layer 3: its principles, its entry points, the configuration document, the sequences a host follows |
+| [abi.md](abi.md) | The normative C ABI of layer 3: its principles, the reasons behind its entry points, the configuration document, the sequences a host follows |
 | [architecture.md](architecture.md) | How the contract and the ABI are met: the engine's internals, the FFI crate's, the .NET binding of layer 4 and the integration of layer 5 |
 | [formal-model.md](formal-model.md) | The TLA+ levels 0 to 2, what is proved of them, the implementation's risk register, and the table that maps each level-1 action to the code that performs it |
 | [decisions.md](decisions.md) | The questions the design had to settle, decided or still open |
