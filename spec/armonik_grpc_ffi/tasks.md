@@ -763,6 +763,26 @@ what design.md specifies and nothing builds, `ak_error_release` among it. The ot
 `tla/ci` that read design.md by section - the derived invariants, the property manifest and the
 sketch actions - move with what they read.
 
+**Status**: done. cbindgen renders the header and csbindgen the P/Invoke half,
+`Interop/NativeMethods.g.cs`, both from `abi.rs` and `lib.rs`, through a crate of their own,
+`armonik-transport-ffi-bindgen`: its test and the binding's `CheckGeneratedBindingsMatchTheAbi`
+fail when a committed file is not what the Rust renders. The header's prose is in
+`cbindgen.toml`'s `header` and in the Rust doc comments, and the binding takes the generated
+C names as they come rather than through a layer that renames them. The layout tests measure
+what they measured, on net4.7, net4.8 and net8.0 and on x64 and x86, against the generated
+field names.
+
+design.md is the index of five documents now - contract.md, abi.md, architecture.md,
+formal-model.md and decisions.md. abi.md gives the header the declarations of what is built and
+keeps their reasons, and the C of what is specified and not built, `ak_error` first; Layer 4
+keeps the ordered steps of a read and the obligations around them rather than its
+walkthrough. The gates read the documents that hold what they check.
+
+Three places where the documents and the code disagreed were settled on the way: an allocator
+failure refuses its lend and fails nothing else; a host gives payloads back in delivery order,
+which the header now asks; and the runtime publishes `AK_RUNTIME_GRPC_STOPPED` once its
+shutdown callback has returned, as level 1 has it.
+
 ---
 
 ## Phase 4 — TLS and secure connection
