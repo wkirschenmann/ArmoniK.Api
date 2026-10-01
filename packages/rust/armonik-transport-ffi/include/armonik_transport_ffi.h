@@ -582,9 +582,10 @@ ak_status ak_call_start(ak_handle channel,
  * the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
  * is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
  * runtime-wide ceiling, and has no single event announcing room: poll ak_runtime_memory_usage.
- * AK_STATUS_MESSAGE_TOO_LARGE is permanent. A call that is over, or whose cancellation has been
- * requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no buffer is lent and
- * `*out` is untouched.
+ * AK_STATUS_MESSAGE_TOO_LARGE is permanent. An allocator failure for the buffer is
+ * AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
+ * cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no
+ * buffer is lent and `*out` is untouched.
  *
  * # Safety
  *
@@ -664,6 +665,10 @@ int32_t ak_abi_version(void);
  *
  * At most one non-consumed payload per call by default: while the host owes it, the runtime
  * withholds the next data callback. Only a terminal still goes out with the credit spent.
+ *
+ * The host MUST give a call's payloads back in delivery order: with several outstanding, the
+ * oldest is the next one consumed. Another order is not refused - this library frees whichever
+ * owner it is given - but the guarantees this header states are proved for this order alone.
  *
  * Remains legal, and required, after the terminal: the call is not reclaimed until it happens.
  *

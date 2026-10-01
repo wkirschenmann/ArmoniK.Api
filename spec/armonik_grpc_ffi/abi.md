@@ -270,9 +270,14 @@ outstanding at once, a channel option whose default is 1: while the host owes th
 runtime withholds the next data callback, and only a terminal may still go out with every credit
 spent.
 
-The payload's owner identifies the allocation to free; the host MUST release in delivery
-order, so with several credits the oldest outstanding payload is always the next one to be
-consumed.
+The payload's owner identifies the allocation to free, and the header has the host give a
+call's payloads back in delivery order. Nothing in this library refuses another order: it
+frees whichever owner it is given. The order is what the formal model's accounting rests on.
+Level 1 counts releases rather than tracking which payload each one names, and that count
+says which payloads the host still owes only when releases come in order -
+[formal-model.md](formal-model.md) calls it the conformance assumption the count rests on.
+The .NET binding meets it by representation, its ring releasing at its tail, which level 2
+proves.
 
 The terminal does not invalidate payloads already handed over: `ak_event_consumed` stays legal
 after it, and is required before the call can be reclaimed. After a runtime failure no promise
