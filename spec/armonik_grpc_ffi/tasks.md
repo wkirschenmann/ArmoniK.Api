@@ -909,6 +909,14 @@ derivation - which an unset `CertP12Password` opens as the empty one.
 
 **Deliverable**: a handshake a server accepts only when given an intermediate.
 
+**Status**: done, and the commit list had nothing left to change: the loaders already kept every
+certificate in the order the file writes it, `CertPem` as a PEM sequence and `CertP12` as the chain
+`p12-keystore` rebuilds, and `ClientIdentity` carries the chain rustls presents. What this task adds
+is the proof. In `tests/grpc_tls.rs` a server that trusts only the root refuses a client sending its
+leaf alone, and accepts the leaf and its intermediate whether they are built in memory or loaded
+from a PEM file or a PKCS#12 bundle; a loader keeping only the first certificate fails the test
+that loads them.
+
 ### T4.4: WindowsStore, for the CA and for the identity
 
 **Prerequisite**: T4.2

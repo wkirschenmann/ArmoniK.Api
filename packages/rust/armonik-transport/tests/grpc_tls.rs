@@ -14,7 +14,7 @@ use armonik_transport::options::{Password, TlsOptions};
 use armonik_transport::reexports::rustls::pki_types::PrivateKeyDer;
 use bytes::Bytes;
 use common::echo::{channel_with, unary, ECHO};
-use common::tls::{Pki, TlsServer};
+use common::tls::{Pki, Scratch, TlsServer};
 use http::Uri;
 
 fn channel(endpoint: &str, tls: TlsConfig) -> Result<GrpcChannel, GrpcChannelConfigError> {
@@ -154,6 +154,62 @@ async fn a_refused_handshake_is_reported_as_one_and_not_as_a_dial() {
     assert_eq!(source.kind(), TransportErrorKind::TlsHandshake, "{source}");
 }
 
+/// A server that trusts the root alone builds the client's path from the intermediate the client
+/// sends, so a client that sends its leaf alone is refused and one that sends the chain is not.
+#[tokio::test]
+async fn the_whole_chain_reaches_a_server_that_holds_only_the_root() {
+    let root = Pki::new();
+    let intermediate = root.intermediate();
+    let server = TlsServer::start(root.server(&["127.0.0.1"]), Some(&root)).await;
+    let client = intermediate.client();
+    assert_eq!(client.chain.len(), 2, "the leaf, then the intermediate");
+
+    let mut leaf_alone = trusting(&root);
+    leaf_alone.identity = Some(ClientIdentity {
+        chain: client.chain[..1].to_vec(),
+        key: client.key.clone_key(),
+    });
+    let refused = echo(&server.endpoint, leaf_alone).await;
+    assert_eq!(refused.code, GrpcStatusCode::Unavailable, "{refused}");
+
+    let mut whole = trusting(&root);
+    whole.identity = Some(ClientIdentity {
+        chain: client.chain.clone(),
+        key: client.key.clone_key(),
+    });
+    let status = echo(&server.endpoint, whole).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+}
+
+/// The chain a host names by path: the PEM file holding the leaf and its intermediate, and a
+/// PKCS#12 bundle carrying both.
+#[tokio::test]
+async fn the_files_a_host_names_carry_the_whole_chain() {
+    let root = Pki::new();
+    let intermediate = root.intermediate();
+    let server = TlsServer::start(root.server(&["127.0.0.1"]), Some(&root)).await;
+    let client = intermediate.client();
+
+    let scratch = Scratch::new("chain");
+    let ca = scratch.file("ca.pem", root.root_pem().as_bytes());
+    let mut pem = TlsOptions::default();
+    pem.ca_cert_path = Some(ca.clone());
+    pem.cert_pem = Some(scratch.file("chain.pem", client.chain_pem.as_bytes()));
+    pem.key_pem = Some(scratch.file("key.pem", client.key_pem.as_bytes()));
+    let mut p12 = TlsOptions::default();
+    p12.ca_cert_path = Some(ca);
+    p12.cert_p12 = Some(scratch.file("client.p12", &client.pkcs12("s3cret")));
+    p12.cert_p12_password = Some(Password::new("s3cret"));
+
+    for options in [pem, p12] {
+        let tls = options.load().expect("the files the options name");
+        let presented = tls.identity.as_ref().map(|identity| identity.chain.len());
+        assert_eq!(presented, Some(2), "{options:?}");
+        let status = echo(&server.endpoint, tls).await;
+        assert_eq!(status.code, GrpcStatusCode::Ok, "{options:?}: {status}");
+    }
+}
+
 /// mTLS from the options a host writes: the CA and a PKCS#12 bundle named by path, and the
 /// bundle's password, read by the options' own loader.
 #[tokio::test]
@@ -161,42 +217,10 @@ async fn a_pkcs12_bundle_and_its_password_authenticate_the_client() {
     let pki = Pki::new();
     let server = TlsServer::start(pki.server(&["127.0.0.1"]), Some(&pki)).await;
 
-    /// Removes the directory, and the key bundle in it, however the test ends.
-    struct Scratch(std::path::PathBuf);
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    let directory =
-        std::env::temp_dir().join(format!("armonik-transport-p12-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).expect("a scratch directory");
-    let _gone = Scratch(directory.clone());
-    let client = pki.client();
-    let PrivateKeyDer::Pkcs8(key) = &client.key else {
-        panic!("the test CA issues PKCS#8 keys");
-    };
-    let chain = p12_keystore::PrivateKeyChain::new(
-        [1u8].as_slice(),
-        p12_keystore::PrivateKey::from_der(key.secret_pkcs8_der()).expect("a PKCS#8 key"),
-        client.chain.iter().map(|certificate| {
-            p12_keystore::Certificate::from_der(certificate.as_ref()).expect("a certificate")
-        }),
-    );
-    let mut store = p12_keystore::KeyStore::new();
-    store.add_entry(
-        "identity",
-        p12_keystore::KeyStoreEntry::PrivateKeyChain(chain),
-    );
-    let bundle = directory.join("client.p12");
-    std::fs::write(&bundle, store.writer("s3cret").write().expect("a bundle")).expect("a file");
-    let root = directory.join("ca.pem");
-    std::fs::write(&root, pki.root_pem()).expect("a file");
-
+    let scratch = Scratch::new("p12");
     let mut options = TlsOptions::default();
-    options.ca_cert_path = Some(root.to_string_lossy().into_owned());
-    options.cert_p12 = Some(bundle.to_string_lossy().into_owned());
+    options.ca_cert_path = Some(scratch.file("ca.pem", pki.root_pem().as_bytes()));
+    options.cert_p12 = Some(scratch.file("client.p12", &pki.client().pkcs12("s3cret")));
     options.cert_p12_password = Some(Password::new("s3cret"));
     let tls = options.load().expect("the files the options name");
 
