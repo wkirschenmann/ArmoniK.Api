@@ -133,7 +133,8 @@ public class ArmoniKClientTests : RuntimeFixture
   [Test]
   public async Task WaitForResultsWaitsItsBackoffBetweenSubscriptions()
   {
-    await using var channel = Runtime.Channel(endpoint_);
+    await using var channel = await Warmed()
+                                .ConfigureAwait(false);
 
     var watch = Stopwatch.StartNew();
     var thrown = await WaitForResultsEnd(channel,
@@ -162,7 +163,8 @@ public class ArmoniKClientTests : RuntimeFixture
   [Test]
   public async Task WaitForResultsDrawsItsDelaysAtRandom()
   {
-    await using var channel = Runtime.Channel(endpoint_);
+    await using var channel = await Warmed()
+                                .ConfigureAwait(false);
 
     var watch = Stopwatch.StartNew();
     var thrown = await WaitForResultsEnd(channel,
@@ -186,7 +188,8 @@ public class ArmoniKClientTests : RuntimeFixture
   [Test]
   public async Task WaitForResultsStartsItsBackoffAgainAfterAnEvent()
   {
-    await using var channel = Runtime.Channel(endpoint_);
+    await using var channel = await Warmed()
+                                .ConfigureAwait(false);
 
     var watch = Stopwatch.StartNew();
     Assert.That(await WaitForResultsEnd(channel,
@@ -213,7 +216,8 @@ public class ArmoniKClientTests : RuntimeFixture
   [Test]
   public async Task WaitForResultsCapsItsFirstBound()
   {
-    await using var channel = Runtime.Channel(endpoint_);
+    await using var channel = await Warmed()
+                                .ConfigureAwait(false);
 
     var watch = Stopwatch.StartNew();
     var thrown = await WaitForResultsEnd(channel,
@@ -339,6 +343,28 @@ public class ArmoniKClientTests : RuntimeFixture
          MaxBackOff        = TimeSpan.FromMilliseconds(maxMilliseconds),
          Jitter            = jitter,
        };
+
+  /// <summary>A channel that has made its first call.</summary>
+  /// <remarks>A channel connects on its first call, and on .NET Framework that connection alone can
+  /// take most of a timed test's margin, so a stopwatch started on this one counts the backoff and
+  /// not the connection. The call is a refusal the server answers at once, under a result no timed
+  /// test names, so it changes nothing the test after it reads.</remarks>
+  private async Task<NativeChannel> Warmed()
+  {
+    var channel = Runtime.Channel(endpoint_);
+    var thrown = await WaitForResultsEnd(channel,
+                                         "refused-session-id",
+                                         "warm-up",
+                                         new SubscriptionRetry
+                                         {
+                                           MaxAttempts = 1,
+                                         })
+                   .ConfigureAwait(false);
+    Assert.That((thrown as RpcException)?.StatusCode,
+                Is.EqualTo(StatusCode.PermissionDenied),
+                "the warm-up call is answered");
+    return channel;
+  }
 
   /// <summary>How <c>WaitForResultsAsync</c> ends, which it must within 30 s: the exception it
   /// fails with, or null when it completes.</summary>
