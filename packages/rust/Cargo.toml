@@ -41,11 +41,13 @@ h2 = "0.4"
 hyper = "1.10"
 hyper-rustls = { version = "0.27", default-features = false }
 hyper-util = "0.1"
+p12-keystore = "0.3"
 prost = "0.14"
 prost-types = "0.14"
 rcgen = { version = "0.14", default-features = false }
 rustls = { version = "0.23", default-features = false }
 schemars = "1"
+secrecy = "0.10"
 # `std` as well as `derive`: without it `String` implements neither `Serialize` nor `Deserialize`, so
 # the `serde` feature would not compile.
 serde = { version = "1.0", features = ["derive", "std"], default-features = false }

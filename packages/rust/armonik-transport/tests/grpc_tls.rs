@@ -10,6 +10,7 @@ use armonik_transport::grpc::{
     GrpcStatus, GrpcStatusCode,
 };
 use armonik_transport::http2::{ClientIdentity, TlsConfig, TransportConfig, TransportErrorKind};
+use armonik_transport::options::{Password, TlsOptions};
 use armonik_transport::reexports::rustls::pki_types::PrivateKeyDer;
 use bytes::Bytes;
 use common::echo::{channel_with, unary, ECHO};
@@ -151,4 +152,54 @@ async fn a_refused_handshake_is_reported_as_one_and_not_as_a_dial() {
         panic!("a handshake against a private authority completed");
     };
     assert_eq!(source.kind(), TransportErrorKind::TlsHandshake, "{source}");
+}
+
+/// mTLS from the options a host writes: the CA and a PKCS#12 bundle named by path, and the
+/// bundle's password, read by the options' own loader.
+#[tokio::test]
+async fn a_pkcs12_bundle_and_its_password_authenticate_the_client() {
+    let pki = Pki::new();
+    let server = TlsServer::start(pki.server(&["127.0.0.1"]), Some(&pki)).await;
+
+    /// Removes the directory, and the key bundle in it, however the test ends.
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let directory =
+        std::env::temp_dir().join(format!("armonik-transport-p12-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("a scratch directory");
+    let _gone = Scratch(directory.clone());
+    let client = pki.client();
+    let PrivateKeyDer::Pkcs8(key) = &client.key else {
+        panic!("the test CA issues PKCS#8 keys");
+    };
+    let chain = p12_keystore::PrivateKeyChain::new(
+        [1u8].as_slice(),
+        p12_keystore::PrivateKey::from_der(key.secret_pkcs8_der()).expect("a PKCS#8 key"),
+        client.chain.iter().map(|certificate| {
+            p12_keystore::Certificate::from_der(certificate.as_ref()).expect("a certificate")
+        }),
+    );
+    let mut store = p12_keystore::KeyStore::new();
+    store.add_entry(
+        "identity",
+        p12_keystore::KeyStoreEntry::PrivateKeyChain(chain),
+    );
+    let bundle = directory.join("client.p12");
+    std::fs::write(&bundle, store.writer("s3cret").write().expect("a bundle")).expect("a file");
+    let root = directory.join("ca.pem");
+    std::fs::write(&root, pki.root_pem()).expect("a file");
+
+    let mut options = TlsOptions::default();
+    options.ca_cert_path = Some(root.to_string_lossy().into_owned());
+    options.cert_p12 = Some(bundle.to_string_lossy().into_owned());
+    options.cert_p12_password = Some(Password::new("s3cret"));
+    let tls = options.load().expect("the files the options name");
+
+    let status = echo(&server.endpoint, tls).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
 }

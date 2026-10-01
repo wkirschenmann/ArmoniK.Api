@@ -589,6 +589,10 @@ mod tests {
                 &br#"{"Http2":{"ConnectionWindowSize":65534}}"#[..],
                 "Http2.ConnectionWindowSize",
             ),
+            (
+                &br#"{"Transport":{"Tls":{"CertP12Password":123456}}}"#[..],
+                "Transport.Tls.CertP12Password",
+            ),
         ] {
             let Err(refused) = parse(document) else {
                 panic!("{} is admitted", String::from_utf8_lossy(document));
@@ -599,6 +603,23 @@ mod tests {
                 "{} is refused without naming {key}: {said}",
                 String::from_utf8_lossy(document)
             );
+        }
+    }
+
+    #[test]
+    fn a_password_of_the_wrong_type_is_refused_without_being_quoted() {
+        for document in [
+            &br#"{"Transport":{"Tls":{"CertP12Password":123456}}}"#[..],
+            &br#"{"Transport":{"Tls":{"CertP12Password":-123456.5}}}"#[..],
+            &br#"{"Transport":{"Tls":{"CertP12Password":["s3cret"]}}}"#[..],
+            &br#"{"Transport":{"Tls":{"CertP12Password":{"s3cret":1}}}}"#[..],
+        ] {
+            let Err(refused) = parse(document) else {
+                panic!("{} is admitted", String::from_utf8_lossy(document));
+            };
+            let said = refused.to_string();
+            assert!(!said.contains("123456"), "{said}");
+            assert!(!said.contains("s3cret"), "{said}");
         }
     }
 

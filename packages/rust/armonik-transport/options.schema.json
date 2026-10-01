@@ -118,6 +118,16 @@
           "type": "string",
           "minLength": 1
         },
+        "CertP12": {
+          "description": "Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.\n\nRefused together with `CertPem` or `KeyPem`, which name an identity too.",
+          "type": "string",
+          "minLength": 1
+        },
+        "CertP12Password": {
+          "description": "The password `CertP12` is protected by. Defaults to the empty one.\n\nRefused without `CertP12`.",
+          "type": "string",
+          "writeOnly": true
+        },
         "CertPem": {
           "description": "Path to a PEM file of the client's certificate, then each issuer the server may not hold.\n\nSet together with `KeyPem`.",
           "type": "string",

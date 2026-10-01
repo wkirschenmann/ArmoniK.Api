@@ -424,6 +424,8 @@ public sealed class TlsOptions
 
     AllowUnsafeConnection = other.AllowUnsafeConnection;
     CaCertPath = other.CaCertPath;
+    CertP12 = other.CertP12;
+    CertP12Password = other.CertP12Password;
     CertPem = other.CertPem;
     KeyPem = other.KeyPem;
     OverrideTargetName = other.OverrideTargetName;
@@ -443,6 +445,18 @@ public sealed class TlsOptions
   [JsonPropertyName("CaCertPath")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? CaCertPath { get; set; }
+
+  /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
+  /// <remarks>Refused together with <c>CertPem</c> or <c>KeyPem</c>, which name an identity too.</remarks>
+  [JsonPropertyName("CertP12")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? CertP12 { get; set; }
+
+  /// <summary>The password <c>CertP12</c> is protected by. Defaults to the empty one.</summary>
+  /// <remarks>Refused without <c>CertP12</c>.</remarks>
+  [JsonPropertyName("CertP12Password")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? CertP12Password { get; set; }
 
   /// <summary>Path to a PEM file of the client's certificate, then each issuer the server may not hold.</summary>
   /// <remarks>Set together with <c>KeyPem</c>.</remarks>
@@ -474,6 +488,13 @@ public sealed class TlsOptions
       throw new ArgumentOutOfRangeException(nameof(CaCertPath),
                                             caCertPath,
                                             "CaCertPath has to be at least 1 character long.");
+    }
+
+    if (CertP12 is string certP12 && certP12.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CertP12),
+                                            certP12,
+                                            "CertP12 has to be at least 1 character long.");
     }
 
     if (CertPem is string certPem && certPem.Length < 1)

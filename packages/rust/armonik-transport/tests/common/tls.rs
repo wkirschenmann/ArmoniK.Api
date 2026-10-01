@@ -46,6 +46,11 @@ impl Pki {
         self.issuer.der().clone()
     }
 
+    /// The same root, as the PEM a `CaCertPath` file holds.
+    pub fn root_pem(&self) -> String {
+        self.issuer.pem()
+    }
+
     /// A server certificate for `names`, which may be DNS names or IP addresses.
     pub fn server(&self, names: &[&str]) -> Leaf {
         self.leaf(names, ExtendedKeyUsagePurpose::ServerAuth)

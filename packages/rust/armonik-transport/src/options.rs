@@ -9,7 +9,8 @@
 use std::time::Duration;
 
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use secrecy::ExposeSecret;
 
 use crate::http2::{ClientIdentity, Http2Config, TcpConfig, TlsConfig};
 
@@ -137,6 +138,23 @@ pub struct TlsOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub key_pem: Option<String>,
 
+    /// Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.
+    ///
+    /// Refused together with `CertPem` or `KeyPem`, which name an identity too.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub cert_p12: Option<String>,
+
+    /// The password `CertP12` is protected by. Defaults to the empty one.
+    ///
+    /// Refused without `CertP12`.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub cert_p12_password: Option<Password>,
+
     /// Accept any server certificate. The connection is still encrypted, to whoever answers.
     ///
     /// Defaults to false.
@@ -156,6 +174,101 @@ pub struct TlsOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub override_target_name: Option<String>,
+}
+
+/// A password: no Debug print shows it, no message quotes it, and it is zeroed when dropped.
+#[derive(Clone)]
+pub struct Password(secrecy::SecretString);
+
+/// Read by hand, so that a value of the wrong type is refused without being quoted: serde's own
+/// refusal names the value it was given, and a refusal is shown to whoever configured it.
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Password {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Text;
+
+        fn refused<E: serde::de::Error>() -> E {
+            E::custom("a password has to be a string")
+        }
+
+        impl<'de> serde::de::Visitor<'de> for Text {
+            type Value = Password;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a string")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Password, E> {
+                Ok(Password::new(text))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, text: String) -> Result<Password, E> {
+                Ok(Password::new(text))
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_i128<E: serde::de::Error>(self, _: i128) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_u128<E: serde::de::Error>(self, _: u128) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_bytes<E: serde::de::Error>(self, _: &[u8]) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Password, E> {
+                Err(refused())
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, _: A) -> Result<Password, A::Error> {
+                Err(refused())
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, _: A) -> Result<Password, A::Error> {
+                Err(refused())
+            }
+        }
+
+        // `any` rather than `string`: a format asked for a string refuses another type itself,
+        // quoting it, before the visitor is reached.
+        deserializer.deserialize_any(Text)
+    }
+}
+
+impl Password {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(secrecy::SecretString::from(text.into()))
+    }
+}
+
+impl PartialEq for Password {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.expose_secret() == other.0.expose_secret()
+    }
+}
+
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Password(..)")
+    }
 }
 
 /// The socket's keepalive, off unless `IdleSeconds` is set.
@@ -366,6 +479,54 @@ fn certificates(key: &str, path: &str) -> Result<Vec<CertificateDer<'static>>, O
     Ok(certificates)
 }
 
+/// The identity a PKCS#12 bundle carries: the certificate its key belongs to, then each issuer
+/// it holds, in the leaf-first order rustls sends.
+fn pkcs12(
+    key: &str,
+    path: &str,
+    password: Option<&Password>,
+) -> Result<ClientIdentity, OptionRefusal> {
+    let bundle = read(key, path)?;
+    let password = password.map_or("", |password| password.0.expose_secret());
+    // Strict: a bundle whose chain cannot be rebuilt is a mistake to report, not one to paper
+    // over with part of an identity.
+    let store = p12_keystore::KeyStore::from_pkcs12(
+        &bundle,
+        password,
+        p12_keystore::Pkcs12ImportPolicy::Strict,
+    )
+    .map_err(|error| {
+        OptionRefusal::new(
+            key,
+            format!("the bundle it names could not be opened: {error}"),
+        )
+    })?;
+    let identities = store
+        .entries()
+        .filter(|(_, entry)| matches!(entry, p12_keystore::KeyStoreEntry::PrivateKeyChain(_)))
+        .count();
+    if identities > 1 {
+        return Err(OptionRefusal::new(
+            key,
+            format!("the bundle it names holds {identities} keys, and nothing says which to use"),
+        ));
+    }
+    let Some((_, chain)) = store.private_key_chain() else {
+        return Err(OptionRefusal::new(
+            key,
+            "the bundle it names holds no key and certificate",
+        ));
+    };
+    Ok(ClientIdentity {
+        chain: chain
+            .certs()
+            .iter()
+            .map(|certificate| CertificateDer::from(certificate.as_der().to_vec()))
+            .collect(),
+        key: PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(chain.key().as_der().to_vec())),
+    })
+}
+
 impl TlsOptions {
     /// What these options say, with every file they name read.
     pub fn load(&self) -> Result<TlsConfig, OptionRefusal> {
@@ -382,8 +543,24 @@ impl TlsOptions {
             None => Vec::new(),
         };
 
+        if self.cert_p12.is_some() && (self.cert_pem.is_some() || self.key_pem.is_some()) {
+            return Err(OptionRefusal::new(
+                "CertP12",
+                "it names a client identity, and so do CertPem and KeyPem",
+            ));
+        }
+        if self.cert_p12.is_none() && self.cert_p12_password.is_some() {
+            return Err(OptionRefusal::new(
+                "CertP12Password",
+                "it is set, and CertP12 names no bundle",
+            ));
+        }
+
         let identity = match (&self.cert_pem, &self.key_pem) {
-            (None, None) => None,
+            (None, None) => match &self.cert_p12 {
+                Some(path) => Some(pkcs12("CertP12", path, self.cert_p12_password.as_ref())?),
+                None => None,
+            },
             (Some(_), None) => {
                 return Err(OptionRefusal::new(
                     "KeyPem",
@@ -747,6 +924,177 @@ mod tests {
                 assert!(!said.contains(path.as_str()), "{said}");
             }
             assert!(!said.contains("s3cret"), "{said}");
+        }
+    }
+
+    /// A PKCS#12 bundle of `key` and `certificates`, protected by `password`.
+    fn p12_bundle(
+        key: &rcgen::KeyPair,
+        certificates: &[&rcgen::Certificate],
+        password: &str,
+    ) -> Vec<u8> {
+        let chain = p12_keystore::PrivateKeyChain::new(
+            [1u8].as_slice(),
+            p12_keystore::PrivateKey::from_der(&key.serialize_der()).expect("a PKCS#8 key"),
+            certificates.iter().map(|certificate| {
+                p12_keystore::Certificate::from_der(certificate.der().as_ref())
+                    .expect("an X.509 certificate")
+            }),
+        );
+        let mut store = p12_keystore::KeyStore::new();
+        store.add_entry(
+            "identity",
+            p12_keystore::KeyStoreEntry::PrivateKeyChain(chain),
+        );
+        store.writer(password).write().expect("a bundle")
+    }
+
+    fn bundled(directory: &std::path::Path, name: &str, bundle: Vec<u8>) -> String {
+        let path = directory.join(name);
+        std::fs::write(&path, bundle).expect("a scratch file");
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_pkcs12_bundle_is_read_into_the_identity_it_carries() {
+        let directory = scratch("p12");
+        let _gone = Scratch(directory.clone());
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(["client.test".to_owned()]).expect("an identity");
+
+        let options = TlsOptions {
+            cert_p12: Some(bundled(
+                &directory,
+                "identity.p12",
+                p12_bundle(&signing_key, &[&cert], "s3cret-word"),
+            )),
+            cert_p12_password: Some(Password::new("s3cret-word")),
+            ..TlsOptions::default()
+        };
+        let identity = options
+            .load()
+            .expect("a bundle")
+            .identity
+            .expect("an identity");
+        assert_eq!(identity.chain.len(), 1);
+        assert_eq!(identity.chain[0].as_ref(), cert.der().as_ref());
+        let PrivateKeyDer::Pkcs8(key) = &identity.key else {
+            panic!("the bundle carried a PKCS#8 key");
+        };
+        assert_eq!(key.secret_pkcs8_der(), signing_key.serialize_der());
+
+        let unprotected = TlsOptions {
+            cert_p12: Some(bundled(
+                &directory,
+                "open.p12",
+                p12_bundle(&signing_key, &[&cert], ""),
+            )),
+            ..TlsOptions::default()
+        };
+        assert!(
+            unprotected.load().expect("no password").identity.is_some(),
+            "no password opens a bundle written with the empty one"
+        );
+    }
+
+    #[test]
+    fn a_pkcs12_refusal_names_its_option_and_quotes_neither_password_nor_path() {
+        let directory = scratch("p12-refused");
+        let _gone = Scratch(directory.clone());
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(["client.test".to_owned()]).expect("an identity");
+        let protected = bundled(
+            &directory,
+            "s3cret-name.p12",
+            p12_bundle(&signing_key, &[&cert], "s3cret-word"),
+        );
+        let empty = bundled(
+            &directory,
+            "empty.p12",
+            p12_keystore::KeyStore::new()
+                .writer("s3cret-word")
+                .write()
+                .expect("a bundle"),
+        );
+        let garbage = bundled(&directory, "garbage.p12", b"not a bundle".to_vec());
+        let two = {
+            let entry = |id: u8| {
+                p12_keystore::KeyStoreEntry::PrivateKeyChain(p12_keystore::PrivateKeyChain::new(
+                    [id].as_slice(),
+                    p12_keystore::PrivateKey::from_der(&signing_key.serialize_der())
+                        .expect("a PKCS#8 key"),
+                    [p12_keystore::Certificate::from_der(cert.der().as_ref())
+                        .expect("an X.509 certificate")],
+                ))
+            };
+            let mut store = p12_keystore::KeyStore::new();
+            store.add_entry("first", entry(1));
+            store.add_entry("second", entry(2));
+            bundled(
+                &directory,
+                "two.p12",
+                store.writer("s3cret-word").write().expect("a bundle"),
+            )
+        };
+
+        for (options, key) in [
+            (
+                TlsOptions {
+                    cert_p12: Some(protected.clone()),
+                    cert_p12_password: Some(Password::new("hunter2")),
+                    ..TlsOptions::default()
+                },
+                "CertP12",
+            ),
+            (
+                TlsOptions {
+                    cert_p12: Some(empty.clone()),
+                    cert_p12_password: Some(Password::new("s3cret-word")),
+                    ..TlsOptions::default()
+                },
+                "CertP12",
+            ),
+            (
+                TlsOptions {
+                    cert_p12: Some(garbage.clone()),
+                    ..TlsOptions::default()
+                },
+                "CertP12",
+            ),
+            (
+                TlsOptions {
+                    cert_p12: Some(two.clone()),
+                    cert_p12_password: Some(Password::new("s3cret-word")),
+                    ..TlsOptions::default()
+                },
+                "CertP12",
+            ),
+            (
+                TlsOptions {
+                    cert_p12: Some(protected.clone()),
+                    cert_pem: Some(protected.clone()),
+                    ..TlsOptions::default()
+                },
+                "CertP12",
+            ),
+            (
+                TlsOptions {
+                    cert_p12_password: Some(Password::new("s3cret-word")),
+                    ..TlsOptions::default()
+                },
+                "CertP12Password",
+            ),
+        ] {
+            let refused = options.load().expect_err(key);
+            assert_eq!(refused.key(), key, "{refused}");
+            let said = refused.to_string();
+            for secret in ["s3cret", "hunter2", &protected, &empty, &garbage, &two] {
+                assert!(!said.contains(secret), "{said}");
+            }
+            assert!(
+                !format!("{options:?}").contains("s3cret-word"),
+                "{options:?}"
+            );
         }
     }
 

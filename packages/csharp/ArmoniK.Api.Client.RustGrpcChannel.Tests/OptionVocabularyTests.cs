@@ -55,6 +55,7 @@ public class OptionVocabularyTests
                                                                                ["AllowUnsafeConnection"] = "Transport.Tls.AllowUnsafeConnection",
                                                                                ["CaCert"]                = "Transport.Tls.CaCertPath",
                                                                                ["CertPem"]               = "Transport.Tls.CertPem",
+                                                                               ["CertP12"]               = "Transport.Tls.CertP12",
                                                                                ["KeyPem"]                = "Transport.Tls.KeyPem",
                                                                                ["OverrideTargetName"]    = "Transport.Tls.OverrideTargetName",
                                                                                ["KeepAliveTime"]         = "Transport.TcpKeepalive.IdleSeconds",
@@ -69,7 +70,6 @@ public class OptionVocabularyTests
   /// </remarks>
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
-                                                                          ["CertP12"]               = "T4.2",
                                                                           ["MaxIdleTime"]           = "T6.11",
                                                                           ["Proxy"]                 = "T5.1",
                                                                           ["ProxyUsername"]         = "T5.1",
@@ -98,6 +98,7 @@ public class OptionVocabularyTests
                                                                        ["UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
+                                                                       ["Transport.Tls.CertP12Password"] = "GrpcClient opens its bundle with no password",
                                                                        ["Http2.KeepAliveIntervalSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveTimeoutSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveWhileIdle"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",

@@ -1227,7 +1227,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `Address` | `Endpoint` |
 | `CaCert` | `Transport.Tls.CaCertPath` |
 | `ClientCert` / `ClientKey` | `Transport.Tls.CertPem` / `Transport.Tls.KeyPem` |
-| `ClientP12` | the PKCS#12 options T4.2 brings |
+| `ClientP12` | `Transport.Tls.CertP12`; its password, `Transport.Tls.CertP12Password`, has no counterpart |
 | `AllowUnsafeConnection` | `Transport.Tls.AllowUnsafeConnection` |
 | `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
 | `Proxy` | `Proxy.Source` |

@@ -53,9 +53,9 @@ pub struct TransportConfig {
 }
 
 /// Loaded material, which a handshake uses as it stands. Built from the paths a
-/// document names by `options::TlsOptions::load`, which reads the files; the
-/// PKCS#12 bundle (T4.2) and the Windows store (T4.4) are further sources it
-/// resolves into the same fields.
+/// document names by `options::TlsOptions::load`, which reads the files - a PEM
+/// pair or a PKCS#12 bundle for the identity; the Windows store (T4.4) is a
+/// further source it resolves into the same fields.
 pub struct TlsConfig {
     pub roots: Vec<CertificateDer<'static>>, // empty: the system's
     pub accept_any_server: bool,            // verifies nothing (opt-in)

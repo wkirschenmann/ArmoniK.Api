@@ -891,6 +891,16 @@ its own, and a binding that wants `GrpcClient`'s writes them.
 **Source**: the #7xx stack
 **Deliverable**: mTLS with a P12 bundle and its password, the password read as a `Secret`.
 
+**Status**: done. `Transport.Tls.CertP12` names the bundle and `Transport.Tls.CertP12Password` its
+password, held in a `Password` over `secrecy`'s `SecretString`: no Debug print shows it, no refusal
+quotes it, the schema marks it `writeOnly`, and it is zeroed when dropped. The bundle is read by
+`TlsOptions::load` with `p12-keystore`, strictly, so a chain it cannot rebuild is refused rather
+than cut short, and so is a bundle holding more than one key, since nothing says which to use. It
+excludes `CertPem` and `KeyPem`, and a password without a bundle is refused. `tests/grpc_tls.rs`
+authenticates a client from such a bundle against a server that asks for one. Untested: a bundle
+written with no password at all - a NULL password, distinct from the empty one in PKCS#12's key
+derivation - which an unset `CertP12Password` opens as the empty one.
+
 ### T4.3: The whole certificate chain
 
 **Prerequisite**: T4.2

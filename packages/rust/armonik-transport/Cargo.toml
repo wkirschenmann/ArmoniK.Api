@@ -13,7 +13,8 @@ version.workspace = true
 include = ["**/*.rs", "Cargo.toml", "README.md", "options.schema.json"]
 
 [features]
-serde = ["dep:serde"]
+# `secrecy/serde` so a password deserialises with the rest of the options.
+serde = ["dep:serde", "secrecy/serde"]
 # A JSON schema of the option vocabulary, for generating an options class in another language.
 # `serde_json` because the prefix helper rewrites the generated schema's property names, and a
 # schemars 1.x schema is edited as the JSON value it wraps.
@@ -63,6 +64,11 @@ hyper-rustls = { workspace = true, features = [
   "logging",
 ] }
 rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+# Reads a client certificate bundled with its chain and key as a PKCS#12 file, the form Windows
+# and most certificate authorities hand out; pure Rust, so it brings no OpenSSL of its own.
+p12-keystore.workspace = true
+# A password held so that no Debug print shows it and it is zeroed when dropped.
+secrecy.workspace = true
 serde = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 humantime.workspace = true
