@@ -45,7 +45,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 public class OptionVocabularyTests
 {
   /// <summary>A `GrpcClient` option and the path of the option that answers it here.</summary>
-  private static readonly IReadOnlyDictionary<string, string> Counterparts = new Dictionary<string, string>(StringComparer.Ordinal);
+  /// <remarks>
+  ///   `CaCert` is a path on both sides, and spelled `CaCertPath` here, as the Rust client's
+  ///   vocabulary spells it. `KeepAliveTime` and `KeepAliveTimeInterval` are a socket's keepalive in
+  ///   `GrpcClient`, which sets them through `ServicePoint.SetTcpKeepAlive`.
+  /// </remarks>
+  private static readonly IReadOnlyDictionary<string, string> Counterparts = new Dictionary<string, string>(StringComparer.Ordinal)
+                                                                             {
+                                                                               ["AllowUnsafeConnection"] = "Transport.Tls.AllowUnsafeConnection",
+                                                                               ["CaCert"]                = "Transport.Tls.CaCertPath",
+                                                                               ["CertPem"]               = "Transport.Tls.CertPem",
+                                                                               ["KeyPem"]                = "Transport.Tls.KeyPem",
+                                                                               ["OverrideTargetName"]    = "Transport.Tls.OverrideTargetName",
+                                                                               ["KeepAliveTime"]         = "Transport.TcpKeepalive.IdleSeconds",
+                                                                               ["KeepAliveTimeInterval"] = "Transport.TcpKeepalive.IntervalSeconds",
+                                                                             };
 
   /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
   /// <remarks>
@@ -55,15 +69,8 @@ public class OptionVocabularyTests
   /// </remarks>
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
-                                                                          ["AllowUnsafeConnection"] = "T4.1",
-                                                                          ["CaCert"]                = "T4.1",
                                                                           ["CertP12"]               = "T4.2",
-                                                                          ["CertPem"]               = "T4.1",
-                                                                          ["KeyPem"]                = "T4.1",
-                                                                          ["OverrideTargetName"]    = "T4.1",
-                                                                          ["KeepAliveTime"]         = "T4.1",
-                                                                          ["KeepAliveTimeInterval"] = "T4.1",
-                                                                          ["MaxIdleTime"]           = "T4.1",
+                                                                          ["MaxIdleTime"]           = "T6.11",
                                                                           ["Proxy"]                 = "T5.1",
                                                                           ["ProxyUsername"]         = "T5.1",
                                                                           ["ProxyPassword"]         = "T5.1",
@@ -90,6 +97,12 @@ public class OptionVocabularyTests
                                                                        ["MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
+                                                                       ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
+                                                                       ["Http2.KeepAliveIntervalSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.KeepAliveTimeoutSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.KeepAliveWhileIdle"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.StreamWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.ConnectionWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                      };
 
   /// <summary>A `GrpcClient__` name the Rust reader knows and the .NET options do not declare.</summary>

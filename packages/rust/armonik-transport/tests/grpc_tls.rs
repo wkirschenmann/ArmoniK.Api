@@ -6,8 +6,8 @@ mod common;
 use std::time::Duration;
 
 use armonik_transport::grpc::{
-    CallStartOptions, GrpcChannel, GrpcChannelConfig, GrpcChannelConfigError, GrpcStatus,
-    GrpcStatusCode,
+    CallStartOptions, ChannelError, GrpcChannel, GrpcChannelConfig, GrpcChannelConfigError,
+    GrpcStatus, GrpcStatusCode,
 };
 use armonik_transport::http2::{ClientIdentity, TlsConfig, TransportConfig, TransportErrorKind};
 use armonik_transport::reexports::rustls::pki_types::PrivateKeyDer;
@@ -139,4 +139,16 @@ async fn a_key_rustls_cannot_read_is_refused_when_the_channel_is_made() {
         refused.to_string().contains("client certificate"),
         "{refused}"
     );
+}
+
+#[tokio::test]
+async fn a_refused_handshake_is_reported_as_one_and_not_as_a_dial() {
+    let pki = Pki::new();
+    let server = TlsServer::start(pki.server(&["127.0.0.1"]), None).await;
+    let channel = channel(&server.endpoint, TlsConfig::default()).expect("a channel");
+
+    let Err(ChannelError::Transport { source }) = channel.connect().await else {
+        panic!("a handshake against a private authority completed");
+    };
+    assert_eq!(source.kind(), TransportErrorKind::TlsHandshake, "{source}");
 }

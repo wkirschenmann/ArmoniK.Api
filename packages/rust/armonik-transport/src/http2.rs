@@ -195,6 +195,18 @@ impl TcpConfig {
         if self.keepalive_retries == Some(0) {
             return refuse("zero TCP keepalive retries drops a connection at its first probe");
         }
+        // Linux's limits, past which the socket option fails and the keepalive is silently unset.
+        let most = Duration::from_secs(32767);
+        if [self.keepalive, self.keepalive_interval]
+            .into_iter()
+            .flatten()
+            .any(|duration| duration > most)
+        {
+            return refuse("a TCP keepalive duration has to be at most 32767 seconds");
+        }
+        if self.keepalive_retries.is_some_and(|retries| retries > 127) {
+            return refuse("TCP keepalive retries have to be at most 127");
+        }
         // Either of the two alone turns the keepalive on, at the operating system's idle time.
         if self.keepalive.is_none()
             && (self.keepalive_interval.is_some() || self.keepalive_retries.is_some())
@@ -343,7 +355,7 @@ impl std::fmt::Debug for ClientIdentity {
 }
 
 /// The name a server certificate is verified against, from what [`TlsConfig::server_name`] holds.
-fn verified_name(written: &str) -> Result<ServerName<'static>, TransportError> {
+pub(crate) fn verified_name(written: &str) -> Result<ServerName<'static>, TransportError> {
     let refuse = |message: String| ConfigurationSnafu { message }.fail();
 
     // Before it is parsed or quoted, so a password never reaches the refusal's text.
@@ -529,6 +541,7 @@ fn refused_by_tls(error: &(dyn std::error::Error + 'static)) -> bool {
 #[non_exhaustive]
 pub enum TransportErrorKind {
     Connect,
+    TlsHandshake,
     Http2Handshake,
     Timeout,
     Configuration,
@@ -557,8 +570,8 @@ impl TransportError {
     pub fn kind(&self) -> TransportErrorKind {
         match self {
             Self::Configuration { .. } => TransportErrorKind::Configuration,
-            // A handshake is part of reaching the peer, as a dial is.
-            Self::Connect { .. } | Self::TlsHandshake { .. } => TransportErrorKind::Connect,
+            Self::Connect { .. } => TransportErrorKind::Connect,
+            Self::TlsHandshake { .. } => TransportErrorKind::TlsHandshake,
             Self::Http2Handshake { .. } => TransportErrorKind::Http2Handshake,
             Self::Timeout { .. } => TransportErrorKind::Timeout,
         }

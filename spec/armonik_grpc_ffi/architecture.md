@@ -1149,7 +1149,7 @@ Each call:
 The complete chain is:
 
 ```text
-armonik_transport::options::{ChannelOptions, TransportOptions}
+armonik_transport::options::{ChannelOptions, and the units it nests}
     │ derive(schemars::JsonSchema), under the `schema` feature
     ▼
 options.schema.json      <- committed beside the crate; a test fails when it is not
@@ -1162,10 +1162,15 @@ ChannelOptions.g.cs      <- committed; the build compares it with what the schem
     │ ChannelOptions.Encode()
     ▼
 UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument
-    │ serde_json into ChannelOptions, every bound checked again
+    │ serde_json into ChannelOptions, every bound checked again; each unit's
+    │ conversion, in armonik-transport, reads the certificate files it names
     ▼
 GrpcChannelConfig and TransportConfig, the engine's own
 ```
+
+A path crosses the ABI and a certificate does not: the binding writes the path a caller gave,
+and the engine reads the file, so one reader serves every host and a file that names nothing
+usable is refused at `ak_channel_create`, by the option's name and never by its path.
 
 The schema is the generator's only input, so the vocabulary lives in one place. T3.3 settled
 the shape every option takes, and gives the reasons:
@@ -1220,11 +1225,11 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | Existing option | ChannelOptions field |
 |-----------------|--------------------------|
 | `Address` | `Endpoint` |
-| `CaCert` | `Tls.CaCertPath` |
-| `ClientCert` / `ClientKey` | `Tls.ClientIdentity` (PEM) |
-| `ClientP12` | `Tls.ClientIdentity` (PKCS12) |
-| `AllowUnsafeConnection` | `Tls.CaSource = Insecure` |
-| `OverrideTargetName` | `Tls.OverrideTargetName` |
+| `CaCert` | `Transport.Tls.CaCertPath` |
+| `ClientCert` / `ClientKey` | `Transport.Tls.CertPem` / `Transport.Tls.KeyPem` |
+| `ClientP12` | the PKCS#12 options T4.2 brings |
+| `AllowUnsafeConnection` | `Transport.Tls.AllowUnsafeConnection` |
+| `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
 | `Proxy` | `Proxy.Source` |
 | `ProxyUsername` / `ProxyPassword` | `Proxy.Credentials` |
 | `RequestTimeout` | `DefaultDeadline` |

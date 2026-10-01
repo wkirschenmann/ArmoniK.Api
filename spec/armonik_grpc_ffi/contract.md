@@ -44,53 +44,52 @@ impl tower::Service<Uri> for TransportConnector {
 
 ```rust
 pub struct TransportConfig {
-    pub endpoint: Endpoint,         // target URI
-    pub tls: Option<TlsConfig>,    // None = plain HTTP
-    pub tcp: TcpConfig,            // keepalive, nodelay, etc.
-    pub proxy: ProxyConfig,        // disabled | explicit | env | windows_system
+    pub endpoint: Uri,              // http:// in the clear, https:// over TLS
     pub connect_timeout: Duration,
+    pub tls: TlsConfig,             // read for https://, refused on http:// unless default
+    pub tcp: TcpConfig,             // the socket's keepalive
+    pub http2: Http2Config,         // the session's PING keepalive and windows
+    pub proxy: ProxyConfig,         // disabled | explicit | env | windows_system - T5.1
 }
 
+/// Loaded material, which a handshake uses as it stands. Built from the paths a
+/// document names by `options::TlsOptions::load`, which reads the files; the
+/// PKCS#12 bundle (T4.2) and the Windows store (T4.4) are further sources it
+/// resolves into the same fields.
 pub struct TlsConfig {
-    pub ca: CaSource,              // System | PemFile(path) | WindowsStore | Insecure
-    pub client_identity: Option<IdentitySource>,
-    pub override_target_name: Option<String>,
+    pub roots: Vec<CertificateDer<'static>>, // empty: the system's
+    pub accept_any_server: bool,            // verifies nothing (opt-in)
+    pub identity: Option<ClientIdentity>,   // for mTLS
+    pub server_name: Option<String>,        // verified and sent as SNI instead of the host
 }
 
-/// Where the trust roots come from (config-time, serializable to JSON schema).
-pub enum CaSource {
-    System,                         // OS roots
-    PemFile(PathBuf),              // explicit CA from file
-    #[cfg(windows)]
-    WindowsStore { subject_name: Option<String>, friendly_name: Option<String> },
-    Insecure,                       // no verification (opt-in)
+pub struct ClientIdentity {
+    pub chain: Vec<CertificateDer<'static>>, // the leaf first, then its issuers
+    pub key: PrivateKeyDer<'static>,         // never printed
 }
 
-/// Where the client identity for mTLS comes from (config-time, serializable to JSON schema).
-/// Same pattern as ProxySource: describes how to obtain the material, not the material itself.
-pub enum IdentitySource {
-    PemFiles { cert: PathBuf, key: PathBuf },
-    Pkcs12 { path: PathBuf, password: Option<SecretString> },
-    #[cfg(windows)]
-    WindowsStore { subject_name: Option<String>, friendly_name: Option<String> },
+/// Off unless keepalive is set. Whole seconds, which is what the socket holds.
+pub struct TcpConfig {
+    pub keepalive: Option<Duration>,
+    pub keepalive_interval: Option<Duration>,
+    pub keepalive_retries: Option<u32>,      // not applied on Windows
 }
 
-/// Loaded material (runtime, after source resolution). Not serializable.
-pub struct Identity {
-    pub certs: Vec<CertificateDer<'static>>,
-    pub key: PrivateKeyDer<'static>,
-}
-
-impl IdentitySource {
-    /// Loads crypto material from the configured source.
-    pub fn load(&self) -> Result<Identity, ConfigError>;
-}
-
-impl CaSource {
-    /// Loads trust roots from the configured source. A PEM file may hold a
-    /// chain or several roots, so this is a set, not one certificate.
-    /// Empty for System: rustls uses its own roots.
-    pub fn load(&self) -> Result<Vec<CertificateDer<'static>>, ConfigError>;
+/// hyper's defaults, written out: no PING, 20 s, 2 MiB, 5 MiB.
+pub struct Http2Config {
+    pub keep_alive_interval: Option<Duration>,
+    pub keep_alive_timeout: Duration,
+    pub keep_alive_while_idle: bool,
+    /// What one stream may have unread.
+    pub stream_window: u32,
+    /// What the connection may have unread, shared by every stream of the
+    /// channel: a call its host does not read holds up to its stream window
+    /// of it. At least 65535, since only an increase is announced.
+    pub connection_window: u32,
+    // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
+    // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,
+    // server pushes. It is not a cap on outgoing calls; that one is
+    // max_calls_in_flight, and it lives in PoolConfig.
 }
 
 pub struct ProxyConfig {
@@ -156,7 +155,6 @@ pub struct TransportError {
 ```rust
 pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
-    pub http2: Option<Http2Config>,
     pub retry: Option<RetryConfig>,
     pub default_deadline: Option<Duration>,
     pub pool: Option<PoolConfig>,
@@ -171,23 +169,6 @@ pub struct GrpcChannelConfig {
     /// Default 1.
     pub max_sends_in_flight: usize,
     // No eager_connect flag: connecting is GrpcChannel::connect().await.
-}
-
-pub struct Http2Config {
-    /// What one stream may have unread.
-    pub initial_stream_window_size: u32,
-    /// What the connection may have unread, shared by every stream of the
-    /// channel: a call its host does not read holds up to its stream window
-    /// of it.
-    pub initial_connection_window_size: u32,
-    pub max_frame_size: u32,
-    /// The HTTP/2 SETTINGS value this endpoint advertises, which bounds the
-    /// streams the *peer* may open (RFC 9113 s5.1.2) - for a client, server
-    /// pushes. It is not a cap on outgoing calls; that one is
-    /// max_calls_in_flight, and it lives in PoolConfig.
-    pub advertised_max_concurrent_streams: Option<u32>,
-    pub keepalive_interval: Option<Duration>,
-    pub keepalive_timeout: Duration,
 }
 
 pub struct RetryConfig {

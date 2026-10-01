@@ -50,3 +50,5 @@ tonic = { workspace = true, features = ["codegen", "server", "router"] }
 tower-service.workspace = true
 hyper = { workspace = true, features = ["server", "http2"] }
 http.workspace = true
+# The certificate and key files a TLS document names, made for the run.
+rcgen = { workspace = true, features = ["crypto", "pem", "ring"] }

@@ -868,6 +868,23 @@ has it for every duration; what is settled is the C# type.
 scalar shapes today, and TLS's options may want an enumeration, a list or a choice between groups.
 Each arrives with the option that uses it, and not ahead of it.
 
+**Status**: done. The engine's connector dials `https://` through hyper-rustls, and each branch of
+it is reached from the engine in `tests/grpc_tls.rs`: given roots, the system's, none, another
+name, a client certificate. The three units are `Transport.Tls`, `Transport.TcpKeepalive` and
+`Http2`, and `armonik-transport` converts each, reading the files `Tls` names; the FFI reader only
+calls the conversion. Three items read differently from the plan:
+
+- **A duration stays a number of seconds in C#, `double?`**, decided on 2026-10-01: .NET reads
+  the options from its own configuration too, and a `TimeSpan` there is read as `d.hh:mm:ss`, so
+  the C# type says what the document says.
+- **The generator needed no new shape**: every option of the three units is a scalar, an object
+  or a path.
+- **`MaxIdleTime` is not answered here.** The engine holds one HTTP/2 session per channel for the
+  channel's life, so closing an idle one is a feature of its own, T6.11.
+
+The TCP keepalive is off by default, where `GrpcClient` sets 30 seconds: the engine's defaults are
+its own, and a binding that wants `GrpcClient`'s writes them.
+
 ### T4.2: Client identity from a PKCS#12 bundle
 
 **Prerequisite**: T4.1
@@ -1197,6 +1214,17 @@ waiting and none past the second threshold, read from `ak_runtime_memory_usage`;
 would cross the second ends its call with `RESOURCE_EXHAUSTED`; a send refused with
 `AK_STATUS_BUDGET_BUSY` resumes on the event when a received message is given back, with no poll;
 and the runtime's options are read from a configuration as a channel's are.
+
+### T6.11: An idle session is closed
+
+**Prerequisite**: T4.1
+**Commit**: a channel's HTTP/2 session closed once no call has held it for a configured time, and
+dialled again by the next call - what `GrpcClient.MaxIdleTime` asks of .NET Framework's
+`ServicePoint`. A call holds the session from its dial to the end of its response body, which is
+what has to be counted; the option belongs to the `Http2` unit.
+
+**Deliverable**: a channel left idle past the option holds no connection, and its next call
+succeeds on a new one.
 
 ---
 

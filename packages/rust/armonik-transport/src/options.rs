@@ -8,6 +8,11 @@
 
 use std::time::Duration;
 
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+
+use crate::http2::{ClientIdentity, Http2Config, TcpConfig, TlsConfig};
+
 /// The largest window either side of a call may be given.
 ///
 /// A window becomes a `tokio` semaphore, which refuses more than `Semaphore::MAX_PERMITS`
@@ -75,6 +80,428 @@ pub struct TransportOptions {
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
     pub connect_timeout_seconds: Option<Seconds>,
+
+    /// How an `https://` endpoint is secured.
+    ///
+    /// Defaults to `{}`: the server verified against the system's roots under the endpoint's
+    /// host, and no client certificate. Refused for an `http://` endpoint unless it sets nothing.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub tls: TlsOptions,
+
+    /// The socket's keepalive.
+    ///
+    /// Defaults to `{}`, which sets none.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub tcp_keepalive: TcpKeepaliveOptions,
+}
+
+/// How an `https://` endpoint is secured. Each file is read when the channel is created, so a
+/// path that names nothing usable is refused then, by its option's name.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct TlsOptions {
+    /// Path to a PEM file of the roots the server certificate is verified against, in place of
+    /// the system's. Every certificate the file holds is a root.
+    ///
+    /// Refused together with `AllowUnsafeConnection`, which verifies nothing.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub ca_cert_path: Option<String>,
+
+    /// Path to a PEM file of the client's certificate, then each issuer the server may not hold.
+    ///
+    /// Set together with `KeyPem`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub cert_pem: Option<String>,
+
+    /// Path to a PEM file of the key of the client's certificate.
+    ///
+    /// Set together with `CertPem`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub key_pem: Option<String>,
+
+    /// Accept any server certificate. The connection is still encrypted, to whoever answers.
+    ///
+    /// Defaults to false.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
+    pub allow_unsafe_connection: Option<bool>,
+
+    /// The host the server certificate is verified against, and sent as SNI, in place of the
+    /// endpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is
+    /// not read.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub override_target_name: Option<String>,
+}
+
+/// The socket's keepalive, off unless `IdleSeconds` is set.
+///
+/// Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct TcpKeepaliveOptions {
+    /// How long the connection may be idle before the first probe, from a second to 32767, the
+    /// most Linux holds.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1.0, "maximum" = 32767.0))
+    )]
+    pub idle_seconds: Option<Seconds>,
+
+    /// How long between two probes, from a second to 32767. Defaults to the operating system's.
+    ///
+    /// Refused without `IdleSeconds`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1.0, "maximum" = 32767.0))
+    )]
+    pub interval_seconds: Option<Seconds>,
+
+    /// How many probes go unanswered before the connection is dropped, at most 127, the most
+    /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
+    ///
+    /// Refused without `IdleSeconds`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
+    pub retries: Option<i32>,
+}
+
+/// The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
+/// it lets the peer send ahead of what is read.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct Http2Options {
+    /// How often a PING is sent to the peer. Defaults to none sent.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub keep_alive_interval_seconds: Option<Seconds>,
+
+    /// How long a PING may go unanswered before the session and its calls are ended.
+    ///
+    /// Defaults to 20.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub keep_alive_timeout_seconds: Option<Seconds>,
+
+    /// Whether a PING is also sent while no call is open.
+    ///
+    /// Defaults to false.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
+    pub keep_alive_while_idle: Option<bool>,
+
+    /// How many bytes of one call the peer may send ahead of what is read.
+    ///
+    /// Defaults to 2097152, 2 MiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub stream_window_size: Option<i32>,
+
+    /// How many bytes the peer may send ahead of what is read, across every call of the channel.
+    /// A call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop
+    /// the others receiving. At least 65535, the window every connection starts with.
+    ///
+    /// Defaults to 5242880, 5 MiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
+    pub connection_window_size: Option<i32>,
+}
+
+/// An option refused, named by its path from the unit that read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptionRefusal {
+    key: String,
+    why: String,
+}
+
+impl OptionRefusal {
+    fn new(key: &str, why: impl Into<String>) -> Self {
+        Self {
+            key: key.to_owned(),
+            why: why.into(),
+        }
+    }
+
+    /// The same refusal, named from the unit `unit` sits in: a unit does not know where it is
+    /// embedded, so the embedding adds its own name.
+    pub fn under(self, unit: &str) -> Self {
+        Self {
+            key: format!("{unit}.{}", self.key),
+            why: self.why,
+        }
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+}
+
+impl std::fmt::Display for OptionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} is refused: {}", self.key, self.why)
+    }
+}
+
+impl std::error::Error for OptionRefusal {}
+
+/// A number of seconds as a duration, refused below `least`, above `most`, and past what a
+/// `Duration` holds.
+fn duration(
+    key: &str,
+    seconds: Option<Seconds>,
+    least: f64,
+    most: Option<f64>,
+) -> Result<Option<Duration>, OptionRefusal> {
+    let Some(seconds) = seconds else {
+        return Ok(None);
+    };
+    let refused = || {
+        let most = most.map_or_else(
+            || "less than 2^64".to_owned(),
+            |most| format!("at most {most}"),
+        );
+        OptionRefusal::new(
+            key,
+            format!("{} has to be at least {least} and {most}", seconds.0),
+        )
+    };
+    if seconds.0 < least || most.is_some_and(|most| seconds.0 > most) {
+        return Err(refused());
+    }
+    Duration::try_from(seconds).map(Some).map_err(|_| refused())
+}
+
+/// The bytes of a file a path option names.
+///
+/// The path is not repeated: the option's name says which file, and a key's path is one of the
+/// things a message must not carry.
+fn read(key: &str, path: &str) -> Result<Vec<u8>, OptionRefusal> {
+    std::fs::read(path).map_err(|error| {
+        OptionRefusal::new(key, format!("the file it names could not be read: {error}"))
+    })
+}
+
+/// Every certificate of a PEM file, in the order the file writes them.
+fn certificates(key: &str, path: &str) -> Result<Vec<CertificateDer<'static>>, OptionRefusal> {
+    let pem = read(key, path)?;
+    let certificates = CertificateDer::pem_slice_iter(&pem)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            OptionRefusal::new(key, format!("the file it names is not PEM: {error}"))
+        })?;
+    if certificates.is_empty() {
+        return Err(OptionRefusal::new(
+            key,
+            "the file it names holds no certificate",
+        ));
+    }
+    Ok(certificates)
+}
+
+impl TlsOptions {
+    /// What these options say, with every file they name read.
+    pub fn load(&self) -> Result<TlsConfig, OptionRefusal> {
+        let accept_any_server = self.allow_unsafe_connection.unwrap_or(false);
+        if accept_any_server && self.ca_cert_path.is_some() {
+            return Err(OptionRefusal::new(
+                "CaCertPath",
+                "it names roots to verify against, and AllowUnsafeConnection verifies nothing",
+            ));
+        }
+
+        let roots = match &self.ca_cert_path {
+            Some(path) => certificates("CaCertPath", path)?,
+            None => Vec::new(),
+        };
+
+        let identity = match (&self.cert_pem, &self.key_pem) {
+            (None, None) => None,
+            (Some(_), None) => {
+                return Err(OptionRefusal::new(
+                    "KeyPem",
+                    "it is missing, and CertPem names a certificate that needs its key",
+                ))
+            }
+            (None, Some(_)) => {
+                return Err(OptionRefusal::new(
+                    "CertPem",
+                    "it is missing, and KeyPem names a key that needs its certificate",
+                ))
+            }
+            (Some(cert), Some(key)) => {
+                let chain = certificates("CertPem", cert)?;
+                let key =
+                    PrivateKeyDer::from_pem_slice(&read("KeyPem", key)?).map_err(|error| {
+                        OptionRefusal::new(
+                            "KeyPem",
+                            format!("the file it names holds no key PEM can carry: {error}"),
+                        )
+                    })?;
+                Some(ClientIdentity { chain, key })
+            }
+        };
+
+        if let Some(name) = &self.override_target_name {
+            crate::http2::verified_name(name)
+                .map_err(|refused| OptionRefusal::new("OverrideTargetName", refused.to_string()))?;
+        }
+
+        Ok(TlsConfig {
+            roots,
+            accept_any_server,
+            identity,
+            server_name: self.override_target_name.clone(),
+        })
+    }
+}
+
+impl TcpKeepaliveOptions {
+    pub fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
+        let keepalive = duration("IdleSeconds", self.idle_seconds, 1.0, Some(32767.0))?;
+        let keepalive_interval =
+            duration("IntervalSeconds", self.interval_seconds, 1.0, Some(32767.0))?;
+        let keepalive_retries = match self.retries {
+            None => None,
+            Some(retries) if !(1..=127).contains(&retries) => {
+                return Err(OptionRefusal::new(
+                    "Retries",
+                    format!("{retries} has to be from 1 to 127"),
+                ))
+            }
+            Some(retries) => Some(retries as u32),
+        };
+        if keepalive.is_none() {
+            for (key, set) in [
+                ("IntervalSeconds", keepalive_interval.is_some()),
+                ("Retries", keepalive_retries.is_some()),
+            ] {
+                if set {
+                    return Err(OptionRefusal::new(
+                        key,
+                        "it needs IdleSeconds, without which the probes start at the operating \
+                         system's idle time",
+                    ));
+                }
+            }
+        }
+        Ok(TcpConfig {
+            keepalive,
+            keepalive_interval,
+            keepalive_retries,
+        })
+    }
+}
+
+impl Http2Options {
+    pub fn to_config(&self) -> Result<Http2Config, OptionRefusal> {
+        let defaults = Http2Config::default();
+        let window = |key: &str, asked: Option<i32>, least: i32, default: u32| match asked {
+            None => Ok(default),
+            Some(size) if size < least => Err(OptionRefusal::new(
+                key,
+                format!("{size} has to be at least {least}"),
+            )),
+            Some(size) => Ok(size as u32),
+        };
+        Ok(Http2Config {
+            keep_alive_interval: duration(
+                "KeepAliveIntervalSeconds",
+                self.keep_alive_interval_seconds,
+                1e-9,
+                None,
+            )?,
+            keep_alive_timeout: duration(
+                "KeepAliveTimeoutSeconds",
+                self.keep_alive_timeout_seconds,
+                1e-9,
+                None,
+            )?
+            .unwrap_or(defaults.keep_alive_timeout),
+            keep_alive_while_idle: self
+                .keep_alive_while_idle
+                .unwrap_or(defaults.keep_alive_while_idle),
+            stream_window: window(
+                "StreamWindowSize",
+                self.stream_window_size,
+                1,
+                defaults.stream_window,
+            )?,
+            connection_window: window(
+                "ConnectionWindowSize",
+                self.connection_window_size,
+                65_535,
+                defaults.connection_window,
+            )?,
+        })
+    }
 }
 
 /// What a caller may set on one channel.
@@ -141,6 +568,12 @@ pub struct ChannelOptions {
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
     pub delivery_credits: Option<i32>,
+
+    /// The HTTP/2 session the channel's calls share.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub http2: Http2Options,
 }
 
 /// The schema of [`ChannelOptions`], as the committed file holds it.
@@ -168,6 +601,244 @@ pub fn schema() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A directory of its own per test, so tests running at once write no file another reads.
+    fn scratch(test: &str) -> std::path::PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "armonik-transport-options-{}-{test}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).expect("a scratch directory");
+        directory
+    }
+
+    fn write(directory: &std::path::Path, name: &str, content: &str) -> String {
+        let path = directory.join(name);
+        std::fs::write(&path, content).expect("a scratch file");
+        path.to_string_lossy().into_owned()
+    }
+
+    /// A certificate and its key, as PEM.
+    fn pem_pair() -> (String, String) {
+        let key = rcgen::KeyPair::generate().expect("a key");
+        let certificate = rcgen::CertificateParams::new(vec!["client.test".to_owned()])
+            .expect("parameters")
+            .self_signed(&key)
+            .expect("a certificate");
+        (certificate.pem(), key.serialize_pem())
+    }
+
+    /// Removes its directory when it goes.
+    struct Scratch(std::path::PathBuf);
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_files_the_tls_options_name_are_read_into_the_engine_configuration() {
+        let directory = scratch("read");
+        let _gone = Scratch(directory.clone());
+        let (certificate, key) = pem_pair();
+        let two = format!("{certificate}{certificate}");
+        let options = TlsOptions {
+            ca_cert_path: Some(write(&directory, "ca.pem", &certificate)),
+            cert_pem: Some(write(&directory, "chain.pem", &two)),
+            key_pem: Some(write(&directory, "key.pem", &key)),
+            override_target_name: Some("server.test".to_owned()),
+            ..TlsOptions::default()
+        };
+
+        let config = options.load().expect("readable files");
+        assert_eq!(config.roots.len(), 1);
+        let identity = config.identity.expect("an identity");
+        assert_eq!(
+            identity.chain.len(),
+            2,
+            "the whole chain, in the file's order"
+        );
+        assert_eq!(config.server_name.as_deref(), Some("server.test"));
+        assert!(!config.accept_any_server);
+    }
+
+    #[test]
+    fn a_tls_refusal_names_its_option_and_never_the_path() {
+        let directory = scratch("refused");
+        let _gone = Scratch(directory.clone());
+        let (certificate, _) = pem_pair();
+        let missing = directory
+            .join("s3cret-name.pem")
+            .to_string_lossy()
+            .into_owned();
+        let empty = write(&directory, "empty.pem", "no PEM here");
+        let certificate = write(&directory, "cert.pem", &certificate);
+
+        for (options, key) in [
+            (
+                TlsOptions {
+                    ca_cert_path: Some(missing.clone()),
+                    ..TlsOptions::default()
+                },
+                "CaCertPath",
+            ),
+            (
+                TlsOptions {
+                    ca_cert_path: Some(empty.clone()),
+                    ..TlsOptions::default()
+                },
+                "CaCertPath",
+            ),
+            (
+                TlsOptions {
+                    cert_pem: Some(certificate.clone()),
+                    ..TlsOptions::default()
+                },
+                "KeyPem",
+            ),
+            (
+                TlsOptions {
+                    key_pem: Some(missing.clone()),
+                    ..TlsOptions::default()
+                },
+                "CertPem",
+            ),
+            (
+                TlsOptions {
+                    cert_pem: Some(certificate.clone()),
+                    key_pem: Some(certificate.clone()),
+                    ..TlsOptions::default()
+                },
+                "KeyPem",
+            ),
+            (
+                TlsOptions {
+                    cert_pem: Some(certificate.clone()),
+                    key_pem: Some(missing.clone()),
+                    ..TlsOptions::default()
+                },
+                "KeyPem",
+            ),
+            (
+                TlsOptions {
+                    ca_cert_path: Some(certificate.clone()),
+                    allow_unsafe_connection: Some(true),
+                    ..TlsOptions::default()
+                },
+                "CaCertPath",
+            ),
+            (
+                TlsOptions {
+                    override_target_name: Some("-nope-".to_owned()),
+                    ..TlsOptions::default()
+                },
+                "OverrideTargetName",
+            ),
+        ] {
+            let refused = options.load().expect_err(key);
+            assert_eq!(refused.key(), key, "{refused}");
+            let said = refused.to_string();
+            assert!(
+                !said.contains("  "),
+                "a refusal reads as one sentence: {said}"
+            );
+            for path in [&missing, &empty, &certificate] {
+                assert!(!said.contains(path.as_str()), "{said}");
+            }
+            assert!(!said.contains("s3cret"), "{said}");
+        }
+    }
+
+    #[test]
+    fn a_unit_refusal_is_named_from_where_the_unit_is_embedded() {
+        let refused = TcpKeepaliveOptions {
+            interval_seconds: Some(Seconds(5.0)),
+            ..TcpKeepaliveOptions::default()
+        }
+        .to_config()
+        .expect_err("an interval with no keepalive")
+        .under("Transport.TcpKeepalive");
+        assert_eq!(refused.key(), "Transport.TcpKeepalive.IntervalSeconds");
+        assert!(!refused.to_string().contains("  "), "{refused}");
+        assert!(refused
+            .to_string()
+            .starts_with("Transport.TcpKeepalive.IntervalSeconds"));
+    }
+
+    #[test]
+    fn the_keepalive_options_become_the_socket_configuration() {
+        let config = TcpKeepaliveOptions {
+            idle_seconds: Some(Seconds(30.0)),
+            interval_seconds: Some(Seconds(5.0)),
+            retries: Some(3),
+        }
+        .to_config()
+        .expect("admissible");
+        assert_eq!(config.keepalive, Some(Duration::from_secs(30)));
+        assert_eq!(config.keepalive_interval, Some(Duration::from_secs(5)));
+        assert_eq!(config.keepalive_retries, Some(3));
+
+        for refused in [
+            TcpKeepaliveOptions {
+                idle_seconds: Some(Seconds(0.5)),
+                ..TcpKeepaliveOptions::default()
+            },
+            TcpKeepaliveOptions {
+                retries: Some(3),
+                ..TcpKeepaliveOptions::default()
+            },
+            TcpKeepaliveOptions {
+                idle_seconds: Some(Seconds(30.0)),
+                retries: Some(0),
+                ..TcpKeepaliveOptions::default()
+            },
+            TcpKeepaliveOptions {
+                idle_seconds: Some(Seconds(32768.0)),
+                ..TcpKeepaliveOptions::default()
+            },
+            TcpKeepaliveOptions {
+                idle_seconds: Some(Seconds(30.0)),
+                retries: Some(128),
+                ..TcpKeepaliveOptions::default()
+            },
+        ] {
+            assert!(refused.to_config().is_err(), "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn the_http2_options_become_the_session_configuration() {
+        let config = Http2Options {
+            keep_alive_interval_seconds: Some(Seconds(10.0)),
+            keep_alive_timeout_seconds: Some(Seconds(2.5)),
+            keep_alive_while_idle: Some(true),
+            stream_window_size: Some(1024),
+            connection_window_size: Some(65_535),
+        }
+        .to_config()
+        .expect("admissible");
+        assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
+        assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
+        assert!(config.keep_alive_while_idle);
+        assert_eq!(
+            (config.stream_window, config.connection_window),
+            (1024, 65_535)
+        );
+
+        assert_eq!(
+            Http2Options::default().to_config().expect("the defaults"),
+            Http2Config::default()
+        );
+
+        let refused = Http2Options {
+            connection_window_size: Some(65_534),
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("below the window every connection starts with");
+        assert_eq!(refused.key(), "ConnectionWindowSize");
+    }
 
     /// The committed schema is what generates the C# class, so it has to be what these types
     /// say - and it cannot be regenerated at build time, since the generator that reads it runs

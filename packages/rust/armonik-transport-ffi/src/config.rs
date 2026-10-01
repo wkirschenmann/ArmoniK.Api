@@ -2,8 +2,8 @@ use std::fmt;
 use std::time::Duration;
 
 use armonik_transport::grpc::GrpcChannelConfig;
-use armonik_transport::http2::TransportConfig;
-use armonik_transport::options::{ChannelOptions, LARGEST_WINDOW};
+use armonik_transport::http2::{Http2Config, TcpConfig, TlsConfig, TransportConfig};
+use armonik_transport::options::{ChannelOptions, OptionRefusal, LARGEST_WINDOW};
 use armonik_transport::reexports::http::Uri;
 
 // What a configuration that names neither gets: one each, the smallest window either admits.
@@ -12,11 +12,15 @@ const DELIVERY_CREDITS: i32 = 1;
 
 /// The options a host sent, read and found admissible.
 ///
-/// The timeout is held as the `Duration` it became rather than as the number it was written as:
-/// converting once, where the document is refused, is what leaves nothing here that can fail.
+/// Each unit is held as the engine configuration it became rather than as what was written:
+/// converting once, where the document is refused, is what leaves nothing here that can fail -
+/// and the files the TLS unit names are read there, once.
 pub(crate) struct ChannelSettings {
     options: ChannelOptions,
     connect_timeout: Option<Duration>,
+    tls: TlsConfig,
+    tcp: TcpConfig,
+    http2: Http2Config,
 }
 
 impl ChannelSettings {
@@ -31,13 +35,17 @@ impl ChannelSettings {
     }
 
     pub(crate) fn into_channel_config(self, endpoint: Uri) -> GrpcChannelConfig {
+        let max_sends_in_flight = self.max_sends_in_flight();
         let mut transport = TransportConfig::new(endpoint);
         if let Some(connect_timeout) = self.connect_timeout {
             transport.connect_timeout = connect_timeout;
         }
+        transport.tls = self.tls;
+        transport.tcp = self.tcp;
+        transport.http2 = self.http2;
 
         let mut config = GrpcChannelConfig::new(transport);
-        config.max_sends_in_flight = self.max_sends_in_flight();
+        config.max_sends_in_flight = max_sends_in_flight;
         config.user_agent = self.options.user_agent;
         if let Some(max) = self.options.max_receive_message_size {
             config.max_recv_message_size = max as usize;
@@ -60,6 +68,8 @@ pub(crate) enum ConfigRefusal {
     EmptyUserAgent,
     /// A connect timeout no `Duration` holds, or one below what it holds.
     ConnectTimeout { seconds: f64 },
+    /// An option of a unit the engine converts, a file it names included.
+    Option(OptionRefusal),
 }
 
 impl fmt::Display for ConfigRefusal {
@@ -89,6 +99,7 @@ impl fmt::Display for ConfigRefusal {
                 "Transport.ConnectTimeoutSeconds is {seconds}, and has to be at least 1e-9 and \
                  less than 2^64"
             ),
+            Self::Option(refused) => refused.fmt(f),
         }
     }
 }
@@ -146,9 +157,27 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
         }
     };
 
+    let tls = options
+        .transport
+        .tls
+        .load()
+        .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Tls")))?;
+    let tcp = options
+        .transport
+        .tcp_keepalive
+        .to_config()
+        .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.TcpKeepalive")))?;
+    let http2 = options
+        .http2
+        .to_config()
+        .map_err(|refused| ConfigRefusal::Option(refused.under("Http2")))?;
+
     Ok(ChannelSettings {
         options,
         connect_timeout,
+        tls,
+        tcp,
+        http2,
     })
 }
 
@@ -203,6 +232,19 @@ mod tests {
         assert_eq!(
             stated("/$defs/TransportOptions/properties/ConnectTimeoutSeconds/description"),
             config.transport.connect_timeout.as_secs_f64()
+        );
+        let http2 = config.transport.http2;
+        assert_eq!(
+            stated("/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/description"),
+            http2.keep_alive_timeout.as_secs_f64()
+        );
+        assert_eq!(
+            stated("/$defs/Http2Options/properties/StreamWindowSize/description"),
+            http2.stream_window as f64
+        );
+        assert_eq!(
+            stated("/$defs/Http2Options/properties/ConnectionWindowSize/description"),
+            http2.connection_window as f64
         );
     }
 
@@ -295,6 +337,135 @@ mod tests {
         assert!(admits(
             r#"{"Transport":{"ConnectTimeoutSeconds":18446744073709549568.0}}"#.to_owned()
         ));
+
+        // The new units' integers, read from where each sits in the document.
+        for (pointer, document) in [
+            (
+                "/$defs/TcpKeepaliveOptions/properties/Retries/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
+            ),
+            (
+                "/$defs/Http2Options/properties/StreamWindowSize/minimum",
+                r#"{"Http2":{"StreamWindowSize":N}}"#,
+            ),
+            (
+                "/$defs/Http2Options/properties/ConnectionWindowSize/minimum",
+                r#"{"Http2":{"ConnectionWindowSize":N}}"#,
+            ),
+        ] {
+            let minimum = stated(pointer).unwrap_or_else(|| panic!("{pointer} states none"));
+            let at = |value: i64| document.replace('N', &value.to_string());
+            assert!(!admits(at(minimum - 1)), "{pointer}: below is admitted");
+            assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
+        }
+        for (pointer, document) in [
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
+            ),
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
+            ),
+            (
+                "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
+                r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
+            ),
+            (
+                "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
+                r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
+            ),
+        ] {
+            let minimum = schema
+                .pointer(pointer)
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or_else(|| panic!("{pointer} states none"));
+            let at = |value: f64| document.replace('N', &format!("{value:e}"));
+            assert!(!admits(at(minimum / 2.0)), "{pointer}: below is admitted");
+            assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
+        }
+    }
+
+    /// A certificate and its key, as PEM files in a directory of the test's own.
+    fn pem_files(test: &str) -> (String, String) {
+        let directory = std::env::temp_dir().join(format!(
+            "armonik-transport-ffi-config-{}-{test}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).expect("a scratch directory");
+        let key = rcgen::KeyPair::generate().expect("a key");
+        let certificate = rcgen::CertificateParams::new(vec!["client.test".to_owned()])
+            .expect("parameters")
+            .self_signed(&key)
+            .expect("a certificate");
+        let write = |name: &str, content: String| {
+            let path = directory.join(name);
+            std::fs::write(&path, content).expect("a scratch file");
+            // As a JSON string: a Windows path's backslashes are escapes there.
+            path.to_string_lossy().replace('\\', "/")
+        };
+        (
+            write("cert.pem", certificate.pem()),
+            write("key.pem", key.serialize_pem()),
+        )
+    }
+
+    #[test]
+    fn every_option_of_the_tls_keepalive_and_http2_units_reaches_the_engine() {
+        let (certificate, key) = pem_files("reaches");
+        let document = format!(
+            r#"{{
+                "Transport": {{
+                    "Tls": {{
+                        "CaCertPath": "{certificate}",
+                        "CertPem": "{certificate}",
+                        "KeyPem": "{key}",
+                        "OverrideTargetName": "server.test"
+                    }},
+                    "TcpKeepalive": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }}
+                }},
+                "Http2": {{
+                    "KeepAliveIntervalSeconds": 10,
+                    "KeepAliveTimeoutSeconds": 2.5,
+                    "KeepAliveWhileIdle": true,
+                    "StreamWindowSize": 1048576,
+                    "ConnectionWindowSize": 3145728
+                }}
+            }}"#
+        );
+        let settings = parse(document.as_bytes()).expect("an admissible document");
+        let _ = std::fs::remove_dir_all(
+            std::path::Path::new(&certificate)
+                .parent()
+                .expect("a directory"),
+        );
+        let config = settings.into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
+
+        let tls = &config.transport.tls;
+        assert_eq!(tls.roots.len(), 1);
+        assert_eq!(
+            tls.identity.as_ref().map(|identity| identity.chain.len()),
+            Some(1)
+        );
+        assert_eq!(tls.server_name.as_deref(), Some("server.test"));
+
+        let tcp = config.transport.tcp;
+        assert_eq!(tcp.keepalive, Some(Duration::from_secs(30)));
+        assert_eq!(tcp.keepalive_interval, Some(Duration::from_secs(5)));
+        assert_eq!(tcp.keepalive_retries, Some(3));
+
+        let http2 = config.transport.http2;
+        assert_eq!(http2.keep_alive_interval, Some(Duration::from_secs(10)));
+        assert_eq!(http2.keep_alive_timeout, Duration::from_millis(2500));
+        assert!(http2.keep_alive_while_idle);
+        assert_eq!(http2.stream_window, 1_048_576);
+        assert_eq!(http2.connection_window, 3_145_728);
+
+        let unsafe_document = br#"{"Transport":{"Tls":{"AllowUnsafeConnection":true}}}"#;
+        let config = parse(unsafe_document)
+            .expect("admissible")
+            .into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
+        assert!(config.transport.tls.accept_any_server);
     }
 
     #[test]
@@ -405,6 +576,18 @@ mod tests {
             (
                 &br#"{"Transport":{"ConnectTimeoutSeconds":"1"}}"#[..],
                 "Transport.ConnectTimeoutSeconds",
+            ),
+            (
+                &br#"{"Transport":{"Tls":{"CaCertPath":"no/such/file.pem"}}}"#[..],
+                "Transport.Tls.CaCertPath",
+            ),
+            (
+                &br#"{"Transport":{"TcpKeepalive":{"Retries":3}}}"#[..],
+                "Transport.TcpKeepalive.Retries",
+            ),
+            (
+                &br#"{"Http2":{"ConnectionWindowSize":65534}}"#[..],
+                "Http2.ConnectionWindowSize",
             ),
         ] {
             let Err(refused) = parse(document) else {

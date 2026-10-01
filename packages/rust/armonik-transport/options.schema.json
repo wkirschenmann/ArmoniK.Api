@@ -11,6 +11,10 @@
       "maximum": 536870910,
       "minimum": 1
     },
+    "Http2": {
+      "description": "The HTTP/2 session the channel's calls share.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+      "$ref": "#/$defs/Http2Options"
+    },
     "MaxReceiveMessageSize": {
       "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
       "type": "integer",
@@ -36,11 +40,101 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "Http2Options": {
+      "description": "The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much\nit lets the peer send ahead of what is read.",
+      "type": "object",
+      "properties": {
+        "ConnectionWindowSize": {
+          "description": "How many bytes the peer may send ahead of what is read, across every call of the channel.\nA call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop\nthe others receiving. At least 65535, the window every connection starts with.\n\nDefaults to 5242880, 5 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 65535
+        },
+        "KeepAliveIntervalSeconds": {
+          "description": "How often a PING is sent to the peer. Defaults to none sent.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "KeepAliveTimeoutSeconds": {
+          "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "KeepAliveWhileIdle": {
+          "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
+          "type": "boolean"
+        },
+        "StreamWindowSize": {
+          "description": "How many bytes of one call the peer may send ahead of what is read.\n\nDefaults to 2097152, 2 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "Seconds": {
       "description": "A duration, in seconds.\n\nSeconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory\nlayout rather than anything a document would write. A number carries no unit, so every\noption of this type names one: `connect_timeout_seconds`, not `connect_timeout`.\n\nThe ceiling is the type's own and not any one option's: every `Seconds` becomes a `Duration`,\nand `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here\nrather than left to the conversion, which refuses correctly but names no option when it does -\na caller then reads that their configuration was refused and not which line of it.",
       "type": "number",
       "format": "double",
       "exclusiveMaximum": 1.8446744073709552e+19
+    },
+    "TcpKeepaliveOptions": {
+      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.",
+      "type": "object",
+      "properties": {
+        "IdleSeconds": {
+          "description": "How long the connection may be idle before the first probe, from a second to 32767, the\nmost Linux holds.",
+          "$ref": "#/$defs/Seconds",
+          "maximum": 32767.0,
+          "minimum": 1.0
+        },
+        "IntervalSeconds": {
+          "description": "How long between two probes, from a second to 32767. Defaults to the operating system's.\n\nRefused without `IdleSeconds`.",
+          "$ref": "#/$defs/Seconds",
+          "maximum": 32767.0,
+          "minimum": 1.0
+        },
+        "Retries": {
+          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nRefused without `IdleSeconds`.",
+          "type": "integer",
+          "format": "int32",
+          "maximum": 127,
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "TlsOptions": {
+      "description": "How an `https://` endpoint is secured. Each file is read when the channel is created, so a\npath that names nothing usable is refused then, by its option's name.",
+      "type": "object",
+      "properties": {
+        "AllowUnsafeConnection": {
+          "description": "Accept any server certificate. The connection is still encrypted, to whoever answers.\n\nDefaults to false.",
+          "type": "boolean"
+        },
+        "CaCertPath": {
+          "description": "Path to a PEM file of the roots the server certificate is verified against, in place of\nthe system's. Every certificate the file holds is a root.\n\nRefused together with `AllowUnsafeConnection`, which verifies nothing.",
+          "type": "string",
+          "minLength": 1
+        },
+        "CertPem": {
+          "description": "Path to a PEM file of the client's certificate, then each issuer the server may not hold.\n\nSet together with `KeyPem`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "KeyPem": {
+          "description": "Path to a PEM file of the key of the client's certificate.\n\nSet together with `CertPem`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "OverrideTargetName": {
+          "description": "The host the server certificate is verified against, and sent as SNI, in place of the\nendpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is\nnot read.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
     },
     "TransportOptions": {
       "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it is\npassed when the channel is opened rather than set as an option that happens to be mandatory.\nEvery option has a default, so naming none of them is a valid configuration.",
@@ -50,6 +144,14 @@
           "description": "How long a dial may take before it is given up on.\n\nDefaults to 60, and at least a nanosecond, the finest duration the engine holds: a shorter\none could round to zero, which no dial could beat.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
+        },
+        "TcpKeepalive": {
+          "description": "The socket's keepalive.\n\nDefaults to `{}`, which sets none.",
+          "$ref": "#/$defs/TcpKeepaliveOptions"
+        },
+        "Tls": {
+          "description": "How an `https://` endpoint is secured.\n\nDefaults to `{}`: the server verified against the system's roots under the endpoint's\nhost, and no client certificate. Refused for an `http://` endpoint unless it sets nothing.",
+          "$ref": "#/$defs/TlsOptions"
         }
       },
       "additionalProperties": false

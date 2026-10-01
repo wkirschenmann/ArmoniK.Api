@@ -222,20 +222,24 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
     unsafe { refusal::answer(out_error, answered) }
 }
 
-/// Creates a channel on an endpoint, configured by a JSON document. Synchronous and performs no
-/// I/O: no name is resolved and no socket opened until the channel's first call. A bad endpoint or
-/// a bad document is AK_STATUS_INVALID_ARG, and so is a null out or a null slice with a non-zero
-/// length; a runtime handle that names nothing is AK_STATUS_HANDLE_STALE, and one that is shutting
-/// down is AK_STATUS_INVALID_STATE.
+/// Creates a channel on an endpoint, configured by a JSON document. Synchronous: it reads the
+/// certificate files the document names, and resolves no name and opens no socket until the
+/// channel's first call. A bad endpoint or a bad document is AK_STATUS_INVALID_ARG, a file that
+/// cannot be read or holds nothing usable included, and so is a null out or a null slice with a
+/// non-zero length; a runtime handle that names nothing is AK_STATUS_HANDLE_STALE, and one that is
+/// shutting down is AK_STATUS_INVALID_STATE.
 ///
-/// The endpoint is its own argument, as UTF-8 - "http://host:port". It is the one value a channel
-/// cannot be created without, so it is not an option that happens to be mandatory: every option of
-/// the document has a default, and `{}` is a valid configuration.
+/// The endpoint is its own argument, as UTF-8 - "http://host:port" in the clear, or
+/// "https://host:port" over TLS. It is the one value a channel cannot be created without, so it is
+/// not an option that happens to be mandatory: every option of the document has a default, and
+/// `{}` is a valid configuration.
 ///
 /// The document is structured and typed, and a JSON schema states it: objects nest, a number is a
 /// number and not a string spelled like one, and an option spelled wrong is refused rather than
-/// ignored. It carries UserAgent, MaxReceiveMessageSize, DeliveryCredits, MaxSendsInFlight, and
-/// a Transport object holding ConnectTimeoutSeconds.
+/// ignored. It carries UserAgent, MaxReceiveMessageSize, DeliveryCredits, MaxSendsInFlight, an
+/// Http2 object for the session's keepalive and windows, and a Transport object holding
+/// ConnectTimeoutSeconds, a Tls object of the paths and choices that secure an https:// endpoint,
+/// and a TcpKeepalive object.
 ///
 /// The two windows mirror each other. DeliveryCredits bounds the payloads of one call outstanding
 /// at once - the terminal status takes no credit, so a host holds at most one more - and the host

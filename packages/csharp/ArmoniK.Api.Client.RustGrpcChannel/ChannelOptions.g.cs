@@ -54,6 +54,9 @@ public sealed class ChannelOptions
     }
 
     DeliveryCredits = other.DeliveryCredits;
+    Http2 = other.Http2 is null
+              ? null
+              : new Http2Options(other.Http2);
     MaxReceiveMessageSize = other.MaxReceiveMessageSize;
     MaxSendsInFlight = other.MaxSendsInFlight;
     Transport = other.Transport is null
@@ -70,6 +73,12 @@ public sealed class ChannelOptions
   [JsonPropertyName("DeliveryCredits")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? DeliveryCredits { get; set; }
+
+  /// <summary>The HTTP/2 session the channel's calls share.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Http2")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public Http2Options? Http2 { get; set; }
 
   /// <summary>The largest message this client will accept, in bytes.</summary>
   /// <remarks>
@@ -131,6 +140,7 @@ public sealed class ChannelOptions
                                             "UserAgent has to be at least 1 character long.");
     }
 
+    Http2?.Validate();
     Transport?.Validate();
   }
 
@@ -147,6 +157,101 @@ public sealed class ChannelOptions
 
     return JsonSerializer.SerializeToUtf8Bytes(this,
                                                ChannelOptionsJsonContext.Default.ChannelOptions);
+  }
+}
+
+/// <summary>
+///   The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
+///   it lets the peer send ahead of what is read.
+/// </summary>
+public sealed class Http2Options
+{
+  /// <summary>Options nobody has set.</summary>
+  public Http2Options()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public Http2Options(Http2Options other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    ConnectionWindowSize = other.ConnectionWindowSize;
+    KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
+    KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
+    KeepAliveWhileIdle = other.KeepAliveWhileIdle;
+    StreamWindowSize = other.StreamWindowSize;
+  }
+
+  /// <summary>
+  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
+  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
+  ///   the others receiving. At least 65535, the window every connection starts with.
+  /// </summary>
+  /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
+  [JsonPropertyName("ConnectionWindowSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? ConnectionWindowSize { get; set; }
+
+  /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
+  [JsonPropertyName("KeepAliveIntervalSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? KeepAliveIntervalSeconds { get; set; }
+
+  /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
+  /// <remarks>Defaults to 20.</remarks>
+  [JsonPropertyName("KeepAliveTimeoutSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? KeepAliveTimeoutSeconds { get; set; }
+
+  /// <summary>Whether a PING is also sent while no call is open.</summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("KeepAliveWhileIdle")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public bool? KeepAliveWhileIdle { get; set; }
+
+  /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
+  /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
+  [JsonPropertyName("StreamWindowSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? StreamWindowSize { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
+    {
+      throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
+                                            connectionWindowSize,
+                                            "ConnectionWindowSize has to be at least 65535.");
+    }
+
+    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 1E-09 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(KeepAliveIntervalSeconds),
+                                            keepAliveIntervalSeconds,
+                                            "KeepAliveIntervalSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (KeepAliveTimeoutSeconds is double keepAliveTimeoutSeconds && (keepAliveTimeoutSeconds < 1E-09 || keepAliveTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveTimeoutSeconds) || double.IsInfinity(keepAliveTimeoutSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(KeepAliveTimeoutSeconds),
+                                            keepAliveTimeoutSeconds,
+                                            "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
+                                            streamWindowSize,
+                                            "StreamWindowSize has to be at least 1.");
+    }
   }
 }
 
@@ -174,6 +279,12 @@ public sealed class TransportOptions
     }
 
     ConnectTimeoutSeconds = other.ConnectTimeoutSeconds;
+    TcpKeepalive = other.TcpKeepalive is null
+                     ? null
+                     : new TcpKeepaliveOptions(other.TcpKeepalive);
+    Tls = other.Tls is null
+            ? null
+            : new TlsOptions(other.Tls);
   }
 
   /// <summary>How long a dial may take before it is given up on.</summary>
@@ -185,6 +296,21 @@ public sealed class TransportOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? ConnectTimeoutSeconds { get; set; }
 
+  /// <summary>The socket's keepalive.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets none.</remarks>
+  [JsonPropertyName("TcpKeepalive")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public TcpKeepaliveOptions? TcpKeepalive { get; set; }
+
+  /// <summary>How an <c>https://</c> endpoint is secured.</summary>
+  /// <remarks>
+  ///   Defaults to <c>{}</c>: the server verified against the system's roots under the endpoint's
+  ///   host, and no client certificate. Refused for an <c>http://</c> endpoint unless it sets nothing.
+  /// </remarks>
+  [JsonPropertyName("Tls")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public TlsOptions? Tls { get; set; }
+
   /// <summary>Refuses an option outside the range this channel accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -194,6 +320,181 @@ public sealed class TransportOptions
       throw new ArgumentOutOfRangeException(nameof(ConnectTimeoutSeconds),
                                             connectTimeoutSeconds,
                                             "ConnectTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    TcpKeepalive?.Validate();
+    Tls?.Validate();
+  }
+}
+
+/// <summary>The socket's keepalive, off unless <c>IdleSeconds</c> is set.</summary>
+/// <remarks>Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.</remarks>
+public sealed class TcpKeepaliveOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public TcpKeepaliveOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public TcpKeepaliveOptions(TcpKeepaliveOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    IdleSeconds = other.IdleSeconds;
+    IntervalSeconds = other.IntervalSeconds;
+    Retries = other.Retries;
+  }
+
+  /// <summary>
+  ///   How long the connection may be idle before the first probe, from a second to 32767, the
+  ///   most Linux holds.
+  /// </summary>
+  [JsonPropertyName("IdleSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? IdleSeconds { get; set; }
+
+  /// <summary>How long between two probes, from a second to 32767. Defaults to the operating system's.</summary>
+  /// <remarks>Refused without <c>IdleSeconds</c>.</remarks>
+  [JsonPropertyName("IntervalSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? IntervalSeconds { get; set; }
+
+  /// <summary>
+  ///   How many probes go unanswered before the connection is dropped, at most 127, the most
+  ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
+  /// </summary>
+  /// <remarks>Refused without <c>IdleSeconds</c>.</remarks>
+  [JsonPropertyName("Retries")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? Retries { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (IdleSeconds is double idleSeconds && (idleSeconds < 1 || idleSeconds > 32767 || idleSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleSeconds) || double.IsInfinity(idleSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
+                                            idleSeconds,
+                                            "IdleSeconds has to be at least 1 and at most 32767 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (IntervalSeconds is double intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767 || intervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(intervalSeconds) || double.IsInfinity(intervalSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
+                                            intervalSeconds,
+                                            "IntervalSeconds has to be at least 1 and at most 32767 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (Retries is int retries && (retries < 1 || retries > 127))
+    {
+      throw new ArgumentOutOfRangeException(nameof(Retries),
+                                            retries,
+                                            "Retries has to be at least 1 and at most 127.");
+    }
+  }
+}
+
+/// <summary>
+///   How an <c>https://</c> endpoint is secured. Each file is read when the channel is created, so a
+///   path that names nothing usable is refused then, by its option's name.
+/// </summary>
+public sealed class TlsOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public TlsOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public TlsOptions(TlsOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    AllowUnsafeConnection = other.AllowUnsafeConnection;
+    CaCertPath = other.CaCertPath;
+    CertPem = other.CertPem;
+    KeyPem = other.KeyPem;
+    OverrideTargetName = other.OverrideTargetName;
+  }
+
+  /// <summary>Accept any server certificate. The connection is still encrypted, to whoever answers.</summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("AllowUnsafeConnection")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public bool? AllowUnsafeConnection { get; set; }
+
+  /// <summary>
+  ///   Path to a PEM file of the roots the server certificate is verified against, in place of
+  ///   the system's. Every certificate the file holds is a root.
+  /// </summary>
+  /// <remarks>Refused together with <c>AllowUnsafeConnection</c>, which verifies nothing.</remarks>
+  [JsonPropertyName("CaCertPath")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? CaCertPath { get; set; }
+
+  /// <summary>Path to a PEM file of the client's certificate, then each issuer the server may not hold.</summary>
+  /// <remarks>Set together with <c>KeyPem</c>.</remarks>
+  [JsonPropertyName("CertPem")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? CertPem { get; set; }
+
+  /// <summary>Path to a PEM file of the key of the client's certificate.</summary>
+  /// <remarks>Set together with <c>CertPem</c>.</remarks>
+  [JsonPropertyName("KeyPem")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? KeyPem { get; set; }
+
+  /// <summary>
+  ///   The host the server certificate is verified against, and sent as SNI, in place of the
+  ///   endpoint's: a DNS name or an IP address, <c>[::1]</c> for IPv6, with an optional port that is
+  ///   not read.
+  /// </summary>
+  [JsonPropertyName("OverrideTargetName")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? OverrideTargetName { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (CaCertPath is string caCertPath && caCertPath.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CaCertPath),
+                                            caCertPath,
+                                            "CaCertPath has to be at least 1 character long.");
+    }
+
+    if (CertPem is string certPem && certPem.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CertPem),
+                                            certPem,
+                                            "CertPem has to be at least 1 character long.");
+    }
+
+    if (KeyPem is string keyPem && keyPem.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(KeyPem),
+                                            keyPem,
+                                            "KeyPem has to be at least 1 character long.");
+    }
+
+    if (OverrideTargetName is string overrideTargetName && overrideTargetName.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
+                                            overrideTargetName,
+                                            "OverrideTargetName has to be at least 1 character long.");
     }
   }
 }

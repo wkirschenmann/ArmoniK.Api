@@ -202,7 +202,12 @@ async fn a_window_or_a_keepalive_no_session_could_use_is_refused() {
 /// socket could take is refused before a dial.
 #[tokio::test]
 async fn a_tcp_keepalive_no_socket_could_use_is_refused() {
-    let changes: [fn(&mut TransportConfig); 5] = [
+    let changes: [fn(&mut TransportConfig); 7] = [
+        |transport| transport.tcp.keepalive = Some(Duration::from_secs(32768)),
+        |transport| {
+            transport.tcp.keepalive = Some(Duration::from_secs(30));
+            transport.tcp.keepalive_retries = Some(128);
+        },
         |transport| transport.tcp.keepalive = Some(Duration::from_millis(500)),
         |transport| {
             transport.tcp.keepalive = Some(Duration::from_secs(30));
