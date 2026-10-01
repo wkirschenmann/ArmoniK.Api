@@ -2,10 +2,10 @@
 """Checks that every acting ABI function appears in the level-1 mapping table,
 and that every function the table names exists in the ABI.
 
-The ABI is the committed header, not design.md: read from the document the
-table lives in, this gate compared that document to itself and could see
-neither a symbol the header declares and the design forgot, nor a declaration
-the design carries and nothing implements.
+The ABI is the committed header. What is checked against it is the design:
+the declarations abi.md specifies, and the tables of formal-model.md - so a
+symbol the header declares and the design forgot is reported, and so is a
+declaration the design carries and nothing implements.
 
 An acting function changes state the model carries, so it has a linearization
 point and the table is where that point is recorded - the table calls itself
@@ -30,7 +30,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TLA = os.path.dirname(HERE)
 SPEC = os.path.dirname(TLA)
 REPO = os.path.dirname(os.path.dirname(SPEC))
-DOC = os.path.join(SPEC, "design.md")
+# The ABI as the design specifies it, and the model the tables map it to.
+ABI_DOC = os.path.join(SPEC, "abi.md")
+MODEL_DOC = os.path.join(SPEC, "formal-model.md")
 ABI = os.path.join(REPO, "packages", "rust", "armonik-transport-ffi", "include",
                    "armonik_transport_ffi.h")
 
@@ -45,18 +47,20 @@ OBSERVATIONAL = {
     "ak_runtime_memory_usage",
 }
 
-# Functions design.md specifies and the header does not declare yet, with what
+# Functions abi.md specifies and the header does not declare yet, with what
 # builds each.  Listed by name for the same reason as the exemptions above: a
 # design that runs ahead of the ABI is a deliberate act, and an entry that
 # stops being true is reported rather than assumed.
 NOT_BUILT = {
     "ak_error_release": "T4.0, the ABI's error channel",
     "ak_runtime_memory_usage_detailed":
-        "design.md's own \"What the ABI does not yet implement\"",
+        "abi.md's own \"What the ABI does not yet implement\"",
 }
 
 TABLE_START = "### Where each level-1 action happens"
-TABLE_END = "### JSON configuration schema"
+# The region ends at the next heading of level two, so a section after the table
+# cannot lend it names.
+TABLE_END = "\n## "
 
 # The argument table lives inside the same region and records, per ABI
 # argument, what it becomes in the model or why it does not.  Every argument
@@ -120,10 +124,10 @@ def table_region(doc):
 
 
 def main():
-    doc = read(DOC)
+    doc = read(MODEL_DOC)
     abi = read(ABI)
     declared = declared_functions(abi)
-    designed = declared_functions(doc)
+    designed = declared_functions(read(ABI_DOC))
     table = table_region(doc)
     named = set(re.findall(r"ak_\w+", table))
 
@@ -164,10 +168,10 @@ def main():
               % fn)
     for fn in sorted(designed - declared - set(NOT_BUILT)):
         ok = False
-        print("  design.md declares %s and the header does not" % fn)
+        print("  abi.md declares %s and the header does not" % fn)
     for fn in sorted(declared - designed):
         ok = False
-        print("  the header declares %s and design.md does not describe it"
+        print("  the header declares %s and abi.md does not describe it"
               % fn)
     for fn in sorted(set(NOT_BUILT) & declared):
         ok = False

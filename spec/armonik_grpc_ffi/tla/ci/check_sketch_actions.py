@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks that every action the document's implementation sketches cite is an
+"""Checks that every action the design's implementation sketches cite is an
 action the specification actually has.
 
 The sketches are normative: they say what the code must do, step by step, and
@@ -25,7 +25,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TLA = os.path.dirname(HERE)
-DOC = os.path.join(os.path.dirname(TLA), "design.md")
+# Every document of the design, since a sketch may sit in any of them.
+DOCS = [os.path.join(os.path.dirname(TLA), name)
+        for name in ("contract.md", "abi.md", "architecture.md",
+                     "formal-model.md", "decisions.md")]
 
 # A citation: "// TLA: Name", "// TLA: A, B", "// TLA: A against B", and so
 # on.  Matched anywhere in a comment rather than only at its start, so a
@@ -44,9 +47,10 @@ DEFN = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*==",
 
 
 def main():
-    if not os.path.isfile(DOC):
-        print("check_sketch_actions: no design.md at %s" % DOC)
-        return 1
+    for doc in DOCS:
+        if not os.path.isfile(doc):
+            print("check_sketch_actions: no document at %s" % doc)
+            return 1
 
     defined = set()
     for f in os.listdir(TLA):
@@ -58,19 +62,20 @@ def main():
         print("check_sketch_actions: no definition found in %s" % TLA)
         return 1
 
-    doc = io.open(DOC, encoding="utf-8").read()
     # Only inside fenced code blocks: prose that mentions the marker is
     # discussing it, not citing an action, and a checker that reads its own
     # documentation as input fails on it.
     cites, bad = 0, []
-    for fence in FENCE.finditer(doc):
-        body, base = fence.group(1), fence.start(1)
-        for m in CITE.finditer(body):
-            line = doc.count("\n", 0, base + m.start()) + 1
-            for name in NAME.findall(m.group(1)):
-                cites += 1
-                if name not in defined:
-                    bad.append((line, name))
+    for path in DOCS:
+        doc = io.open(path, encoding="utf-8").read()
+        for fence in FENCE.finditer(doc):
+            body, base = fence.group(1), fence.start(1)
+            for m in CITE.finditer(body):
+                line = doc.count("\n", 0, base + m.start()) + 1
+                for name in NAME.findall(m.group(1)):
+                    cites += 1
+                    if name not in defined:
+                        bad.append((os.path.basename(path), line, name))
 
     if not cites:
         print("check_sketch_actions: no sketch cites an action - the "
@@ -79,8 +84,8 @@ def main():
 
     if bad:
         print("Sketches citing actions the specification does not define:")
-        for line, name in bad:
-            print("  design.md:%d: %s" % (line, name))
+        for path, line, name in bad:
+            print("  %s:%d: %s" % (path, line, name))
         return 1
 
     print("OK: %d action citations in the sketches, all defined." % cites)

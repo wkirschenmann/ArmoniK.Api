@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Checks that every derived invariant is named in design.md's list of them.
+"""Checks that every derived invariant is named in formal-model.md's list of
+them.
 
 A derived invariant is one a level-2 theorem carries as `Spec => []Inv`
 without it being a manifest conjunct: a fact about the machine that no safety
@@ -24,7 +25,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TLA = os.path.dirname(HERE)
 SPEC = os.path.dirname(TLA)
-DOC = os.path.join(SPEC, "design.md")
+DOC = os.path.join(SPEC, "formal-model.md")
 PROOFS = os.path.join(TLA, "DotNetBindingTheorems_proofs.tla")
 DEFS = os.path.join(TLA, "DotNetBinding_defs.tla")
 
@@ -66,7 +67,7 @@ def carried():
 
 
 def listed():
-    """The names design.md's derived-invariants table gives, in order."""
+    """The names formal-model.md's derived-invariants table gives, in order."""
     doc = io.open(DOC, encoding="utf-8").read()
     if SECTION not in doc:
         return None
@@ -81,7 +82,7 @@ def listed():
 def main():
     names = listed()
     if names is None:
-        print('MISSING: design.md has no "%s" section' % SECTION)
+        print('MISSING: formal-model.md has no "%s" section' % SECTION)
         return 1
     skip = AGGREGATES | manifest_names()
     derived = {i: t for i, t in carried().items() if i not in skip}
@@ -97,7 +98,7 @@ def main():
                   "no theorem states Spec => []%s" % (name, name))
             ok = False
     if ok:
-        print("OK: %d derived invariants, each listed in design.md."
+        print("OK: %d derived invariants, each listed in formal-model.md."
               % len(derived))
     return 0 if ok else 1
 

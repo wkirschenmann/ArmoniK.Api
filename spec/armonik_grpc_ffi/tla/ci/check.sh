@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fast checks: the declaration/proof consistency contract, the binding
-# between design.md's property lists and the manifests, and SANY on the
+# between formal-model.md's property lists and the manifests, and SANY on the
 # SANY-clean modules (the proofs module is tlapm territory: it contains
 # [](A => A') forms that SANY rejects but tlapm accepts).
 set -u

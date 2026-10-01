@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Checks that design.md's normative property lists and the manifests in the
-TLA+ modules name the same properties.
+"""Checks that formal-model.md's normative property lists and the manifests in
+the TLA+ modules name the same properties.
 
 Each level's list in the document is bound to the conjunctions that level
 proves.  A property the document claims but no manifest carries is a promise
@@ -23,7 +23,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TLA = os.path.dirname(HERE)
 SPEC = os.path.dirname(TLA)
-DOC = os.path.join(SPEC, "design.md")
+DOC = os.path.join(SPEC, "formal-model.md")
 
 # Structural conjuncts of a manifest that the document deliberately does not
 # list: they say the state is well typed, not what the library guarantees.
@@ -154,7 +154,8 @@ def main():
             ok = False
             print("  %s: %s is in a manifest but undocumented" % (level, name))
     if ok:
-        print("OK: design.md and the TLA+ manifests name the same properties.")
+        print("OK: formal-model.md and the TLA+ manifests name the same "
+              "properties.")
         return 0
     return 1
 

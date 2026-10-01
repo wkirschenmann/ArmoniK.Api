@@ -94,11 +94,11 @@ path.
 | Document | What it holds |
 |----------|---------------|
 | [requirements.md](requirements.md) | What the transport must do, as acceptance criteria. A criterion not yet met names the task that meets it. |
-| [design.md](design.md) | How: each layer's contract, the ABI's semantics, the models' structure, the risks. Its implementation sketches are normative. |
+| [design.md](design.md) | How, in five documents it indexes: [contract.md](contract.md), each layer's promises; [abi.md](abi.md), the ABI's semantics; [architecture.md](architecture.md), the implementation, whose sketches are normative; [formal-model.md](formal-model.md), the models' structure, the implementation's risk register and the models' mapping to the code; [decisions.md](decisions.md), the decision log. |
 | [tasks.md](tasks.md) | The plan, in phases. Each task's status records what shipped and where the plan did not survive. |
 | [tla/](tla/) | The TLA+ models, at three levels each refining the one before - gRPC in the abstract, the C ABI, the .NET binding - proved with TLAPS. |
-| `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h` | The ABI as a C host reads it. T3.6 moves its reference to the Rust. |
+| `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h` | The ABI as a C host reads it, rendered from the crate's Rust, which is its reference. |
 
-Where they disagree on how, the TLA+ models win over design.md, and design.md over tasks.md.
+Where they disagree on how, the TLA+ models win over the design, and the design over tasks.md.
 What V1 includes is requirements.md's criteria, and what it excludes is that document's
 "Out of scope for V1".
