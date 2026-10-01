@@ -443,7 +443,7 @@ ak_runtime_begin_shutdown(rt)      -> closes the start gate
      |  these two are independent, in either order:  |
      |                                   |
      |  the runtime publishes AK_RUNTIME_GRPC_STOPPED
-     |  (Hyper and Tonic are done; the dispatch thread is not)
+     |  (Hyper and Tonic are done; the teardown thread is not)
      |                                   |
      |  if host_debt == AK_HOST_MUST_RETURN:
      |    the host consumes every payload and returns every buffer,

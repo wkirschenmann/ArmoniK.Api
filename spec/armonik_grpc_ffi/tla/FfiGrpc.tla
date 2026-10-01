@@ -563,7 +563,7 @@ ShutdownCallbackReturns(rtId) ==
 
 \* Release happens after the SHUTDOWN_COMPLETE callback has returned, and it
 \* publishes AK_RUNTIME_GRPC_STOPPED: the gRPC machinery - channels,
-\* connections, transport - is done.  The dispatch thread is not: it may still
+\* connections, transport - is done.  The teardown thread is not: it may still
 \* have RESOURCES_RELEASED to carry, which is why the status and not this step
 \* is the gate for unloading.
 RuntimeRelease(rtId) ==

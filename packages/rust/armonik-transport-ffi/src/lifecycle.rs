@@ -113,15 +113,15 @@ async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledge
         ak_host_debt::AK_HOST_MUST_RETURN
     };
 
-    // The state before the event that announces it, so a host that reads the status from
-    // inside the callback reads STOPPED. Nothing gates on STOPPED - destroy wants QUIESCENT,
-    // the gate and `start_stopping` want RUNNING - so publishing it early costs nothing.
-    //
     // Two signals, because the host may still hold payloads and buffers when the gRPC side
     // stops: this one says whether it does, and RESOURCES_RELEASED below says it has given
     // them all back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
-    reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
+    //
+    // STOPPED once the callback has returned, as level 1's RuntimeRelease has it, so a host
+    // that reads the status from inside the callback reads STOPPING. QUIESCENT is derived from
+    // STOPPED and the teardown thread's end, so the store comes before `tear_down` below.
     host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
+    reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
 
     let owed = debt == ak_host_debt::AK_HOST_MUST_RETURN;
     if owed {

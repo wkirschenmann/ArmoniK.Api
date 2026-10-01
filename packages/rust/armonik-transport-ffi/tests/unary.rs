@@ -585,6 +585,8 @@ fn a_runtime_the_host_still_owes_says_so_and_reaches_quiescence_when_it_is_paid(
         Some(ak_host_debt::AK_HOST_MUST_RETURN),
         "the host is still holding the call's payloads"
     );
+    // Waited for: the event is recorded inside the callback, and STOPPED follows its return.
+    host.await_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED);
     assert_eq!(
         ak_runtime_status(host.runtime),
         ak_runtime_state::AK_RUNTIME_GRPC_STOPPED,
@@ -630,6 +632,23 @@ fn a_runtime_that_owes_nothing_gets_one_shutdown_event_and_no_second() {
     assert_eq!(
         host.recorder.shutdown_debt(),
         Some(ak_host_debt::AK_HOST_NOTHING_TO_RETURN)
+    );
+}
+
+/// Level 1's RuntimeRelease publishes GRPC_STOPPED once the SHUTDOWN_COMPLETE callback has
+/// returned, so the callback itself reads the runtime still stopping.
+#[test]
+fn the_shutdown_callback_reads_the_runtime_still_stopping() {
+    let host = Host::start();
+    host.stop();
+
+    let shutdown = host
+        .recorder
+        .last_of(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
+        .expect("the shutdown was announced");
+    assert_eq!(
+        shutdown.runtime_state_inside,
+        Some(ak_runtime_state::AK_RUNTIME_GRPC_STOPPING)
     );
 }
 

@@ -20,7 +20,7 @@ pub use server::TestServer;
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -35,6 +35,8 @@ pub struct Event {
     pub had_owner: bool,
     /// The name of the thread this callback ran on, which is what says where it came from.
     pub on_thread: Option<String>,
+    /// The runtime's status, read from inside the callback of a runtime event.
+    pub runtime_state_inside: Option<ak_runtime_state>,
     owner: usize,
 }
 
@@ -43,11 +45,12 @@ pub struct Recorder {
     seen: Mutex<Vec<Event>>,
     arrived: Condvar,
     holding: AtomicBool,
+    runtime: AtomicU64,
 }
 
 pub unsafe extern "C" fn on_event(
     runtime_ctx: *mut c_void,
-    _call_ctx: *mut c_void,
+    call_ctx: *mut c_void,
     event: *const ak_event,
 ) {
     let (recorder, event) = unsafe { (&*(runtime_ctx as *const Recorder), &*event) };
@@ -59,6 +62,10 @@ pub unsafe extern "C" fn on_event(
         unsafe { std::slice::from_raw_parts(event.payload.ptr, event.payload.len) }.to_vec()
     };
 
+    let runtime_state_inside = call_ctx
+        .is_null()
+        .then(|| ak_runtime_status(recorder.runtime.load(Ordering::Acquire)));
+
     let holding = recorder.holding.load(Ordering::Acquire);
     recorder.record(Event {
         kind: event.kind,
@@ -67,6 +74,7 @@ pub unsafe extern "C" fn on_event(
         host_debt: event.host_debt,
         had_owner: !owner.is_null(),
         on_thread: std::thread::current().name().map(str::to_owned),
+        runtime_state_inside,
         owner: if holding { owner as usize } else { 0 },
     });
 
@@ -107,6 +115,11 @@ impl Recorder {
             .rev()
             .find(|event| event.kind == kind)
             .cloned()
+    }
+
+    /// The runtime whose status a runtime event's callback reads.
+    pub fn watch_runtime(&self, runtime: ak_handle) {
+        self.runtime.store(runtime, Ordering::Release);
     }
 
     pub fn hold_payloads(&self) {

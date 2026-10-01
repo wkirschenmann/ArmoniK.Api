@@ -415,12 +415,13 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///
   /// The runtime's own shutdown has two parts and this waits on each in the way that part admits.
   /// The functional shutdown - every channel closed, every callback returned, every payload given
-  /// back - ends with SHUTDOWN_COMPLETE, and the engine stores GRPC_STOPPED before it emits it, so
-  /// a wait on the event reads a state that has already moved. What follows is a thread outside
-  /// tokio stopping the workers, and QUIESCENT is that thread having finished: no event can
-  /// announce it, because whatever emitted the announcement would be running on the thread whose
-  /// end it reports. So the long part is waited on by its event and read again every 100 ms,
-  /// because a shutdown that fails announces nothing, and the join is polled.
+  /// back - ends with SHUTDOWN_COMPLETE, and the engine stores GRPC_STOPPED once its callback has
+  /// returned, so a wait the event wakes may still read STOPPING and reads again within 100 ms.
+  /// What follows is a thread outside tokio stopping the workers, and QUIESCENT is that thread
+  /// having finished: no event can announce it, because whatever emitted the announcement would be
+  /// running on the thread whose end it reports. So the long part is waited on by its event and
+  /// read again every 100 ms, because a shutdown that fails announces nothing, and the join is
+  /// polled.
   ///
   /// <para>
   ///   And there is no deadline, for the reason the engine gives for dropping its own: this state
@@ -514,9 +515,9 @@ public sealed class NativeRuntime : IAsyncDisposable
 
       else if (target is NativeRuntime runtime)
       {
-        // A runtime-level event carries no payload, and what it carries instead is that the state
-        // has moved: the engine stores the new one before it emits the event. So this is a
-        // wake-up, and the waiter reads the state for itself.
+        // A runtime-level event carries no payload, only that the state is moving: the engine
+        // stores STOPPED once this callback has returned. So this is a wake-up, and the waiter
+        // reads the state for itself, again later if it still reads STOPPING.
         runtime.announced_.Set();
       }
     }

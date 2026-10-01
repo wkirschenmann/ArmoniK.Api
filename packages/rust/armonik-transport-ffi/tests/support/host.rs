@@ -69,6 +69,7 @@ impl Host {
             ak_runtime_status(runtime),
             ak_runtime_state::AK_RUNTIME_RUNNING
         );
+        recorder.watch_runtime(runtime);
 
         Self {
             runtime,
