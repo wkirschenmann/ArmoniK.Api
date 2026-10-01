@@ -950,6 +950,17 @@ carries.
 
 **Deliverable**: a unary call through an explicit HTTP proxy, and no credential in any message.
 
+**Status**: done. `Transport.Proxy` carries `Address` - `none`, or the proxy's `http://` URL - and
+`Username` and `Password`, the same three `GrpcClient` has; `system` waits for T5.2 and is refused
+until then, rather than dialled as a host of that name. The engine's connector tunnels through it
+with `hyper_util`'s `Tunnel` below TLS, so TLS stays end to end, and the connect timeout bounds the
+whole dial, tunnel included; a target naming no port is tunnelled to its scheme's. A failure is
+`TransportErrorKind::ProxyConnect`, saying whether the proxy was out of reach, refused the tunnel, or
+asked for credentials it was not given. No message carries a userinfo or the password, an option's
+refusal does not quote the address at all, and the options' Debug elides both. `tests/grpc_proxy.rs`
+calls through a `CONNECT` proxy of its own, in the clear and over TLS, with and without
+credentials.
+
 ### T5.2: Proxy from the environment
 
 **Prerequisite**: T5.1

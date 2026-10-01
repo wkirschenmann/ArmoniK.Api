@@ -279,6 +279,9 @@ public sealed class TransportOptions
     }
 
     ConnectTimeoutSeconds = other.ConnectTimeoutSeconds;
+    Proxy = other.Proxy is null
+              ? null
+              : new ProxyOptions(other.Proxy);
     TcpKeepalive = other.TcpKeepalive is null
                      ? null
                      : new TcpKeepaliveOptions(other.TcpKeepalive);
@@ -295,6 +298,12 @@ public sealed class TransportOptions
   [JsonPropertyName("ConnectTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? ConnectTimeoutSeconds { get; set; }
+
+  /// <summary>The HTTP proxy every dial tunnels through.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which tunnels through none.</remarks>
+  [JsonPropertyName("Proxy")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public ProxyOptions? Proxy { get; set; }
 
   /// <summary>The socket's keepalive.</summary>
   /// <remarks>Defaults to <c>{}</c>, which sets none.</remarks>
@@ -322,8 +331,76 @@ public sealed class TransportOptions
                                             "ConnectTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
+    Proxy?.Validate();
     TcpKeepalive?.Validate();
     Tls?.Validate();
+  }
+}
+
+/// <summary>
+///   An HTTP proxy, which a dial tunnels through with <c>CONNECT</c>, so TLS stays end to end with the
+///   server.
+/// </summary>
+public sealed class ProxyOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public ProxyOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public ProxyOptions(ProxyOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Address = other.Address;
+    Password = other.Password;
+    Username = other.Username;
+  }
+
+  /// <summary>
+  ///   <c>none</c> for no proxy, or the proxy's <c>http://</c> URL, with no path; <c>http://</c> is assumed when
+  ///   no scheme is written. The URL may carry <c>user:password@</c>, percent-encoded, when <c>Username</c>
+  ///   and <c>Password</c> are not set - which a serialized document then carries too.
+  /// </summary>
+  /// <remarks>Defaults to no proxy.</remarks>
+  [JsonPropertyName("Address")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Address { get; set; }
+
+  /// <summary>The password that goes with <c>Username</c>.</summary>
+  /// <remarks>
+  ///   Refused without an <c>Address</c>, and beside credentials the URL carries; ignored beside
+  ///   <c>none</c>.
+  /// </remarks>
+  [JsonPropertyName("Password")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Password { get; set; }
+
+  /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
+  /// <remarks>
+  ///   Refused without an <c>Address</c>, and beside credentials the URL carries; ignored beside
+  ///   <c>none</c>.
+  /// </remarks>
+  [JsonPropertyName("Username")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Username { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (Address is string address && address.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Address),
+                                            address,
+                                            "Address has to be at least 1 character long.");
+    }
   }
 }
 

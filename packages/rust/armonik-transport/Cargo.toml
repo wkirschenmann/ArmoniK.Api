@@ -39,9 +39,11 @@ hyper = { workspace = true, features = ["client", "http1", "http2"] }
 # `tokio` for `TokioIo`, which is what puts a `TcpStream` in the shape hyper reads and writes.
 # `client-legacy` for `HttpConnector`, which is the dial: resolution, the per-address loop
 # and the socket options, with the address families raced rather than tried in turn.
+# `client-proxy` for `Tunnel`, the `CONNECT` handshake a proxied dial is.
 hyper-util = { workspace = true, features = [
   "client",
   "client-legacy",
+  "client-proxy",
   "http1",
   "tokio",
 ] }
@@ -69,6 +71,8 @@ rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
 p12-keystore.workspace = true
 # A password held so that no Debug print shows it and it is zeroed when dropped.
 secrecy.workspace = true
+# A proxy URL's `user:password@`, which escapes what the URL syntax reserves.
+percent-encoding.workspace = true
 serde = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 humantime.workspace = true

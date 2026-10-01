@@ -2,7 +2,7 @@ use std::fmt;
 use std::time::Duration;
 
 use armonik_transport::grpc::GrpcChannelConfig;
-use armonik_transport::http2::{Http2Config, TcpConfig, TlsConfig, TransportConfig};
+use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use armonik_transport::options::{ChannelOptions, OptionRefusal, LARGEST_WINDOW};
 use armonik_transport::reexports::http::Uri;
 
@@ -21,6 +21,7 @@ pub(crate) struct ChannelSettings {
     tls: TlsConfig,
     tcp: TcpConfig,
     http2: Http2Config,
+    proxy: ProxyConfig,
 }
 
 impl ChannelSettings {
@@ -43,6 +44,7 @@ impl ChannelSettings {
         transport.tls = self.tls;
         transport.tcp = self.tcp;
         transport.http2 = self.http2;
+        transport.proxy = self.proxy;
 
         let mut config = GrpcChannelConfig::new(transport);
         config.max_sends_in_flight = max_sends_in_flight;
@@ -171,6 +173,11 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
         .http2
         .to_config()
         .map_err(|refused| ConfigRefusal::Option(refused.under("Http2")))?;
+    let proxy = options
+        .transport
+        .proxy
+        .to_config()
+        .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Proxy")))?;
 
     Ok(ChannelSettings {
         options,
@@ -178,6 +185,7 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
         tls,
         tcp,
         http2,
+        proxy,
     })
 }
 
@@ -593,6 +601,10 @@ mod tests {
                 &br#"{"Transport":{"Tls":{"CertP12Password":123456}}}"#[..],
                 "Transport.Tls.CertP12Password",
             ),
+            (
+                &br#"{"Transport":{"Proxy":{"Address":"https://proxy.test"}}}"#[..],
+                "Transport.Proxy.Address",
+            ),
         ] {
             let Err(refused) = parse(document) else {
                 panic!("{} is admitted", String::from_utf8_lossy(document));
@@ -604,6 +616,22 @@ mod tests {
                 String::from_utf8_lossy(document)
             );
         }
+    }
+
+    #[test]
+    fn the_proxy_options_reach_the_engine() {
+        use armonik_transport::http2::ProxySource;
+
+        let config = config_of(
+            br#"{"Transport":{"Proxy":{"Address":"proxy.test:3128","Username":"alice","Password":"s3cret"}}}"#,
+        );
+        let proxy = &config.transport.proxy;
+        let ProxySource::Explicit(uri) = &proxy.source else {
+            panic!("{proxy:?}");
+        };
+        assert_eq!(uri.to_string(), "http://proxy.test:3128/");
+        assert_eq!(proxy.username, "alice");
+        assert!(!format!("{proxy:?}").contains("s3cret"));
     }
 
     #[test]

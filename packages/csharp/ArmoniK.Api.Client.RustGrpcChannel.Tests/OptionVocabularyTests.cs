@@ -60,6 +60,9 @@ public class OptionVocabularyTests
                                                                                ["OverrideTargetName"]    = "Transport.Tls.OverrideTargetName",
                                                                                ["KeepAliveTime"]         = "Transport.TcpKeepalive.IdleSeconds",
                                                                                ["KeepAliveTimeInterval"] = "Transport.TcpKeepalive.IntervalSeconds",
+                                                                               ["Proxy"]                 = "Transport.Proxy.Address",
+                                                                               ["ProxyUsername"]         = "Transport.Proxy.Username",
+                                                                               ["ProxyPassword"]         = "Transport.Proxy.Password",
                                                                              };
 
   /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
@@ -71,9 +74,6 @@ public class OptionVocabularyTests
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
                                                                           ["MaxIdleTime"]           = "T6.11",
-                                                                          ["Proxy"]                 = "T5.1",
-                                                                          ["ProxyUsername"]         = "T5.1",
-                                                                          ["ProxyPassword"]         = "T5.1",
                                                                           ["MaxAttempts"]           = "T6.3",
                                                                           ["BackoffMultiplier"]     = "T6.3",
                                                                           ["InitialBackOff"]        = "T6.3",

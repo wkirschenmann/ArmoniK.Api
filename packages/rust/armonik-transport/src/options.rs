@@ -8,11 +8,12 @@
 
 use std::time::Duration;
 
+use hyper::Uri;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret;
 
-use crate::http2::{ClientIdentity, Http2Config, TcpConfig, TlsConfig};
+use crate::http2::{ClientIdentity, Http2Config, ProxyConfig, ProxySource, TcpConfig, TlsConfig};
 
 /// The largest window either side of a call may be given.
 ///
@@ -94,6 +95,222 @@ pub struct TransportOptions {
     /// Defaults to `{}`, which sets none.
     #[cfg_attr(feature = "serde", serde(default))]
     pub tcp_keepalive: TcpKeepaliveOptions,
+
+    /// The HTTP proxy every dial tunnels through.
+    ///
+    /// Defaults to `{}`, which tunnels through none.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub proxy: ProxyOptions,
+}
+
+/// An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the
+/// server.
+#[derive(Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct ProxyOptions {
+    /// `none` for no proxy, or the proxy's `http://` URL, with no path; `http://` is assumed when
+    /// no scheme is written. The URL may carry `user:password@`, percent-encoded, when `Username`
+    /// and `Password` are not set - which a serialized document then carries too.
+    ///
+    /// Defaults to no proxy.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub address: Option<String>,
+
+    /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
+    ///
+    /// Refused without an `Address`, and beside credentials the URL carries; ignored beside
+    /// `none`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub username: Option<String>,
+
+    /// The password that goes with `Username`.
+    ///
+    /// Refused without an `Address`, and beside credentials the URL carries; ignored beside
+    /// `none`.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub password: Option<Password>,
+}
+
+/// The address as a Debug print may show it, which is how a URL is typed and not how it parses:
+/// what precedes the last `@` goes, and so does what follows a `:` that is not a port, which is
+/// how `user:password` reads when its `@host` was left out.
+fn elided(address: &str) -> String {
+    let (scheme, rest) = match address.split_once("://") {
+        Some((scheme, rest)) => (format!("{scheme}://"), rest),
+        None => (String::new(), address),
+    };
+    if let Some((_, host)) = rest.rsplit_once('@') {
+        return format!("{scheme}***@{host}");
+    }
+    // A bracketed host's colons are its own; the port, if any, follows the bracket.
+    let (host, after) = match rest
+        .strip_prefix('[')
+        .and_then(|inner| inner.split_once(']'))
+    {
+        Some((inner, after)) => (format!("[{inner}]"), after),
+        None => match rest.split_once(':') {
+            Some((host, _)) => (host.to_owned(), &rest[host.len()..]),
+            None => return address.to_owned(),
+        },
+    };
+    match after.strip_prefix(':') {
+        Some(tail) if tail.trim_end_matches('/').parse::<u16>().is_err() => {
+            format!("{scheme}{host}:***")
+        }
+        _ => address.to_owned(),
+    }
+}
+
+/// The address is printed elided, since it may carry a password.
+impl std::fmt::Debug for ProxyOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProxyOptions")
+            .field("address", &self.address.as_deref().map(elided))
+            .field("username", &self.username)
+            .field("password", &self.password)
+            .finish()
+    }
+}
+
+impl ProxyOptions {
+    /// The proxy these options name. A refusal never quotes the address, which may hold a
+    /// password.
+    pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
+        let dedicated = self.username.is_some() || self.password.is_some();
+        let address = match self.address.as_deref() {
+            None => {
+                if dedicated {
+                    return Err(OptionRefusal::new(
+                        "Address",
+                        "it names no proxy, and Username or Password is set",
+                    ));
+                }
+                return Ok(ProxyConfig::default());
+            }
+            // Credentials beside `none` are left unread: a deployment that turned its proxy off
+            // without clearing the credentials it needed is in a normal state.
+            Some(none) if none.eq_ignore_ascii_case("none") => return Ok(ProxyConfig::default()),
+            // What `GrpcClient` reads as the system's proxy, and not a host to dial.
+            Some(system) if system.eq_ignore_ascii_case("system") => {
+                return Err(OptionRefusal::new(
+                    "Address",
+                    "`system`, the system's proxy, is not one this engine reads",
+                ))
+            }
+            Some(address) => address,
+        };
+
+        let not_a_url = || {
+            OptionRefusal::new(
+                "Address",
+                "it is neither `none` nor a proxy URL such as `http://proxy.example.com:3128`",
+            )
+        };
+        let written = if address.contains("://") {
+            address.to_owned()
+        } else {
+            format!("http://{address}")
+        };
+        let uri: Uri = written.parse().map_err(|_| not_a_url())?;
+        if uri.scheme_str() != Some("http") {
+            return Err(OptionRefusal::new(
+                "Address",
+                "it has to be an `http://` URL: the `CONNECT` handshake is written in the clear",
+            ));
+        }
+        let authority = uri.authority().ok_or_else(not_a_url)?.as_str();
+        // The last `@`, because a password may hold one.
+        let (userinfo, host) = match authority.rsplit_once('@') {
+            Some((userinfo, host)) => (Some(userinfo), host),
+            None => (None, authority),
+        };
+        // A port that does not parse would otherwise be dialled as 80; a bracketed host's own
+        // colons stay inside its brackets.
+        let port = host
+            .rsplit_once(':')
+            .map(|(_, port)| port)
+            .filter(|port| !port.contains(']'));
+        if host.is_empty()
+            || host.starts_with(':')
+            || port.is_some_and(|port| port.parse::<u16>().map_or(true, |port| port == 0))
+        {
+            return Err(not_a_url());
+        }
+        if !matches!(uri.path(), "" | "/") || uri.query().is_some() || written.contains('#') {
+            return Err(OptionRefusal::new(
+                "Address",
+                "it carries a path, a query or a fragment, which a proxy is not addressed by",
+            ));
+        }
+        if userinfo.is_some() && dedicated {
+            return Err(OptionRefusal::new(
+                "Address",
+                "it carries `user:password@`, and so do Username or Password; set them one way",
+            ));
+        }
+        let proxy = Uri::builder()
+            .scheme("http")
+            .authority(host)
+            .path_and_query("/")
+            .build()
+            .map_err(|_| not_a_url())?;
+
+        // Strict: a byte that is not UTF-8 would otherwise become a replacement character, and a
+        // password the user did not write.
+        let decoded = |text: &str| -> Result<String, OptionRefusal> {
+            percent_encoding::percent_decode_str(text)
+                .decode_utf8()
+                .map(|text| text.into_owned())
+                .map_err(|_| not_a_url())
+        };
+        let (username, password) = match userinfo {
+            Some(userinfo) => match userinfo.split_once(':') {
+                Some((username, password)) => (decoded(username)?, decoded(password)?),
+                None => (decoded(userinfo)?, String::new()),
+            },
+            None => (
+                self.username.clone().unwrap_or_default(),
+                self.password
+                    .as_ref()
+                    .map(|password| password.0.expose_secret().to_owned())
+                    .unwrap_or_default(),
+            ),
+        };
+        // `Basic` splits user and password at the first `:`, so one in the user moves the rest
+        // into the password.
+        if username.contains(':') {
+            let key = if userinfo.is_some() {
+                "Address"
+            } else {
+                "Username"
+            };
+            return Err(OptionRefusal::new(
+                key,
+                "the username holds a `:`, which `Basic` authentication cannot carry",
+            ));
+        }
+
+        Ok(ProxyConfig {
+            source: ProxySource::Explicit(proxy),
+            username,
+            password: password.into(),
+        })
+    }
 }
 
 /// How an `https://` endpoint is secured. Each file is read when the channel is created, so a
@@ -1372,6 +1589,121 @@ mod tests {
             let refused = options.load().expect_err(unit);
             assert!(refused.key().starts_with(unit), "{refused}");
             assert!(refused.to_string().contains("Windows only"), "{refused}");
+        }
+    }
+
+    fn proxy(
+        address: Option<&str>,
+        username: Option<&str>,
+        password: Option<&str>,
+    ) -> ProxyOptions {
+        ProxyOptions {
+            address: address.map(str::to_owned),
+            username: username.map(str::to_owned),
+            password: password.map(Password::new),
+        }
+    }
+
+    #[test]
+    fn a_proxy_url_becomes_the_proxy_tunnelled_through_with_its_credentials() {
+        let explicit = |config: ProxyConfig| match config.source {
+            ProxySource::Explicit(uri) => (uri.to_string(), config.username, config.password),
+            ProxySource::Disabled => panic!("no proxy"),
+        };
+
+        let (uri, username, password) = explicit(
+            proxy(Some("proxy.test:3128"), Some("alice"), Some("s3cret"))
+                .to_config()
+                .expect("a proxy"),
+        );
+        assert_eq!(uri, "http://proxy.test:3128/", "http:// is assumed");
+        assert_eq!(
+            (username.as_str(), password.expose_secret()),
+            ("alice", "s3cret")
+        );
+
+        let (uri, username, password) = explicit(
+            proxy(Some("http://alice:s%40cret@proxy.test:3128"), None, None)
+                .to_config()
+                .expect("a proxy"),
+        );
+        assert_eq!(
+            uri, "http://proxy.test:3128/",
+            "the URL keeps no credential"
+        );
+        assert_eq!(
+            (username.as_str(), password.expose_secret()),
+            ("alice", "s@cret")
+        );
+
+        for none in [None, Some("none"), Some("NONE")] {
+            let config = proxy(none, None, None).to_config().expect("no proxy");
+            assert_eq!(config.source, ProxySource::Disabled, "{none:?}");
+        }
+        let config = proxy(Some("none"), Some("alice"), Some("s3cret"))
+            .to_config()
+            .expect("credentials beside `none` are left unread");
+        assert_eq!(config.source, ProxySource::Disabled);
+
+        let (uri, _, _) = explicit(
+            proxy(Some("http://[::1]:3128"), None, None)
+                .to_config()
+                .expect("a bracketed IPv6 proxy"),
+        );
+        assert_eq!(uri, "http://[::1]:3128/");
+
+        let refused = proxy(Some("proxy.test:3128"), Some("corp:alice"), Some("s3cret"))
+            .to_config()
+            .expect_err("a `:` in the username");
+        assert_eq!(refused.key(), "Username");
+    }
+
+    #[test]
+    fn a_debug_print_shows_the_proxy_and_never_its_password() {
+        for (address, shown) in [
+            (
+                "http://alice:s3cret@proxy.test:3128",
+                "http://***@proxy.test:3128",
+            ),
+            ("http://proxy.test:s3cret", "http://proxy.test:***"),
+            ("http://[::1]:3128", "http://[::1]:3128"),
+            ("http://[::1]:s3cret", "http://[::1]:***"),
+            ("proxy.test:3128", "proxy.test:3128"),
+        ] {
+            let printed = format!("{:?}", proxy(Some(address), None, None));
+            assert!(printed.contains(shown), "{address}: {printed}");
+            assert!(!printed.contains("s3cret"), "{printed}");
+        }
+    }
+
+    #[test]
+    fn a_proxy_refusal_names_the_address_and_quotes_neither_it_nor_a_password() {
+        for options in [
+            proxy(Some("https://proxy.test:443"), None, None),
+            proxy(Some("http://alice:s3cret@proxy.test"), Some("bob"), None),
+            proxy(Some("http://alice:s3cret@proxy.test"), None, Some("other")),
+            proxy(None, Some("alice"), Some("s3cret")),
+            proxy(Some("http://proxy.test:99999"), None, None),
+            proxy(Some("http://proxy.test:s3cret"), None, None),
+            proxy(Some("http://:3128"), None, None),
+            proxy(Some("system"), None, None),
+            proxy(Some("not a url"), None, None),
+            proxy(Some("http://proxy.test:3128/pac.js"), None, None),
+            proxy(Some("http://proxy.test:3128/?s3cret"), None, None),
+            proxy(Some("http://proxy.test:3128#s3cret"), None, None),
+            proxy(Some("http://alice:%FF@proxy.test:3128"), None, None),
+            proxy(
+                Some("http://corp%3Aalice:s3cret@proxy.test:3128"),
+                None,
+                None,
+            ),
+        ] {
+            let refused = options.to_config().expect_err("refused");
+            assert_eq!(refused.key(), "Address", "{options:?}: {refused}");
+            let said = refused.to_string();
+            assert!(!said.contains("s3cret"), "{said}");
+            assert!(!said.contains("proxy.test"), "{said}");
+            assert!(!format!("{options:?}").contains("s3cret"), "{options:?}");
         }
     }
 

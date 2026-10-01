@@ -21,6 +21,7 @@ pub mod grpc;
 pub mod hooks;
 pub mod http2;
 pub mod options;
+mod proxy;
 mod tls;
 mod utils;
 #[cfg(windows)]

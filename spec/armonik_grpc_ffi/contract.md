@@ -49,7 +49,7 @@ pub struct TransportConfig {
     pub tls: TlsConfig,             // read for https://, refused on http:// unless default
     pub tcp: TcpConfig,             // the socket's keepalive
     pub http2: Http2Config,         // the session's PING keepalive and windows
-    pub proxy: ProxyConfig,         // disabled | explicit | env | windows_system - T5.1
+    pub proxy: ProxyConfig,         // disabled | explicit; env is T5.2's, windows_system T5.3's
 }
 
 /// Loaded material, which a handshake uses as it stands. Built from the paths a

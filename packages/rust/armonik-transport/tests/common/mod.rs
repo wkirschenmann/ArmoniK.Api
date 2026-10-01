@@ -8,3 +8,6 @@ pub mod slow;
 
 #[allow(dead_code)]
 pub mod tls;
+
+#[allow(dead_code)]
+pub mod proxy;

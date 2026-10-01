@@ -1230,8 +1230,8 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `ClientP12` | `Transport.Tls.CertP12`; its password, `Transport.Tls.CertP12Password`, has no counterpart |
 | `AllowUnsafeConnection` | `Transport.Tls.AllowUnsafeConnection` |
 | `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
-| `Proxy` | `Proxy.Source` |
-| `ProxyUsername` / `ProxyPassword` | `Proxy.Credentials` |
+| `Proxy` | `Transport.Proxy.Address` |
+| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Username` / `Transport.Proxy.Password` |
 | `RequestTimeout` | `DefaultDeadline` |
 | `MaxAttempts` | `Retry.MaxAttempts` |
 | `InitialBackOff` etc. | `Retry.*` |

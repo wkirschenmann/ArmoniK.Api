@@ -20,6 +20,9 @@ use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
+use crate::proxy::ProxyConnector;
+use crate::proxy::ProxyError;
+pub use crate::proxy::{ProxyConfig, ProxySource};
 use crate::tls::{Refused, Trust};
 use crate::utils::{chain, safe_endpoint};
 
@@ -37,6 +40,8 @@ pub struct TransportConfig {
     pub tls: TlsConfig,
     pub tcp: TcpConfig,
     pub http2: Http2Config,
+    /// The proxy every dial tunnels through; none by default.
+    pub proxy: ProxyConfig,
 }
 
 impl TransportConfig {
@@ -47,6 +52,7 @@ impl TransportConfig {
             tls: TlsConfig::default(),
             tcp: TcpConfig::default(),
             http2: Http2Config::default(),
+            proxy: ProxyConfig::default(),
         }
     }
 
@@ -150,6 +156,31 @@ impl TransportConfig {
                  contradict each other"
                     .to_owned(),
             );
+        }
+
+        if let ProxySource::Explicit(proxy) = &self.proxy.source {
+            // The proxy is never quoted whole: a refused one may be refused for its userinfo.
+            if proxy.scheme_str() != Some("http") {
+                return refuse(
+                    "the proxy has to be an `http://` URI: the `CONNECT` handshake is written in \
+                     the clear"
+                        .to_owned(),
+                );
+            }
+            match proxy.authority() {
+                None => return refuse("the proxy names no host".to_owned()),
+                Some(authority) if authority.as_str().contains('@') => {
+                    return refuse(
+                        "the proxy carries `user:password@`, which goes in its username and \
+                         password instead"
+                            .to_owned(),
+                    )
+                }
+                Some(authority) if authority.host().is_empty() => {
+                    return refuse("the proxy names no host".to_owned())
+                }
+                Some(_) => {}
+            }
         }
 
         self.tcp.admissible()?;
@@ -379,7 +410,7 @@ pub type TransportConnection = hyper_rustls::MaybeHttpsStream<TokioIo<TcpStream>
 
 #[derive(Clone, Debug)]
 pub struct TransportConnector {
-    https: HttpsConnector<HttpConnector>,
+    https: HttpsConnector<ProxyConnector<HttpConnector>>,
     connect_timeout: Duration,
     http2: Http2Config,
 }
@@ -438,7 +469,9 @@ impl TransportConnector {
 
         Ok(Self {
             // HTTP/2 alone, which is also what ALPN offers: gRPC has no HTTP/1 mapping.
-            https: builder.enable_http2().wrap_connector(http),
+            https: builder
+                .enable_http2()
+                .wrap_connector(ProxyConnector::new(http, &config.proxy)),
             connect_timeout: config.connect_timeout,
             http2: config.http2,
         })
@@ -506,6 +539,10 @@ impl Service<Uri> for TransportConnector {
         Box::pin(async move {
             dialling.await.map_err(|error| {
                 let endpoint = safe_endpoint(&target);
+                if let Some(proxied) = through_proxy(error.as_ref()) {
+                    let cause = proxied.to_string();
+                    return ProxySnafu { endpoint, cause }.build();
+                }
                 let cause = chain(error.as_ref(), ": ");
                 if refused_by_tls(error.as_ref()) {
                     TlsHandshakeSnafu { endpoint, cause }.build()
@@ -515,6 +552,12 @@ impl Service<Uri> for TransportConnector {
             })
         })
     }
+}
+
+/// The proxy's own failure, when the dial failed reaching or tunnelling through it.
+fn through_proxy<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a ProxyError> {
+    std::iter::successors(Some(error), |error| error.source())
+        .find_map(|error| error.downcast_ref::<ProxyError>())
 }
 
 /// Whether a dial failed in the TLS handshake rather than before it.
@@ -542,6 +585,7 @@ fn refused_by_tls(error: &(dyn std::error::Error + 'static)) -> bool {
 pub enum TransportErrorKind {
     Connect,
     TlsHandshake,
+    ProxyConnect,
     Http2Handshake,
     Timeout,
     Configuration,
@@ -560,6 +604,8 @@ pub enum TransportError {
     Connect { endpoint: String, cause: String },
     #[snafu(display("the TLS handshake with `{endpoint}` failed: {cause}"))]
     TlsHandshake { endpoint: String, cause: String },
+    #[snafu(display("`{endpoint}` could not be reached through its proxy: {cause}"))]
+    Proxy { endpoint: String, cause: String },
     #[snafu(display("the HTTP/2 preface could not be written to `{endpoint}`: {cause}"))]
     Http2Handshake { endpoint: String, cause: String },
     #[snafu(display("connecting to `{endpoint}` outlasted {after:?}"))]
@@ -572,6 +618,7 @@ impl TransportError {
             Self::Configuration { .. } => TransportErrorKind::Configuration,
             Self::Connect { .. } => TransportErrorKind::Connect,
             Self::TlsHandshake { .. } => TransportErrorKind::TlsHandshake,
+            Self::Proxy { .. } => TransportErrorKind::ProxyConnect,
             Self::Http2Handshake { .. } => TransportErrorKind::Http2Handshake,
             Self::Timeout { .. } => TransportErrorKind::Timeout,
         }

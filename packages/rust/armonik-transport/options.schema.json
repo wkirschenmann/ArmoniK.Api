@@ -73,6 +73,27 @@
       },
       "additionalProperties": false
     },
+    "ProxyOptions": {
+      "description": "An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the\nserver.",
+      "type": "object",
+      "properties": {
+        "Address": {
+          "description": "`none` for no proxy, or the proxy's `http://` URL, with no path; `http://` is assumed when\nno scheme is written. The URL may carry `user:password@`, percent-encoded, when `Username`\nand `Password` are not set - which a serialized document then carries too.\n\nDefaults to no proxy.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Password": {
+          "description": "The password that goes with `Username`.\n\nRefused without an `Address`, and beside credentials the URL carries; ignored beside\n`none`.",
+          "type": "string",
+          "writeOnly": true
+        },
+        "Username": {
+          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused without an `Address`, and beside credentials the URL carries; ignored beside\n`none`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "Seconds": {
       "description": "A duration, in seconds.\n\nSeconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory\nlayout rather than anything a document would write. A number carries no unit, so every\noption of this type names one: `connect_timeout_seconds`, not `connect_timeout`.\n\nThe ceiling is the type's own and not any one option's: every `Seconds` becomes a `Duration`,\nand `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here\nrather than left to the conversion, which refuses correctly but names no option when it does -\na caller then reads that their configuration was refused and not which line of it.",
       "type": "number",
@@ -194,6 +215,10 @@
           "description": "How long a dial may take before it is given up on.\n\nDefaults to 60, and at least a nanosecond, the finest duration the engine holds: a shorter\none could round to zero, which no dial could beat.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
+        },
+        "Proxy": {
+          "description": "The HTTP proxy every dial tunnels through.\n\nDefaults to `{}`, which tunnels through none.",
+          "$ref": "#/$defs/ProxyOptions"
         },
         "TcpKeepalive": {
           "description": "The socket's keepalive.\n\nDefaults to `{}`, which sets none.",
