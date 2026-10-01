@@ -2,15 +2,14 @@
 //!
 //! TLS, mTLS, and every timeout, keepalive and identity setting come together here.
 
-use std::sync::Arc;
-
 use hyper::Uri;
-use hyper_rustls::{ConfigBuilderExt, FixedServerNameResolver, HttpsConnector};
+use hyper_rustls::{FixedServerNameResolver, HttpsConnector};
 use hyper_util::client::legacy::connect::HttpConnector;
-use rustls::pki_types::{IpAddr, ServerName};
-use snafu::{ResultExt, Snafu};
+use rustls::pki_types::ServerName;
+use snafu::{IntoError, ResultExt, Snafu};
 
 use crate::config::{ConfigError, IncompatibleOptionsSnafu};
+use crate::tls::{Refused, Trust};
 use crate::utils::safe_endpoint;
 use crate::ClientConfig;
 
@@ -86,52 +85,23 @@ pub async fn https_connector(
 ) -> Result<HttpsConnector<HttpConnector>, ConnectionError> {
     let endpoint = config.endpoint;
 
-    // Get the default crypto provider or fallback to the ring crypto provider
-    let crypto_provider = rustls::crypto::CryptoProvider::get_default()
-        .cloned()
-        .unwrap_or_else(|| Arc::new(rustls::crypto::ring::default_provider()));
-
-    // Configure TLS with sane protocol defaults
-    let tls_config = rustls::ClientConfig::builder_with_provider(crypto_provider)
-        .with_safe_default_protocol_versions()
-        .with_context(|_| TlsSnafu {
-            endpoint: safe_endpoint(&endpoint),
-        })?;
-
-    // Configure the server verification
-    let tls_config = if config.allow_unsafe_connection {
-        // Do not verify the server
-        tls_config
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(crate::utils::InsecureCertVerifier))
+    let trust = if config.allow_unsafe_connection {
+        Trust::Anything
     } else if !config.cacert.is_empty() {
-        // Verify that the server certificate is signed by one of the roots the file named
-        let mut root_cert_store = rustls::RootCertStore::empty();
-        for cacert in config.cacert {
-            root_cert_store.add(cacert).with_context(|_| TlsSnafu {
-                endpoint: safe_endpoint(&endpoint),
-            })?;
-        }
-        tls_config.with_root_certificates(root_cert_store)
+        Trust::Roots(config.cacert)
     } else {
-        // Verify the server certificate using the system CAs
-        tls_config
-            .with_native_roots()
-            .with_context(|_| IoSnafu {})?
+        Trust::System
     };
-
-    // Configure client identity for mTLS
-    let tls_config = if let Some((cert, key)) = config.identity {
-        // Use the the specified client certificate and key for the client authentication
-        tls_config
-            .with_client_auth_cert(cert, key)
-            .with_context(|_| TlsSnafu {
-                endpoint: safe_endpoint(&endpoint),
-            })?
-    } else {
-        // No mTLS
-        tls_config.with_no_client_auth()
-    };
+    let tls_config =
+        crate::tls::client_config(trust, config.identity).map_err(|refused| match refused {
+            Refused::SystemRoots(source) => IoSnafu {}.into_error(source),
+            Refused::Protocols(source) | Refused::Root(source) | Refused::Identity(source) => {
+                TlsSnafu {
+                    endpoint: safe_endpoint(&endpoint),
+                }
+                .into_error(source)
+            }
+        })?;
 
     // Configure the connector to use http or https depending on the URI scheme
     let mut https = hyper_rustls::HttpsConnectorBuilder::new()
@@ -158,22 +128,13 @@ pub async fn https_connector(
 
 /// The name the server certificate is verified against, from the host of an override target.
 ///
-/// `http` reports the host of an IPv6 authority with its brackets, as `[::1]`, while a [`ServerName`]
-/// is the address alone. Brackets delimit an IP literal and nothing else, so what stands between them
-/// has to parse as an address rather than fall back to being read as a name.
-///
 /// A host that is neither is a mistyped `GrpcClient__OverrideTargetName`, reported as the
 /// configuration error it is: this runs inside a library, where a panic leaves the caller nothing to
 /// read.
 fn override_server_name(target: &Uri) -> Result<ServerName<'static>, ConnectionError> {
     let host = target.host().unwrap_or_default();
 
-    let server_name = match host.strip_prefix('[').and_then(|ip| ip.strip_suffix(']')) {
-        Some(literal) => IpAddr::try_from(literal).ok().map(ServerName::from),
-        None => ServerName::try_from(host).ok().map(|name| name.to_owned()),
-    };
-
-    match server_name {
+    match crate::tls::server_name(host) {
         Some(server_name) => Ok(server_name),
         None => IncompatibleOptionsSnafu {
             msg: format!(
@@ -234,6 +195,8 @@ pub enum ConnectionError {
 
 #[cfg(test)]
 mod tests {
+    use rustls::pki_types::IpAddr;
+
     use super::*;
     use crate::ClientConfigArgs;
 

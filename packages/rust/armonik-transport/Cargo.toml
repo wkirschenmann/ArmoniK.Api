@@ -91,3 +91,7 @@ tonic = { workspace = true, features = ["server", "router"] }
 # The gRPC integration tests run their own accept loop, so they serve HTTP/2 themselves rather
 # than through `tonic::transport::Server`; that is what lets them count connections.
 hyper = { workspace = true, features = ["server"] }
+# The TLS tests serve over a certificate made for the run, from a CA made for the run, so no key
+# is committed and none expires.
+rcgen = { workspace = true, features = ["crypto", "pem", "ring"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }

@@ -911,7 +911,7 @@ public class UnaryTests : EchoServerFixture
   /// </remarks>
   [Test]
   public void AnEndpointTheEngineWillNotDialIsTheCallersArgument()
-    => Assert.That(() => Runtime.Channel("https://127.0.0.1:1"),
+    => Assert.That(() => Runtime.Channel("ftp://127.0.0.1:1"),
                    Throws.ArgumentException.With.Message.Contains("is not a scheme this connector dials"),
                    "the engine's reason reaches the caller");
 

@@ -5,7 +5,7 @@
 //! Rust client dials with.
 //!
 //! [`grpc`] over [`http2`] is the engine the C ABI drives: tonic's client, which carries the gRPC
-//! framing, over an HTTP/2 session of this crate's own. Cleartext `http://` only, and configured
+//! framing, over an HTTP/2 session of this crate's own, in cleartext or over TLS, and configured
 //! by an [`options::ChannelOptions`] document rather than by the environment.
 //!
 //! Nothing converts one configuration into the other, and that is the point: seventeen fields
@@ -21,6 +21,7 @@ pub mod grpc;
 pub mod hooks;
 pub mod http2;
 pub mod options;
+mod tls;
 mod utils;
 
 pub use config::{ClientConfig, ClientConfigArgs, ConfigError};

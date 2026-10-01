@@ -1,10 +1,8 @@
-//! HTTP/2 to one endpoint, in cleartext.
+//! HTTP/2 to one endpoint: in cleartext for `http://`, over TLS for `https://`.
 //!
-//! The dial and the connection are hyper's; what this module adds is the endpoint check and the
-//! connector shape the gRPC layer drives. There is no TLS here - `dialable` refuses every scheme
-//! but `http://` - which is why [`TransportConfig`] holds an endpoint and a timeout and nothing
-//! a certificate would go in. [`crate::ClientConfig`] configures the other path and never
-//! reaches this one.
+//! The dial and the connection are hyper's, and the TLS is rustls under hyper-rustls; what this
+//! module adds is the endpoint check and the connector shape the gRPC layer drives.
+//! [`crate::ClientConfig`] configures the other path and never reaches this one.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -14,24 +12,29 @@ use std::time::Duration;
 use hyper::client::conn::http2::{Connection, SendRequest};
 use hyper::rt::bounds::Http2ClientConnExec;
 use hyper::Uri;
+use hyper_rustls::{FixedServerNameResolver, HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioIo;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
+use crate::tls::{Refused, Trust};
 use crate::utils::{chain, safe_endpoint};
 
-/// What this connector needs in order to dial: where, and how long to wait.
+/// What this connector needs in order to dial: where, how long to wait, and how to secure it.
 ///
-/// Not [`crate::ClientConfig`], which configures [`crate::connect`] and carries the TLS identity
-/// and the keepalives tonic reads. The two are separate types because they drive separate
-/// engines, and nothing converts between them.
+/// Not [`crate::ClientConfig`], which configures [`crate::connect`] and carries the keepalives
+/// tonic reads. The two are separate types because they drive separate engines, and nothing
+/// converts between them.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct TransportConfig {
     pub endpoint: Uri,
     pub connect_timeout: Duration,
+    /// Read for an `https://` endpoint, and refused for an `http://` one unless left default.
+    pub tls: TlsConfig,
 }
 
 impl TransportConfig {
@@ -39,6 +42,7 @@ impl TransportConfig {
         Self {
             endpoint,
             connect_timeout: Duration::from_secs(60),
+            tls: TlsConfig::default(),
         }
     }
 
@@ -51,15 +55,17 @@ impl TransportConfig {
         let refuse = |message: String| ConfigurationSnafu { message }.fail();
 
         match self.endpoint.scheme_str() {
-            Some("http") => {}
+            Some("http" | "https") => {}
             Some(other) => {
                 return refuse(format!(
-                    "`{other}://` is not a scheme this connector dials; it speaks plain HTTP"
+                    "`{other}://` is not a scheme this connector dials; it dials `http://` and \
+                     `https://`"
                 ))
             }
             None => {
                 return refuse(
-                    "the endpoint names no scheme; it has to be an `http://` URI".to_owned(),
+                    "the endpoint names no scheme; it has to be an `http://` or an `https://` URI"
+                        .to_owned(),
                 )
             }
         }
@@ -126,28 +132,170 @@ impl TransportConfig {
             );
         }
 
+        if self.endpoint.scheme_str() == Some("http") && !self.tls.is_default() {
+            return refuse(
+                "the endpoint is `http://`, which is dialled in the clear, so the TLS settings \
+                 given with it would never be used"
+                    .to_owned(),
+            );
+        }
+
+        if self.tls.accept_any_server && !self.tls.roots.is_empty() {
+            return refuse(
+                "accepting any server certificate and verifying it against the roots given \
+                 contradict each other"
+                    .to_owned(),
+            );
+        }
+
         Ok(())
     }
 }
 
-pub type TransportConnection = TokioIo<TcpStream>;
+/// How a connection to an `https://` endpoint is secured.
+///
+/// The default verifies the server against the operating system's roots, under the endpoint's
+/// host, and presents no client certificate.
+#[derive(Clone, Default)]
+#[non_exhaustive]
+pub struct TlsConfig {
+    /// The roots a server certificate is verified against, in place of the system's.
+    pub roots: Vec<CertificateDer<'static>>,
+    /// Accepts any server certificate. The connection is still encrypted, to whoever answers.
+    pub accept_any_server: bool,
+    /// The chain and key this client authenticates with.
+    pub identity: Option<ClientIdentity>,
+    /// The host the server certificate is verified against, and sent as SNI, in place of the
+    /// endpoint's: a DNS name or an IP address, with an optional port that is not read.
+    pub server_name: Option<String>,
+}
+
+impl TlsConfig {
+    fn is_default(&self) -> bool {
+        self.roots.is_empty()
+            && !self.accept_any_server
+            && self.identity.is_none()
+            && self.server_name.is_none()
+    }
+}
+
+impl std::fmt::Debug for TlsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TlsConfig")
+            .field("roots", &self.roots.len())
+            .field("accept_any_server", &self.accept_any_server)
+            .field("identity", &self.identity)
+            .field("server_name", &self.server_name)
+            .finish()
+    }
+}
+
+/// A client certificate, the chain that leads from it towards a root, and its key.
+pub struct ClientIdentity {
+    /// The client's certificate first, then each issuer the server may not hold.
+    pub chain: Vec<CertificateDer<'static>>,
+    pub key: PrivateKeyDer<'static>,
+}
+
+impl Clone for ClientIdentity {
+    fn clone(&self) -> Self {
+        Self {
+            chain: self.chain.clone(),
+            key: self.key.clone_key(),
+        }
+    }
+}
+
+/// The key is not printed: a configuration is logged, and a key in a log is a key given away.
+impl std::fmt::Debug for ClientIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientIdentity")
+            .field("chain", &self.chain.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The name a server certificate is verified against, from what [`TlsConfig::server_name`] holds.
+fn verified_name(written: &str) -> Result<ServerName<'static>, TransportError> {
+    let refuse = |message: String| ConfigurationSnafu { message }.fail();
+
+    // Before it is parsed or quoted, so a password never reaches the refusal's text.
+    if written.contains('@') {
+        return refuse("the server name carries `user:password@`".to_owned());
+    }
+    let host = written
+        .parse::<http::uri::Authority>()
+        .map(|authority| authority.host().to_owned())
+        .unwrap_or_default();
+    match crate::tls::server_name(&host) {
+        Some(name) => Ok(name),
+        None => refuse(format!(
+            "`{written}` names no host a certificate can be verified against; it has to be a DNS \
+             name or an IP address, as in `server.example.com`, `10.0.0.1` or `[::1]`"
+        )),
+    }
+}
+
+pub type TransportConnection = hyper_rustls::MaybeHttpsStream<TokioIo<TcpStream>>;
 
 #[derive(Clone, Debug)]
 pub struct TransportConnector {
-    http: HttpConnector,
+    https: HttpsConnector<HttpConnector>,
     connect_timeout: Duration,
 }
 
 impl TransportConnector {
     pub fn new(config: TransportConfig) -> Result<Self, TransportError> {
         config.dialable()?;
+        let tls = config.tls;
+        let server_name = tls.server_name.as_deref().map(verified_name).transpose()?;
 
         let mut http = HttpConnector::new();
         http.set_nodelay(true);
-        http.enforce_http(true);
+        // The TLS layer above reads the scheme; this one dials either.
+        http.enforce_http(false);
+
+        // A cleartext endpoint gets a configuration that reads nothing: the system's store is a
+        // synchronous read that fails on a host with no CA bundle, for a handshake never made.
+        let trust = if config.endpoint.scheme_str() == Some("http") {
+            Trust::Roots(Vec::new())
+        } else if tls.accept_any_server {
+            Trust::Anything
+        } else if tls.roots.is_empty() {
+            Trust::System
+        } else {
+            Trust::Roots(tls.roots)
+        };
+        let identity = tls.identity.map(|identity| (identity.chain, identity.key));
+        let client_config = crate::tls::client_config(trust, identity).map_err(|refused| {
+            let message = match refused {
+                Refused::Protocols(error) => {
+                    format!(
+                        "no TLS protocol version is available to secure the connection: {error}"
+                    )
+                }
+                Refused::Root(error) => format!("a root certificate is refused: {error}"),
+                Refused::SystemRoots(error) => {
+                    format!("the system's root certificates could not be read: {error}")
+                }
+                Refused::Identity(error) => {
+                    format!("the client certificate and its key are refused: {error}")
+                }
+            };
+            ConfigurationSnafu { message }.build()
+        })?;
+
+        let builder = HttpsConnectorBuilder::new()
+            .with_tls_config(client_config)
+            .https_or_http();
+        let builder = match server_name {
+            Some(name) => builder.with_server_name_resolver(FixedServerNameResolver::new(name)),
+            None => builder,
+        };
 
         Ok(Self {
-            http,
+            // HTTP/2 alone, which is also what ALPN offers: gRPC has no HTTP/1 mapping.
+            https: builder.enable_http2().wrap_connector(http),
             connect_timeout: config.connect_timeout,
         })
     }
@@ -201,18 +349,40 @@ impl Service<Uri> for TransportConnector {
     }
 
     fn call(&mut self, target: Uri) -> Self::Future {
-        let dialling = self.http.call(target.clone());
+        let dialling = self.https.call(target.clone());
 
         Box::pin(async move {
             dialling.await.map_err(|error| {
-                ConnectSnafu {
-                    endpoint: safe_endpoint(&target),
-                    cause: chain(&error, ": "),
+                let endpoint = safe_endpoint(&target);
+                let cause = chain(error.as_ref(), ": ");
+                if refused_by_tls(error.as_ref()) {
+                    TlsHandshakeSnafu { endpoint, cause }.build()
+                } else {
+                    ConnectSnafu { endpoint, cause }.build()
                 }
-                .build()
             })
         })
     }
+}
+
+/// Whether a dial failed in the TLS handshake rather than before it.
+///
+/// The rustls error arrives inside an `io::Error`, twice over: tokio-rustls wraps it, and
+/// hyper-rustls wraps that. An `io::Error` names its inner error's source and not the inner error
+/// itself, so the walk opens each one rather than following `source` alone.
+fn refused_by_tls(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut next = Some(error);
+    while let Some(error) = next {
+        if error.is::<rustls::Error>() {
+            return true;
+        }
+        next = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::get_ref)
+            .map(|inner| inner as &(dyn std::error::Error + 'static))
+            .or_else(|| error.source());
+    }
+    false
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -235,6 +405,8 @@ pub enum TransportError {
     // type rather than in who calls it.
     #[snafu(display("`{endpoint}` could not be reached: {cause}"))]
     Connect { endpoint: String, cause: String },
+    #[snafu(display("the TLS handshake with `{endpoint}` failed: {cause}"))]
+    TlsHandshake { endpoint: String, cause: String },
     #[snafu(display("the HTTP/2 preface could not be written to `{endpoint}`: {cause}"))]
     Http2Handshake { endpoint: String, cause: String },
     #[snafu(display("connecting to `{endpoint}` outlasted {after:?}"))]
@@ -245,7 +417,8 @@ impl TransportError {
     pub fn kind(&self) -> TransportErrorKind {
         match self {
             Self::Configuration { .. } => TransportErrorKind::Configuration,
-            Self::Connect { .. } => TransportErrorKind::Connect,
+            // A handshake is part of reaching the peer, as a dial is.
+            Self::Connect { .. } | Self::TlsHandshake { .. } => TransportErrorKind::Connect,
             Self::Http2Handshake { .. } => TransportErrorKind::Http2Handshake,
             Self::Timeout { .. } => TransportErrorKind::Timeout,
         }
@@ -275,9 +448,67 @@ mod tests {
 
     #[test]
     fn a_scheme_this_connector_does_not_speak_says_so() {
-        let refused = dialable("https://h:1").expect_err("not plain HTTP");
+        assert!(dialable("https://h:1").is_ok());
+        let refused = dialable("ftp://h:1").expect_err("neither HTTP nor HTTPS");
         assert_eq!(refused.kind(), TransportErrorKind::Configuration);
-        assert!(refused.to_string().contains("https://"), "{refused}");
+        assert!(refused.to_string().contains("ftp://"), "{refused}");
+    }
+
+    #[test]
+    fn tls_settings_on_a_cleartext_endpoint_are_refused_rather_than_ignored() {
+        let mut config = TransportConfig::new("http://h:1".parse().expect("a uri"));
+        config.tls.accept_any_server = true;
+        let refused = config.dialable().expect_err("TLS settings on http://");
+        assert!(refused.to_string().contains("http://"), "{refused}");
+    }
+
+    #[test]
+    fn accepting_any_server_and_naming_roots_is_a_contradiction() {
+        let mut config = TransportConfig::new("https://h:1".parse().expect("a uri"));
+        config.tls.accept_any_server = true;
+        config.tls.roots = vec![CertificateDer::from(vec![0u8])];
+        assert!(config.dialable().is_err());
+    }
+
+    #[test]
+    fn a_server_name_is_a_host_and_its_port_is_not_read() {
+        let address = |text: &str| {
+            ServerName::from(rustls::pki_types::IpAddr::try_from(text).expect("an address"))
+        };
+        assert_eq!(
+            verified_name("[::1]").expect("an IPv6 literal"),
+            address("::1")
+        );
+        assert_eq!(
+            verified_name("[2001:db8::1]:5003").expect("with a port"),
+            address("2001:db8::1")
+        );
+        assert_eq!(
+            verified_name("10.0.0.1:5003").expect("an IPv4 address"),
+            address("10.0.0.1")
+        );
+        assert_eq!(
+            verified_name("server.example.com").expect("a DNS name"),
+            ServerName::try_from("server.example.com").expect("a name")
+        );
+    }
+
+    #[test]
+    fn a_server_name_that_names_nothing_verifiable_is_refused_by_what_it_said() {
+        for written in ["-nope-", "[example.com]", ""] {
+            let refused = verified_name(written).expect_err(written);
+            assert_eq!(
+                refused.kind(),
+                TransportErrorKind::Configuration,
+                "{written}"
+            );
+            assert!(
+                refused.to_string().contains(&format!("`{written}`")),
+                "{refused}"
+            );
+        }
+        let refused = verified_name("alice:s3cret@h").expect_err("credentials");
+        assert!(!refused.to_string().contains("s3cret"), "{refused}");
     }
 
     #[test]

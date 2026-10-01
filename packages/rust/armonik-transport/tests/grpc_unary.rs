@@ -383,14 +383,13 @@ async fn a_closed_channel_opens_no_session() {
 }
 
 #[tokio::test]
-async fn an_https_endpoint_is_refused_rather_than_dialled_in_the_clear() {
-    let config = GrpcChannelConfig::new(TransportConfig::new(Uri::from_static(
-        "https://127.0.0.1:443",
-    )));
+async fn a_scheme_neither_http_nor_https_is_refused_rather_than_dialled() {
+    let config =
+        GrpcChannelConfig::new(TransportConfig::new(Uri::from_static("ftp://127.0.0.1:21")));
 
     let error = common::echo::channel_with(config)
-        .expect_err("this connector speaks plain HTTP and says so");
-    assert!(error.to_string().contains("https://"), "{error}");
+        .expect_err("this connector dials HTTP and HTTPS, and says so");
+    assert!(error.to_string().contains("ftp://"), "{error}");
 }
 
 #[tokio::test]
