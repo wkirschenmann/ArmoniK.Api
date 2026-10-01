@@ -35,6 +35,8 @@ pub struct TransportConfig {
     pub connect_timeout: Duration,
     /// Read for an `https://` endpoint, and refused for an `http://` one unless left default.
     pub tls: TlsConfig,
+    pub tcp: TcpConfig,
+    pub http2: Http2Config,
 }
 
 impl TransportConfig {
@@ -43,6 +45,8 @@ impl TransportConfig {
             endpoint,
             connect_timeout: Duration::from_secs(60),
             tls: TlsConfig::default(),
+            tcp: TcpConfig::default(),
+            http2: Http2Config::default(),
         }
     }
 
@@ -148,6 +152,129 @@ impl TransportConfig {
             );
         }
 
+        self.tcp.admissible()?;
+        self.http2.admissible()
+    }
+}
+
+/// The socket's keepalive, off unless `keepalive` is set. Each duration is in whole seconds,
+/// which is what the socket option holds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TcpConfig {
+    /// How long the connection may be idle before the first probe.
+    pub keepalive: Option<Duration>,
+    /// How long between two probes; the operating system's when unset.
+    pub keepalive_interval: Option<Duration>,
+    /// How many probes go unanswered before the connection is dropped; the operating system's
+    /// when unset. Not applied on Windows.
+    pub keepalive_retries: Option<u32>,
+}
+
+impl TcpConfig {
+    fn admissible(&self) -> Result<(), TransportError> {
+        let refuse = |message: &str| {
+            ConfigurationSnafu {
+                message: message.to_owned(),
+            }
+            .fail()
+        };
+        // The socket takes whole seconds and truncates, and the zero a shorter duration becomes
+        // is refused by the operating system with nothing reported back.
+        let second = Duration::from_secs(1);
+        if self.keepalive.is_some_and(|after| after < second) {
+            return refuse(
+                "a TCP keepalive has to be at least a second, the finest a socket holds",
+            );
+        }
+        if self.keepalive_interval.is_some_and(|every| every < second) {
+            return refuse(
+                "a TCP keepalive interval has to be at least a second, the finest a socket holds",
+            );
+        }
+        if self.keepalive_retries == Some(0) {
+            return refuse("zero TCP keepalive retries drops a connection at its first probe");
+        }
+        // Either of the two alone turns the keepalive on, at the operating system's idle time.
+        if self.keepalive.is_none()
+            && (self.keepalive_interval.is_some() || self.keepalive_retries.is_some())
+        {
+            return refuse(
+                "a TCP keepalive interval or retry count needs the keepalive itself, without which \
+                 the probes start at the operating system's idle time",
+            );
+        }
+        Ok(())
+    }
+}
+
+/// What the HTTP/2 session announces and how it checks that the peer is still there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Http2Config {
+    /// How often a PING is sent; none sends no PING.
+    pub keep_alive_interval: Option<Duration>,
+    /// How long a PING may go unanswered before the session is ended.
+    pub keep_alive_timeout: Duration,
+    /// Whether a PING is sent while no call is open, and not only while one is.
+    pub keep_alive_while_idle: bool,
+    /// The flow-control window of each stream, in bytes.
+    pub stream_window: u32,
+    /// The flow-control window of the connection, shared by every stream of the channel. At least
+    /// 65535, the window every connection starts with, since only an increase is announced.
+    pub connection_window: u32,
+}
+
+/// The largest window RFC 9113 admits, 2^31 - 1.
+const LARGEST_HTTP2_WINDOW: u32 = (1 << 31) - 1;
+
+/// The window a connection starts with, which a WINDOW_UPDATE can raise and nothing can lower.
+const INITIAL_HTTP2_WINDOW: u32 = 65_535;
+
+/// hyper's own defaults, written out so a new hyper cannot change them.
+impl Default for Http2Config {
+    fn default() -> Self {
+        Self {
+            keep_alive_interval: None,
+            keep_alive_timeout: Duration::from_secs(20),
+            keep_alive_while_idle: false,
+            stream_window: 2 * 1024 * 1024,
+            connection_window: 5 * 1024 * 1024,
+        }
+    }
+}
+
+impl Http2Config {
+    fn admissible(&self) -> Result<(), TransportError> {
+        let refuse = |message: &str| {
+            ConfigurationSnafu {
+                message: message.to_owned(),
+            }
+            .fail()
+        };
+        if self
+            .keep_alive_interval
+            .is_some_and(|every| every.is_zero())
+        {
+            return refuse("an HTTP/2 keepalive interval of zero sends PINGs back to back");
+        }
+        if self.keep_alive_timeout.is_zero() {
+            return refuse("an HTTP/2 keepalive timeout of zero ends a session at its first PING");
+        }
+        for (window, what, least) in [
+            (self.stream_window, "stream", 1),
+            (self.connection_window, "connection", INITIAL_HTTP2_WINDOW),
+        ] {
+            if !(least..=LARGEST_HTTP2_WINDOW).contains(&window) {
+                return ConfigurationSnafu {
+                    message: format!(
+                        "an HTTP/2 {what} window of {window} bytes is outside {least} to \
+                         {LARGEST_HTTP2_WINDOW}"
+                    ),
+                }
+                .fail();
+            }
+        }
         Ok(())
     }
 }
@@ -242,6 +369,7 @@ pub type TransportConnection = hyper_rustls::MaybeHttpsStream<TokioIo<TcpStream>
 pub struct TransportConnector {
     https: HttpsConnector<HttpConnector>,
     connect_timeout: Duration,
+    http2: Http2Config,
 }
 
 impl TransportConnector {
@@ -252,6 +380,9 @@ impl TransportConnector {
 
         let mut http = HttpConnector::new();
         http.set_nodelay(true);
+        http.set_keepalive(config.tcp.keepalive);
+        http.set_keepalive_interval(config.tcp.keepalive_interval);
+        http.set_keepalive_retries(config.tcp.keepalive_retries);
         // The TLS layer above reads the scheme; this one dials either.
         http.enforce_http(false);
 
@@ -297,6 +428,7 @@ impl TransportConnector {
             // HTTP/2 alone, which is also what ALPN offers: gRPC has no HTTP/1 mapping.
             https: builder.enable_http2().wrap_connector(http),
             connect_timeout: config.connect_timeout,
+            http2: config.http2,
         })
     }
 }
@@ -317,7 +449,15 @@ where
         let mut connector = connector.clone();
         std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
         let io = connector.call(endpoint.clone()).await?;
+        let http2 = connector.http2;
         hyper::client::conn::http2::Builder::new(executor)
+            // The keepalive's clock: hyper keeps no time of its own.
+            .timer(hyper_util::rt::TokioTimer::new())
+            .keep_alive_interval(http2.keep_alive_interval)
+            .keep_alive_timeout(http2.keep_alive_timeout)
+            .keep_alive_while_idle(http2.keep_alive_while_idle)
+            .initial_stream_window_size(http2.stream_window)
+            .initial_connection_window_size(http2.connection_window)
             .handshake(io)
             .await
             .map_err(|error| {
