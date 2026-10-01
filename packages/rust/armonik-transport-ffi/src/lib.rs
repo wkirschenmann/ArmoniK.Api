@@ -127,7 +127,7 @@ pub unsafe extern "C" fn ak_runtime_create(
         let (Some(callback), false, false) = (callback, config.is_null(), out.is_null()) else {
             return Err(NULL_ARGUMENT);
         };
-        let config = (unsafe { read_versioned(config) }).ok_or(UNKNOWN_SIZE)?;
+        let config = unsafe { read_versioned(config) }?;
 
         unsafe {
             hand_over(
@@ -147,11 +147,6 @@ const NULL_ARGUMENT: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
     "a pointer argument is null",
-);
-const UNKNOWN_SIZE: Refusal = Refusal::fixed(
-    ak_status::AK_STATUS_INVALID_ARG,
-    ak_error_kind::AK_ERROR_USAGE,
-    "struct_size names a version of the record this library does not read",
 );
 
 /// The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
@@ -354,7 +349,7 @@ pub unsafe extern "C" fn ak_call_start(
         if options.is_null() || out.is_null() {
             return Err(NULL_ARGUMENT);
         }
-        let options = (unsafe { read_versioned(options) }).ok_or(UNKNOWN_SIZE)?;
+        let options = unsafe { read_versioned(options) }?;
 
         let found = tables::channels()
             .get(channel)

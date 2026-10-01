@@ -41,8 +41,11 @@ header = """
  * alone, and no message is built for it.
  *
  * Every options struct starts with struct_size, which the host sets to sizeof of its own
- * definition. A size this library does not know is refused with AK_STATUS_INVALID_ARG rather than
- * read: it names a version whose fields are not the ones read here.
+ * definition, then version, flags and reserved, which it sets to zero. A struct_size smaller than
+ * this library's definition is refused with AK_STATUS_INVALID_ARG rather than read; a larger one
+ * is read up to this library's definition and the rest ignored, so a field appended to the end
+ * is an addition rather than a break. A version, a flag or a reserved field that is not zero is
+ * refused with AK_STATUS_INVALID_ARG.
  *
  * Metadata travels as a blob:
  *

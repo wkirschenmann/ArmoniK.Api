@@ -23,8 +23,11 @@
  * alone, and no message is built for it.
  *
  * Every options struct starts with struct_size, which the host sets to sizeof of its own
- * definition. A size this library does not know is refused with AK_STATUS_INVALID_ARG rather than
- * read: it names a version whose fields are not the ones read here.
+ * definition, then version, flags and reserved, which it sets to zero. A struct_size smaller than
+ * this library's definition is refused with AK_STATUS_INVALID_ARG rather than read; a larger one
+ * is read up to this library's definition and the rest ignored, so a field appended to the end
+ * is an addition rather than a break. A version, a flag or a reserved field that is not zero is
+ * refused with AK_STATUS_INVALID_ARG.
  *
  * Metadata travels as a blob:
  *
@@ -89,7 +92,8 @@ enum ak_status
      */
     AK_STATUS_SLOT_BUSY = 2,
     /**
-     * A null pointer, or a struct whose size prefix does not match any known version.
+     * A null pointer, or an options struct that is too short or sets a version, a flag or a
+     * reserved field.
      */
     AK_STATUS_INVALID_ARG = 3,
     /**
@@ -343,6 +347,18 @@ typedef int32_t ak_head_origin;
 typedef struct {
     uint32_t struct_size;
     /**
+     * Zero, the one revision of this record there is.
+     */
+    uint32_t version;
+    /**
+     * Zero: no flag is defined, and a set one is refused rather than ignored.
+     */
+    uint32_t flags;
+    /**
+     * Zero.
+     */
+    uint32_t reserved;
+    /**
      * Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
      */
     uint32_t worker_threads;
@@ -452,6 +468,18 @@ typedef struct {
 
 typedef struct {
     uint32_t struct_size;
+    /**
+     * Zero, the one revision of this record there is.
+     */
+    uint32_t version;
+    /**
+     * Zero: no flag is defined, and a set one is refused rather than ignored.
+     */
+    uint32_t flags;
+    /**
+     * Zero.
+     */
+    uint32_t reserved;
     /**
      * "/Service/Method", not NUL-terminated.
      */

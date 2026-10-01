@@ -118,15 +118,31 @@ The message carries no source location: the engine's errors record one for traci
 requirement 11.4 keeps it out of what crosses the ABI. Nor does it carry the credentials an
 endpoint's userinfo may hold: a message that names the endpoint names it without them.
 
-`ak_error` has a fixed layout, without the size prefix of the records the host fills: this library
-fills it, and `ak_abi_version()` is how the two sides agree at load time.
-
 No release callback travels in `ak_error`. The host would copy a live code pointer into its own
 memory, and only quiescence permits unloading this library: a host that retires the runtime
 before formatting the message would call into an unmapped page. `ak_error_release` is a symbol
 the host's own loader resolved, which keeps the module referenced for as long as its stub
 exists. It is not `ak_event_consumed`: a refusal is not a delivery, and takes no delivery
 credit.
+
+#### Options records
+
+A record the host fills - `ak_runtime_config`, `ak_call_start_options` - starts with
+`struct_size`, `version`, `flags` and `reserved`, which is what requirement 13.5 asks of a record
+that evolves.
+
+The size is a minimum. A record longer than this library's definition is read up to that
+definition's end and the rest ignored, so a field appended to a record serves a newer host on an
+older library. The minimum is the size of these first definitions and stays it: a later library
+that appends a field reads it as absent from a host compiled before the field existed, and a
+shorter record than that was never valid.
+
+`version`, `flags` and `reserved` are refused when they are not zero rather than ignored. A flag
+asks for a behaviour, and a library that lacks it has to say so rather than run without it;
+`version` and `reserved` stay free for a change no appended field can express.
+
+A record this library fills, `ak_error` among them, has a fixed layout instead: `ak_abi_version()`
+is the agreement, and the two sides agree at load time or they do not run.
 
 #### Runtime lifecycle
 
@@ -484,17 +500,10 @@ regenerating and comparing, which is the arrangement `options.schema.json` alrea
 sees the diff either way, and only the hand-written arrangement can go stale in silence.
 
 It settles what this section used to list as undecided: `ak_bytes_in` as the borrowed mirror of
-`ak_bytes`, a size prefix on every options struct the host fills, `ak_runtime_config` and
+`ak_bytes`, a versioned head on every options struct the host fills, `ak_runtime_config` and
 `ak_call_start_options`, the metadata blob as a length-prefixed key/value sequence, and the
 `AK_EVENT_STATUS` payload as a length-prefixed reason followed by the trailing metadata - the
 code itself is `ak_event.status_code`.
-
-That prefix is a `uint32_t struct_size` alone, compared for exact equality, so a host
-compiled against any other revision is refused in both directions and no addition can ever be
-additive. Requirement 13.3 promises additivity and 13.5 asks for `size` + `version` + `flags`
-+ reserved validated to zero with the size checked as a minimum, which is what the record the
-host fills needs; the record this library fills has a fixed layout and `ak_abi_version()` for
-its agreement.
 
 What is still owed:
 

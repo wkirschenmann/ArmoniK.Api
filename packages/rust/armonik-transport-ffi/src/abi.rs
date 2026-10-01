@@ -11,6 +11,8 @@ use std::ffi::c_void;
 
 use armonik_transport::grpc::HeadOrigin;
 
+use crate::refusal::Refusal;
+
 /// Returned by every entry point that can fail. ak_event_consumed, ak_return_call_buffer and
 /// ak_channel_release are void because a wrong token is a host bug the ABI cannot report anywhere
 /// useful; ak_runtime_status, ak_channel_status and ak_abi_version return their answer.
@@ -25,7 +27,8 @@ pub enum ak_status {
     /// free; it says nothing about the peer, and does not wait on one - the wake-up is promised,
     /// its timing is not.
     AK_STATUS_SLOT_BUSY = 2,
-    /// A null pointer, or a struct whose size prefix does not match any known version.
+    /// A null pointer, or an options struct that is too short or sets a version, a flag or a
+    /// reserved field.
     AK_STATUS_INVALID_ARG = 3,
     /// A fault the ABI cannot attribute.
     AK_STATUS_INTERNAL = 4,
@@ -242,6 +245,12 @@ pub type ak_callback = Option<
 #[derive(Clone, Copy)]
 pub struct ak_runtime_config {
     pub struct_size: u32,
+    /// Zero, the one revision of this record there is.
+    pub version: u32,
+    /// Zero: no flag is defined, and a set one is refused rather than ignored.
+    pub flags: u32,
+    /// Zero.
+    pub reserved: u32,
     /// Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
     pub worker_threads: u32,
     /// Bytes lent buffers may occupy at once. Zero, or more than this library can lend, asks for
@@ -279,6 +288,12 @@ pub struct ak_memory_usage {
 #[derive(Clone, Copy)]
 pub struct ak_call_start_options {
     pub struct_size: u32,
+    /// Zero, the one revision of this record there is.
+    pub version: u32,
+    /// Zero: no flag is defined, and a set one is refused rather than ignored.
+    pub flags: u32,
+    /// Zero.
+    pub reserved: u32,
     /// "/Service/Method", not NUL-terminated.
     pub method: ak_bytes_in,
     /// A metadata blob - a uint32_t count, then each key and each value as a uint32_t length and
@@ -341,26 +356,64 @@ pub const AK_ABI_VERSION: i32 = 1;
 /// process - the one failure no status can report.
 pub const AK_MAX_WORKER_THREADS: u32 = 1024;
 
+/// The four fields every options struct starts with, which `tests/layout.rs` pins at the same
+/// offsets in each.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RecordHead {
+    struct_size: u32,
+    version: u32,
+    flags: u32,
+    reserved: u32,
+}
+
 /// Reads an options struct, once its size prefix says the host built it with these fields.
 ///
-/// The prefix first, and only then the rest. The header promises a struct of an unknown size is
-/// "refused rather than read", and a host built against a smaller definition of one is the case
-/// that promise exists for: copying `size_of::<T>()` bytes out of it before looking would read
-/// past the end of the caller's object.
+/// The prefix first, and only then the rest. A host built against a smaller definition of the
+/// struct is refused, and copying `size_of::<T>()` bytes out of it before looking would read past
+/// the end of its object. A larger definition is read up to this one's end: the fields past it
+/// are the ones this library does not know.
 ///
-/// `struct_size` at offset zero is what `tests/layout.rs` pins, which is what makes the cast to
-/// `u32` sound for any version of any of these structs.
-///
-/// Both reads are unaligned. Alignment is the caller's `T`, not this one: a host built against a
-/// version without the `u64` passes a pointer aligned to four, and asking it for eight would be
-/// asking it to know a definition it does not have. These are plain data, so an unaligned read is
-/// a copy either way.
+/// Every read is unaligned: the pointer is aligned for the host's definition of the struct, which
+/// need not be this one. These are plain data, so an unaligned read is a copy either way.
 ///
 /// # Safety
 ///
-/// `at` must be non-null and readable for four bytes; and, when those four say
-/// `size_of::<T>()`, readable for `size_of::<T>()`.
-pub(crate) unsafe fn read_versioned<T: Copy>(at: *const T) -> Option<T> {
+/// `at` must be non-null and readable for four bytes, and then for as many as those four say.
+pub(crate) unsafe fn read_versioned<T: Copy>(at: *const T) -> Result<T, Refusal> {
+    const { assert!(std::mem::size_of::<T>() >= std::mem::size_of::<RecordHead>()) };
     let struct_size = unsafe { at.cast::<u32>().read_unaligned() };
-    (struct_size as usize == std::mem::size_of::<T>()).then(|| unsafe { at.read_unaligned() })
+    // The minimum is each record's first definition, which this one is while no field has been
+    // appended to it.
+    if (struct_size as usize) < std::mem::size_of::<T>() {
+        return Err(SHORTER_RECORD);
+    }
+    let head = unsafe { at.cast::<RecordHead>().read_unaligned() };
+    match head {
+        RecordHead { version: 1.., .. } => Err(UNKNOWN_VERSION),
+        RecordHead { flags: 1.., .. } => Err(UNKNOWN_FLAG),
+        RecordHead { reserved: 1.., .. } => Err(RESERVED_SET),
+        _ => Ok(unsafe { at.read_unaligned() }),
+    }
 }
+
+const SHORTER_RECORD: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "struct_size is smaller than this library's definition of the record",
+);
+const UNKNOWN_VERSION: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the record's version is not zero, the one this library reads",
+);
+const UNKNOWN_FLAG: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the record sets a flag, and this library defines none",
+);
+const RESERVED_SET: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the record's reserved field is not zero",
+);

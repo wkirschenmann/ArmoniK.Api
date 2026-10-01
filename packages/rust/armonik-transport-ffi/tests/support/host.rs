@@ -245,6 +245,9 @@ pub fn try_create_runtime(
 ) -> (ak_status, ak_handle) {
     let config = ak_runtime_config {
         struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
+        version: 0,
+        flags: 0,
+        reserved: 0,
         worker_threads,
         memory_ceiling,
     };
@@ -282,6 +285,9 @@ pub fn memory_usage(runtime: ak_handle) -> ak_memory_usage {
 pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_status, ak_handle) {
     let options = ak_call_start_options {
         struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
+        version: 0,
+        flags: 0,
+        reserved: 0,
         method: ak_bytes_in {
             ptr: method.as_ptr(),
             len: method.len(),

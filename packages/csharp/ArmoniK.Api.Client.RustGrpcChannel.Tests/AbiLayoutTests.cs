@@ -96,26 +96,38 @@ public class AbiLayoutTests
                        });
 
   [Test]
-  public void AnOptionsStructStartsWithTheSizeThatVersionsIt()
+  public void AnOptionsStructStartsWithTheFieldsThatVersionIt()
     => Assert.Multiple(() =>
                        {
                          Assert.That(Marshal.SizeOf<ak_runtime_config>(),
-                                     Is.EqualTo(16));
+                                     Is.EqualTo(32));
                          Assert.That(Offset<ak_runtime_config>("struct_size"),
                                      Is.EqualTo(0));
-                         Assert.That(Offset<ak_runtime_config>("worker_threads"),
+                         Assert.That(Offset<ak_runtime_config>("version"),
                                      Is.EqualTo(4));
-                         Assert.That(Offset<ak_runtime_config>("memory_ceiling"),
+                         Assert.That(Offset<ak_runtime_config>("flags"),
                                      Is.EqualTo(8));
+                         Assert.That(Offset<ak_runtime_config>("reserved"),
+                                     Is.EqualTo(12));
+                         Assert.That(Offset<ak_runtime_config>("worker_threads"),
+                                     Is.EqualTo(16));
+                         Assert.That(Offset<ak_runtime_config>("memory_ceiling"),
+                                     Is.EqualTo(24));
 
                          Assert.That(Marshal.SizeOf<ak_call_start_options>(),
-                                     Is.EqualTo(5 * Ptr));
+                                     Is.EqualTo(16 + 4 * Ptr));
                          Assert.That(Offset<ak_call_start_options>("struct_size"),
                                      Is.EqualTo(0));
+                         Assert.That(Offset<ak_call_start_options>("version"),
+                                     Is.EqualTo(4));
+                         Assert.That(Offset<ak_call_start_options>("flags"),
+                                     Is.EqualTo(8));
+                         Assert.That(Offset<ak_call_start_options>("reserved"),
+                                     Is.EqualTo(12));
                          Assert.That(Offset<ak_call_start_options>("method"),
-                                     Is.EqualTo(Ptr));
+                                     Is.EqualTo(16));
                          Assert.That(Offset<ak_call_start_options>("metadata"),
-                                     Is.EqualTo(3 * Ptr));
+                                     Is.EqualTo(16 + 2 * Ptr));
                        });
 
   [Test]

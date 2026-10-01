@@ -673,36 +673,143 @@ fn the_shutdown_callback_reads_the_runtime_still_stopping() {
     );
 }
 
-#[test]
-fn a_struct_of_an_unknown_size_is_refused_rather_than_read() {
-    let host = Host::start();
-    let channel = host.channel("http://127.0.0.1:1");
-
-    let options = ak_call_start_options {
-        struct_size: 7,
+fn start_options(method: &str) -> ak_call_start_options {
+    ak_call_start_options {
+        struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
+        version: 0,
+        flags: 0,
+        reserved: 0,
         method: ak_bytes_in {
-            ptr: ECHO.as_ptr(),
-            len: ECHO.len(),
+            ptr: method.as_ptr(),
+            len: method.len(),
         },
         metadata: ak_bytes_in {
             ptr: std::ptr::null(),
             len: 0,
         },
-    };
+    }
+}
+
+/// `options` as a pointer to whatever record the test built around it.
+fn start_with<T>(channel: ak_handle, options: &T) -> (ak_status, ak_error, ak_handle) {
     let mut call = AK_HANDLE_NONE;
+    let mut error = std::mem::MaybeUninit::<ak_error>::zeroed();
     let status = unsafe {
         ak_call_start(
             channel,
-            &options,
+            (options as *const T).cast(),
             std::ptr::null_mut(),
             &mut call,
+            error.as_mut_ptr(),
+        )
+    };
+    (status, unsafe { error.assume_init() }, call)
+}
+
+#[test]
+fn a_record_shorter_than_this_librarys_is_refused_rather_than_read() {
+    let host = Host::start();
+    let channel = host.channel("http://127.0.0.1:1");
+
+    let options = ak_call_start_options {
+        struct_size: std::mem::size_of::<ak_call_start_options>() as u32 - 1,
+        ..start_options(ECHO)
+    };
+    let (status, error, call) = start_with(channel, &options);
+
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_ARG);
+    assert_eq!(error.kind, ak_error_kind::AK_ERROR_USAGE);
+    assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
+    ak_channel_release(channel);
+}
+
+#[test]
+fn a_record_one_field_longer_is_read_and_its_tail_ignored() {
+    #[repr(C)]
+    struct Longer {
+        known: ak_call_start_options,
+        unknown: u64,
+    }
+
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    let options = Longer {
+        known: ak_call_start_options {
+            struct_size: std::mem::size_of::<Longer>() as u32,
+            ..start_options(ECHO)
+        },
+        unknown: u64::MAX,
+    };
+    let (status, _, call) = start_with(channel, &options);
+
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
+    host.recorder.await_terminal();
+    fixture.close();
+}
+
+#[test]
+fn a_record_that_sets_a_version_a_flag_or_a_reserved_field_is_refused() {
+    let host = Host::start();
+    let channel = host.channel("http://127.0.0.1:1");
+
+    for (field, options) in [
+        (
+            "version",
+            ak_call_start_options {
+                version: 1,
+                ..start_options(ECHO)
+            },
+        ),
+        (
+            "flags",
+            ak_call_start_options {
+                flags: 1 << 31,
+                ..start_options(ECHO)
+            },
+        ),
+        (
+            "reserved",
+            ak_call_start_options {
+                reserved: 1,
+                ..start_options(ECHO)
+            },
+        ),
+    ] {
+        let (status, error, call) = start_with(channel, &options);
+        assert_eq!(status, ak_status::AK_STATUS_INVALID_ARG, "{field}");
+        assert_eq!(error.kind, ak_error_kind::AK_ERROR_USAGE, "{field}");
+        assert_eq!(call, AK_HANDLE_NONE, "{field}: nothing was started");
+    }
+    ak_channel_release(channel);
+}
+
+#[test]
+fn a_runtime_config_carries_the_same_head_as_call_options() {
+    // Refused before the one-at-a-time rule is asked, so no other test's runtime enters it.
+    let config = ak_runtime_config {
+        struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
+        version: 1,
+        flags: 0,
+        reserved: 0,
+        worker_threads: 1,
+        memory_ceiling: 0,
+    };
+    let mut runtime = AK_HANDLE_NONE;
+    let status = unsafe {
+        ak_runtime_create(
+            &config,
+            Some(support::on_event),
+            std::ptr::null_mut(),
+            &mut runtime,
             std::ptr::null_mut(),
         )
     };
-
     assert_eq!(status, ak_status::AK_STATUS_INVALID_ARG);
-    assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
-    ak_channel_release(channel);
+    assert_eq!(runtime, AK_HANDLE_NONE);
 }
 
 #[test]

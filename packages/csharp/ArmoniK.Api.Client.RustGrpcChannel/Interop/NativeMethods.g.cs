@@ -402,6 +402,18 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     {
         public uint struct_size;
         /// <summary>
+        ///  Zero, the one revision of this record there is.
+        /// </summary>
+        public uint version;
+        /// <summary>
+        ///  Zero: no flag is defined, and a set one is refused rather than ignored.
+        /// </summary>
+        public uint flags;
+        /// <summary>
+        ///  Zero.
+        /// </summary>
+        public uint reserved;
+        /// <summary>
         ///  Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
         /// </summary>
         public uint worker_threads;
@@ -432,6 +444,18 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     internal unsafe partial struct ak_call_start_options
     {
         public uint struct_size;
+        /// <summary>
+        ///  Zero, the one revision of this record there is.
+        /// </summary>
+        public uint version;
+        /// <summary>
+        ///  Zero: no flag is defined, and a set one is refused rather than ignored.
+        /// </summary>
+        public uint flags;
+        /// <summary>
+        ///  Zero.
+        /// </summary>
+        public uint reserved;
         /// <summary>
         ///  "/Service/Method", not NUL-terminated.
         /// </summary>
@@ -500,7 +524,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         AK_STATUS_SLOT_BUSY = 2,
         /// <summary>
-        ///  A null pointer, or a struct whose size prefix does not match any known version.
+        ///  A null pointer, or an options struct that is too short or sets a version, a flag or a
+        ///  reserved field.
         /// </summary>
         AK_STATUS_INVALID_ARG = 3,
         /// <summary>
