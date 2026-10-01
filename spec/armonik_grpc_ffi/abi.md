@@ -204,8 +204,8 @@ and not an error, and the same race exists on `ak_call_send_message`. Lending on
 is also what makes destruction sound: a released runtime has no live call, so nothing can hand
 its memory back out.
 
-A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL` and the runtime
-fails.
+A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
+refused as the others are - nothing charged, no slot spent - while the runtime carries on.
 
 When `ak_call_send_message`'s allocation is freed is this library's business and is not
 observable: the engine copies the message out when it encodes it, and the allocation goes then,

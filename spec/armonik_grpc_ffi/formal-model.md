@@ -608,9 +608,8 @@ so a caller may create another.
 **A refused channel creation is not a runtime failure.** `ak_channel_create` performs no
 I/O - connecting is a separate step - so it fails only on a bad configuration
 (`AK_STATUS_INVALID_ARG`), on a runtime handle already gone (`AK_STATUS_HANDLE_STALE`),
-or on a genuine allocation failure (`AK_STATUS_INTERNAL`). Only the third is a failure of
-the runtime, and there the `~NotFailed` escape already covers everything - nothing is
-promised past it. The first two must stay local: a typo in an endpoint cannot be allowed
+or on a handle range for channels exhausted (`AK_STATUS_INTERNAL`). None of the three
+fails the runtime, and the first two must not: a typo in an endpoint cannot be allowed
 to kill the process-wide runtime and every other channel it serves. So the model carries
 a rollback, `RejectChannelCreation`: the constructor's own provisional state is freed -
 not the runtime root, which outlives every channel and is released only after
@@ -1401,7 +1400,7 @@ refinement.
 | `ResourcesReleasedCallbackReturns` | that callback returns, which completes the resources branch. It does not by itself make the status `AK_RUNTIME_QUIESCENT`: the order against `RuntimeRelease` is free, so the level-0 transition may still be owed |
 | `RuntimeDestroy` | `ak_runtime_destroy` accepts, its precondition checked |
 | `NetworkSend` / `NetworkReceive` / `ReceiveStatus` | internal to the `grpc` module, not observable at the ABI |
-| `RuntimeFail` | any unrecoverable runtime fault, including a genuine allocator failure inside `ak_get_call_buffer` - but not reaching the configured ceiling, which is a refusal; the model leaves the state that follows unconstrained |
+| `RuntimeFail` | any unrecoverable runtime fault - but not reaching the configured ceiling, which is a refusal, nor a genuine allocator failure inside `ak_get_call_buffer`, which refuses that lend with `AK_STATUS_INTERNAL` and changes nothing level 1 carries; the model leaves the state that follows unconstrained |
 | `RemainFailed` / `RemainReleased` | explicit stutter, so a terminal runtime state has a step and the temporal proofs need no special case |
 
 #### Which ABI argument becomes what

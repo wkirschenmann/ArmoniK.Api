@@ -351,10 +351,10 @@ handed out by `ak_get_call_buffer`.
 second is a fault.** The ceiling is a configured accounting limit. Reaching it means some
 live allocation - possibly from this call - is holding bytes right now, and the runtime
 knows exactly what recredits that capacity: `FreeReturnedBuffer`. Waiting demonstrably
-helps. A real allocator failure is the
-other case, and there waiting has no evidence behind it - a process that cannot allocate a
-send buffer has no reason to believe it can allocate a retry path or the string a log line
-needs.
+helps. A real allocator failure is the other case, and there waiting has no evidence behind
+it, so it is no backpressure: it is `AK_STATUS_INTERNAL`, and a host does not retry the same
+length. It does not fail the runtime. What failed is this request, refused with everything it
+took given back, and what the runtime holds for its other calls is allocated already.
 
 So `ak_get_call_buffer` has four modeled lend outcomes - `OK`, `SLOT_BUSY`,
 `BUDGET_BUSY`, `MESSAGE_TOO_LARGE`; the remaining ABI results (`HANDLE_STALE`,
@@ -367,13 +367,14 @@ refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached
 not necessarily this call's doing - with a window deeper than one or replay bytes
 retained, its own sends hold budget too - so a WRITE_DONE of this call is a wake-up,
 never an exhaustive one: the budget is runtime-wide and anyone's free recredits it.
-Only a genuine allocator failure is `RuntimeFail` with `AK_STATUS_INTERNAL`.
+A genuine allocator failure is `AK_STATUS_INTERNAL`, one of those rows: a refused lend that
+changes nothing level 1 carries, and not `RuntimeFail`.
 
 The order of those checks is what keeps `AK_STATUS_INTERNAL` rare. The ceiling is tested
 *before* anything is allocated, so a runtime at its budget refuses with `AK_STATUS_BUDGET_BUSY`
-and never reaches an allocation that could fail. Past that check, every allocation on this path
-uses the fallible form - `try_reserve_exact` - so a failure returns rather than
-aborting, and that return is what `AK_STATUS_INTERNAL` reports. The infallible `Vec` and `Bytes`
+and never reaches an allocation that could fail. Past that check, the arena - the one
+allocation the host sizes - is reserved with the fallible form, `try_reserve_exact`, so its
+failure returns rather than aborting, and that return is what `AK_STATUS_INTERNAL` reports. The infallible `Vec` and `Bytes`
 APIs are what abort; the emission path does not use them.
 
 **The budget covers the emission path and only it.** What it governs is the memory this

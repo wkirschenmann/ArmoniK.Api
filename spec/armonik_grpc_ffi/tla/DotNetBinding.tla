@@ -220,8 +220,8 @@ CreateChannel(chId) ==
 \* process-wide runtime every other channel is served by.  The
 \* constructor's own provisional state goes and the runtime is left
 \* exactly as it was, its lifetime being the caller's and no business of
-\* a channel that failed to open.  Only an allocation failure is a
-\* runtime failure, and that is L1!RuntimeFail's business.
+\* a channel that failed to open.  An exhausted handle range refuses
+\* the same way, and fails the runtime no more than the other two.
 RejectChannelCreation(chId) ==
     /\ channel_dispose_state[chId] = "constructing"
     /\ channel_dispose_state' =
