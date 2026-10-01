@@ -358,7 +358,7 @@ fn the_header_and_the_library_agree_on_the_worker_ceiling() {
 fn every_entry_point_has_the_signature_the_header_declares() {
     let _: unsafe extern "C" fn(
         *const ak_runtime_config,
-        Option<ak_callback>,
+        ak_callback,
         *mut c_void,
         *mut ak_handle,
     ) -> ak_status = ak_runtime_create;

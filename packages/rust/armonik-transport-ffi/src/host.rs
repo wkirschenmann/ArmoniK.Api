@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use crate::abi::{ak_bytes, ak_callback, ak_event, ak_event_kind, ak_host_debt};
+use crate::abi::{ak_bytes, ak_call_ctx, ak_event, ak_event_kind, ak_host_debt};
 
 #[derive(Clone, Copy)]
 pub(crate) struct HostPtr(pub(crate) *mut c_void);
@@ -14,13 +14,17 @@ impl HostPtr {
     }
 }
 
+/// What `ak_callback` points at once `ak_runtime_create` has refused a null one.
+pub(crate) type Callback =
+    unsafe extern "C" fn(runtime_ctx: *mut c_void, call_ctx: ak_call_ctx, event: *const ak_event);
+
 pub(crate) struct Host {
-    callback: ak_callback,
+    callback: Callback,
     runtime_ctx: HostPtr,
 }
 
 impl Host {
-    pub(crate) fn new(callback: ak_callback, runtime_ctx: *mut c_void) -> Self {
+    pub(crate) fn new(callback: Callback, runtime_ctx: *mut c_void) -> Self {
         Self {
             callback,
             runtime_ctx: HostPtr(runtime_ctx),

@@ -1,0 +1,14 @@
+[package]
+name = "armonik-transport-ffi-bindgen"
+description = "Renders armonik-transport-ffi's C header from its Rust"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+# A crate of its own rather than an example of armonik-transport-ffi, which would build that
+# crate's dev-dependencies - a gRPC server among them - every time it runs.
+[dependencies]
+cbindgen.workspace = true

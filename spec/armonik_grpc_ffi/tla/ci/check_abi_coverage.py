@@ -86,7 +86,7 @@ def read(path):
 def declared_functions(doc):
     """Every ak_* function the ABI blocks declare."""
     out = set()
-    for m in re.finditer(r"^(?:ak_status|void|int|ak_runtime_state|ak_channel_state)\s+(ak_\w+)\s*\(",
+    for m in re.finditer(r"^(?:ak_status|void|int|int32_t|ak_runtime_state|ak_channel_state)\s+(ak_\w+)\s*\(",
                          doc, re.M):
         out.add(m.group(1))
     return out
@@ -96,7 +96,7 @@ def declared_arguments(doc):
     """function -> the bare names of its parameters."""
     out = {}
     for m in re.finditer(
-            r"^(?:ak_status|void|int|ak_runtime_state|ak_channel_state)\s+(ak_\w+)\s*\(([^;]*)\);",
+            r"^(?:ak_status|void|int|int32_t|ak_runtime_state|ak_channel_state)\s+(ak_\w+)\s*\(([^;]*)\);",
             doc, re.M | re.S):
         args = []
         for part in m.group(2).split(","):
