@@ -78,17 +78,17 @@
       "type": "object",
       "properties": {
         "Address": {
-          "description": "`none` for no proxy, `system` for the environment's, or the proxy's `http://` URL, with no\npath; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,\npercent-encoded, when `Username` and `Password` are not set - which a serialized document\nthen carries too.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused, and any other value the\nenvironment cannot read as a proxy is ignored. The environment's proxy is never used for a\nloopback endpoint.\n\nDefaults to `system`.",
+          "description": "`none` for no proxy, `system` for the one the system names, or the proxy's `http://` URL,\nwith no path; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,\npercent-encoded, when `Username` and `Password` are not set - which a serialized document\nthen carries too.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused when the channel is created,\nand any other value the environment cannot read as a proxy is ignored.\n\nOn Windows, when the environment names no proxy, the system's is the one the current\nuser's network settings name: a PAC script, detected or at the configured address, which\nWinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and\nits bypass list. Those settings are read when the channel is created, and an `https://` or\n`socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which\nWinHTTP drops, leaving a direct dial.\n\nThe system's proxy is never used for a loopback endpoint.\n\nDefaults to `system`.",
           "type": "string",
           "minLength": 1
         },
         "Password": {
-          "description": "The password that goes with `Username`.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nenvironment names no proxy. Beside the environment's proxy, it takes the place of the\npassword that proxy's URL carries.",
+          "description": "The password that goes with `Username`.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nsystem names no proxy. Beside the environment's proxy, it takes the place of the password\nthat proxy's URL carries; beside the one Windows' settings name, it is the password.",
           "type": "string",
           "writeOnly": true
         },
         "Username": {
-          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nenvironment names no proxy. Beside the environment's proxy, it takes the place of the\nusername that proxy's URL carries.",
+          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nsystem names no proxy. Beside the environment's proxy, it takes the place of the username\nthat proxy's URL carries; beside the one Windows' settings name, it is the username.",
           "type": "string"
         }
       },

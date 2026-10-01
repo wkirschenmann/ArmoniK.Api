@@ -114,16 +114,24 @@ pub struct TransportOptions {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ProxyOptions {
-    /// `none` for no proxy, `system` for the environment's, or the proxy's `http://` URL, with no
-    /// path; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,
+    /// `none` for no proxy, `system` for the one the system names, or the proxy's `http://` URL,
+    /// with no path; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,
     /// percent-encoded, when `Username` and `Password` are not set - which a serialized document
     /// then carries too.
     ///
     /// The environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and
     /// by the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the
-    /// channel is created. An `https://` or `socks` one is refused, and any other value the
-    /// environment cannot read as a proxy is ignored. The environment's proxy is never used for a
-    /// loopback endpoint.
+    /// channel is created. An `https://` or `socks` one is refused when the channel is created,
+    /// and any other value the environment cannot read as a proxy is ignored.
+    ///
+    /// On Windows, when the environment names no proxy, the system's is the one the current
+    /// user's network settings name: a PAC script, detected or at the configured address, which
+    /// WinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and
+    /// its bypass list. Those settings are read when the channel is created, and an `https://` or
+    /// `socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which
+    /// WinHTTP drops, leaving a direct dial.
+    ///
+    /// The system's proxy is never used for a loopback endpoint.
     ///
     /// Defaults to `system`.
     #[cfg_attr(
@@ -136,8 +144,8 @@ pub struct ProxyOptions {
     /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
     ///
     /// Refused beside credentials the `Address` URL carries; ignored beside `none`, and when the
-    /// environment names no proxy. Beside the environment's proxy, it takes the place of the
-    /// username that proxy's URL carries.
+    /// system names no proxy. Beside the environment's proxy, it takes the place of the username
+    /// that proxy's URL carries; beside the one Windows' settings name, it is the username.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -148,8 +156,8 @@ pub struct ProxyOptions {
     /// The password that goes with `Username`.
     ///
     /// Refused beside credentials the `Address` URL carries; ignored beside `none`, and when the
-    /// environment names no proxy. Beside the environment's proxy, it takes the place of the
-    /// password that proxy's URL carries.
+    /// system names no proxy. Beside the environment's proxy, it takes the place of the password
+    /// that proxy's URL carries; beside the one Windows' settings name, it is the password.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,

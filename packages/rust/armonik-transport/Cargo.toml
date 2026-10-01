@@ -91,6 +91,8 @@ schannel.workspace = true
 # `verify`: an issuer is the certificate whose key signed the one below it, which the subject
 # alone does not settle when a store holds an intermediate and its renewal.
 x509-parser = { workspace = true, features = ["verify"] }
+# The proxy the user's network settings name, found and run by WinHTTP.
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Networking_WinHttp"] }
 
 [dev-dependencies]
 # The boolean options are read straight from the environment, so testing which spellings they accept

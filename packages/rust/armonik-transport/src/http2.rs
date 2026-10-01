@@ -467,7 +467,7 @@ impl TransportConnector {
             None => builder,
         };
 
-        let proxied = ProxyConnector::new(http, &config.proxy);
+        let proxied = ProxyConnector::new(http, &config.proxy, config.connect_timeout);
         // The environment is read once, so a proxy it names that cannot be used for this
         // endpoint is refused here rather than on every dial.
         if let Err(refused) = proxied.route_to(&config.endpoint) {

@@ -994,6 +994,25 @@ a `.test` name only the test proxy resolves shows which dials went through it.
 
 **Deliverable**: a call through the system proxy, on the Windows CI.
 
+**Status**: done. On Windows, `ProxySource::System` reads the current user's network settings when
+the environment names no proxy, as .NET's `HttpClientHandler` does; `GrpcClient` on .NET Framework
+reads WinHTTP's machine-wide settings instead, through `WinHttpHandler`. A PAC script, detected by
+WPAD or at the configured address, is fetched and run by `WinHttpGetProxyForUrl` on a blocking
+thread for each dial, so the runtime's threads never wait on it, and its session's timeouts are the
+connect timeout, which also bounds the whole dial; a script that cannot be found or run leaves the
+manual proxy and its bypass list - names, `*` wildcards and `<local>` - to decide, as in .NET. A
+loopback endpoint is never resolved. An `https://` entry, or a manual `socks=` one when it is the
+only entry for the scheme, is refused, at the dial since nothing is resolved at creation; a script's
+`SOCKS` answer is dropped by WinHTTP itself and leaves a direct dial. `Username` and `Password`
+authenticate to whichever proxy the settings name. A resolution still running when its dial gives
+up keeps its blocking thread, and dropping the runtime waits for it, so a stuck WPAD lengthens
+`ak_runtime_destroy` - the price of keeping its promise that no thread of this library outlives it;
+WinHTTP remembers a script it could not fetch, so it is one wait and not one per dial, which a unit
+test pins. Settings that cannot be read, as for a user with no profile, dial directly. The unit
+tests run a PAC script through WinHTTP from a loopback server, and tunnel through the proxy manual
+settings name; the user's own settings are not changed by any test, so the read of them is the one
+part no test reaches.
+
 ---
 
 ## Phase 6 — Deadline, retry, and what bounds them

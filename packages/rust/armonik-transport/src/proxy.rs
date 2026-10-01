@@ -8,6 +8,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use base64::Engine;
 use hyper::http::HeaderValue;
@@ -21,6 +22,8 @@ use tokio::net::TcpStream;
 use tower_service::Service;
 
 use crate::utils::safe_endpoint;
+#[cfg(windows)]
+use crate::windows_proxy::{Settings, WindowsProxy};
 
 /// What a connector reports when it fails.
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -35,8 +38,10 @@ pub enum ProxySource {
     /// This proxy, an `http://` URI carrying no credentials.
     Explicit(Uri),
     /// The environment's: `ALL_PROXY`, `HTTPS_PROXY` and `HTTP_PROXY` in either case, with
-    /// `NO_PROXY` matched as curl matches it, read when the channel is made. A loopback endpoint
-    /// is dialled directly, so a local server stays reachable under a corporate proxy.
+    /// `NO_PROXY` matched as curl matches it, read when the channel is made. On Windows, when the
+    /// environment names none, the current user's network settings: a PAC script WinHTTP finds
+    /// and runs, else the manual proxy and its bypass list. A loopback endpoint is dialled
+    /// directly, so a local server stays reachable under a corporate proxy.
     System,
 }
 
@@ -197,29 +202,34 @@ enum Route {
     /// The matcher, and the credentials that take the place of the URL's. Behind an `Arc`
     /// because a connector is cloned per dial and a `Matcher` is not `Clone`.
     Environment(Arc<(Matcher, ProxyConfig)>),
+    /// The user's network settings, and the credentials the proxy they name is shown.
+    #[cfg(windows)]
+    Windows(Arc<(WindowsProxy, ProxyConfig)>),
 }
 
+/// The proxy a dial goes through, and the `Proxy-Authorization` it is shown; none for a direct
+/// dial.
+type Routed = Option<(Uri, Option<HeaderValue>)>;
+
 impl<S> ProxyConnector<S> {
-    pub(crate) fn new(inner: S, proxy: &ProxyConfig) -> Self {
+    /// `timeout` bounds each step of fetching a PAC script the system's settings name.
+    pub(crate) fn new(inner: S, proxy: &ProxyConfig, timeout: Duration) -> Self {
         let route = match &proxy.source {
             ProxySource::Disabled => Route::Direct,
             ProxySource::Explicit(uri) => Route::Via(uri.clone(), proxy.authorization()),
-            ProxySource::System => {
-                Route::Environment(Arc::new((Matcher::from_env(), proxy.clone())))
-            }
+            ProxySource::System => system_route(proxy, timeout),
         };
         Self { inner, route }
     }
 
-    /// The proxy `target` is reached through, and the `Proxy-Authorization` it is shown; none
-    /// for a direct dial.
-    pub(crate) fn route_to(
-        &self,
-        target: &Uri,
-    ) -> Result<Option<(Uri, Option<HeaderValue>)>, ProxyError> {
+    /// Where a dial of `target` goes. The Windows settings answer nothing here: finding a PAC
+    /// script blocks, so `call` asks them off the runtime's threads.
+    pub(crate) fn route_to(&self, target: &Uri) -> Result<Routed, ProxyError> {
         match &self.route {
             Route::Direct => Ok(None),
             Route::Via(proxy, authorization) => Ok(Some((proxy.clone(), authorization.clone()))),
+            #[cfg(windows)]
+            Route::Windows(_) => Ok(None),
             Route::Environment(_) if is_loopback(target) => Ok(None),
             Route::Environment(environment) => {
                 let (matcher, dedicated) = environment.as_ref();
@@ -230,12 +240,100 @@ impl<S> ProxyConnector<S> {
                 if proxy.scheme_str() != Some("http") {
                     return Err(ProxyError::NotHttp {
                         proxy: safe_endpoint(&proxy),
+                        named_by: Origin::Environment,
                     });
                 }
                 Ok(Some((proxy, dedicated.merged(intercept.basic_auth()))))
             }
         }
     }
+}
+
+/// Whether one of the variables a proxy is named by is set; `NO_PROXY` alone names none.
+fn environment_names_a_proxy() -> bool {
+    [
+        "ALL_PROXY",
+        "all_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+}
+
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn system_route(proxy: &ProxyConfig, timeout: Duration) -> Route {
+    if environment_names_a_proxy() {
+        return Route::Environment(Arc::new((Matcher::from_env(), proxy.clone())));
+    }
+    #[cfg(windows)]
+    {
+        let settings = Settings::current_user();
+        if settings.names_a_proxy() {
+            return Route::Windows(Arc::new((
+                WindowsProxy::new(settings, timeout),
+                proxy.clone(),
+            )));
+        }
+    }
+    Route::Direct
+}
+
+/// The route the Windows settings give `target`, asked on a blocking thread; the connect timeout
+/// bounds the wait one level up.
+#[cfg(windows)]
+async fn through_settings(
+    windows: Arc<(WindowsProxy, ProxyConfig)>,
+    target: &Uri,
+) -> Result<Routed, ProxyError> {
+    let resolving = Arc::clone(&windows);
+    let asked = target.clone();
+    let entry = tokio::task::spawn_blocking(move || resolving.0.resolve(&asked))
+        .await
+        .map_err(|_| ProxyError::Interrupted)?;
+    let Some(entry) = entry else {
+        return Ok(None);
+    };
+    Ok(Some((settings_proxy(&entry)?, windows.1.authorization())))
+}
+
+/// The `http://` URI of an entry the settings write as `host:port`, perhaps with a scheme.
+#[cfg(windows)]
+fn settings_proxy(entry: &str) -> Result<Uri, ProxyError> {
+    // A scheme is letters, digits, `+`, `-` and `.`: a `://` after anything else is inside a
+    // userinfo, which no message quotes.
+    let (scheme, rest) = match entry.split_once("://") {
+        Some((scheme, rest))
+            if !scheme.is_empty()
+                && scheme
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"+-.".contains(&byte)) =>
+        {
+            (scheme, rest)
+        }
+        _ => ("http", entry),
+    };
+    // The last `@`: what precedes it is a userinfo, which no message quotes.
+    let authority = rest
+        .rsplit_once('@')
+        .map_or(rest, |(_, host)| host)
+        .trim_end_matches('/');
+    if !scheme.eq_ignore_ascii_case("http") {
+        return Err(ProxyError::NotHttp {
+            proxy: format!("{scheme}://{authority}"),
+            named_by: Origin::WindowsSettings,
+        });
+    }
+    Uri::builder()
+        .scheme("http")
+        .authority(authority)
+        .path_and_query("/")
+        .build()
+        .map_err(|_| ProxyError::Unresolved {
+            cause: format!("`{authority}` is not a `host:port`"),
+        })
 }
 
 impl<S> Service<Uri> for ProxyConnector<S>
@@ -254,29 +352,42 @@ where
     }
 
     fn call(&mut self, target: Uri) -> Self::Future {
-        let (proxy, authorization) = match self.route_to(&target) {
-            Ok(Some(route)) => route,
-            Ok(None) => {
-                let dialling = self.inner.call(target);
-                return Box::pin(async move { dialling.await.map_err(Into::into) });
-            }
-            Err(refused) => return Box::pin(std::future::ready(Err(refused.into()))),
+        let routed = self.route_to(&target);
+        #[cfg(windows)]
+        let settings = match &self.route {
+            Route::Windows(windows) if !is_loopback(&target) => Some(Arc::clone(windows)),
+            _ => None,
         };
-
-        // `Tunnel` asks for port 443 when the target names none, whatever its scheme, where a
-        // direct dial of `http://` takes 80.
-        let target = with_default_port(target);
-
-        // The proxy is dialled by the inner connector, so failing to reach it and failing the
-        // handshake over it are told apart by where they happen; only the handshake's 407 is told
-        // apart by its text.
-        let dialling = self.inner.call(proxy.clone());
+        let mut inner = self.inner.clone();
         Box::pin(async move {
+            #[cfg(windows)]
+            let routed = match settings {
+                Some(windows) => through_settings(windows, &target).await,
+                None => routed,
+            };
+            std::future::poll_fn(|cx| inner.poll_ready(cx))
+                .await
+                .map_err(Into::into)?;
+            let Some((proxy, authorization)) = routed? else {
+                return inner.call(target).await.map_err(Into::into);
+            };
+
+            // `Tunnel` asks for port 443 when the target names none, whatever its scheme, where
+            // a direct dial of `http://` takes 80.
+            let target = with_default_port(target);
+
+            // The proxy is dialled by the inner connector, so failing to reach it and failing the
+            // handshake over it are told apart by where they happen; only the handshake's 407 is
+            // told apart by its text.
             let proxy_name = safe_endpoint(&proxy);
-            let stream = dialling.await.map_err(|error| ProxyError::Unreachable {
-                proxy: proxy_name.clone(),
-                cause: crate::utils::chain(error.into().as_ref(), ": "),
-            })?;
+            let stream =
+                inner
+                    .call(proxy.clone())
+                    .await
+                    .map_err(|error| ProxyError::Unreachable {
+                        proxy: proxy_name.clone(),
+                        cause: crate::utils::chain(error.into().as_ref(), ": "),
+                    })?;
 
             let mut tunnel = Tunnel::new(proxy, Connected(Some(stream)));
             if let Some(authorization) = authorization {
@@ -337,10 +448,32 @@ pub enum ProxyError {
     #[snafu(display("the proxy `{proxy}` did not open the tunnel: {cause}"))]
     TunnelRefused { proxy: String, cause: String },
     #[snafu(display(
-        "the proxy `{proxy}` the environment names is not an `http://` URL, the only kind this \
+        "{named_by} the proxy `{proxy}`, which is not an `http://` URL, the only kind this \
          connector tunnels through"
     ))]
-    NotHttp { proxy: String },
+    NotHttp { proxy: String, named_by: Origin },
+    #[snafu(display("Windows' network settings named no usable proxy: {cause}"))]
+    Unresolved { cause: String },
+    #[snafu(display("resolving the proxy Windows' network settings name was interrupted"))]
+    Interrupted,
+}
+
+/// What named a proxy the connector refuses.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Origin {
+    Environment,
+    #[cfg(windows)]
+    WindowsSettings,
+}
+
+impl std::fmt::Display for Origin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Environment => "the environment names",
+            #[cfg(windows)]
+            Self::WindowsSettings => "Windows' network settings name",
+        })
+    }
 }
 
 #[cfg(test)]
@@ -368,5 +501,128 @@ mod tests {
         ] {
             assert!(!is_loopback(&Uri::from_static(endpoint)), "{endpoint}");
         }
+    }
+
+    /// A proxy that answers one `CONNECT` with 200 and reports the target it was asked for.
+    #[cfg(windows)]
+    async fn one_tunnel() -> (String, tokio::sync::oneshot::Receiver<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("an address");
+        let (asked, heard) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut client, _) = listener.accept().await.expect("a client");
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0u8; 1];
+                client.read_exact(&mut byte).await.expect("the request");
+                head.push(byte[0]);
+            }
+            let line = String::from_utf8_lossy(&head)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            let _ = asked.send(line);
+            client
+                .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                .await
+                .expect("the answer");
+            let mut rest = Vec::new();
+            let _ = client.read_to_end(&mut rest).await;
+        });
+        (address.to_string(), heard)
+    }
+
+    #[cfg(windows)]
+    fn through(
+        proxy: &str,
+        bypass: Option<&str>,
+    ) -> ProxyConnector<hyper_util::client::legacy::connect::HttpConnector> {
+        let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
+        http.enforce_http(false);
+        let settings = Settings {
+            proxy: Some(proxy.to_owned()),
+            bypass: bypass.map(str::to_owned),
+            ..Settings::default()
+        };
+        ProxyConnector {
+            inner: http,
+            route: Route::Windows(Arc::new((
+                WindowsProxy::new(settings, Duration::from_secs(5)),
+                ProxyConfig::default(),
+            ))),
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn the_proxy_windows_settings_name_is_tunnelled_through() {
+        let (proxy, heard) = one_tunnel().await;
+        let mut connector = through(&proxy, None);
+        connector
+            .call(Uri::from_static("http://server.test:5001"))
+            .await
+            .expect("a tunnel");
+        assert_eq!(
+            heard.await.expect("asked"),
+            "CONNECT server.test:5001 HTTP/1.1"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_host_the_settings_bypass_or_a_loopback_one_is_dialled_directly() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("an address").port();
+        let mut connector = through("127.0.0.1:9", Some("*.corp.test"));
+        let target = Uri::try_from(format!("http://127.0.0.1:{port}")).expect("a uri");
+        connector.call(target).await.expect("a direct dial");
+        let refused = connector
+            .call(Uri::from_static("http://server.corp.test:1"))
+            .await
+            .expect_err("no such host");
+        assert!(refused.downcast_ref::<ProxyError>().is_none(), "{refused}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_settings_entry_is_read_without_quoting_its_userinfo() {
+        assert_eq!(
+            settings_proxy("proxy.test:3128")
+                .expect("an entry")
+                .to_string(),
+            "http://proxy.test:3128/"
+        );
+        // A `://` inside the userinfo is not a scheme.
+        assert_eq!(
+            settings_proxy("alice:a://s3cret@proxy.test:443")
+                .expect("an entry")
+                .to_string(),
+            "http://proxy.test:443/"
+        );
+        let refused = settings_proxy("socks://alice:s3cret@socks.test:1080")
+            .expect_err("not http")
+            .to_string();
+        assert!(refused.contains("`socks://socks.test:1080`"), "{refused}");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn an_https_proxy_the_settings_name_is_refused_without_its_userinfo() {
+        let mut connector = through("https://alice:s3cret@proxy.test:443", None);
+        let refused = connector
+            .call(Uri::from_static("http://server.test:1"))
+            .await
+            .expect_err("not http");
+        let message = refused.to_string();
+        assert!(message.contains("Windows' network settings"), "{message}");
+        assert!(message.contains("not an `http://` URL"), "{message}");
+        assert!(!message.contains("s3cret"), "{message}");
     }
 }

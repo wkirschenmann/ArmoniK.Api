@@ -49,7 +49,7 @@ pub struct TransportConfig {
     pub tls: TlsConfig,             // read for https://, refused on http:// unless default
     pub tcp: TcpConfig,             // the socket's keepalive
     pub http2: Http2Config,         // the session's PING keepalive and windows
-    pub proxy: ProxyConfig,         // disabled | explicit | system; windows_system is T5.3's
+    pub proxy: ProxyConfig,         // disabled | explicit | system
 }
 
 /// Loaded material, which a handshake uses as it stands. Built from the paths a
@@ -94,8 +94,9 @@ pub struct Http2Config {
 
 pub struct ProxyConfig {
     pub source: ProxySource,
-    /// `Basic` credentials, empty when unset. Beside `System`, each half set
-    /// here takes the place of the one the environment's proxy URL carries.
+    /// `Basic` credentials, empty when unset. Beside the environment's proxy,
+    /// each half set here takes the place of the one its URL carries; beside
+    /// the one Windows' settings name, they are its credentials.
     pub username: String,
     pub password: SecretString,
 }
@@ -111,7 +112,8 @@ pub enum ProxySource {
     Explicit(Uri),
     /// ALL_PROXY, HTTPS_PROXY, HTTP_PROXY and NO_PROXY, read when the channel
     /// is created; a loopback endpoint is dialled directly. On Windows, the
-    /// user's network settings when the environment names no proxy - T5.3.
+    /// user's network settings when the environment names no proxy, a PAC
+    /// script resolved by WinHTTP on a blocking thread for each dial.
     System,
 }
 ```

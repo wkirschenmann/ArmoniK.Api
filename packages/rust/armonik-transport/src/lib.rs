@@ -25,6 +25,8 @@ mod proxy;
 mod tls;
 mod utils;
 #[cfg(windows)]
+mod windows_proxy;
+#[cfg(windows)]
 mod windows_store;
 
 pub use config::{ClientConfig, ClientConfigArgs, ConfigError};

@@ -364,17 +364,23 @@ public sealed class ProxyOptions
   }
 
   /// <summary>
-  ///   <c>none</c> for no proxy, <c>system</c> for the environment's, or the proxy's <c>http://</c> URL, with no
-  ///   path; <c>http://</c> is assumed when no scheme is written. The URL may carry <c>user:password@</c>,
+  ///   <c>none</c> for no proxy, <c>system</c> for the one the system names, or the proxy's <c>http://</c> URL,
+  ///   with no path; <c>http://</c> is assumed when no scheme is written. The URL may carry <c>user:password@</c>,
   ///   percent-encoded, when <c>Username</c> and <c>Password</c> are not set - which a serialized document
   ///   then carries too.
   /// </summary>
   /// <remarks>
   ///   The environment's proxy is <c>ALL_PROXY</c>, <c>HTTPS_PROXY</c> or <c>HTTP_PROXY</c>, in either case and
   ///   by the endpoint's scheme, unless <c>NO_PROXY</c> names the endpoint's host; it is read when the
-  ///   channel is created. An <c>https://</c> or <c>socks</c> one is refused, and any other value the
-  ///   environment cannot read as a proxy is ignored. The environment's proxy is never used for a
-  ///   loopback endpoint.
+  ///   channel is created. An <c>https://</c> or <c>socks</c> one is refused when the channel is created,
+  ///   and any other value the environment cannot read as a proxy is ignored.
+  ///   On Windows, when the environment names no proxy, the system's is the one the current
+  ///   user's network settings name: a PAC script, detected or at the configured address, which
+  ///   WinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and
+  ///   its bypass list. Those settings are read when the channel is created, and an <c>https://</c> or
+  ///   <c>socks</c> proxy they name is refused at each dial - except a script's <c>SOCKS</c> answer, which
+  ///   WinHTTP drops, leaving a direct dial.
+  ///   The system's proxy is never used for a loopback endpoint.
   ///   Defaults to <c>system</c>.
   /// </remarks>
   [JsonPropertyName("Address")]
@@ -384,8 +390,8 @@ public sealed class ProxyOptions
   /// <summary>The password that goes with <c>Username</c>.</summary>
   /// <remarks>
   ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
-  ///   environment names no proxy. Beside the environment's proxy, it takes the place of the
-  ///   password that proxy's URL carries.
+  ///   system names no proxy. Beside the environment's proxy, it takes the place of the password
+  ///   that proxy's URL carries; beside the one Windows' settings name, it is the password.
   /// </remarks>
   [JsonPropertyName("Password")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -394,8 +400,8 @@ public sealed class ProxyOptions
   /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
   /// <remarks>
   ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
-  ///   environment names no proxy. Beside the environment's proxy, it takes the place of the
-  ///   username that proxy's URL carries.
+  ///   system names no proxy. Beside the environment's proxy, it takes the place of the username
+  ///   that proxy's URL carries; beside the one Windows' settings name, it is the username.
   /// </remarks>
   [JsonPropertyName("Username")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
