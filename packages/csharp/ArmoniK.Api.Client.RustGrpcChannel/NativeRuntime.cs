@@ -86,23 +86,24 @@ public sealed class NativeRuntime : IAsyncDisposable
                    memory_ceiling = memoryCeiling,
                  };
 
-    ak_status status;
     unsafe
     {
+      ak_status status;
+      ak_error  error = default;
       fixed (ulong* created = &handle_)
       {
         status = NativeMethods.ak_runtime_create(&config,
                                                  Trampoline,
                                                  (void*)GCHandle.ToIntPtr(self_),
                                                  created,
-                                                 null);
+                                                 &error);
       }
-    }
 
-    if (status != ak_status.AK_STATUS_OK)
-    {
-      self_.Free();
-      throw new InvalidOperationException($"the native runtime could not be created ({status})");
+      if (status != ak_status.AK_STATUS_OK)
+      {
+        self_.Free();
+        throw new InvalidOperationException($"the native runtime could not be created ({status}): {error.Take()}");
+      }
     }
   }
 
@@ -484,11 +485,12 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   private unsafe void Destroy()
   {
+    ak_error error = default;
     var status = NativeMethods.ak_runtime_destroy(handle_,
-                                                  null);
+                                                  &error);
     if (status != ak_status.AK_STATUS_OK)
     {
-      throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)})");
+      throw new InvalidOperationException($"the runtime refused to be destroyed ({status}, {NativeMethods.ak_runtime_status(handle_)}): {error.Take()}");
     }
   }
 

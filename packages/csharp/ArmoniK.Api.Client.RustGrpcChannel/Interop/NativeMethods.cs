@@ -17,6 +17,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
@@ -53,6 +54,23 @@ internal static unsafe partial class NativeMethods
 
   [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
   private static extern IntPtr LoadLibrary(string path);
+}
+
+internal unsafe partial struct ak_error
+{
+  /// <summary>The message a refusal wrote, given back to the library as it is read.</summary>
+  /// <remarks>The detail is cleared with it, so a second read is empty rather than a read of
+  /// freed memory.</remarks>
+  internal string Take()
+  {
+    var message = detail.ptr == null
+                    ? string.Empty
+                    : Encoding.UTF8.GetString(detail.ptr,
+                                              checked((int)detail.len));
+    NativeMethods.ak_error_release(detail);
+    detail = default;
+    return message;
+  }
 }
 
 internal unsafe partial struct ak_bytes_in

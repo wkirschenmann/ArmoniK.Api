@@ -20,6 +20,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -910,7 +911,48 @@ public class UnaryTests : EchoServerFixture
   /// </remarks>
   [Test]
   public void AnEndpointTheEngineWillNotDialIsTheCallersArgument()
-    => Assert.Throws<ArgumentException>(() => Runtime.Channel("https://127.0.0.1:1"));
+    => Assert.That(() => Runtime.Channel("https://127.0.0.1:1"),
+                   Throws.ArgumentException.With.Message.Contains("is not a scheme this connector dials"),
+                   "the engine's reason reaches the caller");
+
+  /// <summary>A document the engine refuses names the key it refused, read from .NET.</summary>
+  /// <remarks>Through the native entry point, because this binding checks its options before they
+  /// leave it, so only a raw document reaches the engine's refusal.</remarks>
+  [Test]
+  public unsafe void ARefusedDocumentNamesItsKey()
+  {
+    var       endpoint = Encoding.UTF8.GetBytes("http://127.0.0.1:1");
+    var       json     = Encoding.UTF8.GetBytes("{\"DeliveryCredits\":\"2\"}");
+    ak_status status;
+    ak_error  error   = default;
+    ulong     channel = 0;
+    fixed (byte* pinnedEndpoint = endpoint)
+    fixed (byte* pinned = json)
+    {
+      status = NativeMethods.ak_channel_create(Runtime.Handle,
+                                               ak_bytes_in.Borrow(pinnedEndpoint,
+                                                                  endpoint.Length),
+                                               ak_bytes_in.Borrow(pinned,
+                                                                  json.Length),
+                                               &channel,
+                                               &error);
+    }
+
+    var kind    = error.kind;
+    var why     = error.Take();
+    var created = channel;
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(status,
+                                  Is.EqualTo(ak_status.AK_STATUS_INVALID_ARG));
+                      Assert.That(kind,
+                                  Is.EqualTo(ak_error_kind.AK_ERROR_CONFIG));
+                      Assert.That(why,
+                                  Does.Contain("DeliveryCredits"));
+                      Assert.That(created,
+                                  Is.Zero);
+                    });
+  }
 
   [Test]
   public void AWindowOfZeroIsRefusedBeforeAnythingIsOpened()

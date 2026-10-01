@@ -172,14 +172,22 @@ internal sealed class Sender
   /// <summary>Says nothing more is coming.</summary>
   internal unsafe void HalfClose()
   {
+    ak_error error = default;
+    var closed = NativeMethods.ak_call_end_send(call_.Handle,
+                                                &error);
+    if (closed == ak_status.AK_STATUS_OK)
+    {
+      return;
+    }
+
+    // Read even when not thrown, because every message is owed back.
+    var why = error.Take();
+
     // The two the engine answers for a call that is already over, which the sender cannot rule
     // out and which the terminal reports anyway.
-    var closed = NativeMethods.ak_call_end_send(call_.Handle,
-                                                null);
-    if (closed is not (ak_status.AK_STATUS_OK or ak_status.AK_STATUS_HANDLE_STALE
-                                              or ak_status.AK_STATUS_INVALID_STATE))
+    if (closed is not (ak_status.AK_STATUS_HANDLE_STALE or ak_status.AK_STATUS_INVALID_STATE))
     {
-      throw Failed($"the half-close was refused ({closed})");
+      throw Failed($"the half-close was refused ({closed}): {why}");
     }
   }
 

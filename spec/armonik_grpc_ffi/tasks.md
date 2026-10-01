@@ -817,6 +817,15 @@ library ships, and so does changing a record's layout for free.
 message, read from C and from .NET; a host passing NULL for `out_error` causes no allocation; and a
 struct one field longer than this library knows is accepted with the unknown tail ignored.
 
+**Status**: done. The refused key's name is read through the ABI by `tests/errors.rs` and from .NET
+by `UnaryTests.ARefusedDocumentNamesItsKey`. No test is written in C, because nothing in this
+workspace compiles the header - abi.md's "What is missing" already owes that. `tests/errors.rs`
+counts with an allocator that a NULL `out_error` builds no message, and `tests/unary.rs` reads a
+record one field longer with its tail ignored. The .NET binding reads the message wherever it
+throws on a refusal: channel and runtime creation, call start, runtime destruction and the
+half-close. The lend and the commit keep their own messages, every refusal there being
+backpressure or a state the binding already names.
+
 ### T4.1: The engine takes the real connector
 
 **Prerequisite**: T4.0, T3.5, T1.1

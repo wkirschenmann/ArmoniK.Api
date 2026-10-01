@@ -76,17 +76,19 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                         json.Length);
 
         ak_status status;
+        ak_error  error = default;
         fixed (ulong* created = &handle_)
         {
           status = NativeMethods.ak_channel_create(runtime.Handle,
                                                    where,
                                                    config,
                                                    created,
-                                                   null);
+                                                   &error);
         }
 
         if (status != ak_status.AK_STATUS_OK)
         {
+          var why = error.Take();
           // Three answers, because this door means three things by a refusal, and the caller can
           // act on which. `InvalidArg` is what was handed over: an endpoint that is not UTF-8,
           // not a URI, or not one this engine dials, or a document it re-checks and refuses - a
@@ -98,11 +100,11 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
           // and two different bugs to go and find.
           throw status switch
                 {
-                  ak_status.AK_STATUS_INVALID_ARG => new ArgumentException($"`{Safely(endpoint)}` or an option given with it was refused ({status})"),
+                  ak_status.AK_STATUS_INVALID_ARG => new ArgumentException($"`{Safely(endpoint)}` or an option given with it was refused ({status}): {why}"),
                   ak_status.AK_STATUS_INVALID_STATE or ak_status.AK_STATUS_HANDLE_STALE =>
                     new ObjectDisposedException(nameof(NativeRuntime),
-                                                $"the runtime was gone before `{Safely(endpoint)}` could be opened ({status})"),
-                  _ => new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status})"),
+                                                $"the runtime was gone before `{Safely(endpoint)}` could be opened ({status}): {why}"),
+                  _ => new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status}): {why}"),
                 };
         }
       }

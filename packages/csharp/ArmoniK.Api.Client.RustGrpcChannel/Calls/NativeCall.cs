@@ -127,18 +127,20 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                       };
 
         ak_status status;
+        ak_error  error = default;
         fixed (ulong* started = &call.handle_)
         {
           status = NativeMethods.ak_call_start(channel,
                                                &options,
                                                (void*)GCHandle.ToIntPtr(call.self_),
                                                started,
-                                               null);
+                                               &error);
         }
 
         if (status != ak_status.AK_STATUS_OK)
         {
           call.self_.Free();
+          var why = error.Take();
 
           // Three answers to three questions. A channel that has begun closing, or a handle
           // whose generation is spent, is the channel going away under a call that raced its
@@ -153,7 +155,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                               ak_status.AK_STATUS_INVALID_ARG => StatusCode.InvalidArgument,
                                               _ => StatusCode.Internal,
                                             },
-                                            $"the call could not be started ({status})"));
+                                            $"the call could not be started ({status}): {why}"));
         }
       }
     }
