@@ -25,6 +25,10 @@ StateConstraint ==
 \* not a spread of sizes.
 MC_MessageLength == [msg \in Messages |-> 1]
 
+\* Overrides PayloadIndices so TLC can enumerate the received pairs.
+\* Bounded by StateConstraint: metadata, the messages received, a terminal.
+MC_PayloadIndices == 1..4
+
 \* The level-1 safety aggregate, under a cfg-citable name.
 MC_L1Safety == L1!SafetyInvariant
 
@@ -48,7 +52,8 @@ MC_ffi_vars == <<buffers_held_by_host, write_dones_emitted,
                  buffer_state, buffer_send, second_event_owed,
                  last_lend_status, resources_released_emitted,
                  resources_released_callback_running,
-                 buffer_charge, buffer_length, memory_used>>
+                 buffer_charge, buffer_length, memory_used,
+                 read_admitted, lend_waiting, budget_wake_owed>>
 
 MC_l1_vars == <<MC_l0_vars, MC_ffi_vars>>
 

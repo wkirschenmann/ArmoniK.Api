@@ -9,7 +9,7 @@
 (*     and 1 is inherited through it; L0!Spec follows by transitivity      *)
 (*     from level 1's RefinesSpec, never re-proved here.                   *)
 (*  2. The six host fairness conjuncts of L1!Fairness become theorems.     *)
-(*     The other thirteen - the runtime's and the FFI dispatch's - are     *)
+(*     The other fourteen - the runtime's and the FFI dispatch's - are     *)
 (*     taken verbatim into Fairness below.                                 *)
 (*  3. The managed-side contract: the caller-owned runtime and its         *)
 (*     generations, the single reader, the single writer completing at     *)
@@ -790,6 +790,10 @@ RuntimeSteps ==
            \/ L1!ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, msg \in Messages : L1!NetworkReceive(cId, msg)
     \/ \E cId \in CallIds, b \in BufferIds : L1!FreeReturnedBuffer(cId, b)
+    \* The receive side's admission, the wake-up a refused send is owed, and
+    \* the message past the second threshold.
+    \/ \E cId \in CallIds : L1!AdmitRead(cId) \/ L1!EmitBudgetWake(cId)
+    \/ \E cId \in CallIds, msg \in Messages : L1!EndCallPastHardCeiling(cId, msg)
 
 BindingDowncalls ==
     \E cId \in CallIds :
@@ -860,7 +864,7 @@ Next ==
 (* FAIRNESS - three tiers, and every conjunct is an action of THIS level.  *)
 (* A conjunct names a step of this module and promises it eventually       *)
 (* fires, so what each tier owes is legible from what it names: the        *)
-(* runtime's thirteen families, the binding's own machinery, and four      *)
+(* runtime's fourteen families, the binding's own machinery, and four      *)
 (* hypotheses about application code.  Nothing is assumed in level 1's     *)
 (* tuple - level 1's fairness is a conclusion here, derived from these     *)
 (* conjuncts and from nothing else, which is what makes this level a       *)
@@ -893,6 +897,7 @@ PassDeliverMessage(cId) == L1!DeliverMessage(cId) /\ ManagedStutter
 PassDeliverStatus(cId) == L1!DeliverStatus(cId) /\ ManagedStutter
 PassDeliverCancelled(cId) == L1!DeliverCancelled(cId) /\ ManagedStutter
 PassEmitWriteDone(cId) == L1!EmitWriteDone(cId) /\ ManagedStutter
+PassEmitBudgetWake(cId) == L1!EmitBudgetWake(cId) /\ ManagedStutter
 PassReleaseCallHandle(cId) == L1!ReleaseCallHandle(cId) /\ ManagedStutter
 PassFreeReturnedBuffer(cId, b) ==
     L1!FreeReturnedBuffer(cId, b) /\ ManagedStutter
@@ -941,6 +946,8 @@ RuntimeOwedFairness ==
     /\ \A cId \in CallIds : WF_vars(PassDeliverCancelled(cId))
     \* the acquittal comes, which is where a write completes
     /\ \A cId \in CallIds : WF_vars(PassEmitWriteDone(cId))
+    \* a refused send is told of the room a release made
+    /\ \A cId \in CallIds : WF_vars(PassEmitBudgetWake(cId))
     \* a settled call is reclaimed, so its arena goes with it
     /\ \A cId \in CallIds : WF_vars(PassReleaseCallHandle(cId))
     \* returned bytes are freed, which is what recredits the byte budget
