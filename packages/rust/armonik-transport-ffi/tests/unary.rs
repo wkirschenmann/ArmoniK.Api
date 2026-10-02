@@ -687,7 +687,69 @@ fn start_options(method: &str) -> ak_call_start_options {
             ptr: std::ptr::null(),
             len: 0,
         },
+        timeout_ns: 0,
     }
+}
+
+/// gRPC's code, which is what the ABI carries in `status_code`.
+const DEADLINE_EXCEEDED: i32 = 4;
+
+/// The flag names a field this record does not reach, which would read as a deadline passed.
+#[test]
+fn a_deadline_flag_on_a_record_too_short_for_its_field_is_refused() {
+    let host = Host::start();
+    let channel = host.channel("http://127.0.0.1:1");
+    let options = ak_call_start_options {
+        struct_size: std::mem::offset_of!(ak_call_start_options, timeout_ns) as u32,
+        flags: AK_CALL_HAS_DEADLINE,
+        timeout_ns: 1_000_000_000,
+        ..start_options(ECHO)
+    };
+    let (status, error, call) = start_with(channel, &options);
+    assert_eq!(status, ak_status::AK_STATUS_INVALID_ARG);
+    assert_eq!(error.kind, ak_error_kind::AK_ERROR_USAGE);
+    assert_eq!(call, AK_HANDLE_NONE, "nothing was started");
+    ak_channel_release(channel);
+}
+
+#[test]
+fn a_deadline_the_record_states_ends_the_call_deadline_exceeded() {
+    for timeout in [
+        std::time::Duration::from_millis(200),
+        std::time::Duration::ZERO,
+    ] {
+        let fixture = Host::connected();
+        let (host, channel) = (&fixture.host, fixture.channel);
+        let options = ak_call_start_options {
+            flags: AK_CALL_HAS_DEADLINE,
+            timeout_ns: timeout.as_nanos() as u64,
+            ..start_options(SLOW)
+        };
+        let (status, _, _) = start_with(channel, &options);
+        assert_eq!(status, ak_status::AK_STATUS_OK);
+
+        let seen = host.recorder.await_terminal();
+        assert_eq!(seen.status_code(), Some(DEADLINE_EXCEEDED), "{timeout:?}");
+        fixture.close();
+    }
+}
+
+/// A record that stops before `timeout_ns` is valid, and states no deadline.
+#[test]
+fn a_record_of_the_first_definition_is_read_as_one_with_no_deadline() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    let options = ak_call_start_options {
+        struct_size: std::mem::offset_of!(ak_call_start_options, timeout_ns) as u32,
+        ..start_options(ECHO)
+    };
+    let (status, _, call) = start_with(channel, &options);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    send_one(call, b"hello");
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(0), "{}", seen.status_message());
+    fixture.close();
 }
 
 /// `options` as a pointer to whatever record the test built around it.
@@ -707,12 +769,12 @@ fn start_with<T>(channel: ak_handle, options: &T) -> (ak_status, ak_error, ak_ha
 }
 
 #[test]
-fn a_record_shorter_than_this_librarys_is_refused_rather_than_read() {
+fn a_record_shorter_than_its_first_definition_is_refused_rather_than_read() {
     let host = Host::start();
     let channel = host.channel("http://127.0.0.1:1");
 
     let options = ak_call_start_options {
-        struct_size: std::mem::size_of::<ak_call_start_options>() as u32 - 1,
+        struct_size: std::mem::offset_of!(ak_call_start_options, timeout_ns) as u32 - 1,
         ..start_options(ECHO)
     };
     let (status, error, call) = start_with(channel, &options);
@@ -767,7 +829,7 @@ fn a_record_that_sets_a_version_a_flag_or_a_reserved_field_is_refused() {
         (
             "flags",
             ak_call_start_options {
-                flags: 1 << 31,
+                flags: AK_CALL_HAS_DEADLINE << 1,
                 ..start_options(ECHO)
             },
         ),

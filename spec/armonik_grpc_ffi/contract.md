@@ -325,7 +325,7 @@ pub struct OwnedMessage {
 pub struct CallStartOptions {
     pub method: String,             // e.g.: "/armonik.api.grpc.v1.Sessions/CreateSession"
     pub metadata: Metadata,         // request metadata -> HTTP/2 headers
-    pub deadline: Option<Deadline>, // override of the channel default
+    pub deadline: Option<Deadline>, // replaces the channel default; sent as grpc-timeout
     /// Reserved post-V1: override of the retry policy for this call.
     /// In V1, must be None - the channel default applies.
     pub reserved_retry: Option<RetryConfig>,
@@ -374,8 +374,7 @@ T6.4 carry it.
 
 **Protocol surface not yet contractualized.** Message and metadata size limits and what a
 violation produces on each side; gRPC compression (`grpc-encoding`,
-`grpc-accept-encoding`, per-message compressed flag); `grpc-timeout` derivation from the
-deadline and what happens when both a channel default and a call deadline exist; `-bin`
+`grpc-accept-encoding`, per-message compressed flag); `-bin`
 metadata keys and their base64 encoding; `grpc-message` percent-encoding; GOAWAY handling
 beyond the code of a stream it ends, and stream re-attempt; and the Trailers-Only response,
 which the ABI normalizes but whose status mapping is not written down. Each is a place where

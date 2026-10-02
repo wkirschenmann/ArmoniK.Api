@@ -296,6 +296,7 @@ pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_
             ptr: metadata.as_ptr(),
             len: metadata.len(),
         },
+        timeout_ns: 0,
     };
     let mut call = AK_HANDLE_NONE;
     let status = unsafe {

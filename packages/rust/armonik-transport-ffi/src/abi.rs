@@ -287,10 +287,11 @@ pub struct ak_memory_usage {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ak_call_start_options {
+    /// At least the offset of timeout_ns: a host built before that field passes no deadline.
     pub struct_size: u32,
     /// Zero, the one revision of this record there is.
     pub version: u32,
-    /// Zero: no flag is defined, and a set one is refused rather than ignored.
+    /// AK_CALL_HAS_DEADLINE, or zero. Any other flag is refused rather than ignored.
     pub flags: u32,
     /// Zero.
     pub reserved: u32,
@@ -299,7 +300,15 @@ pub struct ak_call_start_options {
     /// A metadata blob - a uint32_t count, then each key and each value as a uint32_t length and
     /// its bytes; may be empty.
     pub metadata: ak_bytes_in,
+    /// With AK_CALL_HAS_DEADLINE, the nanoseconds from ak_call_start to the call's deadline, which
+    /// ends it DEADLINE_EXCEEDED and is sent to the server as grpc-timeout. Zero is a deadline
+    /// already passed: the call ends without reaching the server. Without the flag, the
+    /// channel's default deadline applies, and the field is ignored.
+    pub timeout_ns: u64,
 }
+
+/// In ak_call_start_options.flags: timeout_ns states the call's deadline.
+pub const AK_CALL_HAS_DEADLINE: u32 = 1;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -367,12 +376,45 @@ struct RecordHead {
     reserved: u32,
 }
 
-/// Reads an options struct, once its size prefix says the host built it with these fields.
+/// An options struct the host sizes, and which grows by appending fields.
 ///
-/// The prefix first, and only then the rest. A host built against a smaller definition of the
-/// struct is refused, and copying `size_of::<T>()` bytes out of it before looking would read past
-/// the end of its object. A larger definition is read up to this one's end: the fields past it
-/// are the ones this library does not know.
+/// # Safety
+///
+/// Every field is plain data for which all-zero bytes are a valid value, which is what a field
+/// past a host's definition reads as.
+pub(crate) unsafe trait Record: Copy {
+    /// The size of the struct's first definition, the smallest a host may pass.
+    const FIRST_SIZE: usize;
+    /// The flags this library reads in it.
+    const FLAGS: u32;
+    /// Each flag that reads a field, and the size a record has to reach to hold that field.
+    const FLAG_FIELDS: &'static [(u32, usize)];
+}
+
+// SAFETY: integers only.
+unsafe impl Record for ak_runtime_config {
+    const FIRST_SIZE: usize = std::mem::size_of::<Self>();
+    const FLAGS: u32 = 0;
+    const FLAG_FIELDS: &'static [(u32, usize)] = &[];
+}
+
+// SAFETY: integers, and views whose null pointer and zero length are an empty slice.
+unsafe impl Record for ak_call_start_options {
+    const FIRST_SIZE: usize = std::mem::offset_of!(Self, timeout_ns);
+    const FLAGS: u32 = AK_CALL_HAS_DEADLINE;
+    const FLAG_FIELDS: &'static [(u32, usize)] = &[(
+        AK_CALL_HAS_DEADLINE,
+        std::mem::offset_of!(Self, timeout_ns) + std::mem::size_of::<u64>(),
+    )];
+}
+
+/// Reads an options struct, once its size prefix says how much of it the host built.
+///
+/// The prefix first, and only then the rest. A host built against a definition smaller than the
+/// first is refused, and copying before looking would read past the end of its object. A smaller
+/// definition than this one is read as far as it goes, the fields it lacks reading as zero; a
+/// larger one is read up to this one's end, the fields past it being the ones this library does
+/// not know.
 ///
 /// Every read is unaligned: the pointer is aligned for the host's definition of the struct, which
 /// need not be this one. These are plain data, so an unaligned read is a copy either way.
@@ -380,27 +422,41 @@ struct RecordHead {
 /// # Safety
 ///
 /// `at` must be non-null and readable for four bytes, and then for as many as those four say.
-pub(crate) unsafe fn read_versioned<T: Copy>(at: *const T) -> Result<T, Refusal> {
-    const { assert!(std::mem::size_of::<T>() >= std::mem::size_of::<RecordHead>()) };
-    let struct_size = unsafe { at.cast::<u32>().read_unaligned() };
-    // The minimum is each record's first definition, which this one is while no field has been
-    // appended to it.
-    if (struct_size as usize) < std::mem::size_of::<T>() {
+pub(crate) unsafe fn read_versioned<T: Record>(at: *const T) -> Result<T, Refusal> {
+    const { assert!(T::FIRST_SIZE >= std::mem::size_of::<RecordHead>()) };
+    let struct_size = unsafe { at.cast::<u32>().read_unaligned() } as usize;
+    if struct_size < T::FIRST_SIZE {
         return Err(SHORTER_RECORD);
     }
     let head = unsafe { at.cast::<RecordHead>().read_unaligned() };
     match head {
-        RecordHead { version: 1.., .. } => Err(UNKNOWN_VERSION),
-        RecordHead { flags: 1.., .. } => Err(UNKNOWN_FLAG),
-        RecordHead { reserved: 1.., .. } => Err(RESERVED_SET),
-        _ => Ok(unsafe { at.read_unaligned() }),
+        RecordHead { version: 1.., .. } => return Err(UNKNOWN_VERSION),
+        RecordHead { flags, .. } if flags & !T::FLAGS != 0 => return Err(UNKNOWN_FLAG),
+        RecordHead { reserved: 1.., .. } => return Err(RESERVED_SET),
+        // A flag whose field the host's record does not reach would read that field as zero.
+        RecordHead { flags, .. }
+            if T::FLAG_FIELDS
+                .iter()
+                .any(|&(flag, reach)| flags & flag != 0 && struct_size < reach) =>
+        {
+            return Err(FLAG_PAST_RECORD)
+        }
+        _ => {}
+    }
+    let mut read = std::mem::MaybeUninit::<T>::zeroed();
+    let known = struct_size.min(std::mem::size_of::<T>());
+    // SAFETY: `known` bytes are readable from the host's struct and writable in `read`, and the
+    // rest of `read` is zero, which `Record` says is valid.
+    unsafe {
+        std::ptr::copy_nonoverlapping(at.cast::<u8>(), read.as_mut_ptr().cast::<u8>(), known);
+        Ok(read.assume_init())
     }
 }
 
 const SHORTER_RECORD: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
-    "struct_size is smaller than this library's definition of the record",
+    "struct_size is smaller than the record's first definition",
 );
 const UNKNOWN_VERSION: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
@@ -410,10 +466,50 @@ const UNKNOWN_VERSION: Refusal = Refusal::fixed(
 const UNKNOWN_FLAG: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
-    "the record sets a flag, and this library defines none",
+    "the record sets a flag this library does not define for it",
+);
+const FLAG_PAST_RECORD: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the record sets a flag whose field lies past its struct_size",
 );
 const RESERVED_SET: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
     "the record's reserved field is not zero",
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What lies past the host's `struct_size` is not the host's, so it reads as zero rather than
+    /// as whatever memory follows.
+    #[test]
+    fn a_field_past_the_hosts_record_reads_as_zero() {
+        let options = ak_call_start_options {
+            struct_size: ak_call_start_options::FIRST_SIZE as u32,
+            version: 0,
+            flags: 0,
+            reserved: 0,
+            method: ak_bytes_in {
+                ptr: std::ptr::null(),
+                len: 0,
+            },
+            metadata: ak_bytes_in {
+                ptr: std::ptr::null(),
+                len: 0,
+            },
+            timeout_ns: 7,
+        };
+        let read = unsafe { read_versioned(&options) }.unwrap_or_else(|_| panic!("refused"));
+        assert_eq!(read.timeout_ns, 0);
+
+        let full = ak_call_start_options {
+            struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
+            ..options
+        };
+        let read = unsafe { read_versioned(&full) }.unwrap_or_else(|_| panic!("refused"));
+        assert_eq!(read.timeout_ns, 7);
+    }
+}

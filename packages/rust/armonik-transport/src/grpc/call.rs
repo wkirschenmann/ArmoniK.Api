@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -48,11 +49,22 @@ impl Answered {
     }
 }
 
+/// When a call stops waiting for its answer, and ends `DEADLINE_EXCEEDED`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Deadline {
+    /// This instant.
+    Absolute(Instant),
+    /// This long after the call is started.
+    Timeout(Duration),
+}
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct CallStartOptions {
     pub method: String,
     pub metadata: Metadata,
+    /// None takes the channel's default deadline, which may be none.
+    pub deadline: Option<Deadline>,
 }
 
 impl CallStartOptions {
@@ -60,6 +72,7 @@ impl CallStartOptions {
         Self {
             method: method.into(),
             metadata: Metadata::new(),
+            deadline: None,
         }
     }
 }

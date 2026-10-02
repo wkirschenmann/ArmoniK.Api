@@ -354,6 +354,87 @@ public class UnaryTests : EchoServerFixture
   }
 
   [Test]
+  public async Task ACallPastItsDeadlineEndsDeadlineExceededWithoutWaitingForTheServer()
+  {
+    await using var channel = Channel();
+
+    using var call = Client(channel)
+      .NeverAsync(new EchoRequest
+                  {
+                    Text = "x",
+                  },
+                  deadline: DateTime.UtcNow.AddMilliseconds(200));
+
+    var answered = Task.WhenAny(call.ResponseAsync,
+                                Task.Delay(TimeSpan.FromSeconds(30)));
+    Assert.That(await answered.ConfigureAwait(false),
+                Is.SameAs(call.ResponseAsync),
+                "the deadline ended the call");
+
+    var thrown = Assert.ThrowsAsync<RpcException>(async () => await call.ResponseAsync.ConfigureAwait(false));
+    Assert.That(thrown!.StatusCode,
+                Is.EqualTo(StatusCode.DeadlineExceeded));
+  }
+
+  [Test]
+  public async Task ADeadlineAlreadyPassedEndsTheCallDeadlineExceeded()
+  {
+    await using var channel = Channel();
+    var             client  = Client(channel);
+
+    foreach (var deadline in new[]
+                             {
+                               DateTime.UtcNow.AddSeconds(-1),
+                               DateTime.MinValue,
+                             })
+    {
+      var thrown = Assert.ThrowsAsync<RpcException>(async () => await client.SayAsync(new EchoRequest
+                                                                                      {
+                                                                                        Text = "late",
+                                                                                      },
+                                                                                      deadline: deadline)
+                                                                            .ResponseAsync.ConfigureAwait(false));
+      Assert.That(thrown!.StatusCode,
+                  Is.EqualTo(StatusCode.DeadlineExceeded),
+                  $"{deadline:O}");
+    }
+  }
+
+  /// <summary>
+  ///   A deadline in the future, however far, lets the call answer, and one that is not UTC is
+  ///   refused, as grpc-dotnet refuses it.
+  /// </summary>
+  [Test]
+  public async Task ADistantDeadlineIsHonouredAndALocalOneIsRefused()
+  {
+    await using var channel = Channel();
+    var             client  = Client(channel);
+
+    foreach (var deadline in new[]
+                             {
+                               DateTime.UtcNow.AddMinutes(5),
+                               DateTime.UtcNow.AddYears(1000),
+                               DateTime.MaxValue,
+                             })
+    {
+      var reply = await client.SayAsync(new EchoRequest
+                                        {
+                                          Text = "on time",
+                                        },
+                                        deadline: deadline)
+                              .ResponseAsync.ConfigureAwait(false);
+      Assert.That(reply.Text,
+                  Is.EqualTo("on time"));
+    }
+
+    Assert.Throws<InvalidOperationException>(() => client.SayAsync(new EchoRequest
+                                                                   {
+                                                                     Text = "local",
+                                                                   },
+                                                                   deadline: DateTime.Now.AddMinutes(5)));
+  }
+
+  [Test]
   public async Task ACallCancelledBeforeItIsSentEndsCancelledAndNotInternal()
   {
     await using var channel = Channel();

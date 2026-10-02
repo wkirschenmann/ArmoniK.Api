@@ -63,14 +63,11 @@ public class OptionVocabularyTests
                                                                                ["Proxy"]                 = "Transport.Proxy.Address",
                                                                                ["ProxyUsername"]         = "Transport.Proxy.Username",
                                                                                ["ProxyPassword"]         = "Transport.Proxy.Password",
+                                                                               ["RequestTimeout"]        = "DefaultDeadlineSeconds",
                                                                              };
 
   /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
-  /// <remarks>
-  ///   The task is named so the entry says what ends the omission. `RequestTimeout` is a deadline
-  ///   rather than a connection option, which is why its task is T6.2 and not the transport
-  ///   unit's.
-  /// </remarks>
+  /// <remarks>The task is named so the entry says what ends the omission.</remarks>
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
                                                                           ["MaxIdleTime"]           = "T6.11",
@@ -78,7 +75,6 @@ public class OptionVocabularyTests
                                                                           ["BackoffMultiplier"]     = "T6.3",
                                                                           ["InitialBackOff"]        = "T6.3",
                                                                           ["MaxBackOff"]            = "T6.3",
-                                                                          ["RequestTimeout"]        = "T6.2",
                                                                         };
 
   /// <summary>A `GrpcClient` option this engine answers with something that is not an option.</summary>

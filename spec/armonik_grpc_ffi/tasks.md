@@ -1078,14 +1078,26 @@ the two values are chosen independently and no unit relates them.
 call and answering `DEADLINE_EXCEEDED`.
 
 T4.0 comes first because the deadline is a field of `ak_call_start_options`, and a field changes
-that struct's size: while the size is checked for equality, adding it refuses every host compiled
-before it.
+that struct's size: the size check is a minimum, so a host compiled before the field still passes.
 
-It also lifts `MustCarryNoDeadline`, which is today the only `Unimplemented` the binding opposes
-to an ordinary caller.
+It also lifts `MustCarryNoDeadline`, the binding's `Unimplemented` refusal of a deadline.
 
 **Deliverable**: a deadline expires and the status says so; a caller's `CallOptions.Deadline` is
 no longer refused.
+
+**Status**: done. `CallStartOptions.deadline` is a `Deadline`, absolute or relative, and
+`GrpcChannelConfig.default_deadline`, set from the new `DefaultDeadlineSeconds` option, is the
+deadline of a call that states none. The driver bounds the whole call with `timeout_at`, the dial
+included, and ending it drops the stream, which hyper resets with `CANCEL`; tonic writes what is
+left of the deadline as `grpc-timeout`, within its eight digits. A deadline already passed ends the
+call without dialling. Through the ABI the deadline is `timeout_ns` under the flag
+`AK_CALL_HAS_DEADLINE`, so zero is a deadline already passed and not none; the record's size
+check takes its first definition as the minimum, a field a host's record lacks reads as zero, and
+the flag is refused on a record that stops before its field.
+The binding passes `CallOptions.Deadline`, refusing one that is not UTC as grpc-dotnet does, and
+`MustCarryNoDeadline` is gone. `tests/grpc_deadline.rs` covers expiry, the header, the default and
+its override, a past deadline and one past the clock; `tests/unary.rs` the record's two
+definitions and the flag; the binding's `UnaryTests` expiry, a past deadline and a local one.
 
 ### T6.3: Retry for a call that answers once
 

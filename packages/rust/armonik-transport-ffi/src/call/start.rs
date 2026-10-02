@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use armonik_transport::grpc::{CallStartOptions, Metadata};
+use armonik_transport::grpc::{CallStartOptions, Deadline, Metadata};
 
 use super::{actor, CallServices};
 use crate::abi::{ak_error_kind, ak_handle, ak_status};
@@ -35,6 +35,7 @@ pub(crate) fn start_on(
     services: &CallServices<'_>,
     method: &str,
     metadata: Metadata,
+    deadline: Option<Deadline>,
     ctx: HostPtr,
 ) -> Result<ak_handle, Refusal> {
     channel.join()?;
@@ -42,6 +43,7 @@ pub(crate) fn start_on(
 
     let mut options = CallStartOptions::new(method);
     options.metadata = metadata;
+    options.deadline = deadline;
 
     let grpc_call = match channel.grpc.start_call(options) {
         Ok(call) => call,

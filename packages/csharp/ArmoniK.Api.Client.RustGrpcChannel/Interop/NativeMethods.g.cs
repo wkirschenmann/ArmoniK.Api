@@ -34,6 +34,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     {
 
 
+        /// <summary>
+        ///  In ak_call_start_options.flags: timeout_ns states the call's deadline.
+        /// </summary>
+        internal const uint AK_CALL_HAS_DEADLINE = 1;
         internal const int AK_ABI_VERSION = 1;
         /// <summary>
         ///  The largest worker_threads a runtime is created with; above it, AK_STATUS_INVALID_ARG.
@@ -447,13 +451,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct ak_call_start_options
     {
+        /// <summary>
+        ///  At least the offset of timeout_ns: a host built before that field passes no deadline.
+        /// </summary>
         public uint struct_size;
         /// <summary>
         ///  Zero, the one revision of this record there is.
         /// </summary>
         public uint version;
         /// <summary>
-        ///  Zero: no flag is defined, and a set one is refused rather than ignored.
+        ///  AK_CALL_HAS_DEADLINE, or zero. Any other flag is refused rather than ignored.
         /// </summary>
         public uint flags;
         /// <summary>
@@ -469,6 +476,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  its bytes; may be empty.
         /// </summary>
         public ak_bytes_in metadata;
+        /// <summary>
+        ///  With AK_CALL_HAS_DEADLINE, the nanoseconds from ak_call_start to the call's deadline, which
+        ///  ends it DEADLINE_EXCEEDED and is sent to the server as grpc-timeout. Zero is a deadline
+        ///  already passed: the call ends without reaching the server. Without the flag, the
+        ///  channel's default deadline applies, and the field is ignored.
+        /// </summary>
+        public ulong timeout_ns;
     }
 
     [StructLayout(LayoutKind.Sequential)]

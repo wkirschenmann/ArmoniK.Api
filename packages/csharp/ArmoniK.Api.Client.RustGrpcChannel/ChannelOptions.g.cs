@@ -53,6 +53,7 @@ public sealed class ChannelOptions
       throw new ArgumentNullException(nameof(other));
     }
 
+    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
     DeliveryCredits = other.DeliveryCredits;
     Http2 = other.Http2 is null
               ? null
@@ -64,6 +65,20 @@ public sealed class ChannelOptions
                   : new TransportOptions(other.Transport);
     UserAgent = other.UserAgent;
   }
+
+  /// <summary>
+  ///   The deadline of a call that states none, counted from its start: the call ends
+  ///   <c>DEADLINE_EXCEEDED</c> once it passes, and the server is told what was left of it when the
+  ///   call started as <c>grpc-timeout</c>. A call's own deadline takes its place, and a call that
+  ///   states none takes this one.
+  /// </summary>
+  /// <remarks>
+  ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
+  ///   finest duration the engine holds.
+  /// </remarks>
+  [JsonPropertyName("DefaultDeadlineSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? DefaultDeadlineSeconds { get; set; }
 
   /// <summary>
   ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
@@ -112,6 +127,13 @@ public sealed class ChannelOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
+    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
+                                            defaultDeadlineSeconds,
+                                            "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
     if (DeliveryCredits is int deliveryCredits && (deliveryCredits < 1 || deliveryCredits > 536870910))
     {
       throw new ArgumentOutOfRangeException(nameof(DeliveryCredits),

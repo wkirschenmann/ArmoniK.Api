@@ -370,6 +370,11 @@ pub unsafe extern "C" fn ak_call_start(
         let metadata = unsafe { options.metadata.as_slice() }.ok_or(NULL_SLICE)?;
         let method = std::str::from_utf8(method).map_err(|_| METHOD_NOT_UTF8)?;
         let metadata = blob::decode_metadata(metadata).ok_or(METADATA_UNREADABLE)?;
+        let deadline = (options.flags & AK_CALL_HAS_DEADLINE != 0).then(|| {
+            armonik_transport::grpc::Deadline::Timeout(std::time::Duration::from_nanos(
+                options.timeout_ns,
+            ))
+        });
 
         unsafe {
             hand_over(
@@ -379,6 +384,7 @@ pub unsafe extern "C" fn ak_call_start(
                     &runtime.services(),
                     method,
                     metadata,
+                    deadline,
                     HostPtr(call_ctx),
                 ),
             )

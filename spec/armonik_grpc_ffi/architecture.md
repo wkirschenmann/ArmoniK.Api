@@ -1232,7 +1232,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
 | `Proxy` | `Transport.Proxy.Address` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Username` / `Transport.Proxy.Password` |
-| `RequestTimeout` | `DefaultDeadline` |
+| `RequestTimeout` | `DefaultDeadlineSeconds` |
 | `MaxAttempts` | `Retry.MaxAttempts` |
 | `InitialBackOff` etc. | `Retry.*` |
 
@@ -1240,6 +1240,6 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 
 ## What is missing
 
-**The `CallInvoker` mapping owes `CallOptions` in full**: deadline, cancellation token,
-request metadata, per-call credentials, host override, write options and method type. The
-table above maps the five call shapes and stops there.
+**The `CallInvoker` mapping owes `CallOptions` in full**: per-call credentials, host override,
+write options and method type; the deadline, the cancellation token and the request metadata are
+carried. The table above maps the five call shapes and stops there.

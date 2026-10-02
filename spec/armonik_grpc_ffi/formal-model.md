@@ -1180,7 +1180,7 @@ encodings, or of code the models abstract on purpose.
 | **Serialized bytes** - arbitrary `Marshaller<T>` round-trips | Protobuf round-trip tests |
 | **Exact metadata, status and trailers**, and the .NET exception mapping | gRPC conformance tests |
 | **The five `CallInvoker` shapes' cardinalities** - the model is the generic bidirectional call | A test per shape |
-| **`CallOptions` in full** - deadline, credentials, headers | Still declared missing work, not a hidden claim |
+| **`CallOptions` in full** - credentials, headers; the deadline is the engine's timer, outside the model | Still declared missing work, not a hidden claim |
 | **The runtime's lock** between a channel's creation and the disposal's sweep - level 2 takes both as atomic steps | Nothing directed: no test races a creation against the disposal |
 | **The handles' concrete encoding** - widths, allocation, type discrimination | ABI header work and stale-handle tests |
 | **Budget polling's cadence, backoff and starvation** | Nothing: deliberately not guaranteed, and the model says so |

@@ -359,13 +359,19 @@ pub fn trailers(pairs: &[(&'static str, &'static str)]) -> Frame<Bytes> {
 pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
     let (builder, frames): (_, Vec<Frame<Bytes>>) = match case {
         "EchoHeaders" => {
-            let seen: Vec<String> = ["content-type", "te", "grpc-accept-encoding", "user-agent"]
-                .iter()
-                .filter_map(|key| {
-                    let value = request.get(*key)?.to_str().ok()?;
-                    Some(format!("{key}={value}"))
-                })
-                .collect();
+            let seen: Vec<String> = [
+                "content-type",
+                "te",
+                "grpc-accept-encoding",
+                "user-agent",
+                "grpc-timeout",
+            ]
+            .iter()
+            .filter_map(|key| {
+                let value = request.get(*key)?.to_str().ok()?;
+                Some(format!("{key}={value}"))
+            })
+            .collect();
             (
                 grpc_head(),
                 vec![

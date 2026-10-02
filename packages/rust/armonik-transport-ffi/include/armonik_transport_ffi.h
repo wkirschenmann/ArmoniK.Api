@@ -57,6 +57,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/**
+ * In ak_call_start_options.flags: timeout_ns states the call's deadline.
+ */
+#define AK_CALL_HAS_DEADLINE 1
+
 #define AK_ABI_VERSION 1
 
 /**
@@ -467,13 +472,16 @@ typedef struct {
 } ak_bytes_in;
 
 typedef struct {
+    /**
+     * At least the offset of timeout_ns: a host built before that field passes no deadline.
+     */
     uint32_t struct_size;
     /**
      * Zero, the one revision of this record there is.
      */
     uint32_t version;
     /**
-     * Zero: no flag is defined, and a set one is refused rather than ignored.
+     * AK_CALL_HAS_DEADLINE, or zero. Any other flag is refused rather than ignored.
      */
     uint32_t flags;
     /**
@@ -489,6 +497,13 @@ typedef struct {
      * its bytes; may be empty.
      */
     ak_bytes_in metadata;
+    /**
+     * With AK_CALL_HAS_DEADLINE, the nanoseconds from ak_call_start to the call's deadline, which
+     * ends it DEADLINE_EXCEEDED and is sent to the server as grpc-timeout. Zero is a deadline
+     * already passed: the call ends without reaching the server. Without the flag, the
+     * channel's default deadline applies, and the field is ignored.
+     */
+    uint64_t timeout_ns;
 } ak_call_start_options;
 
 /**

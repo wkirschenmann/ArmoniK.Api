@@ -137,9 +137,17 @@ older library. The minimum is the size of these first definitions and stays it: 
 that appends a field reads it as absent from a host compiled before the field existed, and a
 shorter record than that was never valid.
 
-`version`, `flags` and `reserved` are refused when they are not zero rather than ignored. A flag
-asks for a behaviour, and a library that lacks it has to say so rather than run without it;
-`version` and `reserved` stay free for a change no appended field can express.
+`version` and `reserved` are refused when they are not zero, and `flags` when it sets a flag
+this library does not define for the record, rather than ignored. A flag asks for a behaviour, and
+a library that lacks it has to say so rather than run without it; `version` and `reserved` stay
+free for a change no appended field can express. A flag that reads a field is refused too on a
+record whose `struct_size` stops before that field, which would otherwise read as zero.
+
+`ak_call_start_options` ends with `timeout_ns`, past its first definition, and read only under
+`AK_CALL_HAS_DEADLINE`: a host compiled before the field states no deadline, and the channel's
+default applies. The field is relative - the nanoseconds from `ak_call_start` - because an instant
+of the host's clock means nothing in the library's, and zero is a deadline already passed rather
+than none, which is what the flag is for.
 
 A record this library fills, `ak_error` among them, has a fixed layout instead: `ak_abi_version()`
 is the agreement, and the two sides agree at load time or they do not run.

@@ -4,6 +4,11 @@
   "description": "What a caller may set on one channel.",
   "type": "object",
   "properties": {
+    "DefaultDeadlineSeconds": {
+      "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. A call's own deadline takes its place, and a call that\nstates none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
+      "$ref": "#/$defs/Seconds",
+      "minimum": 1e-9
+    },
     "DeliveryCredits": {
       "description": "How many of a call's payloads the host may hold at once, delivered and not yet given back.\nThe terminal status takes none, so a host holds at most one more.\n\nDefaults to 1.",
       "type": "integer",

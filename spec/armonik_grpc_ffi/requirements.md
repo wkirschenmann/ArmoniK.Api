@@ -112,8 +112,12 @@ impose a timeout, so that my application is not blocked on a server that is not 
 6. The existing client's `RequestTimeout` option produces an effective deadline (no longer just
    a warning).
 
-**Status**: 1 and 2 are met. 3 to 6 are T6.2's, and until then the binding refuses a call that
-sets a deadline.
+**Status**: 1 to 5 are met. A call's deadline - `CallOptions.Deadline` through the binding,
+`timeout_ns` through the ABI - or else the channel's `DefaultDeadlineSeconds` ends the call
+`DEADLINE_EXCEEDED` once it passes and is sent as `grpc-timeout`; one already passed ends the call
+without reaching the server. 6 waits for the transport switch: `DefaultDeadlineSeconds` is
+`RequestTimeout`'s counterpart in the option vocabulary, and `GrpcChannelFactory`, which builds
+the grpc-dotnet channel, still warns that `RequestTimeout` is not applied.
 
 ---
 

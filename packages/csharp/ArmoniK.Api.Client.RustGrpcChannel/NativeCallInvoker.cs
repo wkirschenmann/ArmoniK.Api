@@ -215,23 +215,14 @@ internal sealed class NativeCallInvoker : CallInvoker
     where TResponse : class
   {
     MustCarryNoHost(host);
-    MustCarryNoDeadline(options);
     MustCarryNothingElseUnhonoured(options);
 
     var call = channel_.StartCall(method.FullName,
                                   options.Headers,
-                                  method.ResponseMarshaller);
+                                  method.ResponseMarshaller,
+                                  options.Deadline);
     call.CancelWith(options.CancellationToken);
     return call;
-  }
-
-  private static void MustCarryNoDeadline(in CallOptions options)
-  {
-    if (options.Deadline is { } deadline && deadline != DateTime.MaxValue)
-    {
-      throw new RpcException(new Status(StatusCode.Unimplemented,
-                                        "this invoker carries no deadline: the C ABI has no field for one, so it could be honoured here and never reach the server"));
-    }
   }
 
   /// <summary>Refuses the call options this invoker cannot act on.</summary>
@@ -251,7 +242,7 @@ internal sealed class NativeCallInvoker : CallInvoker
     if (options.PropagationToken is not null)
     {
       throw new RpcException(new Status(StatusCode.Unimplemented,
-                                        "this invoker carries no propagation token: it holds a parent call's deadline and cancellation, and neither crosses the C ABI"));
+                                        "this invoker carries no propagation token: it holds a parent call's deadline and cancellation, and this invoker reads neither out of it"));
     }
   }
 

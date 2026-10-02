@@ -2,6 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
+use std::time::Duration;
 
 use bytes::Bytes;
 use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, USER_AGENT};
@@ -18,7 +19,7 @@ use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
-use super::call::{self, Answered, CallStartOptions, GrpcCall};
+use super::call::{self, Answered, CallStartOptions, Deadline, GrpcCall};
 use super::contained::contained;
 use super::driver::{self, Outgoing};
 use super::error::ChannelError;
@@ -41,6 +42,8 @@ pub struct GrpcChannelConfig {
     pub user_agent: Option<String>,
     pub max_sends_in_flight: usize,
     pub max_recv_message_size: usize,
+    /// The deadline of a call that states none, counted from its start.
+    pub default_deadline: Option<Duration>,
 }
 
 impl GrpcChannelConfig {
@@ -50,6 +53,7 @@ impl GrpcChannelConfig {
             user_agent: None,
             max_sends_in_flight: 1,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
+            default_deadline: None,
         }
     }
 }
@@ -101,6 +105,7 @@ impl GrpcChannel {
                 user_agent,
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
+                default_deadline: config.default_deadline,
                 connection: Mutex::new(Session::default()),
                 closed: watch::channel(false).0,
             }),
@@ -115,6 +120,17 @@ impl GrpcChannel {
         if *self.inner.closed.borrow() {
             return Err(ChannelError::Closed);
         }
+
+        // An instant past what the clock holds is a deadline no call reaches, which is none.
+        let now = tokio::time::Instant::now();
+        let deadline = match options.deadline {
+            Some(Deadline::Absolute(at)) => Some(tokio::time::Instant::from_std(at)),
+            Some(Deadline::Timeout(after)) => now.checked_add(after),
+            None => self
+                .inner
+                .default_deadline
+                .and_then(|after| now.checked_add(after)),
+        };
 
         let path = method_path(&options.method)?;
         let mut metadata = HeaderMap::new();
@@ -132,6 +148,7 @@ impl GrpcChannel {
             path,
             metadata,
             messages,
+            deadline,
         };
         self.inner
             .spawner
@@ -179,6 +196,7 @@ pub(crate) struct Inner {
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
+    default_deadline: Option<Duration>,
     connection: Mutex<Session>,
     closed: watch::Sender<bool>,
 }

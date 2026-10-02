@@ -115,7 +115,7 @@ public class AbiLayoutTests
                                      Is.EqualTo(24));
 
                          Assert.That(Marshal.SizeOf<ak_call_start_options>(),
-                                     Is.EqualTo(16 + 4 * Ptr));
+                                     Is.EqualTo(16 + 4 * Ptr + 8));
                          Assert.That(Offset<ak_call_start_options>("struct_size"),
                                      Is.EqualTo(0));
                          Assert.That(Offset<ak_call_start_options>("version"),
@@ -128,6 +128,8 @@ public class AbiLayoutTests
                                      Is.EqualTo(16));
                          Assert.That(Offset<ak_call_start_options>("metadata"),
                                      Is.EqualTo(16 + 2 * Ptr));
+                         Assert.That(Offset<ak_call_start_options>("timeout_ns"),
+                                     Is.EqualTo(16 + 4 * Ptr));
                        });
 
   [Test]

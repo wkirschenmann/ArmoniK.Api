@@ -36,6 +36,13 @@ impl GrpcStatus {
         Self::new(GrpcStatusCode::Cancelled, "the call was cancelled")
     }
 
+    pub(crate) fn deadline_exceeded() -> Self {
+        Self::new(
+            GrpcStatusCode::DeadlineExceeded,
+            "the call's deadline passed before it ended",
+        )
+    }
+
     pub(crate) fn unreachable(error: impl std::fmt::Display) -> Self {
         Self::new(GrpcStatusCode::Unavailable, error.to_string())
     }

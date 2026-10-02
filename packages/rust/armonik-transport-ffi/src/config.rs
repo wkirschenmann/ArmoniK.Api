@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use armonik_transport::grpc::GrpcChannelConfig;
 use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
-use armonik_transport::options::{ChannelOptions, OptionRefusal, LARGEST_WINDOW};
+use armonik_transport::options::{ChannelOptions, OptionRefusal, Seconds, LARGEST_WINDOW};
 use armonik_transport::reexports::http::Uri;
 
 // What a configuration that names neither gets: one each, the smallest window either admits.
@@ -18,6 +18,7 @@ const DELIVERY_CREDITS: i32 = 1;
 pub(crate) struct ChannelSettings {
     options: ChannelOptions,
     connect_timeout: Option<Duration>,
+    default_deadline: Option<Duration>,
     tls: TlsConfig,
     tcp: TcpConfig,
     http2: Http2Config,
@@ -52,6 +53,7 @@ impl ChannelSettings {
         if let Some(max) = self.options.max_receive_message_size {
             config.max_recv_message_size = max as usize;
         }
+        config.default_deadline = self.default_deadline;
         config
     }
 }
@@ -68,8 +70,8 @@ pub(crate) enum ConfigRefusal {
     NoMessage { value: i32 },
     /// An empty user agent.
     EmptyUserAgent,
-    /// A connect timeout no `Duration` holds, or one below what it holds.
-    ConnectTimeout { seconds: f64 },
+    /// A duration no `Duration` holds, or one below what it holds.
+    Seconds { key: &'static str, seconds: f64 },
     /// An option of a unit the engine converts, a file it names included.
     Option(OptionRefusal),
 }
@@ -96,10 +98,9 @@ impl fmt::Display for ConfigRefusal {
                  receives no message at all"
             ),
             Self::EmptyUserAgent => f.write_str("UserAgent is empty, and has to name something"),
-            Self::ConnectTimeout { seconds } => write!(
+            Self::Seconds { key, seconds } => write!(
                 f,
-                "Transport.ConnectTimeoutSeconds is {seconds}, and has to be at least 1e-9 and \
-                 less than 2^64"
+                "{key} is {seconds}, and has to be at least 1e-9 and less than 2^64"
             ),
             Self::Option(refused) => refused.fmt(f),
         }
@@ -145,19 +146,27 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
     }
 
     // Below a nanosecond is refused, as the schema's `minimum` refuses it: `Duration` holds
-    // nothing finer, so the conversion could round it to zero, which no dial could beat. And a
-    // number is not yet a duration: `Duration` holds no value past its own range either, so the
-    // conversion is what says whether the document named one.
-    let connect_timeout = match options.transport.connect_timeout_seconds {
-        None => None,
+    // nothing finer, so the conversion could round it to zero, which no dial or call could beat.
+    // And a number is not yet a duration: `Duration` holds no value past its own range either, so
+    // the conversion is what says whether the document named one.
+    let duration = |key: &'static str, asked: Option<Seconds>| match asked {
+        None => Ok(None),
         Some(seconds) => {
-            let refused = ConfigRefusal::ConnectTimeout { seconds: seconds.0 };
+            let refused = ConfigRefusal::Seconds {
+                key,
+                seconds: seconds.0,
+            };
             if seconds.0 < 1e-9 {
                 return Err(refused);
             }
-            Some(Duration::try_from(seconds).map_err(|_| refused)?)
+            Duration::try_from(seconds).map(Some).map_err(|_| refused)
         }
     };
+    let connect_timeout = duration(
+        "Transport.ConnectTimeoutSeconds",
+        options.transport.connect_timeout_seconds,
+    )?;
+    let default_deadline = duration("DefaultDeadlineSeconds", options.default_deadline_seconds)?;
 
     let tls = options
         .transport
@@ -182,6 +191,7 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
     Ok(ChannelSettings {
         options,
         connect_timeout,
+        default_deadline,
         tls,
         tcp,
         http2,
@@ -329,6 +339,22 @@ mod tests {
                 .connect_timeout,
             Duration::from_nanos(1)
         );
+
+        assert_eq!(
+            schema
+                .pointer("/properties/DefaultDeadlineSeconds/minimum")
+                .and_then(serde_json::Value::as_f64),
+            Some(1e-9)
+        );
+        assert!(!admits(r#"{"DefaultDeadlineSeconds":0.0}"#.to_owned()));
+        assert!(!admits(
+            r#"{"DefaultDeadlineSeconds":18446744073709551616.0}"#.to_owned()
+        ));
+        assert_eq!(
+            config_of(br#"{"DefaultDeadlineSeconds":1e-9}"#).default_deadline,
+            Some(Duration::from_nanos(1))
+        );
+        assert_eq!(config_of(b"{}").default_deadline, None);
 
         // The ceiling is the type's rather than the option's, so it is read off `Seconds`: every
         // duration becomes a `Duration`, which holds `u64::MAX` seconds, and 2^64 is the first

@@ -72,6 +72,7 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.reserved;
     let _: fn(&ak_call_start_options) -> &ak_bytes_in = |options| &options.method;
     let _: fn(&ak_call_start_options) -> &ak_bytes_in = |options| &options.metadata;
+    let _: fn(&ak_call_start_options) -> &u64 = |options| &options.timeout_ns;
 
     let _: fn(&ak_call_debt) -> &u32 = |debt| &debt.payloads_owed;
     let _: fn(&ak_call_debt) -> &u32 = |debt| &debt.buffers_lent;
@@ -112,7 +113,8 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_call_start_options, reserved), 12);
     assert_eq!(offset_of!(ak_call_start_options, method), 16);
     assert_eq!(offset_of!(ak_call_start_options, metadata), 16 + 2 * PTR);
-    assert_eq!(size_of::<ak_call_start_options>(), 16 + 4 * PTR);
+    assert_eq!(offset_of!(ak_call_start_options, timeout_ns), 16 + 4 * PTR);
+    assert_eq!(size_of::<ak_call_start_options>(), 16 + 4 * PTR + 8);
 }
 
 #[test]

@@ -100,13 +100,15 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                               int deliveryCredits,
                                               string method,
                                               Metadata? metadata,
-                                              Marshaller<TResponse> marshaller)
+                                              Marshaller<TResponse> marshaller,
+                                              DateTime? deadline)
   {
     // Encoded before the call exists: the encoding refuses a reserved key by throwing, and a call
     // built first would already hold the handle that roots it, with no terminal to free it.
     var methodBytes = MethodNames.GetValue(method,
                                            static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = RawMetadata.Encode(metadata);
+    var (flags, timeoutNs) = TimeoutOf(deadline);
     var call = new NativeCall<TResponse>(runtime,
                                          deliveryCredits,
                                          marshaller);
@@ -120,10 +122,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
         var options = new ak_call_start_options
                       {
                         struct_size = StartOptionsSize,
+                        flags       = flags,
                         method = ak_bytes_in.Borrow(methodPinned,
                                                     methodBytes.Length),
                         metadata = ak_bytes_in.Borrow(metadataPinned,
                                                       metadataBytes.Length),
+                        timeout_ns = timeoutNs,
                       };
 
         ak_status status;
@@ -167,6 +171,42 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     call.settling_ = call.SettlingAsync();
 
     return call;
+  }
+
+  /// <summary>
+  ///   A call's deadline as the ABI takes it: the nanoseconds left of it, zero once it has
+  ///   passed.
+  /// </summary>
+  /// <remarks>
+  ///   Read as grpc-dotnet reads one: <see cref="DateTime.MaxValue" /> is none,
+  ///   <see cref="DateTime.MinValue" /> one already passed, and any other has to be UTC, which is
+  ///   refused rather than guessed at - a local time read as UTC is a deadline hours away from the
+  ///   one the caller meant.
+  /// </remarks>
+  private static (uint Flags, ulong TimeoutNs) TimeoutOf(DateTime? deadline)
+  {
+    if (deadline is null || deadline.Value == DateTime.MaxValue)
+    {
+      return (0, 0);
+    }
+
+    var at = deadline.Value;
+
+    if (at != DateTime.MinValue && at.Kind != DateTimeKind.Utc)
+    {
+      throw new InvalidOperationException("Deadline must have a kind DateTimeKind.Utc or be equal to DateTime.MaxValue or DateTime.MinValue.");
+    }
+
+    var left = at - DateTime.UtcNow;
+    if (left <= TimeSpan.Zero)
+    {
+      return (NativeMethods.AK_CALL_HAS_DEADLINE, 0);
+    }
+
+    // A tick is a hundred nanoseconds; past what a ulong holds is a deadline no call reaches.
+    return (NativeMethods.AK_CALL_HAS_DEADLINE, left.Ticks > (long)(ulong.MaxValue / 100)
+                                                  ? ulong.MaxValue
+                                                  : (ulong)left.Ticks * 100);
   }
 
   public bool Publish(ak_event_kind kind,

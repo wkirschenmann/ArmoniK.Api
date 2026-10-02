@@ -1199,6 +1199,23 @@ pub struct ChannelOptions {
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_receive_message_size: Option<i32>,
 
+    /// The deadline of a call that states none, counted from its start: the call ends
+    /// `DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the
+    /// call started as `grpc-timeout`. A call's own deadline takes its place, and a call that
+    /// states none takes this one.
+    ///
+    /// Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
+    /// finest duration the engine holds.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub default_deadline_seconds: Option<Seconds>,
+
     /// How many messages a call may have sent and unacquitted at once.
     ///
     /// Defaults to 1.

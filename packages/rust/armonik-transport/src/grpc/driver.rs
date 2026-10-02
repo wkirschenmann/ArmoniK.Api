@@ -5,6 +5,7 @@ use bytes::{Buf, BufMut, Bytes};
 use http::uri::PathAndQuery;
 use http::HeaderMap;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::Instant;
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tonic::metadata::MetadataMap;
 use tonic::Code;
@@ -46,11 +47,13 @@ impl Driving {
     }
 }
 
-/// What a call sends: where, with what metadata, and the messages the caller will write.
+/// What a call sends: where, with what metadata, and the messages the caller will write - and
+/// when it stops waiting for the answer.
 pub(crate) struct Outgoing {
     pub(crate) path: PathAndQuery,
     pub(crate) metadata: HeaderMap,
     pub(crate) messages: RequestMessages,
+    pub(crate) deadline: Option<Instant>,
 }
 
 pub(crate) async fn drive(inner: Arc<Inner>, outgoing: Outgoing, driving: Driving) {
@@ -66,7 +69,7 @@ pub(crate) async fn drive(inner: Arc<Inner>, outgoing: Outgoing, driving: Drivin
     //
     // Contained, because a panic unwinding past `delivery` would drop the terminal unsent, and the
     // caller would read a driver gone with its runtime rather than a call that failed.
-    let status = contained(run(&inner, outgoing, &mut stop, &mut delivery))
+    let status = contained(within_deadline(&inner, outgoing, &mut stop, &mut delivery))
         .await
         .unwrap_or_else(|| GrpcStatus::new(Code::Internal, "the task driving the call panicked"));
 
@@ -150,6 +153,31 @@ impl Delivery {
     }
 }
 
+/// Eight digits of hours, the largest `grpc-timeout` there is.
+const LARGEST_GRPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(99_999_999 * 3600);
+
+/// The call, ended `DEADLINE_EXCEEDED` when its deadline passes first. Ending it drops the
+/// stream, which hyper resets with `CANCEL`, as a cancellation does.
+///
+/// A deadline already past sends nothing: the peer would be told a timeout of zero, and the
+/// answer is known without it.
+async fn within_deadline(
+    inner: &Arc<Inner>,
+    outgoing: Outgoing,
+    stop: &mut Stop,
+    delivery: &mut Delivery,
+) -> GrpcStatus {
+    let Some(deadline) = outgoing.deadline else {
+        return run(inner, outgoing, stop, delivery).await;
+    };
+    if deadline <= Instant::now() {
+        return GrpcStatus::deadline_exceeded();
+    }
+    tokio::time::timeout_at(deadline, run(inner, outgoing, stop, delivery))
+        .await
+        .unwrap_or_else(|_| GrpcStatus::deadline_exceeded())
+}
+
 async fn run(
     inner: &Arc<Inner>,
     outgoing: Outgoing,
@@ -163,10 +191,22 @@ async fn run(
         path,
         metadata,
         messages,
+        deadline,
     } = outgoing;
 
     let mut request = tonic::Request::new(messages);
     *request.metadata_mut() = MetadataMap::from_headers(metadata);
+    // What is left of it before any dial, which tonic writes as `grpc-timeout` in the unit that
+    // keeps it within the eight digits the protocol allows. The dial makes it slightly long, and
+    // this side's timer, which ends the call first, is the one that holds - as it does for a
+    // deadline past the largest the header can state, which tonic would panic on.
+    if let Some(deadline) = deadline {
+        request.set_timeout(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(LARGEST_GRPC_TIMEOUT),
+        );
+    }
 
     let mut client = inner.client(delivery.answered.clone());
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
