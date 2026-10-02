@@ -19,21 +19,27 @@ CONSTANTS
     MaxSendsInFlight, \* pinned send buffers a call may hold at once
     DeliveryCredits,  \* unconsumed payloads a call may owe the host
     BufferIds,        \* the send-buffer identity space, per call
-    Ceiling,          \* the runtime-wide byte limit on lent send memory
+    Ceiling,          \* where work waits: reads stop, lends are refused
+    HardCeiling,      \* where the engine stops: a message past it ends its call
     MessageLength     \* the size in bytes of each abstract message
 
 ASSUME MaxSendsInFlightIsPositive == MaxSendsInFlight \in Nat \ {0}
 
 ASSUME DeliveryCreditsArePositive == DeliveryCredits \in Nat \ {0}
 
-\* Positive so that a lend of the whole ceiling is representable.  A zero
-\* total does not mean an empty outstanding set: an empty message charges
-\* nothing, and the accounting counts charges, not buffers.
+\* Positive so that a lend of the whole ceiling is representable.
 ASSUME CeilingIsPositive == Ceiling \in Nat \ {0}
 
-\* A message has a size.  Only the commit reads it, to check that the message
-\* fits the buffer it was given; the budget charges what the allocator handed
-\* out, which is at least what the host asked for and may be more.
+\* At or above the first.  Calls admitted to read below the first threshold
+\* may pass it together, by a message each, and the second is what bounds them.
+ASSUME HardCeilingCoversCeiling ==
+    /\ HardCeiling \in Nat
+    /\ Ceiling <= HardCeiling
+
+\* A message has a size.  The commit reads it, to check that the message fits
+\* the buffer it was given, and the receive charges it; the lend charges what
+\* the allocator handed out, which is at least what the host asked for and may
+\* be more.
 ASSUME MessageLengthIsNat == MessageLength \in [Messages -> Nat]
 
 \* Buffers are named, unlike payloads, because ak_buffer carries an owner
@@ -113,22 +119,25 @@ VARIABLES
 \* round the request up, so charging the length would bound a fiction, and
 \* checking a commit against the charge would admit a message the view cannot
 \* hold.  CoversRequest ties them at the lend and nothing relates them after.
-\* The emission budget, in bytes.  buffer_charge records what the allocator
-\* handed out for a buffer, written once when the buffer is lent and read by
-\* the commit and the free; memory_used is the runtime-wide counter, kept the
-\* way the implementation keeps it - an independent quantity moved by the lend
-\* and the free, not a sum evaluated on demand.
+\* The budget, in bytes.  buffer_charge records what the allocator handed out
+\* for a buffer, written once when the buffer is lent and read by the commit
+\* and the free; memory_used is the runtime-wide counter, kept the way the
+\* implementation keeps it - an independent quantity moved by the lend, the
+\* free, a received message, its consumption and a cancelled call's end, not a
+\* sum evaluated on demand.
 \* Independent is the point.  MemoryAccountingExact ties the counter to the
-\* charges of the buffers actually out, and it can fail: a path that forgets
-\* an increment, forgets a decrement, credits twice, or publishes a snapshot
-\* between two updates breaks it.  Defined as the sum it would be a tautology;
+\* charges of the buffers out and the messages held, and it can fail: a path
+\* that forgets an increment, forgets a decrement, credits twice, or publishes
+\* a snapshot between two updates breaks it.  Defined as the sum it would be a tautology;
 \* the ABI publishes this counter, so a host builds on it, and a published
 \* number that can drift is a promise someone will rely on.
-\* The emission path only.  Receive-side memory belongs to hyper and is
-\* governed by the HTTP/2 flow control window, not by anything the ABI can
-\* refuse against.  On that side an allocation failure runs Rust's allocation
-\* error hook and aborts, so there is no refusal to model; the emission path
-\* uses the fallible allocator APIs and reports AK_STATUS_INTERNAL instead.
+\* Both directions.  A received message is charged its length from the moment
+\* it arrives decoded until the host gives it back, or until its call ends
+\* without having delivered it; what it costs inside the decoder before that is
+\* taken as negligible.  Nothing on the receive side allocates against a
+\* refusal: a message is admitted to be read below the first threshold, and the
+\* second decides whether it is kept, so the count is what the ABI publishes
+\* whichever side moved it.
 \* Global rather than per runtime: RuntimeCreate requires every other runtime
 \* destroyed, so at most one is ever outstanding, and the
 \* counter reaching zero at destroy is proved rather than assumed - quiescence
@@ -136,6 +145,21 @@ VARIABLES
     last_lend_status,            \* per call: the last lend's answer
     buffer_charge,               \* per call, per buffer: the bytes allocated
     buffer_length,               \* per call, per buffer: the bytes exposed
-    memory_used                  \* runtime-wide: bytes lent and not yet freed
+    memory_used,                 \* runtime-wide: bytes lent or received, held
+
+\* A read is two steps, as the engine's is: a call is admitted to read its next
+\* message, and the decision is taken there; the message is charged when it
+\* arrives.  Calls admitted together may pass the first threshold by a message
+\* each, which an atomic read could not represent.
+    read_admitted,               \* per call: admitted to read its next message
+\* What a send refused for room asked for, zero meaning none waits.  The length,
+\* not the charge: a refused charge may exceed the first threshold, and a
+\* length cannot.  While one waits, reads are admitted only below the first
+\* threshold lowered by it, so a refused send is served before new reads.
+    lend_waiting,                \* per call: the length a refused send waits on
+\* The wake-up a release owes a call whose send waits.  No payload and no
+\* delivery credit, as WRITE_DONE takes none; emitted and returned in one step,
+\* see EmitBudgetWake.
+    budget_wake_owed             \* per call: a release happened since it waited
 
 =============================================================================

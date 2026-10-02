@@ -37,6 +37,7 @@ NextSafeCallOnly ==
     \/ \E cId \in CallIds : EndSend(cId)
     \/ \E cId \in CallIds : NetworkSend(cId)
     \/ \E cId \in CallIds, msg \in Messages : NetworkReceive(cId, msg)
+    \/ \E cId \in CallIds, msg \in Messages : EndCallPastHardCeiling(cId, msg)
     \/ \E cId \in CallIds : ReceiveStatus(cId)
     \/ \E cId \in CallIds : DeliverInitialMetadata(cId)
     \/ \E cId \in CallIds : DeliverMessage(cId)
@@ -79,6 +80,8 @@ NextSafeCallFfi ==
     \/ \E cId \in CallIds : WriteDoneReturns(cId)
     \/ \E cId \in CallIds : DeliveryCallbackReturns(cId)
     \/ \E cId \in CallIds : HostConsumesEvent(cId)
+    \/ \E cId \in CallIds : AdmitRead(cId)
+    \/ \E cId \in CallIds : EmitBudgetWake(cId)
 
 NextSafeFfiOnly ==
     \/ NextSafeShutdownFfi
@@ -384,23 +387,64 @@ DestroyedRuntimeIsClean ==
     \A rtId \in RuntimeIds :
         IsRuntimeDestroyed(rtId) => IsRuntimeQuiescent(rtId)
 
-\* The counter says what the buffers out actually charge.  This is the one
-\* accounting claim with content, and it can fail: a lend that forgets its
-\* increment, a free that forgets its decrement or subtracts the wrong charge,
-\* a second credit for one buffer - each breaks it.  Defined as the sum it
-\* would be a tautology, which is why memory_used is a variable the actions
-\* move rather than an expression evaluated on demand: that is also how the
-\* implementation keeps it, and it is the number the ABI publishes.
+\* The counter says what the buffers out charge and what the messages held
+\* received.  This is the one accounting claim with content, and it can fail:
+\* a lend that forgets its increment, a free that forgets its decrement or
+\* subtracts the wrong charge, a second credit for one buffer, a consumption
+\* or a cancellation that gives back the wrong bytes - each breaks it.
+\* Defined as the sum it would be a tautology, which is why memory_used is a
+\* variable the actions move rather than an expression evaluated on demand:
+\* that is also how the implementation keeps it, and it is the number the ABI
+\* publishes.
 \* Outside the NotFailed umbrella, like the buffer disciplines it rests on:
 \* failing changes neither the counter nor any charge, so a host still gets its
 \* memory back afterwards and the observers still answer.
 MemoryAccountingExact ==
-    memory_used = BytesOutstanding
+    memory_used = BytesOutstanding + BytesReceived
 
-\* And the counter never passes the ceiling.  Carried by the lend's guard
-\* alone - the free only ever subtracts - so it needs no arithmetic beyond it.
-MemoryWithinCeiling ==
-    memory_used <= Ceiling
+\* What the received side's accounting reads of a call's counts: it delivers no
+\* more than it received, and an active call has delivered its metadata and
+\* one event per message at most - so what it consumed, past the metadata, is
+\* messages it delivered.  Guard-based, and outside the NotFailed umbrella with
+\* the accounting it serves: level 0 states the event shape only within it.
+DeliveredWithinReceived ==
+    \A cId \in CallIds : Len(delivered[cId]) <= Len(received[cId])
+
+ActiveCallEventsWithinDeliveries ==
+    \A cId \in CallIds :
+        L0!IsActiveCall(cId) =>
+            Len(events_delivered[cId]) <= Len(delivered[cId]) + 1
+
+\* A read is admitted only once everything received is delivered, and nothing
+\* is delivered before the admitted message arrives, so a call is at most one
+\* message ahead of its deliveries.
+AdmittedReadFollowsDeliveries ==
+    \A cId \in CallIds :
+        IsReadAdmitted(cId) => HasDeliveredAllReceived(cId)
+
+ReceiveBacklogAtMostOne ==
+    \A cId \in CallIds : Len(received[cId]) <= Len(delivered[cId]) + 1
+
+\* A delivered message follows the metadata, so the events cover the
+\* deliveries and one more.  With the two above it bounds the messages a call
+\* holds by its delivery window, which is what the room argument descends on.
+EventsCoverDeliveries ==
+    \A cId \in CallIds :
+        Len(delivered[cId]) > 0 =>
+            Len(delivered[cId]) + 1 <= Len(events_delivered[cId])
+
+ReceiveAccountingInv ==
+    /\ DeliveredWithinReceived
+    /\ ActiveCallEventsWithinDeliveries
+    /\ AdmittedReadFollowsDeliveries
+    /\ ReceiveBacklogAtMostOne
+    /\ EventsCoverDeliveries
+
+\* And the counter never passes the second threshold.  Carried by the guards
+\* of the two steps that add - a lend below the first, a received message
+\* below the second - every other step only ever subtracting.
+MemoryWithinHardCeiling ==
+    memory_used <= HardCeiling
 
 StrongInv ==
     /\ L0!StrongInv
@@ -409,8 +453,9 @@ StrongInv ==
     /\ BufferStateInv
     /\ ShutdownSignalInv
     /\ DestroyedRuntimeIsClean
+    /\ ReceiveAccountingInv
     /\ MemoryAccountingExact
-    /\ MemoryWithinCeiling
+    /\ MemoryWithinHardCeiling
 
 \* FfiCallInv sits outside the NotFailed umbrella: its preservation is
 \* guard-based only, and the fairness lifts need the send and delivery
@@ -421,8 +466,9 @@ IndInv ==
     /\ L0!SingleRuntime
     /\ FfiCallInv
     /\ BufferStateInv
+    /\ ReceiveAccountingInv
     /\ MemoryAccountingExact
-    /\ MemoryWithinCeiling
+    /\ MemoryWithinHardCeiling
     /\ (L0!NotFailed => StrongInv)
 
 \* The level-1 safety contract: the inherited level-0 invariant plus the
@@ -432,8 +478,9 @@ SafetyInvariant ==
     /\ L0!SafetyInvariant
     /\ FfiCallInv
     /\ BufferStateInv
+    /\ ReceiveAccountingInv
     /\ MemoryAccountingExact
-    /\ MemoryWithinCeiling
+    /\ MemoryWithinHardCeiling
     /\ (L0!NotFailed => ShutdownSignalInv)
     /\ (L0!NotFailed => DestroyedRuntimeIsClean)
 

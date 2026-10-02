@@ -5,9 +5,9 @@
 (* The state is shared, the machinery is instantiated: the constants and   *)
 (* the twelve level-0 variables come from AbstractGrpcState (declared      *)
 (* once, never redeclared), this module adds the FFI constants and the     *)
-(* nineteen FFI variables, and every level-0 definition is reached through *)
-(* the L0 prefix.  Every local name (vars, TypeOK, Init, Next, Spec, the   *)
-(* action names) denotes the level-1 concept.                              *)
+(* twenty-two FFI variables, and every level-0 definition is reached       *)
+(* through the L0 prefix.  Every local name (vars, TypeOK, Init, Next,     *)
+(* Spec, the action names) denotes the level-1 concept.                    *)
 (*                                                                         *)
 (* Every action either refines a level-0 action (conjoining FFI guards     *)
 (* and updates onto the L0 engine) or stutters on the level-0 variables.   *)
@@ -62,8 +62,8 @@ EXTENDS FfiGrpcState, Naturals, Sequences, Functions
 (***************************************************************************)
 (* The whole state comes from FfiGrpcState: the constants and the twelve   *)
 (* level-0 variables (shared through AbstractGrpcState, they feed the      *)
-(* implicit substitution of the INSTANCE below) plus the FFI constants     *)
-(* and the nineteen FFI variables.  Nothing is declared here.              *)
+(* implicit substitution of the INSTANCE below) plus the FFI constants and *)
+(* the twenty-two FFI variables.  Nothing is declared here.                *)
 (***************************************************************************)
 
 \* The level-0 engine: definitions and proved theorems, all under L0.
@@ -83,7 +83,8 @@ ffi_vars == <<buffers_held_by_host,
               second_event_owed, resources_released_emitted,
               resources_released_callback_running,
               last_lend_status,
-              buffer_charge, buffer_length, memory_used>>
+              buffer_charge, buffer_length, memory_used,
+              read_admitted, lend_waiting, budget_wake_owed>>
 
 \* The level-0 state, under a local name for the stuttering actions.  TLC
 \* cannot resolve an instantiated tuple inside ENABLED, so the MC
@@ -209,12 +210,8 @@ HostOwnsAtMostCreditsPlusOne(cId) ==
     OwedPayloads(cId) <= DeliveryCredits + 1
 
 \* A send buffer is outstanding: lent to the host, or given back and not yet
-\* freed - the buffers the emission budget is holding.  The budget covers the emission path and only it, because
-\* that is the memory this runtime allocates against a quota of its own and
-\* can refuse.  Receive-side memory is hyper's, governed by the HTTP/2 flow
-\* control window rather than by anything the ABI exposes, and a genuine
-\* allocation failure in Rust aborts rather than returning - there is no
-\* refusal there to model.  Named by the states the model has instead of by
+\* freed - the buffers the budget is holding on the send side.  Named by the
+\* states the model has instead of by
 \* the bytes it does not, and bounded by a constant, BufferIds being finite
 \* with each buffer used once, which is what keeps the relief argument finite
 \* rather than a well-founded induction.
@@ -229,10 +226,12 @@ SomeBufferOutstanding ==
 \* two unrelated atoms to the temporal backend, which cannot then see that one
 \* is the negation of the other; named, it is one atom and its negation.
 
-\* A request the ABI will consider at all: no larger than the ceiling.  Zero
-\* is a valid length - an empty serialized message - and charges nothing - above that the refusal is
-\* AK_STATUS_MESSAGE_TOO_LARGE, permanent, and the complement of this
-\* predicate is exactly that condition.
+\* A request the ABI will consider at all: no larger than the ceiling.  Above
+\* that the refusal is AK_STATUS_MESSAGE_TOO_LARGE, permanent, and the
+\* complement of this predicate is exactly that condition.  Zero is no request:
+\* ak_get_call_buffer refuses it as an invalid argument, and an empty message
+\* goes through ak_call_send_message with no buffer, a send this model does not
+\* represent - it takes no memory, so nothing here would tell it apart.
 IsLendable(len) == len <= Ceiling
 
 \* Room for a charge right now.  Its negation is what AK_STATUS_BUDGET_BUSY
@@ -243,12 +242,7 @@ IsMemoryAvailable(charge) == memory_used + charge <= Ceiling
 \* The allocator hands out at least what was asked.  The budget charges what
 \* it handed out, not what was asked: the ceiling then bounds the bytes the
 \* runtime really holds.  Nothing here models a rounding policy.
-\* An empty message charges nothing: the ABI says so, and without the second
-\* conjunct a full budget could refuse a zero-length request that
-\* HasAccountingRoomForSomeCharge simultaneously calls admissible.
-CoversRequest(charge, len) ==
-    /\ len <= charge
-    /\ (len = 0 => charge = 0)
+CoversRequest(charge, len) == len <= charge
 
 \* The sizes a lend may be asked for.  Ceiling + 1 is the abstract
 \* representative of every length or charge strictly above the plafond: no
@@ -307,6 +301,96 @@ BytesOutstanding  == SumFunctionOnSet(buffer_charge, OutstandingPairs)
 BytesHostLent     == SumFunctionOnSet(buffer_charge, LentPairs)
 BytesSendInFlight == SumFunctionOnSet(buffer_charge, InFlightPairs)
 BytesRuntimeHeld  == SumFunctionOnSet(buffer_charge, HeldPairs)
+
+\* --- THE RECEIVE SIDE, IN BYTES ---
+
+\* The trailers are in: level 0 receives nothing more on the call.
+IsStatusPending(cId) == status_pending[cId]
+
+\* A read is two steps.  Admitted, the call may read its next message; the
+\* decision is taken there.  Reads stop at the first threshold, lowered by the
+\* length every refused send waits on, so a send refused for room is served
+\* before new reads.
+IsReadAdmitted(cId) == read_admitted[cId]
+\* The engine reads the next message once it has handed the last to the
+\* delivery, so a call holds at most one decoded message it has not delivered.
+HasDeliveredAllReceived(cId) == Len(delivered[cId]) = Len(received[cId])
+IsLendWaiting(cId) == lend_waiting[cId] > 0
+IsLendWaitingFor(cId, len) == lend_waiting[cId] = len
+IsReadAdmissible ==
+    \A c \in CallIds : memory_used + lend_waiting[c] < Ceiling
+\* The second step: a decoded message the second threshold lets the engine
+\* keep.
+IsWithinHardCeiling(len) == memory_used + len <= HardCeiling
+
+IsBudgetWakeOwed(cId) == budget_wake_owed[cId]
+
+\* The received messages of a call whose bytes are back: those the host
+\* consumed.  Release follows delivery order and the first payload is the
+\* initial metadata, so the k-th payload consumed is the (k-1)-th message.
+\* Past the last message the count names messages that do not exist, which
+\* holds nothing: the accounting below reads it only as a lower bound.
+MessagesReleased(cId) ==
+    IF payloads_consumed_by_host[cId] = 0 THEN 0
+    ELSE payloads_consumed_by_host[cId] - 1
+
+\* The last received message whose bytes are held.  A call that ended keeps
+\* what it delivered and nothing else: what it received and never delivered
+\* went with it.
+HeldReceivedTop(cId) ==
+    IF L0!IsTerminalCall(cId) THEN Len(delivered[cId]) ELSE Len(received[cId])
+
+\* The bytes of each received message, keyed like the buffer charges.
+\* PayloadIndices rather than Nat, for the reason it exists.
+ReceivedLength ==
+    [q \in CallIds \X PayloadIndices |->
+        IF q[2] \in 1..Len(received[q[1]])
+        THEN MessageLength[received[q[1]][q[2]]]
+        ELSE 0]
+
+\* The received messages whose bytes are held, and the two categories they
+\* fall in: delivered, the host holds them; not yet delivered, the engine
+\* does.  Defined from the counts alone, so the accounting needs no level-0
+\* invariant and holds past a failure, as the send side's does.
+ReceivedPairs ==
+    {q \in CallIds \X PayloadIndices :
+        MessagesReleased(q[1]) < q[2] /\ q[2] <= HeldReceivedTop(q[1])}
+HostReceivedPairs ==
+    {q \in ReceivedPairs : q[2] <= Len(delivered[q[1]])}
+RuntimeReceivedPairs ==
+    {q \in ReceivedPairs : Len(delivered[q[1]]) < q[2]}
+
+BytesHostReceived    == SumFunctionOnSet(ReceivedLength, HostReceivedPairs)
+BytesRuntimeReceived == SumFunctionOnSet(ReceivedLength, RuntimeReceivedPairs)
+BytesReceived        == SumFunctionOnSet(ReceivedLength, ReceivedPairs)
+
+\* What the next consumption gives back: the bytes of the message it releases,
+\* none when the payload is the metadata or the terminal - the pair it would
+\* release is then held by nothing.
+NextConsumedLength(cId) ==
+    LET k == payloads_consumed_by_host[cId]
+    IN  IF 1 <= k /\ k <= HeldReceivedTop(cId)
+        THEN ReceivedLength[<<cId, k>>]
+        ELSE 0
+
+\* What a call that ends without delivering them gives back: the held pairs
+\* past its deliveries.
+UndeliveredPairs(cId) ==
+    {q \in {cId} \X PayloadIndices :
+        /\ MessagesReleased(cId) < q[2]
+        /\ Len(delivered[cId]) < q[2]
+        /\ q[2] <= Len(received[cId])}
+UndeliveredBytes(cId) ==
+    SumFunctionOnSet(ReceivedLength, UndeliveredPairs(cId))
+
+\* A release that gives bytes back owes a wake-up to every call whose send
+\* waits; a call that ends waits on nothing more.
+OweBudgetWakeToWaitingCalls ==
+    budget_wake_owed' =
+        [c \in CallIds |-> IsBudgetWakeOwed(c) \/ IsLendWaiting(c)]
+EndWaitOf(cId) ==
+    /\ lend_waiting' = [lend_waiting EXCEPT ![cId] = 0]
+    /\ budget_wake_owed' = [budget_wake_owed EXCEPT ![cId] = FALSE]
 
 \* The SHUTDOWN_COMPLETE discipline, per runtime.
 IsShutdownEventEmitted(rtId) == shutdown_event_emitted[rtId]
@@ -455,6 +539,9 @@ TypeOK ==
     \* accounting inside the type proof.  MemoryAccountingExact pins it to a
     \* sum of naturals, which is where non-negativity belongs.
     /\ memory_used \in Int
+    /\ read_admitted \in [CallIds -> BOOLEAN]
+    /\ lend_waiting \in [CallIds -> Nat]
+    /\ budget_wake_owed \in [CallIds -> BOOLEAN]
 
 Init ==
     /\ L0!Init
@@ -480,6 +567,9 @@ Init ==
     /\ buffer_charge = [q \in CallIds \X BufferIds |-> 0]
     /\ buffer_length = [q \in CallIds \X BufferIds |-> 0]
     /\ memory_used = 0
+    /\ read_admitted = [cId \in CallIds |-> FALSE]
+    /\ lend_waiting = [cId \in CallIds |-> 0]
+    /\ budget_wake_owed = [cId \in CallIds |-> FALSE]
 
 (***************************************************************************)
 (* ACTIONS - Runtime lifecycle                                             *)
@@ -518,7 +608,8 @@ RuntimeBeginShutdown(rtId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 EmitShutdownComplete(rtId) ==
     /\ IsStoppingRuntime(rtId)
@@ -544,7 +635,8 @@ EmitShutdownComplete(rtId) ==
     /\ UNCHANGED <<runtime_destroyed, buffer_state, buffer_send,
                    resources_released_emitted,
                    resources_released_callback_running, last_lend_status,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 ShutdownCallbackReturns(rtId) ==
     /\ IsShutdownCallbackRunning(rtId)
@@ -559,7 +651,8 @@ ShutdownCallbackReturns(rtId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* Release happens after the SHUTDOWN_COMPLETE callback has returned, and it
 \* publishes AK_RUNTIME_GRPC_STOPPED: the gRPC machinery - channels,
@@ -593,7 +686,8 @@ RuntimeDestroy(rtId) ==
                    buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* The second signal: the host has given everything back and the runtime has
 \* released it.  Owed only when SHUTDOWN_COMPLETE said so, because a host told
@@ -620,7 +714,8 @@ EmitResourcesReleased(rtId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send, second_event_owed, last_lend_status,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 ResourcesReleasedCallbackReturns(rtId) ==
     /\ IsResourcesReleasedCallbackRunning(rtId)
@@ -633,7 +728,8 @@ ResourcesReleasedCallbackReturns(rtId) ==
                    cancel_requested, shutdown_event_emitted,
                    shutdown_callback_running, runtime_destroyed,
                    buffer_state, buffer_send, second_event_owed, last_lend_status,
-                   resources_released_emitted, buffer_charge, buffer_length, memory_used>>
+                   resources_released_emitted, buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 RuntimeFail(rtId) ==
     /\ L0!RuntimeFail(rtId)
@@ -668,7 +764,8 @@ ChannelStartClosing(chId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* At level 1 the close completes only once every call has terminated on
 \* its own (through DeliverCancelled): the level-0 cancel-en-masse
@@ -705,7 +802,8 @@ RequestCallCancellation(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* Reclaiming a call is the runtime's own step, not a downcall: the ABI has
 \* no ak_call_release.  Every resource a call lends out comes back through
@@ -740,7 +838,8 @@ ReleaseCallHandle(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 (***************************************************************************)
 (* ACTIONS - Send path                                                     *)
@@ -767,6 +866,7 @@ LendSendBuffer(cId, b, len, charge) ==
     \* so a length above the ceiling leaves IsMemoryAvailable false in every
     \* state.  A request that does not fit right now is AK_STATUS_BUDGET_BUSY,
     \* recorded by RefuseLendForBudget for the charge that did not fit.
+    /\ 0 < len
     /\ IsLendable(len)
     /\ CoversRequest(charge, len)
     /\ IsMemoryAvailable(charge)
@@ -780,6 +880,9 @@ LendSendBuffer(cId, b, len, charge) ==
     /\ buffer_length' = [buffer_length EXCEPT ![<<cId, b>>] = len]
     /\ memory_used' = memory_used + charge
     /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "OK"]
+    \* Served: the call waits on nothing more, and reads are no longer held
+    \* back for it.
+    /\ EndWaitOf(cId)
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<write_dones_emitted, write_done_callback_running,
                    delivery_callback_running, payloads_consumed_by_host,
@@ -788,7 +891,8 @@ LendSendBuffer(cId, b, len, charge) ==
                    runtime_destroyed,
                    buffer_send,
                    second_event_owed, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   read_admitted>>
 
 \* The three refusals of ak_get_call_buffer.  They write nothing but the status
 \* the downcall returned, so every property proved of the other actions crosses
@@ -822,10 +926,12 @@ RefuseLendTooLarge(cId, len) ==
                    buffer_state, buffer_send, second_event_owed,
                    resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 RefuseLendForSlot(cId, len) ==
     /\ ContemplatesLend(cId)
+    /\ 0 < len
     /\ IsLendable(len)
     /\ ~HasFreeSendSlot(cId)
     /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "SLOT_BUSY"]
@@ -838,7 +944,8 @@ RefuseLendForSlot(cId, len) ==
                    buffer_state, buffer_send, second_event_owed,
                    resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* The charge is a parameter because the allocator picks it: this refusal is
 \* one that did not fit, not the claim that none would.  Guarding it on
@@ -847,11 +954,15 @@ RefuseLendForSlot(cId, len) ==
 \* states it exists to record.
 RefuseLendForBudget(cId, len, charge) ==
     /\ ContemplatesLend(cId)
+    /\ 0 < len
     /\ IsLendable(len)
     /\ HasFreeSendSlot(cId)
     /\ CoversRequest(charge, len)
     /\ ~IsMemoryAvailable(charge)
     /\ last_lend_status' = [last_lend_status EXCEPT ![cId] = "BUDGET_BUSY"]
+    \* The send now waits on its length, which holds reads back until it has
+    \* room.  The length is never zero: no lend asks for none.
+    /\ lend_waiting' = [lend_waiting EXCEPT ![cId] = len]
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running, delivery_callback_running,
@@ -861,7 +972,8 @@ RefuseLendForBudget(cId, len, charge) ==
                    buffer_state, buffer_send, second_event_owed,
                    resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, budget_wake_owed>>
 
 
 \* ak_return_call_buffer: the host gives a buffer back unused.  Legal on
@@ -885,7 +997,8 @@ HostReturnsBuffer(cId, b) ==
                    buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* The runtime releases the bytes of a buffer the host has given back.
 \* Not an ABI event at all: when the allocation actually goes is Rust's
@@ -904,6 +1017,9 @@ FreeReturnedBuffer(cId, b) ==
     \* charge itself stays recorded and is never summed again, the sums running
     \* over the buffers still out.
     /\ memory_used' = memory_used - buffer_charge[<<cId, b>>]
+    /\ IF buffer_charge[<<cId, b>>] > 0
+       THEN OweBudgetWakeToWaitingCalls
+       ELSE UNCHANGED budget_wake_owed
     /\ UNCHANGED <<buffer_charge, buffer_length>>
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host,
@@ -914,7 +1030,8 @@ FreeReturnedBuffer(cId, b) ==
                    runtime_destroyed,
                    buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
-                   resources_released_callback_running>>
+                   resources_released_callback_running,
+                   read_admitted, lend_waiting>>
 
 \* ak_call_send_message commits a buffer the host already holds, so the
 \* bound was checked when it was lent and the count of outstanding
@@ -955,7 +1072,8 @@ SendMessage(cId, msg, b) ==
                    runtime_destroyed,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 EndSend(cId) ==
     /\ ~IsHandleReleased(cId)
@@ -982,7 +1100,8 @@ EmitWriteDone(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 WriteDoneReturns(cId) ==
     /\ IsWriteDoneCallbackRunning(cId)
@@ -996,7 +1115,8 @@ WriteDoneReturns(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 (***************************************************************************)
 (* ACTIONS - Network (identical to level 0)                                *)
@@ -1006,13 +1126,70 @@ NetworkSend(cId) ==
     /\ L0!NetworkSend(cId)
     /\ UNCHANGED ffi_vars
 
+\* The first step of a read, where the decision is taken: the call may read its
+\* next message.  No fairness - what arrives is the peer's to drive, as the
+\* level-0 receive is.
+AdmitRead(cId) ==
+    /\ L0!IsActiveCall(cId)
+    /\ ~IsStatusPending(cId)
+    /\ ~IsReadAdmitted(cId)
+    /\ HasDeliveredAllReceived(cId)
+    /\ IsReadAdmissible
+    /\ read_admitted' = [read_admitted EXCEPT ![cId] = TRUE]
+    /\ UNCHANGED l0_vars
+    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                   write_done_callback_running, delivery_callback_running,
+                   payloads_consumed_by_host, handle_released,
+                   cancel_requested, shutdown_event_emitted,
+                   shutdown_callback_running, runtime_destroyed,
+                   buffer_state, buffer_send, second_event_owed,
+                   last_lend_status, resources_released_emitted,
+                   resources_released_callback_running,
+                   buffer_charge, buffer_length, memory_used,
+                   lend_waiting, budget_wake_owed>>
+
+\* The second step: the message arrives decoded and is charged its length.
+\* Calls admitted together may take the count past the first threshold by a
+\* message each; a message past the second is EndCallPastHardCeiling's.
 NetworkReceive(cId, msg) ==
+    /\ IsReadAdmitted(cId)
+    /\ IsWithinHardCeiling(MessageLength[msg])
     /\ L0!NetworkReceive(cId, msg)
     \* The occurrence discipline: a fresh token, never seen in either
     \* direction.  A strengthening of the level-0 action, as a refinement may.
     /\ NeverReceived(msg)
     /\ NeverSubmitted(msg)
-    /\ UNCHANGED ffi_vars
+    /\ read_admitted' = [read_admitted EXCEPT ![cId] = FALSE]
+    /\ memory_used' = memory_used + MessageLength[msg]
+    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                   write_done_callback_running, delivery_callback_running,
+                   payloads_consumed_by_host, handle_released,
+                   cancel_requested, shutdown_event_emitted,
+                   shutdown_callback_running, runtime_destroyed,
+                   buffer_state, buffer_send, second_event_owed,
+                   last_lend_status, resources_released_emitted,
+                   resources_released_callback_running,
+                   buffer_charge, buffer_length,
+                   lend_waiting, budget_wake_owed>>
+
+\* A message that would take the count past the second threshold ends its
+\* call with RESOURCE_EXHAUSTED and is freed at once, never charged.  It
+\* refines the arrival of a status, whose code level 0 does not carry.
+EndCallPastHardCeiling(cId, msg) ==
+    /\ IsReadAdmitted(cId)
+    /\ ~IsWithinHardCeiling(MessageLength[msg])
+    /\ L0!ReceiveStatus(cId)
+    /\ read_admitted' = [read_admitted EXCEPT ![cId] = FALSE]
+    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                   write_done_callback_running, delivery_callback_running,
+                   payloads_consumed_by_host, handle_released,
+                   cancel_requested, shutdown_event_emitted,
+                   shutdown_callback_running, runtime_destroyed,
+                   buffer_state, buffer_send, second_event_owed,
+                   last_lend_status, resources_released_emitted,
+                   resources_released_callback_running,
+                   buffer_charge, buffer_length, memory_used,
+                   lend_waiting, budget_wake_owed>>
 
 ReceiveStatus(cId) ==
     /\ L0!ReceiveStatus(cId)
@@ -1033,7 +1210,8 @@ DeliverInitialMetadata(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 DeliverMessage(cId) ==
     /\ HasFreeDeliverySlot(cId)
@@ -1047,7 +1225,8 @@ DeliverMessage(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* Terminals wait for the send side to drain: WRITE_DONE precedes the
 \* terminal, so the terminal is the last callback of the call and the
@@ -1059,6 +1238,8 @@ DeliverStatus(cId) ==
     /\ HasNoSendInFlight(cId)
     /\ L0!DeliverStatus(cId)
     /\ HandPayloadToHost(cId)
+    \* Every message was delivered, so nothing is left to give back here.
+    /\ EndWaitOf(cId)
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running,
                    handle_released, cancel_requested,
@@ -1066,7 +1247,8 @@ DeliverStatus(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted>>
 
 \* Cancellation completes as a delivered CANCELLED terminal.  Refines
 \* L0!CallCancel: the callback is the cancellation.
@@ -1081,6 +1263,15 @@ DeliverCancelled(cId) ==
     /\ ~HasNoDeliveredEvents(cId)
     /\ L0!CallCancel(cId)
     /\ HandPayloadToHost(cId)
+    \* What the call received and never delivered goes with it, and a release
+    \* that gives bytes back owes the other waiting sends their wake-up.
+    /\ memory_used' = memory_used - UndeliveredBytes(cId)
+    /\ lend_waiting' = [lend_waiting EXCEPT ![cId] = 0]
+    /\ budget_wake_owed' =
+           [c \in CallIds |->
+               IF c = cId THEN FALSE
+               ELSE IsBudgetWakeOwed(c)
+                    \/ (UndeliveredBytes(cId) > 0 /\ IsLendWaiting(c))]
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running,
                    handle_released, cancel_requested,
@@ -1088,7 +1279,8 @@ DeliverCancelled(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length,
+                   read_admitted>>
 
 DeliveryCallbackReturns(cId) ==
     /\ IsDeliveryCallbackRunning(cId)
@@ -1103,7 +1295,8 @@ DeliveryCallbackReturns(cId) ==
                    buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting, budget_wake_owed>>
 
 \* ak_event_consumed: frees the oldest payload the host still holds and
 \* arms the next delivery in one gesture.  Takes the payload, not the
@@ -1115,6 +1308,12 @@ HostConsumesEvent(cId) ==
     /\ HostOwnsSomePayload(cId)
     /\ payloads_consumed_by_host' =
            [payloads_consumed_by_host EXCEPT ![cId] = @ + 1]
+    \* A message payload gives its bytes back, and a release that gives some
+    \* back owes every waiting send its wake-up.
+    /\ memory_used' = memory_used - NextConsumedLength(cId)
+    /\ IF NextConsumedLength(cId) > 0
+       THEN OweBudgetWakeToWaitingCalls
+       ELSE UNCHANGED budget_wake_owed
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running,
@@ -1124,7 +1323,33 @@ HostConsumesEvent(cId) ==
                    buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used>>
+                   buffer_charge, buffer_length,
+                   read_admitted, lend_waiting>>
+
+\* A release woke a waiting send: its callback tells the host to try again,
+\* which the host is obliged to do or to cancel the call.  One step, the
+\* callback's return included: the engine raises it from the task that drives
+\* the call, the one that also delivers the terminal, so the two never overlap
+\* and the terminal stays the call's last callback.  Not on a call being
+\* cancelled or whose trailers are in, where it would wake a send that call can
+\* no longer make.
+EmitBudgetWake(cId) ==
+    /\ IsBudgetWakeOwed(cId)
+    /\ L0!IsActiveCall(cId)
+    /\ ~IsCancelRequested(cId)
+    /\ ~IsStatusPending(cId)
+    /\ budget_wake_owed' = [budget_wake_owed EXCEPT ![cId] = FALSE]
+    /\ UNCHANGED l0_vars
+    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                   write_done_callback_running, delivery_callback_running,
+                   payloads_consumed_by_host, handle_released,
+                   cancel_requested, shutdown_event_emitted,
+                   shutdown_callback_running, runtime_destroyed,
+                   buffer_state, buffer_send, second_event_owed,
+                   last_lend_status, resources_released_emitted,
+                   resources_released_callback_running,
+                   buffer_charge, buffer_length, memory_used,
+                   read_admitted, lend_waiting>>
 
 (***************************************************************************)
 (* NEXT STATE RELATION                                                     *)
@@ -1165,7 +1390,9 @@ Next ==
     \/ \E cId \in CallIds : EmitWriteDone(cId)
     \/ \E cId \in CallIds : WriteDoneReturns(cId)
     \/ \E cId \in CallIds : NetworkSend(cId)
+    \/ \E cId \in CallIds : AdmitRead(cId)
     \/ \E cId \in CallIds, msg \in Messages : NetworkReceive(cId, msg)
+    \/ \E cId \in CallIds, msg \in Messages : EndCallPastHardCeiling(cId, msg)
     \/ \E cId \in CallIds : ReceiveStatus(cId)
     \/ \E cId \in CallIds : DeliverInitialMetadata(cId)
     \/ \E cId \in CallIds : DeliverMessage(cId)
@@ -1173,6 +1400,7 @@ Next ==
     \/ \E cId \in CallIds : DeliverCancelled(cId)
     \/ \E cId \in CallIds : DeliveryCallbackReturns(cId)
     \/ \E cId \in CallIds : HostConsumesEvent(cId)
+    \/ \E cId \in CallIds : EmitBudgetWake(cId)
 
 (***************************************************************************)
 (* NEW LIVENESS PROPERTIES                                                 *)
@@ -1284,11 +1512,15 @@ ResourcesReleasedEventually ==
             (IsResourcesReleasedEmitted(rtId) \/ ~L0!NotFailed)
 
 
-\* A request the ABI would consider, refused for want of room, eventually has
-\* room.  Every buffer out is eventually freed, so the counter reaches zero,
-\* and at zero any lendable size fits.  Stated on a predicate and its negation
-\* rather than on two inequalities: the temporal backend matches formulas, and
-\* two arithmetic comparisons are two unrelated atoms to it.
+\* A send refused for room eventually has room while it waits.  Reads are held
+\* back for it, so once the reads already admitted have landed nothing new is
+\* received; every buffer out is eventually freed and every message received
+\* eventually given back, so the counter falls, and the first admission past
+\* that point finds room for the waiting length.  Without the hold, received
+\* bytes would keep the counter up under steady traffic and nothing would
+\* fall.  Stated on a predicate and its negation rather than on two
+\* inequalities: the temporal backend matches formulas, and two arithmetic
+\* comparisons are two unrelated atoms to it.
 \* It says nothing about who is served: lending carries no fairness, and a
 \* retry loop's own guarantees are level 2's.
 \* Stated on the request, because the request is what the host makes.  The
@@ -1302,10 +1534,20 @@ ResourcesReleasedEventually ==
 \* only len and Ceiling, both rigid, so the two forms are equivalent - but the
 \* temporal backend treats every atom as flexible, and inside the antecedent it
 \* cannot know the guard still holds when the room arrives.
-BudgetEventuallyHasRoomFor ==
-    \A len \in Nat :
-        IsLendable(len) =>
-            (~HasAccountingRoomForSomeCharge(len) ~> HasAccountingRoomForSomeCharge(len))
+\* The wait ends without room when the call does, or when the host asks again
+\* for another length; either way this send no longer holds reads back.  An
+\* empty request is never lent, so it never waits.  The failure
+\* escape is the one every promise resting on level-0 delivery carries: what
+\* drains the received side is that delivery.
+RefusedSendEventuallyHasRoom ==
+    \A cId \in CallIds, len \in Nat :
+        (0 < len /\ IsLendable(len)) =>
+            ((/\ IsLendWaitingFor(cId, len)
+              /\ ~HasAccountingRoomForSomeCharge(len)
+              /\ L0!NotFailed)
+                ~> (\/ HasAccountingRoomForSomeCharge(len)
+                    \/ ~IsLendWaitingFor(cId, len)
+                    \/ ~L0!NotFailed))
 
 \* What ak_channel_release promises: a channel told to close closes, its
 \* calls cancelled and drained on the runtime's fairness plus the host
@@ -1327,20 +1569,20 @@ LivenessProperties ==
     /\ CallEventuallyReclaimed
     /\ RuntimeEventuallyQuiescent
     /\ ResourcesReleasedEventually
-    /\ BudgetEventuallyHasRoomFor
+    /\ RefusedSendEventuallyHasRoom
     /\ EventualChannelClosed
 
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)
 (*                                                                         *)
-(* Nineteen action families under WF, all individual, and which side owes  *)
+(* Twenty action families under WF, all individual, and which side owes    *)
 (* each one is what the three groups below record.                         *)
 (*                                                                         *)
-(* The Rust runtime owes nine: NetworkSend, ReceiveStatus, EmitWriteDone,  *)
-(* RuntimeRelease, EmitShutdownComplete, EmitResourcesReleased,            *)
-(* ChannelFinishClosing, FreeReturnedBuffer and ReleaseCallHandle.  These  *)
-(* are its own threads and its own allocator, so nothing outside the       *)
-(* library can stall them.                                                 *)
+(* The Rust runtime owes ten: NetworkSend, ReceiveStatus, EmitWriteDone,   *)
+(* EmitBudgetWake, RuntimeRelease, EmitShutdownComplete,                   *)
+(* EmitResourcesReleased, ChannelFinishClosing, FreeReturnedBuffer and     *)
+(* ReleaseCallHandle.  These are its own threads and its own allocator, so *)
+(* nothing outside the library can stall them.                             *)
 (*                                                                         *)
 (* The FFI layer owes four, the upcall dispatches: DeliverInitialMetadata, *)
 (* DeliverMessage, DeliverStatus and DeliverCancelled.  An event that      *)
@@ -1374,6 +1616,7 @@ Fairness ==
     /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
     /\ \A cId \in CallIds :
            WF_vars(HostConsumesEvent(cId))
+    /\ \A cId \in CallIds : WF_vars(EmitBudgetWake(cId))
     /\ \A rtId \in RuntimeIds : WF_vars(RuntimeRelease(rtId))
     /\ \A rtId \in RuntimeIds : WF_vars(EmitShutdownComplete(rtId))
     /\ \A rtId \in RuntimeIds : WF_vars(ShutdownCallbackReturns(rtId))

@@ -73,6 +73,12 @@ LEMMA CategoriesPartitionTotal ==
     PROVE  BytesHostLent + BytesSendInFlight + BytesRuntimeHeld
                = BytesOutstanding
 
+\* The same of the received messages held: delivered, the host holds them;
+\* not yet delivered, the engine does.
+LEMMA ReceivedCategoriesPartitionTotal ==
+    ASSUME TypeOK
+    PROVE  BytesHostReceived + BytesRuntimeReceived = BytesReceived
+
 \* Destroying a runtime really does void its call handles: nothing that
 \* names a call of a destroyed runtime is ever enabled again.  Scope: the
 \* downcalls that take a call handle - the channel and runtime handles have
@@ -341,11 +347,11 @@ THEOREM RuntimeEventuallyQuiescentHolds ==
 THEOREM EventualChannelClosedHolds ==
     Spec => EventualChannelClosed
 
-\* The emission budget's own promise, on the state alone: the counter
-\* eventually has room for any lendable length.  It says nothing about who is
-\* served, nor that the allocator admits.
-THEOREM BudgetEventuallyHasRoomForHolds ==
-    Spec => BudgetEventuallyHasRoomFor
+\* The budget's own promise, on the state alone: a send refused for room has
+\* room while it waits, or stops waiting, or the runtime failed.  It says
+\* nothing about who is served, nor that the allocator admits.
+THEOREM RefusedSendEventuallyHasRoomHolds ==
+    Spec => RefusedSendEventuallyHasRoom
 
 \* The release tag's own promise, named so a level-2 binding can refine it
 \* rather than re-derive it: a host that was told to give memory back is told

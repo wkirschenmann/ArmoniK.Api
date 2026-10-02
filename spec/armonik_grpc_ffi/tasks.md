@@ -1341,7 +1341,8 @@ Settled (2026-10-02, `decisions.md`):
   stop is lowered by the largest length waiting - the length, since a refused charge may exceed
   the first threshold and a length cannot - and goes back once that send is served or its call
   ends. Without it, received bytes would keep the count from falling under steady traffic, and
-  level 1's `BudgetEventuallyHasRoomFor` would no longer hold once they are counted. A host woken
+  level 1's promise that a refused send eventually has room, `RefusedSendEventuallyHasRoom`,
+  would not hold once they are counted. A host woken
   after such a refusal is obliged to try the send again or to cancel the call, a fairness
   obligation on the host as giving back a payload is; the .NET binding's send loop tries again at
   every wake-up, and a cancellation ends the call;

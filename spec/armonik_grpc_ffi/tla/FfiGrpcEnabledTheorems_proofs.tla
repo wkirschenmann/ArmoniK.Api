@@ -51,12 +51,12 @@ THEOREM SlotRefusalEnabled ==
            ~IsCancelRequested(cId),
            HostHoldsNoBuffer(cId),
            ~HasFreeSendSlot(cId)
-    PROVE  /\ 0 \in Sizes
-           /\ IsLendable(0)
-           /\ ENABLED RefuseLendForSlot(cId, 0)
-<1>1. 0 \in Sizes /\ IsLendable(0)
+    PROVE  /\ 1 \in Sizes
+           /\ IsLendable(1)
+           /\ ENABLED RefuseLendForSlot(cId, 1)
+<1>1. 1 \in Sizes /\ IsLendable(1)
     BY CeilingIsPositive, SMT DEF Sizes, IsLendable
-<1>2. ENABLED RefuseLendForSlot(cId, 0)
+<1>2. ENABLED RefuseLendForSlot(cId, 1)
     BY CeilingIsPositive, ExpandENABLED, SMT
     DEF RefuseLendForSlot, ContemplatesLend, IsLendable,
         l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars, L0!CallVars
@@ -71,6 +71,7 @@ THEOREM BudgetRefusalEnabled ==
            ~IsCancelRequested(cId),
            HostHoldsNoBuffer(cId),
            HasFreeSendSlot(cId),
+           0 < len,
            IsLendable(len),
            CoversRequest(charge, len),
            ~IsMemoryAvailable(charge)

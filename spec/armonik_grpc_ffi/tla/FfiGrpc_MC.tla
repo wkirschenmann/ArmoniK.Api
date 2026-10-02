@@ -47,11 +47,17 @@ MC_PayloadIndices == 1..4
 \* sizes.
 MC_MessageLength == [msg \in Messages |-> 1]
 
-\* BudgetEventuallyHasRoomFor quantifies over Nat.  Above the ceiling IsLendable
-\* is false and the property is vacuous, so the bounded range loses nothing.
-MCBudgetEventuallyHasRoomFor ==
-    \A len \in 0..Ceiling :
-        (~HasAccountingRoomForSomeCharge(len) ~> HasAccountingRoomForSomeCharge(len))
+\* RefusedSendEventuallyHasRoom quantifies over Nat.  Above the ceiling
+\* IsLendable is false and the property is vacuous, so the bounded range loses
+\* nothing.
+MCRefusedSendEventuallyHasRoom ==
+    \A cId \in CallIds, len \in 1..Ceiling :
+        (/\ IsLendWaitingFor(cId, len)
+         /\ ~HasAccountingRoomForSomeCharge(len)
+         /\ L0!NotFailed)
+            ~> (\/ HasAccountingRoomForSomeCharge(len)
+                \/ ~IsLendWaitingFor(cId, len)
+                \/ ~L0!NotFailed)
 
 MCSendsEventuallyAcquitted ==
     \A cId \in CallIds :
