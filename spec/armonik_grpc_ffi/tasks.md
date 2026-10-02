@@ -1155,6 +1155,14 @@ fits; a bidi one while nothing has been answered and it fits. Commitment detecti
 
 **Deliverable**: a stream within the buffer retries, one past it is committed and does not.
 
+**Status**: done. T6.3's copy and commitment serve every cardinality, so this task adds no engine
+code: a client stream is retryable while what it sent fits, a bidi one while no head has reached
+its reader and what it sent fits, the head being the first thing a server answers. The test
+server's `FlakyCollect` and `FlakyChat` fail a key's streams once they have read a given number of
+messages, the second after answering the first when asked; `tests/grpc_retry.rs` shows a client
+stream sent again whole, the kept messages and those sent after, a bidi stream retried before its
+answer and committed by it, and a stream of either kind past its ceiling not retried.
+
 ### T6.5: Eager connection, as an option
 
 **Prerequisite**: T3.5

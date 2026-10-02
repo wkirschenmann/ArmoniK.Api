@@ -32,6 +32,12 @@ pub const FAN: &str = "/armonik_transport.test.Echo/Fan";
 pub const CHAT: &str = "/armonik_transport.test.Echo/Chat";
 /// Fails as many times as its `x-fail-times` says for its `x-flaky-key`, then echoes.
 pub const FLAKY: &str = "/armonik_transport.test.Echo/Flaky";
+/// A client stream that fails as [`FLAKY`] does once it has read `x-fail-after-messages`
+/// messages, or all of them when unset, and past its failures collects as [`COLLECT`].
+pub const FLAKY_COLLECT: &str = "/armonik_transport.test.Echo/FlakyCollect";
+/// A bidi stream that fails as [`FLAKY_COLLECT`] does, answering the first message before it
+/// fails when `x-answer-first` is set, and past its failures chats as [`CHAT`].
+pub const FLAKY_CHAT: &str = "/armonik_transport.test.Echo/FlakyChat";
 
 /// The `grpc-previous-rpc-attempts` each attempt of a key's flaky calls carried, in order.
 static FLAKY_SEEN: std::sync::Mutex<std::collections::BTreeMap<String, Vec<Option<String>>>> =
@@ -253,6 +259,65 @@ impl armonik_transport::reexports::tonic::server::ClientStreamingService<Bytes> 
     }
 }
 
+/// Reads `after` messages, or all of them, then fails UNAVAILABLE; with `answer_first`, a bidi
+/// stream answers the first before it fails.
+#[derive(Clone, Copy)]
+pub struct Failing {
+    after: Option<usize>,
+    answer_first: bool,
+}
+
+impl Failing {
+    async fn read(self, mut stream: Streaming<Bytes>) -> Result<Vec<Bytes>, Status> {
+        let mut read = Vec::new();
+        while self.after.is_none_or(|after| read.len() < after) {
+            match stream.message().await? {
+                Some(message) => read.push(message),
+                None => break,
+            }
+        }
+        Ok(read)
+    }
+}
+
+impl armonik_transport::reexports::tonic::server::ClientStreamingService<Bytes> for Failing {
+    type Response = Bytes;
+    type Future = Answer;
+
+    fn call(&mut self, request: Request<Streaming<Bytes>>) -> Self::Future {
+        let this = *self;
+        Box::pin(async move {
+            this.read(request.into_inner()).await?;
+            Err(Status::unavailable("flaky"))
+        })
+    }
+}
+
+impl armonik_transport::reexports::tonic::server::StreamingService<Bytes> for Failing {
+    type Response = Bytes;
+    type ResponseStream = Pin<Box<dyn futures::Stream<Item = Result<Bytes, Status>> + Send>>;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Response<Self::ResponseStream>, Status>> + Send>>;
+
+    fn call(&mut self, request: Request<Streaming<Bytes>>) -> Self::Future {
+        let this = *self;
+        Box::pin(async move {
+            let read = this.read(request.into_inner()).await?;
+            let first = read.into_iter().next().filter(|_| this.answer_first);
+            if first.is_none() {
+                return Err(Status::unavailable("flaky"));
+            }
+            let answered = futures::stream::iter(
+                first
+                    .map(Ok)
+                    .into_iter()
+                    .chain([Err(Status::unavailable("flaky"))]),
+            );
+            Ok(Response::new(Box::pin(answered) as Self::ResponseStream))
+        })
+    }
+}
+
 pub fn fail(_request: Request<Bytes>) -> Answer {
     Box::pin(async move {
         let mut metadata = MetadataMap::new();
@@ -308,6 +373,24 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
         return flaky(request).await;
     }
 
+    if path == FLAKY_COLLECT || path == FLAKY_CHAT {
+        let headers = request.headers();
+        let failing = flaky_fails(headers).then(|| Failing {
+            after: header_of(headers, "x-fail-after-messages").and_then(|after| after.parse().ok()),
+            answer_first: headers.contains_key("x-answer-first"),
+        });
+        let mut grpc = Grpc::new(BytesCodec)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX);
+        let request = request.map(TonicBody::new);
+        return match (path == FLAKY_COLLECT, failing) {
+            (true, Some(failing)) => grpc.client_streaming(failing, request).await,
+            (true, None) => grpc.client_streaming(Collector, request).await,
+            (false, Some(failing)) => grpc.streaming(failing, request).await,
+            (false, None) => grpc.streaming(Chatter, request).await,
+        };
+    }
+
     let handler = match path.as_str() {
         ECHO => echo,
         FAIL => fail,
@@ -326,25 +409,9 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
 /// `x-fail-after-head` is set - with `x-pushback` as `grpc-retry-pushback-ms` when given, until
 /// the key has failed `x-fail-times` times; then answers as [`ECHO`].
 async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> {
-    let header = |name: &str| {
-        request
-            .headers()
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned)
-    };
-    let key = header("x-flaky-key").expect("a flaky call names its key");
-    let fails: usize = header("x-fail-times")
-        .and_then(|times| times.parse().ok())
-        .unwrap_or(0);
+    let header = |name: &str| header_of(request.headers(), name);
     let code = header("x-fail-code").unwrap_or_else(|| "14".to_owned());
-    let attempt = {
-        let mut seen = FLAKY_SEEN.lock().expect("the flaky record");
-        let attempts = seen.entry(key).or_default();
-        attempts.push(header("grpc-previous-rpc-attempts"));
-        attempts.len() - 1
-    };
-    if attempt >= fails {
+    if !flaky_fails(request.headers()) {
         return armonik_transport::reexports::tonic::server::Grpc::new(BytesCodec)
             .unary(&mut Handler(echo), request.map(TonicBody::new))
             .await;
@@ -373,6 +440,25 @@ async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> 
             then_fails: false,
         }))
         .expect("a well-formed flaky response")
+}
+
+fn header_of(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
+/// Records an attempt of the call's `x-flaky-key`, and whether it is one to fail.
+fn flaky_fails(headers: &HeaderMap) -> bool {
+    let key = header_of(headers, "x-flaky-key").expect("a flaky call names its key");
+    let fails: usize = header_of(headers, "x-fail-times")
+        .and_then(|times| times.parse().ok())
+        .unwrap_or(0);
+    let mut seen = FLAKY_SEEN.lock().expect("the flaky record");
+    let attempts = seen.entry(key).or_default();
+    attempts.push(header_of(headers, "grpc-previous-rpc-attempts"));
+    attempts.len() <= fails
 }
 
 pub struct Canned {

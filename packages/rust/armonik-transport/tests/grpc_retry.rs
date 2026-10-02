@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use armonik_transport::grpc::{
     CallStartOptions, Deadline, GrpcChannel, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
-    MetadataValue, RetryConfig,
+    MetadataValue, RecvResult, RetryConfig,
 };
 use armonik_transport::http2::TransportConfig;
 use bytes::Bytes;
@@ -29,7 +29,12 @@ fn retrying(endpoint: &str, change: impl FnOnce(&mut RetryConfig)) -> GrpcChanne
 /// The options of a flaky call under a key of its own, failing `times` times with what `extra`
 /// adds.
 fn flaky_options(key: &str, times: usize, extra: &[(&str, &str)]) -> CallStartOptions {
-    let mut options = CallStartOptions::new(FLAKY);
+    flaky_call(FLAKY, key, times, extra)
+}
+
+/// [`flaky_options`], for `method`.
+fn flaky_call(method: &str, key: &str, times: usize, extra: &[(&str, &str)]) -> CallStartOptions {
+    let mut options = CallStartOptions::new(method);
     let mut set = |name: &str, value: String| {
         options
             .metadata
@@ -157,6 +162,120 @@ async fn a_wait_past_the_deadline_ends_the_call_with_its_failure() {
         started.elapsed()
     );
     assert_eq!(flaky_seen("deadline").len(), 1);
+}
+
+/// Sends `messages`, half-closes, and reads the call to its end.
+async fn stream(
+    channel: &GrpcChannel,
+    options: CallStartOptions,
+    messages: &[&'static str],
+) -> (Vec<Bytes>, GrpcStatus) {
+    let (mut send, mut recv, _control) = channel.start_call(options).expect("a call").split();
+    for message in messages {
+        send.send_message(Bytes::from_static(message.as_bytes()))
+            .await
+            .expect("sent");
+    }
+    send.end_send().await.expect("the half-close");
+    let (_, messages, status) = read_to_terminal(&mut recv).await;
+    (messages, status)
+}
+
+/// A client stream that fails once its server has read its first message is sent again whole:
+/// what was kept, then what the host sends after.
+#[tokio::test]
+async fn a_client_stream_within_its_ceiling_is_sent_again_whole() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let options = flaky_call(
+        FLAKY_COLLECT,
+        "client-stream",
+        1,
+        &[("x-fail-after-messages", "1")],
+    );
+    let (messages, status) = stream(&channel, options, &["one", "two", "three"]).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages, vec![Bytes::from_static(b"3:one,two,three")]);
+    assert_eq!(
+        flaky_seen("client-stream"),
+        vec![None, Some("1".to_owned())]
+    );
+}
+
+/// A bidi stream that fails before answering anything is sent again, and the attempt that
+/// succeeds answers what the first one was sent.
+#[tokio::test]
+async fn a_bidi_stream_nothing_answered_is_sent_again() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let options = flaky_call(
+        FLAKY_CHAT,
+        "bidi-unanswered",
+        1,
+        &[("x-fail-after-messages", "1")],
+    );
+    let (mut send, mut recv, _control) = channel.start_call(options).expect("a call").split();
+    for text in ["one", "two"] {
+        send.send_message(Bytes::from_static(text.as_bytes()))
+            .await
+            .expect("sent");
+        // Bounded, as an attempt that replays nothing leaves the server waiting for a message.
+        let answer = tokio::time::timeout(Duration::from_secs(10), recv.next_message())
+            .await
+            .expect("an answer in time");
+        match answer.expect("an answer") {
+            RecvResult::Message(answered) => {
+                assert_eq!(answered.data, Bytes::from_static(text.as_bytes()))
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    send.end_send().await.expect("the half-close");
+    let (_, messages, status) = read_to_terminal(&mut recv).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert!(messages.is_empty(), "{messages:?}");
+    assert_eq!(
+        flaky_seen("bidi-unanswered"),
+        vec![None, Some("1".to_owned())]
+    );
+}
+
+/// A bidi stream whose server answered before failing is committed: its reader saw the answer,
+/// and the failure ends the call.
+#[tokio::test]
+async fn a_bidi_stream_answered_is_not_sent_again() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let options = flaky_call(
+        FLAKY_CHAT,
+        "bidi-answered",
+        1,
+        &[("x-fail-after-messages", "1"), ("x-answer-first", "1")],
+    );
+    let (messages, status) = stream(&channel, options, &["one"]).await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(messages, vec![Bytes::from_static(b"one")]);
+    assert_eq!(flaky_seen("bidi-answered").len(), 1);
+}
+
+/// A stream of either kind past its replay ceiling is committed, and its failure ends it.
+#[tokio::test]
+async fn a_stream_past_its_ceiling_is_not_sent_again() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |retry| retry.call_replay_bytes = 4);
+
+    for (method, key) in [
+        (FLAKY_COLLECT, "client-stream-past"),
+        (FLAKY_CHAT, "bidi-past"),
+    ] {
+        let options = flaky_call(method, key, 1, &[("x-fail-after-messages", "2")]);
+        let (_, status) = stream(&channel, options, &["one", "two"]).await;
+        assert_eq!(status.code, GrpcStatusCode::Unavailable, "{key}: {status}");
+        assert_eq!(flaky_seen(key).len(), 1, "{key}");
+    }
 }
 
 #[tokio::test]

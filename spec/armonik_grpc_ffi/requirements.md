@@ -145,9 +145,8 @@ retried automatically, so that resilience is improved without additional applica
    of the channel's calls may keep together. A per-call size of 0 makes a call
    non-retryable as soon as it sends a message that is not empty.
 
-**Status**: 1 to 3 and 6 to 8 are met, by the `Retry` option unit and the engine's attempts. 4,
-5 and 9 hold by the same mechanism, which keeps what any call sends and commits it at its head or
-past its ceiling or the channel's total, and are T6.4's to show on streams. One ceiling serves
+**Status**: met, by the `Retry` option unit and the engine's attempts, which keep what any call
+sends and commit it at its head or past its ceiling or the channel's total. One ceiling serves
 every call, whatever it sends.
 
 ---
