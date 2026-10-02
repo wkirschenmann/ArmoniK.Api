@@ -64,13 +64,13 @@ public class OptionVocabularyTests
                                                                                ["ProxyUsername"]         = "Transport.Proxy.Username",
                                                                                ["ProxyPassword"]         = "Transport.Proxy.Password",
                                                                                ["RequestTimeout"]        = "DefaultDeadlineSeconds",
+                                                                               ["MaxIdleTime"]           = "Http2.IdleTimeoutSeconds",
                                                                              };
 
   /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
   /// <remarks>The task is named so the entry says what ends the omission.</remarks>
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
-                                                                          ["MaxIdleTime"]           = "T6.11",
                                                                           ["MaxAttempts"]           = "T6.3",
                                                                           ["BackoffMultiplier"]     = "T6.3",
                                                                           ["InitialBackOff"]        = "T6.3",

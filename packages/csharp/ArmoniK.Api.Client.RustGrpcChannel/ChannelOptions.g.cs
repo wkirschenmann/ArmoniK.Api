@@ -215,6 +215,7 @@ public sealed class Http2Options
     }
 
     ConnectionWindowSize = other.ConnectionWindowSize;
+    IdleTimeoutSeconds = other.IdleTimeoutSeconds;
     KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
     KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
     KeepAliveWhileIdle = other.KeepAliveWhileIdle;
@@ -230,6 +231,15 @@ public sealed class Http2Options
   [JsonPropertyName("ConnectionWindowSize")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? ConnectionWindowSize { get; set; }
+
+  /// <summary>
+  ///   How long the session stays open with no call on it before it is closed, the next call
+  ///   dialling a new one. A call holds the session from its dial to the end of its response.
+  /// </summary>
+  /// <remarks>Defaults to none: an idle session stays open.</remarks>
+  [JsonPropertyName("IdleTimeoutSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? IdleTimeoutSeconds { get; set; }
 
   /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
   [JsonPropertyName("KeepAliveIntervalSeconds")]
@@ -263,6 +273,13 @@ public sealed class Http2Options
       throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
                                             connectionWindowSize,
                                             "ConnectionWindowSize has to be at least 65535.");
+    }
+
+    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 1E-09 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
+                                            idleTimeoutSeconds,
+                                            "IdleTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
     if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 1E-09 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))

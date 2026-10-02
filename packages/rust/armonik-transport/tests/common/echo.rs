@@ -501,6 +501,7 @@ pub fn grpc_head() -> hyper::http::response::Builder {
 pub struct TestServer {
     pub endpoint: String,
     connections: Arc<AtomicUsize>,
+    open: Arc<AtomicUsize>,
 }
 
 impl TestServer {
@@ -509,9 +510,13 @@ impl TestServer {
         let connections = Arc::new(AtomicUsize::new(0));
 
         let accepted = connections.clone();
+        let open = Arc::new(AtomicUsize::new(0));
+        let serving = open.clone();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 accepted.fetch_add(1, Ordering::Relaxed);
+                serving.fetch_add(1, Ordering::SeqCst);
+                let serving = serving.clone();
                 tokio::spawn(async move {
                     let service = hyper::service::service_fn(|request| async {
                         Ok::<_, Infallible>(answer(request).await)
@@ -519,6 +524,7 @@ impl TestServer {
                     let _ = hyper::server::conn::http2::Builder::new(HyperTokio::new())
                         .serve_connection(TokioIo::new(stream), service)
                         .await;
+                    serving.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         });
@@ -526,11 +532,17 @@ impl TestServer {
         Self {
             endpoint,
             connections,
+            open,
         }
     }
 
     pub fn connections(&self) -> usize {
         self.connections.load(Ordering::Relaxed)
+    }
+
+    /// How many of its connections are still open.
+    pub fn open(&self) -> usize {
+        self.open.load(Ordering::SeqCst)
     }
 }
 

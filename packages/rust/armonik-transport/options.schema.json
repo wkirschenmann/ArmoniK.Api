@@ -59,6 +59,11 @@
           "format": "int32",
           "minimum": 65535
         },
+        "IdleTimeoutSeconds": {
+          "description": "How long the session stays open with no call on it before it is closed, the next call\ndialling a new one. A call holds the session from its dial to the end of its response.\n\nDefaults to none: an idle session stays open.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
         "KeepAliveIntervalSeconds": {
           "description": "How often a PING is sent to the peer. Defaults to none sent.",
           "$ref": "#/$defs/Seconds",

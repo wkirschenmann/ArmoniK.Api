@@ -86,6 +86,9 @@ pub struct Http2Config {
     /// channel: a call its host does not read holds up to its stream window
     /// of it. At least 65535, since only an increase is announced.
     pub connection_window: u32,
+    /// How long the session stays open with no call or dial holding it
+    /// before the channel closes it; none keeps it open.
+    pub idle_timeout: Option<Duration>,
     // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
     // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,
     // server pushes. It is not a cap on outgoing calls; that one is
@@ -178,7 +181,6 @@ pub struct RetryConfig {
 }
 
 pub struct PoolConfig {
-    pub idle_timeout: Duration,
     pub max_connections: Option<usize>,
     /// Local cap on calls this channel may have open at once, enforced by
     /// refusing start_call. Distinct from the HTTP/2 SETTINGS value above,

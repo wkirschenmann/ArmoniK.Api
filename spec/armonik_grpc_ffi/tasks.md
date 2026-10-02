@@ -882,8 +882,8 @@ calls the conversion. Three items read differently from the plan:
   the C# type says what the document says.
 - **The generator needed no new shape**: every option of the three units is a scalar, an object
   or a path.
-- **`MaxIdleTime` is not answered here.** The engine holds one HTTP/2 session per channel for the
-  channel's life, so closing an idle one is a feature of its own, T6.11.
+- **`MaxIdleTime` is answered by `Http2.IdleTimeoutSeconds`**, T6.11's, which closes a session
+  left idle and lets the next call dial.
 
 The TCP keepalive is off by default, where `GrpcClient` sets 30 seconds: the engine's defaults are
 its own, and a binding that wants `GrpcClient`'s writes them.
@@ -1329,6 +1329,16 @@ what has to be counted; the option belongs to the `Http2` unit.
 
 **Deliverable**: a channel left idle past the option holds no connection, and its next call
 succeeds on a new one.
+
+**Status**: done. `Http2.IdleTimeoutSeconds`, none by default, is `MaxIdleTime`'s counterpart. A
+call takes a hold on the channel's session as its service is called, which its response body keeps
+to its end, and a dial holds it while it runs. The last hold let go starts the channel's one
+timer, which holds the channel weakly; once the session has been idle for the timeout, the channel
+drops its handle to it, which hyper then closes, and the next call dials. `tests/grpc_idle.rs`
+sees the server's connection close after the timeout and the next call open a second one, a call
+within the timeout restart it, a session with no timeout stay open, a bidirectional call that has
+its head and a message keep the session open past it, and a dial whose call gave up close once it
+lands.
 
 ---
 

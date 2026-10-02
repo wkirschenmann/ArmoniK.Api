@@ -831,6 +831,20 @@ pub struct Http2Options {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
     pub connection_window_size: Option<i32>,
+
+    /// How long the session stays open with no call on it before it is closed, the next call
+    /// dialling a new one. A call holds the session from its dial to the end of its response.
+    ///
+    /// Defaults to none: an idle session stays open.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub idle_timeout_seconds: Option<Seconds>,
 }
 
 /// An option refused, named by its path from the unit that read it.
@@ -1157,6 +1171,7 @@ impl Http2Options {
                 65_535,
                 defaults.connection_window,
             )?,
+            idle_timeout: duration("IdleTimeoutSeconds", self.idle_timeout_seconds, 1e-9, None)?,
         })
     }
 }
@@ -1828,9 +1843,11 @@ mod tests {
             keep_alive_while_idle: Some(true),
             stream_window_size: Some(1024),
             connection_window_size: Some(65_535),
+            idle_timeout_seconds: Some(Seconds(300.0)),
         }
         .to_config()
         .expect("admissible");
+        assert_eq!(config.idle_timeout, Some(Duration::from_secs(300)));
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
         assert!(config.keep_alive_while_idle);

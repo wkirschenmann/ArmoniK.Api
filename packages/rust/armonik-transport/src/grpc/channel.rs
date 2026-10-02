@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
@@ -95,6 +95,7 @@ impl GrpcChannel {
         };
 
         let endpoint = config.transport.endpoint.clone();
+        let idle_timeout = config.transport.http2.idle_timeout;
         let connector = TransportConnector::new(config.transport)?;
 
         Ok(Self {
@@ -106,6 +107,8 @@ impl GrpcChannel {
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
                 default_deadline: config.default_deadline,
+                idle_timeout,
+                holds: std::sync::Mutex::new(Holds::default()),
                 connection: Mutex::new(Session::default()),
                 closed: watch::channel(false).0,
             }),
@@ -197,8 +200,110 @@ pub(crate) struct Inner {
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
     default_deadline: Option<Duration>,
+    idle_timeout: Option<Duration>,
+    holds: std::sync::Mutex<Holds>,
     connection: Mutex<Session>,
     closed: watch::Sender<bool>,
+}
+
+/// What holds the session: how many calls and dials, when the last of them let go, and whether
+/// the idle timer is running.
+#[derive(Default)]
+struct Holds {
+    active: usize,
+    idle_since: Option<tokio::time::Instant>,
+    timing: bool,
+}
+
+/// A claim on the session, taken by a call from its service's call to the end of its response,
+/// and by a dial for as long as it runs.
+///
+/// The last one let go starts the idle timer, if the channel has one and it is not already
+/// running; the session is closed once it has been idle for the timeout.
+pub(crate) struct Hold(Arc<Inner>);
+
+impl Hold {
+    fn new(inner: &Arc<Inner>) -> Self {
+        inner
+            .holds
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .active += 1;
+        Self(Arc::clone(inner))
+    }
+}
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        let inner = &self.0;
+        let Some(idle_timeout) = inner.idle_timeout else {
+            inner
+                .holds
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .active -= 1;
+            return;
+        };
+        let since = {
+            let mut holds = inner.holds.lock().unwrap_or_else(PoisonError::into_inner);
+            holds.active -= 1;
+            if holds.active > 0 {
+                return;
+            }
+            let since = tokio::time::Instant::now();
+            holds.idle_since = Some(since);
+            if std::mem::replace(&mut holds.timing, true) {
+                return;
+            }
+            since
+        };
+        // Weak, so a timer does not keep a channel nobody holds, nor its session, alive.
+        let weak = Arc::downgrade(inner);
+        inner
+            .spawner
+            .spawn(close_when_idle(weak, since, idle_timeout));
+    }
+}
+
+/// The idle timer: one per channel, sleeping until the session has been idle for the timeout
+/// since the last hold was let go, and closing it then unless a hold is taken.
+async fn close_when_idle(
+    weak: std::sync::Weak<Inner>,
+    since: tokio::time::Instant,
+    idle_timeout: Duration,
+) {
+    let mut since = since;
+    loop {
+        let deadline = since.checked_add(idle_timeout);
+        match deadline {
+            Some(deadline) => tokio::time::sleep_until(deadline).await,
+            // Past what the clock holds: a session never idle for that long.
+            None => std::future::pending().await,
+        }
+        let Some(inner) = weak.upgrade() else {
+            return;
+        };
+        // The session's lock first: a `sender()` that runs after the check below waits for it,
+        // then finds no session and dials.
+        let mut slot = inner.connection.lock().await;
+        let mut holds = inner.holds.lock().unwrap_or_else(PoisonError::into_inner);
+        match holds.idle_since {
+            // Held again: the hold that is let go last starts the timer anew.
+            _ if holds.active > 0 => {
+                holds.timing = false;
+                return;
+            }
+            // Held and let go since: idle for less than the timeout yet.
+            Some(later) if later > since => since = later,
+            // A sleep tokio cut short of a deadline years away.
+            _ if deadline.is_some_and(|deadline| tokio::time::Instant::now() < deadline) => {}
+            _ => {
+                holds.timing = false;
+                slot.sender.take();
+                return;
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -255,7 +360,13 @@ impl Inner {
                     let (outcome, waiting) = broadcast::channel(1);
                     slot.dialling = Some(outcome);
                     let inner = Arc::clone(self);
-                    self.spawner.spawn(async move { inner.dial().await });
+                    // Held by the dial itself, so a dial whose caller went away is still
+                    // counted until it ends.
+                    let hold = Hold::new(self);
+                    self.spawner.spawn(async move {
+                        let _hold = hold;
+                        inner.dial().await
+                    });
                     waiting
                 }
             }
@@ -368,6 +479,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
     fn call(&mut self, mut request: http::Request<tonic::body::Body>) -> Self::Future {
         let inner = Arc::clone(&self.inner);
         let answered = self.answered.clone();
+        let hold = Hold::new(&inner);
         Box::pin(async move {
             request
                 .headers_mut()
@@ -391,7 +503,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             refuse_what_is_not_grpc(&response)?;
             let response = refuse_a_message_behind_a_stated_status(response).await?;
 
-            Ok(response.map(ResponseBody::new))
+            Ok(response.map(|body| ResponseBody::new(body, hold)))
         })
     }
 }
@@ -418,13 +530,15 @@ fn broke(error: hyper::Error) -> tonic::Status {
 pub(crate) struct ResponseBody {
     inner: Incoming,
     framing: Framing,
+    _hold: Hold,
 }
 
 impl ResponseBody {
-    fn new(inner: Incoming) -> Self {
+    fn new(inner: Incoming, hold: Hold) -> Self {
         Self {
             inner,
             framing: Framing::default(),
+            _hold: hold,
         }
     }
 }

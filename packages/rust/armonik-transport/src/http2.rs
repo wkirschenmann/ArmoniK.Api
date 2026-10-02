@@ -266,6 +266,9 @@ pub struct Http2Config {
     /// The flow-control window of the connection, shared by every stream of the channel. At least
     /// 65535, the window every connection starts with, since only an increase is announced.
     pub connection_window: u32,
+    /// How long the session stays open with no call on it before the channel closes it; none
+    /// keeps it open.
+    pub idle_timeout: Option<Duration>,
 }
 
 /// The largest window RFC 9113 admits, 2^31 - 1.
@@ -283,6 +286,7 @@ impl Default for Http2Config {
             keep_alive_while_idle: false,
             stream_window: 2 * 1024 * 1024,
             connection_window: 5 * 1024 * 1024,
+            idle_timeout: None,
         }
     }
 }

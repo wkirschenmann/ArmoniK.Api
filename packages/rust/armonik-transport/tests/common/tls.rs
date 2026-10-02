@@ -3,7 +3,9 @@
 //! Made rather than committed, so no key sits in the repository and none expires under a test.
 
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use armonik_transport::reexports::hyper;
 use armonik_transport::reexports::hyper_util::rt::{TokioExecutor as HyperTokio, TokioIo};
@@ -181,12 +183,19 @@ impl Pki {
 pub struct TlsServer {
     /// `https://127.0.0.1:<port>`.
     pub endpoint: String,
+    open: Arc<AtomicUsize>,
 }
 
 impl TlsServer {
     /// Serves as `leaf`, asking for a client certificate this authority signed when `clients`
     /// names one.
     pub async fn start(leaf: Leaf, clients: Option<&Pki>) -> Self {
+        Self::answering_after(leaf, clients, Duration::ZERO).await
+    }
+
+    /// One that waits `delay` before its handshake with each client, which holds the client's
+    /// dial that long.
+    pub async fn answering_after(leaf: Leaf, clients: Option<&Pki>, delay: Duration) -> Self {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let builder = rustls::ServerConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
@@ -211,24 +220,35 @@ impl TlsServer {
 
         let (listener, plain) = loopback().await;
         let endpoint = plain.replacen("http://", "https://", 1);
+        let open = Arc::new(AtomicUsize::new(0));
+        let serving = open.clone();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 let acceptor = acceptor.clone();
+                let serving = serving.clone();
                 tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
                     // A handshake this server refuses is the test's subject, not a failure here.
                     let Ok(stream) = acceptor.accept(stream).await else {
                         return;
                     };
+                    serving.fetch_add(1, Ordering::SeqCst);
                     let service = hyper::service::service_fn(|request| async {
                         Ok::<_, Infallible>(answer(request).await)
                     });
                     let _ = hyper::server::conn::http2::Builder::new(HyperTokio::new())
                         .serve_connection(TokioIo::new(stream), service)
                         .await;
+                    serving.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         });
 
-        Self { endpoint }
+        Self { endpoint, open }
+    }
+
+    /// How many connections it is serving past their handshake.
+    pub fn open(&self) -> usize {
+        self.open.load(Ordering::SeqCst)
     }
 }
