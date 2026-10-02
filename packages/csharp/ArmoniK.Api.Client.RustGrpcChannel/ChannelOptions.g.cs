@@ -61,6 +61,9 @@ public sealed class ChannelOptions
               : new Http2Options(other.Http2);
     MaxReceiveMessageSize = other.MaxReceiveMessageSize;
     MaxSendsInFlight = other.MaxSendsInFlight;
+    Retry = other.Retry is null
+              ? null
+              : new RetryOptions(other.Retry);
     Transport = other.Transport is null
                   ? null
                   : new TransportOptions(other.Transport);
@@ -122,6 +125,15 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? MaxSendsInFlight { get; set; }
 
+  /// <summary>When a failed call is sent again.</summary>
+  /// <remarks>
+  ///   Defaults to <c>{}</c>: five attempts in all, as <c>GrpcClient</c> has them. <c>MaxAttempts</c> of 1 never
+  ///   retries.
+  /// </remarks>
+  [JsonPropertyName("Retry")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public RetryOptions? Retry { get; set; }
+
   /// <summary>What the transport does, beyond reaching the endpoint.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Transport")]
@@ -174,6 +186,7 @@ public sealed class ChannelOptions
     }
 
     Http2?.Validate();
+    Retry?.Validate();
     Transport?.Validate();
   }
 
@@ -301,6 +314,124 @@ public sealed class Http2Options
       throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
                                             streamWindowSize,
                                             "StreamWindowSize has to be at least 1.");
+    }
+  }
+}
+
+/// <summary>
+///   When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
+///   that starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to
+///   <c>MaxBackoffSeconds</c>, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
+///   the reader and what the call sent is still kept for the replay.
+/// </summary>
+public sealed class RetryOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public RetryOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public RetryOptions(RetryOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    BackoffMultiplier = other.BackoffMultiplier;
+    CallReplayBytes = other.CallReplayBytes;
+    ChannelReplayBytes = other.ChannelReplayBytes;
+    InitialBackoffSeconds = other.InitialBackoffSeconds;
+    MaxAttempts = other.MaxAttempts;
+    MaxBackoffSeconds = other.MaxBackoffSeconds;
+  }
+
+  /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
+  /// <remarks>Defaults to 1.5.</remarks>
+  [JsonPropertyName("BackoffMultiplier")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? BackoffMultiplier { get; set; }
+
+  /// <summary>The bytes one call may keep for a replay; a call that sends more is not tried again.</summary>
+  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
+  [JsonPropertyName("CallReplayBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? CallReplayBytes { get; set; }
+
+  /// <summary>
+  ///   The bytes all of the channel's calls may keep for a replay together; a call whose message
+  ///   would pass it is not tried again.
+  /// </summary>
+  /// <remarks>Defaults to 16777216, 16 MiB.</remarks>
+  [JsonPropertyName("ChannelReplayBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? ChannelReplayBytes { get; set; }
+
+  /// <summary>The bound of the first backoff.</summary>
+  /// <remarks>Defaults to 1.</remarks>
+  [JsonPropertyName("InitialBackoffSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? InitialBackoffSeconds { get; set; }
+
+  /// <summary>Attempts in all, the first included; 1 never retries.</summary>
+  /// <remarks>Defaults to 5.</remarks>
+  [JsonPropertyName("MaxAttempts")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxAttempts { get; set; }
+
+  /// <summary>What the bound grows to and no further; refused below <c>InitialBackoffSeconds</c>.</summary>
+  /// <remarks>Defaults to 5.</remarks>
+  [JsonPropertyName("MaxBackoffSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? MaxBackoffSeconds { get; set; }
+
+  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (BackoffMultiplier is double backoffMultiplier && (backoffMultiplier < 1 || double.IsNaN(backoffMultiplier) || double.IsInfinity(backoffMultiplier)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(BackoffMultiplier),
+                                            backoffMultiplier,
+                                            "BackoffMultiplier has to be at least 1 and finite.");
+    }
+
+    if (CallReplayBytes is int callReplayBytes && callReplayBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CallReplayBytes),
+                                            callReplayBytes,
+                                            "CallReplayBytes has to be at least 0.");
+    }
+
+    if (ChannelReplayBytes is int channelReplayBytes && channelReplayBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(ChannelReplayBytes),
+                                            channelReplayBytes,
+                                            "ChannelReplayBytes has to be at least 0.");
+    }
+
+    if (InitialBackoffSeconds is double initialBackoffSeconds && (initialBackoffSeconds < 1E-09 || initialBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(initialBackoffSeconds) || double.IsInfinity(initialBackoffSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(InitialBackoffSeconds),
+                                            initialBackoffSeconds,
+                                            "InitialBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (MaxAttempts is int maxAttempts && maxAttempts < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxAttempts),
+                                            maxAttempts,
+                                            "MaxAttempts has to be at least 1.");
+    }
+
+    if (MaxBackoffSeconds is double maxBackoffSeconds && (maxBackoffSeconds < 1E-09 || maxBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(maxBackoffSeconds) || double.IsInfinity(maxBackoffSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxBackoffSeconds),
+                                            maxBackoffSeconds,
+                                            "MaxBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
   }
 }

@@ -37,6 +37,10 @@
       "maximum": 536870910,
       "minimum": 1
     },
+    "Retry": {
+      "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. `MaxAttempts` of 1 never\nretries.",
+      "$ref": "#/$defs/RetryOptions"
+    },
     "Transport": {
       "description": "What the transport does, beyond reaching the endpoint.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
       "$ref": "#/$defs/TransportOptions"
@@ -104,6 +108,47 @@
         "Username": {
           "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nsystem names no proxy. Beside the environment's proxy, it takes the place of the username\nthat proxy's URL carries; beside the one Windows' settings name, it is the username.",
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetryOptions": {
+      "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached\nthe reader and what the call sent is still kept for the replay.",
+      "type": "object",
+      "properties": {
+        "BackoffMultiplier": {
+          "description": "What each bound is multiplied by; 1 retries at a fixed bound.\n\nDefaults to 1.5.",
+          "type": "number",
+          "format": "double",
+          "minimum": 1.0
+        },
+        "CallReplayBytes": {
+          "description": "The bytes one call may keep for a replay; a call that sends more is not tried again.\n\nDefaults to 1048576, 1 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        },
+        "ChannelReplayBytes": {
+          "description": "The bytes all of the channel's calls may keep for a replay together; a call whose message\nwould pass it is not tried again.\n\nDefaults to 16777216, 16 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        },
+        "InitialBackoffSeconds": {
+          "description": "The bound of the first backoff.\n\nDefaults to 1.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "MaxAttempts": {
+          "description": "Attempts in all, the first included; 1 never retries.\n\nDefaults to 5.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        },
+        "MaxBackoffSeconds": {
+          "description": "What the bound grows to and no further; refused below `InitialBackoffSeconds`.\n\nDefaults to 5.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
         }
       },
       "additionalProperties": false

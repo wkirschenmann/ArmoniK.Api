@@ -1,7 +1,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use armonik_transport::grpc::GrpcChannelConfig;
+use armonik_transport::grpc::{GrpcChannelConfig, RetryConfig};
 use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use armonik_transport::options::{ChannelOptions, OptionRefusal, Seconds, LARGEST_WINDOW};
 use armonik_transport::reexports::http::Uri;
@@ -23,6 +23,7 @@ pub(crate) struct ChannelSettings {
     tcp: TcpConfig,
     http2: Http2Config,
     proxy: ProxyConfig,
+    retry: RetryConfig,
 }
 
 impl ChannelSettings {
@@ -58,6 +59,7 @@ impl ChannelSettings {
             config.max_recv_message_size = max as usize;
         }
         config.default_deadline = self.default_deadline;
+        config.retry = Some(self.retry);
         config
     }
 }
@@ -191,6 +193,10 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
         .proxy
         .to_config()
         .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Proxy")))?;
+    let retry = options
+        .retry
+        .to_config()
+        .map_err(|refused| ConfigRefusal::Option(refused.under("Retry")))?;
 
     Ok(ChannelSettings {
         options,
@@ -200,6 +206,7 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
         tcp,
         http2,
         proxy,
+        retry,
     })
 }
 
@@ -268,6 +275,23 @@ mod tests {
             stated("/$defs/Http2Options/properties/ConnectionWindowSize/description"),
             http2.connection_window as f64
         );
+        let retry = config.retry.expect("a retry policy by default");
+        for (option, applied) in [
+            ("MaxAttempts", f64::from(retry.max_attempts)),
+            ("InitialBackoffSeconds", retry.initial_backoff.as_secs_f64()),
+            ("MaxBackoffSeconds", retry.max_backoff.as_secs_f64()),
+            ("BackoffMultiplier", retry.backoff_multiplier),
+            ("CallReplayBytes", retry.call_replay_bytes as f64),
+            ("ChannelReplayBytes", retry.channel_replay_bytes as f64),
+        ] {
+            assert_eq!(
+                stated(&format!(
+                    "/$defs/RetryOptions/properties/{option}/description"
+                )),
+                applied,
+                "{option}"
+            );
+        }
     }
 
     /// The bounds below are stated twice - once as a schemars attribute, once as this reader -
@@ -395,6 +419,18 @@ mod tests {
                 "/$defs/Http2Options/properties/ConnectionWindowSize/minimum",
                 r#"{"Http2":{"ConnectionWindowSize":N}}"#,
             ),
+            (
+                "/$defs/RetryOptions/properties/MaxAttempts/minimum",
+                r#"{"Retry":{"MaxAttempts":N}}"#,
+            ),
+            (
+                "/$defs/RetryOptions/properties/CallReplayBytes/minimum",
+                r#"{"Retry":{"CallReplayBytes":N}}"#,
+            ),
+            (
+                "/$defs/RetryOptions/properties/ChannelReplayBytes/minimum",
+                r#"{"Retry":{"ChannelReplayBytes":N}}"#,
+            ),
         ] {
             let minimum = stated(pointer).unwrap_or_else(|| panic!("{pointer} states none"));
             let at = |value: i64| document.replace('N', &value.to_string());
@@ -421,6 +457,18 @@ mod tests {
             (
                 "/$defs/Http2Options/properties/IdleTimeoutSeconds/minimum",
                 r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
+            ),
+            (
+                "/$defs/RetryOptions/properties/InitialBackoffSeconds/minimum",
+                r#"{"Retry":{"InitialBackoffSeconds":N}}"#,
+            ),
+            (
+                "/$defs/RetryOptions/properties/MaxBackoffSeconds/minimum",
+                r#"{"Retry":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}"#,
+            ),
+            (
+                "/$defs/RetryOptions/properties/BackoffMultiplier/minimum",
+                r#"{"Retry":{"BackoffMultiplier":N}}"#,
             ),
         ] {
             let minimum = schema

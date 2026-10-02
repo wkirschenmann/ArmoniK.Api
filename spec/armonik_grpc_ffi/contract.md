@@ -176,9 +176,8 @@ pub struct RetryConfig {
     pub initial_backoff: Duration,
     pub max_backoff: Duration,
     pub backoff_multiplier: f64,
-    pub retryable_status_codes: Vec<GrpcStatusCode>,
-    pub unary_replay_bytes: usize,  // the copy a call that answers once keeps
-    pub stream_replay_bytes: usize, // the sent prefix a stream keeps
+    pub retryable_codes: Vec<GrpcStatusCode>,
+    pub call_replay_bytes: usize,    // what one call keeps for a replay, whatever it sends
     pub channel_replay_bytes: usize, // what every call of the channel keeps together
 }
 
@@ -367,14 +366,12 @@ sufficed, which is why each row names both. A committed call goes on; it is no l
 | Server streaming: error before Response-Headers | Yes |
 | Remaining deadline < backoff | No |
 
-**Under-specified for V1, and knowingly.** The table is the commitment point only. The
-retry contract of gRFC A6 also carries: jitter on the backoff, `grpc-retry-pushback-ms`,
-`grpc-previous-rpc-attempts` on each attempt, transparent retries for `REFUSED_STREAM` and
-post-GOAWAY streams (which are not attempts and are not throttled), and a per-channel retry
-throttle. A channel-wide policy is also the wrong granularity: gRPC configures retry per
-method. None of that is specified here yet, and shipping the commitment point without it
-would produce a client that retries at the wrong times and hides server pushback. T6.3 and
-T6.4 carry it.
+**Beyond the commitment point.** The backoff is drawn uniformly below its bound, the server's
+`grpc-retry-pushback-ms` replaces it or refuses the retry, and each attempt carries
+`grpc-previous-rpc-attempts`, as gRFC A6 has them. Not specified yet: transparent retries for
+`REFUSED_STREAM` and post-GOAWAY streams, which are not attempts and are not throttled, and the
+per-channel retry throttle, which A6 makes optional. The policy is the channel's for every
+method, as `GrpcClient` configures it, where gRPC would allow one per method.
 
 ---
 

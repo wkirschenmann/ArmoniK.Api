@@ -1,0 +1,170 @@
+//! A call sent again after it failed, as gRFC A6 has it: what is retried, how many times, after
+//! how long, and what commits a call so it is not.
+
+mod common;
+
+use std::time::{Duration, Instant};
+
+use armonik_transport::grpc::{
+    CallStartOptions, Deadline, GrpcChannel, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
+    MetadataValue, RetryConfig,
+};
+use armonik_transport::http2::TransportConfig;
+use bytes::Bytes;
+use common::echo::*;
+use http::Uri;
+
+fn retrying(endpoint: &str, change: impl FnOnce(&mut RetryConfig)) -> GrpcChannel {
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(
+        Uri::try_from(endpoint).expect("an endpoint"),
+    ));
+    let mut retry = RetryConfig::default();
+    retry.initial_backoff = Duration::from_millis(10);
+    retry.max_backoff = Duration::from_millis(50);
+    change(&mut retry);
+    config.retry = Some(retry);
+    channel_with(config).expect("a channel")
+}
+
+/// The options of a flaky call under a key of its own, failing `times` times with what `extra`
+/// adds.
+fn flaky_options(key: &str, times: usize, extra: &[(&str, &str)]) -> CallStartOptions {
+    let mut options = CallStartOptions::new(FLAKY);
+    let mut set = |name: &str, value: String| {
+        options
+            .metadata
+            .append(name, MetadataValue::Ascii(value))
+            .expect("a header");
+    };
+    set("x-flaky-key", key.to_owned());
+    set("x-fail-times", times.to_string());
+    for (name, value) in extra {
+        set(name, (*value).to_owned());
+    }
+    options
+}
+
+async fn call(
+    channel: &GrpcChannel,
+    options: CallStartOptions,
+    message: &'static [u8],
+) -> (Vec<Bytes>, GrpcStatus) {
+    let (_, messages, status) = unary(channel, options, Bytes::from_static(message)).await;
+    (messages, status)
+}
+
+#[tokio::test]
+async fn a_call_that_fails_unavailable_succeeds_on_its_second_attempt() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let (messages, status) = call(&channel, flaky_options("second", 1, &[]), b"hello").await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages, vec![Bytes::from_static(b"hello")]);
+    assert_eq!(
+        flaky_seen("second"),
+        vec![None, Some("1".to_owned())],
+        "the second attempt says one went before it"
+    );
+}
+
+#[tokio::test]
+async fn a_code_the_policy_does_not_name_is_not_retried() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let options = flaky_options("denied", 1, &[("x-fail-code", "7")]);
+    let (_, status) = call(&channel, options, b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::PermissionDenied, "{status}");
+    assert_eq!(flaky_seen("denied").len(), 1);
+}
+
+#[tokio::test]
+async fn the_attempts_stop_at_the_policys_maximum() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |retry| retry.max_attempts = 3);
+
+    let (_, status) = call(&channel, flaky_options("exhausted", 10, &[]), b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(
+        flaky_seen("exhausted"),
+        vec![None, Some("1".to_owned()), Some("2".to_owned())]
+    );
+}
+
+#[tokio::test]
+async fn a_call_whose_head_reached_the_reader_is_not_retried() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let options = flaky_options("headed", 1, &[("x-fail-after-head", "1")]);
+    let (_, status) = call(&channel, options, b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(flaky_seen("headed").len(), 1);
+}
+
+#[tokio::test]
+async fn a_call_past_its_replay_ceiling_or_the_channels_is_committed() {
+    let server = TestServer::start().await;
+    for (key, call_bytes, channel_bytes) in [("ceiling", 2, 1 << 20), ("channel-total", 1 << 20, 2)]
+    {
+        let channel = retrying(&server.endpoint, |retry| {
+            retry.call_replay_bytes = call_bytes;
+            retry.channel_replay_bytes = channel_bytes;
+        });
+        let (_, status) = call(&channel, flaky_options(key, 1, &[]), b"hello").await;
+        assert_eq!(status.code, GrpcStatusCode::Unavailable, "{key}: {status}");
+        assert_eq!(flaky_seen(key).len(), 1, "{key}");
+    }
+}
+
+#[tokio::test]
+async fn the_servers_pushback_sets_the_wait_or_refuses_the_retry() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let started = Instant::now();
+    let options = flaky_options("pushed", 1, &[("x-pushback", "300")]);
+    let (_, status) = call(&channel, options, b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert!(
+        started.elapsed() >= Duration::from_millis(300),
+        "{:?}",
+        started.elapsed()
+    );
+
+    let options = flaky_options("refused", 1, &[("x-pushback", "-1")]);
+    let (_, status) = call(&channel, options, b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(flaky_seen("refused").len(), 1);
+}
+
+/// The server asks for a wait the deadline would cut short: the call ends with what it failed
+/// with, at once, and not with a DEADLINE_EXCEEDED the wait would earn it.
+#[tokio::test]
+async fn a_wait_past_the_deadline_ends_the_call_with_its_failure() {
+    let server = TestServer::start().await;
+    let channel = retrying(&server.endpoint, |_| {});
+
+    let mut options = flaky_options("deadline", 1, &[("x-pushback", "30000")]);
+    options.deadline = Some(Deadline::Timeout(Duration::from_secs(2)));
+    let started = Instant::now();
+    let (_, status) = call(&channel, options, b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(flaky_seen("deadline").len(), 1);
+}
+
+#[tokio::test]
+async fn a_channel_with_no_policy_does_not_retry() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (_, status) = call(&channel, flaky_options("unretried", 1, &[]), b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(flaky_seen("unretried").len(), 1);
+}

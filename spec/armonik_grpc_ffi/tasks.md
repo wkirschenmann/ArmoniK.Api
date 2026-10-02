@@ -1029,9 +1029,10 @@ This was T8.1, after V1. It comes before the retry it bounds, because its own fi
 contract and not an implementation detail, and choosing it once per-call buffers exist means
 retrofitting rather than designing.
 
-Two of its four questions are already answered: the ceilings are configuration, and each call has
-one of two - one for a call that answers once, one for a stream - which the channel's total, below,
-joins. They arrive with the `retry` unit T6.3 brings. What is left is what they mean.
+Two of its four questions are already answered: the ceilings are configuration - one per call,
+whatever it sends, decided on 2026-10-02 so that the engine needs no cardinality declared at start,
+and the channel's total, below. They arrive with the `retry` unit T6.3 brings. What is left is what
+they mean.
 
 - **What happens at the ceiling.** Refusing a `send_message` and quietly making a call
   non-retryable are two different contracts, and the second changes what a caller may conclude
@@ -1123,15 +1124,28 @@ definitions and the flag; the binding's `UnaryTests` expiry, a past deadline and
 
 **Prerequisite**: T6.1, T6.2
 **Source**: the retry types from the #7xx stack
-**Commit**: exponential backoff, retryable codes, and the `retry` unit that configures them. A
-single message is replayable without a buffer, so this cardinality needs none of its own - but
-the unit declares **two** per-call replay ceilings, one for a call that answers once and one for a
-stream, because they bound different things: a single message kept in case it has to go again,
-against a whole sent prefix. One value would either starve the stream or let a unary call reserve
-a stream's worth. A third value is the channel's total of replay bytes, which T6.1 added; T6.1 has
-already settled what happens when any of them is reached.
+**Commit**: exponential backoff, retryable codes, and the `retry` unit that configures them,
+with one per-call replay ceiling and the channel's total of replay bytes. One
+ceiling for every call, rather than one for a single message and one for a stream, because the
+engine is told no cardinality at start; a stream that needs more than a unary call is given it by
+raising the one value. T6.1 has settled what happens when either is reached.
 
 **Deliverable**: a retry on UNAVAILABLE that succeeds on the second attempt.
+
+**Status**: done, for every cardinality alike, since nothing in the mechanism tells them apart;
+T6.4 is what exercises streams. `GrpcChannelConfig::retry` is a `RetryConfig` - `MaxAttempts`,
+the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, the codes
+UNAVAILABLE, ABORTED and UNKNOWN, `CallReplayBytes` and `ChannelReplayBytes` - which the `Retry`
+option unit fills, its defaults `GrpcClient`'s and grpc-dotnet's; the engine's own config has none,
+and an options document that sets nothing retries. The driver keeps a copy of each message a call
+sends, within both limits, and runs attempts while one fails with a named code, no head has reached
+the reader and the copy is whole: each after a wait drawn uniformly below a bound that grows by
+the multiplier to the maximum, or the server's `grpc-retry-pushback-ms`, which a negative or
+unreadable value turns into no retry; each carrying `grpc-previous-rpc-attempts`. A wait the
+deadline would cut short ends the call with its failure. Not done: the transparent retries of a
+stream refused or left unprocessed by a GOAWAY, and the per-channel retry throttle, which gRFC A6
+makes optional; a policy per method is not wanted, `GrpcClient` giving every method the same one.
+`tests/grpc_retry.rs` drives a server that fails a key's calls as often as asked.
 
 ### T6.4: Retry for a stream
 

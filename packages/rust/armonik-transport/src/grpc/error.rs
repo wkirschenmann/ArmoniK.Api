@@ -25,6 +25,8 @@ pub enum GrpcChannelConfigError {
     ZeroMaxRecvMessageSize,
     #[snafu(display("`{value}` is not a value a `user-agent` header can carry"))]
     InvalidUserAgent { value: String },
+    #[snafu(display("the retry policy is refused: {why}"))]
+    Retry { why: String },
     #[snafu(display("{source}"), context(false))]
     Transport { source: TransportError },
 }

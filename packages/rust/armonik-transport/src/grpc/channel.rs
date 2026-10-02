@@ -24,6 +24,7 @@ use super::contained::contained;
 use super::driver::{self, Outgoing};
 use super::error::ChannelError;
 use super::executor::Spawner;
+use super::retry::{ChannelReplay, RetryConfig};
 use super::status::{GrpcStatus, GrpcStatusCode};
 use crate::utils::safe_endpoint;
 
@@ -44,6 +45,8 @@ pub struct GrpcChannelConfig {
     pub max_recv_message_size: usize,
     /// The deadline of a call that states none, counted from its start.
     pub default_deadline: Option<Duration>,
+    /// When a failed call is sent again; none never retries.
+    pub retry: Option<RetryConfig>,
 }
 
 impl GrpcChannelConfig {
@@ -54,6 +57,7 @@ impl GrpcChannelConfig {
             max_sends_in_flight: 1,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
             default_deadline: None,
+            retry: None,
         }
     }
 }
@@ -85,6 +89,16 @@ impl GrpcChannel {
             return Err(GrpcChannelConfigError::ZeroMaxRecvMessageSize);
         }
 
+        if let Some(retry) = &config.retry {
+            retry.admissible()?;
+        }
+        let replay = Arc::new(ChannelReplay::new(
+            config
+                .retry
+                .as_ref()
+                .map_or(0, |retry| retry.channel_replay_bytes),
+        ));
+
         let user_agent = match &config.user_agent {
             None => HeaderValue::from_static(DEFAULT_USER_AGENT),
             Some(text) => HeaderValue::from_str(text).map_err(|_| {
@@ -107,6 +121,8 @@ impl GrpcChannel {
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
                 default_deadline: config.default_deadline,
+                retry: config.retry,
+                replay,
                 idle_timeout,
                 holds: std::sync::Mutex::new(Holds::default()),
                 connection: Mutex::new(Session::default()),
@@ -200,6 +216,9 @@ pub(crate) struct Inner {
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
     default_deadline: Option<Duration>,
+    pub(crate) retry: Option<RetryConfig>,
+    /// The replay bytes the channel's calls hold together.
+    pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
     holds: std::sync::Mutex<Holds>,
     connection: Mutex<Session>,

@@ -4,7 +4,7 @@ mod support;
 
 use armonik_transport_ffi::*;
 use support::host::*;
-use support::{blob, TestServer, ECHO, FAIL, SLOW};
+use support::{blob, flaky_seen, TestServer, ECHO, FAIL, FLAKY, SLOW};
 
 /// gRPC's code, which is what the ABI carries in `status_code`.
 const CANCELLED: i32 = 1;
@@ -67,7 +67,11 @@ fn a_head_event_says_where_the_head_came_from() {
         .local_addr()
         .expect("its address")
         .port();
-    let unreachable = host.channel(&format!("http://127.0.0.1:{port}"));
+    // No retry: the subject is the head of the one attempt that fails to dial.
+    let unreachable = host.channel_with(
+        &format!("http://127.0.0.1:{port}"),
+        r#"{"Retry":{"MaxAttempts":1}}"#,
+    );
 
     for (what, channel, method, origin) in [
         ("headers", served, ECHO, ak_head_origin::AK_HEAD_RECEIVED),
@@ -694,6 +698,31 @@ fn start_options(method: &str) -> ak_call_start_options {
 /// gRPC's code, which is what the ABI carries in `status_code`.
 const DEADLINE_EXCEEDED: i32 = 4;
 
+/// The retry the options name is the engine's: a call that fails once answers on its second
+/// attempt, which the host never sees.
+#[test]
+fn the_retry_options_reach_the_engine() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel_with(
+        &server.endpoint,
+        r#"{"Retry":{"InitialBackoffSeconds":0.01,"MaxBackoffSeconds":0.05}}"#,
+    );
+    let metadata = blob(&[
+        (b"x-flaky-key", b"through-the-abi"),
+        (b"x-fail-times", b"1"),
+    ]);
+    let call = start_call(channel, FLAKY, &metadata);
+    send_one(call, b"hello");
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(0), "{}", seen.status_message());
+    assert_eq!(seen.message_payloads(), vec![b"hello".to_vec()]);
+    assert_eq!(flaky_seen("through-the-abi").len(), 2);
+    ak_channel_release(channel);
+    host.stop();
+}
+
 #[test]
 fn an_eager_channel_is_connected_before_its_first_call_and_a_lazy_one_is_not() {
     let host = Host::start();
@@ -731,7 +760,10 @@ const UNAVAILABLE: i32 = 14;
 #[test]
 fn an_eager_dial_that_fails_leaves_the_first_call_to_report_it() {
     let host = Host::start();
-    let channel = host.channel_with("http://127.0.0.1:1", r#"{"ConnectEagerly":true}"#);
+    let channel = host.channel_with(
+        "http://127.0.0.1:1",
+        r#"{"ConnectEagerly":true,"Retry":{"MaxAttempts":1}}"#,
+    );
 
     let call = start_call(channel, ECHO, &blob(&[]));
     send_one(call, b"hello");

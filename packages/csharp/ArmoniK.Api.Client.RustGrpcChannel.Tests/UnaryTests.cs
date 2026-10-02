@@ -587,7 +587,15 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public async Task TheHeadersOfACallNoResponseReachedFailWithItsStatus()
   {
-    await using var channel = Runtime.Channel(ClosedPort.Endpoint());
+    // No retry: the subject is the head of the one attempt that dials nothing.
+    await using var channel = Runtime.Channel(ClosedPort.Endpoint(),
+                                              new ChannelOptions
+                                              {
+                                                Retry = new RetryOptions
+                                                        {
+                                                          MaxAttempts = 1,
+                                                        },
+                                              });
     using var call = Client(channel)
       .SayAsync(new EchoRequest
                 {

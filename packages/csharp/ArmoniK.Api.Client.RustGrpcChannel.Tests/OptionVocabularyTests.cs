@@ -65,16 +65,16 @@ public class OptionVocabularyTests
                                                                                ["ProxyPassword"]         = "Transport.Proxy.Password",
                                                                                ["RequestTimeout"]        = "DefaultDeadlineSeconds",
                                                                                ["MaxIdleTime"]           = "Http2.IdleTimeoutSeconds",
+                                                                               ["MaxAttempts"]           = "Retry.MaxAttempts",
+                                                                               ["InitialBackOff"]        = "Retry.InitialBackoffSeconds",
+                                                                               ["MaxBackOff"]            = "Retry.MaxBackoffSeconds",
+                                                                               ["BackoffMultiplier"]     = "Retry.BackoffMultiplier",
                                                                              };
 
   /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
   /// <remarks>The task is named so the entry says what ends the omission.</remarks>
   private static readonly IReadOnlyDictionary<string, string> Awaited = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                         {
-                                                                          ["MaxAttempts"]           = "T6.3",
-                                                                          ["BackoffMultiplier"]     = "T6.3",
-                                                                          ["InitialBackOff"]        = "T6.3",
-                                                                          ["MaxBackOff"]            = "T6.3",
                                                                         };
 
   /// <summary>A `GrpcClient` option this engine answers with something that is not an option.</summary>
@@ -90,6 +90,8 @@ public class OptionVocabularyTests
                                                                      {
                                                                        ["ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
                                                                        ["DeliveryCredits"] = "the delivery window, which only this ABI has",
+                                                                       ["Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
+                                                                       ["Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
                                                                        ["MaxSendsInFlight"] = "the send window, which only this ABI has",
                                                                        ["MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["UserAgent"] = "grpc-dotnet writes its own and offers no option",

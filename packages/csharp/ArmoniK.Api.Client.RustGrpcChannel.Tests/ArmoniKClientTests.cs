@@ -85,7 +85,16 @@ public class ArmoniKClientTests : RuntimeFixture
   [Test]
   public async Task WaitForResultsGivesUpOnAServerThatDoesNotAnswer()
   {
-    await using var channel = Runtime.Channel(ClosedPort.Endpoint());
+    // No retry of the channel's own: what gives up has to be WaitForResultsAsync, whose own
+    // retries the channel's would multiply past the test's patience.
+    await using var channel = Runtime.Channel(ClosedPort.Endpoint(),
+                                              new ChannelOptions
+                                              {
+                                                Retry = new RetryOptions
+                                                        {
+                                                          MaxAttempts = 1,
+                                                        },
+                                              });
 
     Assert.That(await WaitForResultsEnd(channel,
                                         "session-id")

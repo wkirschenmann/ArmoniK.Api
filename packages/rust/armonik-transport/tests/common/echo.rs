@@ -30,6 +30,22 @@ pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
 pub const COLLECT: &str = "/armonik_transport.test.Echo/Collect";
 pub const FAN: &str = "/armonik_transport.test.Echo/Fan";
 pub const CHAT: &str = "/armonik_transport.test.Echo/Chat";
+/// Fails as many times as its `x-fail-times` says for its `x-flaky-key`, then echoes.
+pub const FLAKY: &str = "/armonik_transport.test.Echo/Flaky";
+
+/// The `grpc-previous-rpc-attempts` each attempt of a key's flaky calls carried, in order.
+static FLAKY_SEEN: std::sync::Mutex<std::collections::BTreeMap<String, Vec<Option<String>>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// What [`FLAKY`] saw of `key`: one entry per attempt.
+pub fn flaky_seen(key: &str) -> Vec<Option<String>> {
+    FLAKY_SEEN
+        .lock()
+        .expect("the flaky record")
+        .get(key)
+        .cloned()
+        .unwrap_or_default()
+}
 
 /// A listener on an ephemeral loopback port, and the endpoint that reaches it.
 pub async fn loopback() -> (tokio::net::TcpListener, String) {
@@ -288,6 +304,10 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
             .await;
     }
 
+    if path == FLAKY {
+        return flaky(request).await;
+    }
+
     let handler = match path.as_str() {
         ECHO => echo,
         FAIL => fail,
@@ -300,6 +320,59 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
         .max_encoding_message_size(usize::MAX)
         .unary(&mut Handler(handler), request.map(TonicBody::new))
         .await
+}
+
+/// Fails with `x-fail-code` (UNAVAILABLE by default) - in the head, or after one when
+/// `x-fail-after-head` is set - with `x-pushback` as `grpc-retry-pushback-ms` when given, until
+/// the key has failed `x-fail-times` times; then answers as [`ECHO`].
+async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> {
+    let header = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let key = header("x-flaky-key").expect("a flaky call names its key");
+    let fails: usize = header("x-fail-times")
+        .and_then(|times| times.parse().ok())
+        .unwrap_or(0);
+    let code = header("x-fail-code").unwrap_or_else(|| "14".to_owned());
+    let attempt = {
+        let mut seen = FLAKY_SEEN.lock().expect("the flaky record");
+        let attempts = seen.entry(key).or_default();
+        attempts.push(header("grpc-previous-rpc-attempts"));
+        attempts.len() - 1
+    };
+    if attempt >= fails {
+        return armonik_transport::reexports::tonic::server::Grpc::new(BytesCodec)
+            .unary(&mut Handler(echo), request.map(TonicBody::new))
+            .await;
+    }
+
+    let mut status = HeaderMap::new();
+    status.insert("grpc-status", HeaderValue::from_str(&code).expect("a code"));
+    if let Some(pushback) = header("x-pushback") {
+        status.insert(
+            "grpc-retry-pushback-ms",
+            HeaderValue::from_str(&pushback).expect("a pushback"),
+        );
+    }
+    let (builder, frames) = if header("x-fail-after-head").is_some() {
+        (grpc_head(), vec![Frame::trailers(status)])
+    } else {
+        let mut builder = grpc_head();
+        for (name, value) in &status {
+            builder = builder.header(name, value);
+        }
+        (builder, vec![])
+    };
+    builder
+        .body(TonicBody::new(Canned {
+            frames: frames.into_iter(),
+            then_fails: false,
+        }))
+        .expect("a well-formed flaky response")
 }
 
 pub struct Canned {

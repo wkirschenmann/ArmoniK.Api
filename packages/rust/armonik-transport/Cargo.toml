@@ -51,6 +51,9 @@ http.workspace = true
 # `BodyExt::frame`, to read a response body one frame at a time rather than collecting it.
 http-body-util.workspace = true
 bytes.workspace = true
+# The backoff's jitter, drawn below its bound so calls that failed together do not come back
+# together.
+fastrand.workspace = true
 # gRPC stores a `-bin` metadata value base64-encoded on the wire.
 base64.workspace = true
 # The gRPC engine spawns: a task per HTTP/2 session, a task per call. `macros` is `select!`, which

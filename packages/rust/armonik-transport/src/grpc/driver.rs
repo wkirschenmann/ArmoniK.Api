@@ -14,7 +14,9 @@ use super::call::{Answered, CallControl, HeadOrigin, OwnedMessage, RequestMessag
 use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
+use super::retry::{jittered, AttemptMessages, Replay, RetryConfig};
 use super::status::GrpcStatus;
+use super::status::GrpcStatusCode;
 
 pub(crate) struct Driving {
     stop: Stop,
@@ -178,6 +180,41 @@ async fn within_deadline(
         .unwrap_or_else(|_| GrpcStatus::deadline_exceeded())
 }
 
+/// The header that tells the server how many attempts went before this one.
+const PREVIOUS_ATTEMPTS: &str = "grpc-previous-rpc-attempts";
+
+/// The trailer in which the server says how long to wait before a retry, or not to retry.
+const PUSHBACK: &str = "grpc-retry-pushback-ms";
+
+/// What a failed attempt's server said of a retry.
+enum Pushback {
+    /// Nothing: the backoff decides.
+    Unsaid,
+    /// Retry after this long.
+    After(std::time::Duration),
+    /// Do not retry: a negative or unreadable value, which gRFC A6 reads so.
+    Refused,
+}
+
+impl Pushback {
+    fn of(headers: &HeaderMap) -> Self {
+        let Some(value) = headers.get(PUSHBACK) else {
+            return Self::Unsaid;
+        };
+        match value
+            .to_str()
+            .ok()
+            .and_then(|text| text.parse::<u64>().ok())
+        {
+            Some(millis) => Self::After(std::time::Duration::from_millis(millis)),
+            None => Self::Refused,
+        }
+    }
+}
+
+/// The call's attempts: the first, then as many more as its retry policy allows while each
+/// fails with a code it names and with what it sent still kept for the replay, which a head
+/// reaching the reader ends.
 async fn run(
     inner: &Arc<Inner>,
     outgoing: Outgoing,
@@ -194,6 +231,91 @@ async fn run(
         deadline,
     } = outgoing;
 
+    let policy = inner.retry.as_ref();
+    let replay = Replay::new(
+        messages,
+        policy.and_then(RetryConfig::replay_limit),
+        Arc::clone(&inner.replay),
+    );
+    let mut bound = policy
+        .map(|policy| policy.initial_backoff)
+        .unwrap_or_default();
+    let mut previous = 0u32;
+    loop {
+        let mut headers = metadata.clone();
+        if previous > 0 {
+            headers.insert(PREVIOUS_ATTEMPTS, previous.into());
+        }
+        let (status, pushback) = attempt(
+            inner,
+            path.clone(),
+            headers,
+            replay.attempt(),
+            deadline,
+            &replay,
+            stop,
+            delivery,
+        )
+        .await;
+        previous += 1;
+
+        let Some(policy) = policy else {
+            return status;
+        };
+        let retryable = status.code != GrpcStatusCode::Ok
+            && policy.retryable_codes.contains(&status.code)
+            && previous < policy.max_attempts;
+        if !retryable {
+            return status;
+        }
+        let wait = match pushback {
+            Pushback::Refused => return status,
+            Pushback::After(wait) => {
+                bound = policy.initial_backoff;
+                wait
+            }
+            Pushback::Unsaid => {
+                let wait = jittered(bound);
+                bound = policy.next_bound(bound);
+                wait
+            }
+        };
+        // A backoff the deadline would cut short ends the call with what it failed with, not
+        // with a DEADLINE_EXCEEDED the wait would earn it. A wait past what the clock holds is
+        // one no deadline outlasts.
+        if deadline.is_some_and(|deadline| {
+            Instant::now()
+                .checked_add(wait)
+                .is_none_or(|at| at >= deadline)
+        }) {
+            return status;
+        }
+        // Before the wait, so the failed attempt's stream reads nothing the host sends meanwhile;
+        // under the same lock as that stream's last commit, so a call it committed is not retried.
+        if !replay.supersede() {
+            return status;
+        }
+        if until_stopped(stop, tokio::time::sleep(wait))
+            .await
+            .is_none()
+        {
+            return GrpcStatus::cancelled();
+        }
+    }
+}
+
+/// One attempt, and what its server said of a retry when it failed before its head.
+#[allow(clippy::too_many_arguments)]
+async fn attempt(
+    inner: &Arc<Inner>,
+    path: PathAndQuery,
+    metadata: HeaderMap,
+    messages: AttemptMessages,
+    deadline: Option<Instant>,
+    replay: &Replay,
+    stop: &mut Stop,
+    delivery: &mut Delivery,
+) -> (GrpcStatus, Pushback) {
     let mut request = tonic::Request::new(messages);
     *request.metadata_mut() = MetadataMap::from_headers(metadata);
     // What is left of it before any dial, which tonic writes as `grpc-timeout` in the unit that
@@ -208,10 +330,15 @@ async fn run(
         );
     }
 
+    // Each attempt's own: whether a response came is the last attempt's to say.
+    delivery.answered = Answered::default();
     let mut client = inner.client(delivery.answered.clone());
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
-        None => return GrpcStatus::cancelled(),
-        Some(Err(status)) => return GrpcStatus::from(status),
+        None => return (GrpcStatus::cancelled(), Pushback::Unsaid),
+        Some(Err(status)) => {
+            let pushback = Pushback::of(&status.metadata().clone().into_headers());
+            return (GrpcStatus::from(status), pushback);
+        }
         Some(Ok(response)) => response,
     };
 
@@ -223,10 +350,20 @@ async fn run(
     // the head, so it is read from there, and nothing goes out as a head: delivering those
     // headers twice would have the reader see a head no such response has.
     if let Some(status) = tonic::Status::from_header_map(&head) {
-        return GrpcStatus::from(status);
+        return (GrpcStatus::from(status), Pushback::of(&head));
     }
+    // The reader has a head: whatever follows, this call is not tried again.
+    replay.commit();
     delivery.head(Metadata::from_headers(&head), HeadOrigin::Wire);
+    (finish(stop, delivery, &mut body).await, Pushback::Unsaid)
+}
 
+/// The response's messages and trailers, once its head is delivered.
+async fn finish(
+    stop: &mut Stop,
+    delivery: &mut Delivery,
+    body: &mut tonic::Streaming<Bytes>,
+) -> GrpcStatus {
     loop {
         match until_stopped(stop, body.message()).await {
             None => return GrpcStatus::cancelled(),

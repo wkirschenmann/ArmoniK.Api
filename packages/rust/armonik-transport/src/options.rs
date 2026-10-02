@@ -13,6 +13,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret;
 
+use crate::grpc::RetryConfig;
 use crate::http2::{ClientIdentity, Http2Config, ProxyConfig, ProxySource, TcpConfig, TlsConfig};
 
 /// The largest window either side of a call may be given.
@@ -848,6 +849,151 @@ pub struct Http2Options {
     pub idle_timeout_seconds: Option<Seconds>,
 }
 
+/// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
+/// that starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to
+/// `MaxBackoffSeconds`, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
+/// the reader and what the call sent is still kept for the replay.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct RetryOptions {
+    /// Attempts in all, the first included; 1 never retries.
+    ///
+    /// Defaults to 5.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub max_attempts: Option<i32>,
+
+    /// The bound of the first backoff.
+    ///
+    /// Defaults to 1.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub initial_backoff_seconds: Option<Seconds>,
+
+    /// What the bound grows to and no further; refused below `InitialBackoffSeconds`.
+    ///
+    /// Defaults to 5.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub max_backoff_seconds: Option<Seconds>,
+
+    /// What each bound is multiplied by; 1 retries at a fixed bound.
+    ///
+    /// Defaults to 1.5.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "f64", extend("minimum" = 1.0)))]
+    pub backoff_multiplier: Option<f64>,
+
+    /// The bytes one call may keep for a replay; a call that sends more is not tried again.
+    ///
+    /// Defaults to 1048576, 1 MiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub call_replay_bytes: Option<i32>,
+
+    /// The bytes all of the channel's calls may keep for a replay together; a call whose message
+    /// would pass it is not tried again.
+    ///
+    /// Defaults to 16777216, 16 MiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub channel_replay_bytes: Option<i32>,
+}
+
+impl RetryOptions {
+    /// The policy these options name, each unset one at its default.
+    pub fn to_config(&self) -> Result<RetryConfig, OptionRefusal> {
+        let defaults = RetryConfig::default();
+        let count = |key: &str, asked: Option<i32>, least: i32, default: usize| match asked {
+            None => Ok(default),
+            Some(value) if value < least => Err(OptionRefusal::new(
+                key,
+                format!("{value} has to be at least {least}"),
+            )),
+            Some(value) => Ok(value as usize),
+        };
+        let initial_backoff = duration(
+            "InitialBackoffSeconds",
+            self.initial_backoff_seconds,
+            1e-9,
+            None,
+        )?
+        .unwrap_or(defaults.initial_backoff);
+        let max_backoff = duration("MaxBackoffSeconds", self.max_backoff_seconds, 1e-9, None)?
+            .unwrap_or(defaults.max_backoff);
+        if max_backoff < initial_backoff {
+            return Err(OptionRefusal::new(
+                "MaxBackoffSeconds",
+                "it is below InitialBackoffSeconds, the bound the backoff starts from",
+            ));
+        }
+        let backoff_multiplier = match self.backoff_multiplier {
+            None => defaults.backoff_multiplier,
+            Some(value) if value.is_finite() && value >= 1.0 => value,
+            Some(value) => {
+                return Err(OptionRefusal::new(
+                    "BackoffMultiplier",
+                    format!("{value} has to be a finite number of at least 1"),
+                ))
+            }
+        };
+        Ok(RetryConfig {
+            max_attempts: count(
+                "MaxAttempts",
+                self.max_attempts,
+                1,
+                defaults.max_attempts as usize,
+            )? as u32,
+            initial_backoff,
+            max_backoff,
+            backoff_multiplier,
+            call_replay_bytes: count(
+                "CallReplayBytes",
+                self.call_replay_bytes,
+                0,
+                defaults.call_replay_bytes,
+            )?,
+            channel_replay_bytes: count(
+                "ChannelReplayBytes",
+                self.channel_replay_bytes,
+                0,
+                defaults.channel_replay_bytes,
+            )?,
+            ..defaults
+        })
+    }
+}
+
 /// An option refused, named by its path from the unit that read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionRefusal {
@@ -1264,6 +1410,13 @@ pub struct ChannelOptions {
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
     pub http2: Http2Options,
+
+    /// When a failed call is sent again.
+    ///
+    /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. `MaxAttempts` of 1 never
+    /// retries.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub retry: RetryOptions,
 
     /// Whether the channel starts dialling its endpoint as it is created rather than at its first
     /// call, which then finds the session open or joins the dial under way. A dial that fails is
@@ -1833,6 +1986,73 @@ mod tests {
             },
         ] {
             assert!(refused.to_config().is_err(), "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn the_retry_options_become_the_policy_and_one_that_cannot_back_off_is_refused() {
+        let config = RetryOptions {
+            max_attempts: Some(3),
+            initial_backoff_seconds: Some(Seconds(0.5)),
+            max_backoff_seconds: Some(Seconds(2.0)),
+            backoff_multiplier: Some(2.0),
+            call_replay_bytes: Some(10),
+            channel_replay_bytes: Some(100),
+        }
+        .to_config()
+        .expect("admissible");
+        assert_eq!(config.max_attempts, 3);
+        assert_eq!(config.initial_backoff, Duration::from_millis(500));
+        assert_eq!(config.max_backoff, Duration::from_secs(2));
+        assert_eq!(config.backoff_multiplier, 2.0);
+        assert_eq!(
+            (config.call_replay_bytes, config.channel_replay_bytes),
+            (10, 100)
+        );
+        assert_eq!(
+            RetryOptions::default().to_config().expect("the defaults"),
+            RetryConfig::default()
+        );
+
+        for (options, key) in [
+            (
+                RetryOptions {
+                    max_attempts: Some(0),
+                    ..RetryOptions::default()
+                },
+                "MaxAttempts",
+            ),
+            (
+                RetryOptions {
+                    initial_backoff_seconds: Some(Seconds(10.0)),
+                    ..RetryOptions::default()
+                },
+                "MaxBackoffSeconds",
+            ),
+            (
+                RetryOptions {
+                    backoff_multiplier: Some(0.5),
+                    ..RetryOptions::default()
+                },
+                "BackoffMultiplier",
+            ),
+            (
+                RetryOptions {
+                    backoff_multiplier: Some(f64::INFINITY),
+                    ..RetryOptions::default()
+                },
+                "BackoffMultiplier",
+            ),
+            (
+                RetryOptions {
+                    call_replay_bytes: Some(-1),
+                    ..RetryOptions::default()
+                },
+                "CallReplayBytes",
+            ),
+        ] {
+            let refused = options.to_config().expect_err(key);
+            assert_eq!(refused.key(), key, "{refused}");
         }
     }
 
