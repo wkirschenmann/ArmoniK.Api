@@ -127,10 +127,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///
         ///  The document is structured and typed, and a JSON schema states it: objects nest, a number is a
         ///  number and not a string spelled like one, and an option spelled wrong is refused rather than
-        ///  ignored. It carries UserAgent, MaxReceiveMessageSize, DeliveryCredits, MaxSendsInFlight, an
-        ///  Http2 object for the session's keepalive and windows, and a Transport object holding
-        ///  ConnectTimeoutSeconds, a Tls object of the paths and choices that secure an https:// endpoint,
-        ///  and a TcpKeepalive object.
+        ///  ignored. That schema, `options.schema.json`, names each option with its type and, where it has
+        ///  them, its range and default.
         ///
         ///  The two windows mirror each other. DeliveryCredits bounds the payloads of one call outstanding
         ///  at once - the terminal status takes no credit, so a host holds at most one more - and the host
