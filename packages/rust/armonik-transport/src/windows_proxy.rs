@@ -151,8 +151,7 @@ impl WindowsProxy {
             .or_else(|| for_scheme(proxy, "socks").map(|socks| format!("socks://{socks}")))
     }
 
-    /// What the PAC script says, or none when there is no script or it could not be run. WinHTTP
-    /// remembers a script it could not fetch, so the dials that follow do not wait on it again.
+    /// What the PAC script says, or none when there is no script or it could not be run.
     fn automatic(&self, target: &Uri) -> Option<Option<String>> {
         let session = self.session.as_ref()?;
         let url = wide(&target.to_string());
@@ -439,41 +438,6 @@ mod tests {
         assert!(!printed.contains("s3cret"), "{printed}");
         assert!(printed.contains("proxy: true"), "{printed}");
         assert!(printed.contains("auto_config_url: true"), "{printed}");
-    }
-
-    /// A server that never answers holds the first resolution up to the timeout; WinHTTP does
-    /// not make the second wait on it again.
-    #[test]
-    fn a_failed_script_is_not_tried_again_at_once() {
-        use std::time::Instant;
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let address = listener.local_addr().expect("an address");
-        std::thread::spawn(move || {
-            let held: Vec<_> = listener.incoming().flatten().collect();
-            drop(held);
-        });
-        let timeout = Duration::from_secs(1);
-        let proxy = WindowsProxy::new(
-            Settings {
-                auto_config_url: Some(format!("http://{address}/silent.pac")),
-                proxy: Some("manual.test:8080".to_owned()),
-                ..Settings::default()
-            },
-            timeout,
-        );
-        let resolve = |target: &'static str| {
-            let started = Instant::now();
-            let resolved = proxy.resolve(&Uri::from_static(target));
-            (resolved, started.elapsed())
-        };
-        let (resolved, _) = resolve("http://server.test:1");
-        assert_eq!(resolved.as_deref(), Some("manual.test:8080"));
-        let (resolved, waited) = resolve("http://other.test:1");
-        assert_eq!(resolved.as_deref(), Some("manual.test:8080"));
-        assert!(
-            waited < timeout / 2,
-            "the script was asked again: {waited:?}"
-        );
     }
 
     #[test]

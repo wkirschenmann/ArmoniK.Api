@@ -1006,12 +1006,12 @@ only entry for the scheme, is refused, at the dial since nothing is resolved at 
 `SOCKS` answer is dropped by WinHTTP itself and leaves a direct dial. `Username` and `Password`
 authenticate to whichever proxy the settings name. A resolution still running when its dial gives
 up keeps its blocking thread, and dropping the runtime waits for it, so a stuck WPAD lengthens
-`ak_runtime_destroy` - the price of keeping its promise that no thread of this library outlives it;
-WinHTTP remembers a script it could not fetch, so it is one wait and not one per dial, which a unit
-test pins. Settings that cannot be read, as for a user with no profile, dial directly. The unit
-tests run a PAC script through WinHTTP from a loopback server, and tunnel through the proxy manual
-settings name; the user's own settings are not changed by any test, so the read of them is the one
-part no test reaches.
+`ak_runtime_destroy` - the price of keeping its promise that no thread of this library outlives it.
+WinHTTP often remembers a script it could not fetch, but not always, so a stuck one can hold each
+dial up to the connect timeout. Settings that cannot be read, as for a user with no profile, dial
+directly. The unit tests run a PAC script through WinHTTP from a loopback server, and tunnel
+through the proxy manual settings name; the user's own settings are not changed by any test, so the
+read of them is the one part no test reaches.
 
 ---
 
