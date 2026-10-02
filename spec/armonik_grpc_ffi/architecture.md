@@ -316,7 +316,7 @@ encoder copies the message into the request body, and the allocation is released
 replay cache is the engine's copy**, not the arena original: a retry resends what the engine
 holds, which is a copy it needs whatever the send path does.
 
-So the slot budget and the replay buffer (`RetryConfig::max_buffer_size`) charge two different
+So the slot budget and the replay buffer (`RetryConfig`'s replay bytes) charge two different
 buffers - the arena allocation while it is lent or queued, the engine's copy while a retry may
 still send it - and they do not constrain each other: a replay takes no slot in the send window,
 which bounds what the host serializes at once and nothing a replay does.
@@ -331,7 +331,8 @@ which bounds what the host serializes at once and nothing a replay does.
 - Send side: every send buffer comes out of the call's arena, bounded by
   `MaxSendsInFlight` buffers at a time, and the arena is dropped in one piece when the call
   is released - which the release precondition guarantees is safe. Retained replay bytes are
-  not these allocations but the engine's copies, bounded separately by `max_buffer_size`.
+  not these allocations but the engine's copies, bounded separately, per call and per channel,
+  by the retry unit's replay bytes.
   Arenas are a natural fit for a pool held by the channel, so the same memory serves every call
   the channel carries and the steady-state fast path allocates nothing the binding controls - no
   payload, no event object - which is a budget to measure, not an absolute: task completions,
@@ -342,10 +343,11 @@ which bounds what the host serializes at once and nothing a replay does.
 - Neither pool is visible across the ABI, so either can be added or removed later without
   touching a binding.
 
-**A global ceiling above the per-call budgets.** `max_buffer_size` bounds one call, and
-`MaxSendsInFlight` bounds one call's outstanding buffers; nothing bounded their product across
-the calls a process carries. The runtime therefore holds a byte budget shared by every channel,
-handed out by `ak_get_call_buffer`.
+**A global ceiling above the per-call budgets.** `MaxSendsInFlight` bounds one call's
+outstanding buffers; nothing bounded their product across the calls a process carries. The
+runtime therefore holds a byte budget shared by every channel, handed out by
+`ak_get_call_buffer`. Replay copies are not charged to it: a channel's total of replay bytes bounds
+them, past which a call is committed rather than any send refused.
 
 **Reaching the ceiling and failing to allocate are two different events, and only the
 second is a fault.** The ceiling is a configured accounting limit. Reaching it means some
@@ -364,8 +366,8 @@ It lends, with `MESSAGE_TOO_LARGE` refused permanently when `len` exceeds the ce
 itself; or it refuses with
 `AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
-not necessarily this call's doing - with a window deeper than one or replay bytes
-retained, its own sends hold budget too - so a WRITE_DONE of this call is a wake-up,
+not necessarily this call's doing - with a window deeper than one, its own sends hold
+budget too - so a WRITE_DONE of this call is a wake-up,
 never an exhaustive one: the budget is runtime-wide and anyone's free recredits it.
 A genuine allocator failure is `AK_STATUS_INTERNAL`, one of those rows: a refused lend that
 changes nothing level 1 carries, and not `RuntimeFail`.

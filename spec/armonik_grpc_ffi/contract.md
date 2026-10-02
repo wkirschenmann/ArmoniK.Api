@@ -177,7 +177,9 @@ pub struct RetryConfig {
     pub max_backoff: Duration,
     pub backoff_multiplier: f64,
     pub retryable_status_codes: Vec<GrpcStatusCode>,
-    pub max_buffer_size: usize,     // replay buffer size (bytes)
+    pub unary_replay_bytes: usize,  // the copy a call that answers once keeps
+    pub stream_replay_bytes: usize, // the sent prefix a stream keeps
+    pub channel_replay_bytes: usize, // what every call of the channel keeps together
 }
 
 pub struct PoolConfig {
@@ -350,14 +352,16 @@ connection.
 ### Retry — commitment point
 
 A call is retryable while **both** hold: no response header has been seen, and what it has
-sent still fits the replay buffer. Committing on either alone is wrong - the table below
-reads as if one sufficed, which is why each row names both.
+sent still fits the replay buffer - its own ceiling, and the channel's total, which its next
+message would not pass. Committing on either alone is wrong - the table below reads as if one
+sufficed, which is why each row names both. A committed call goes on; it is no longer retried.
 
 | Situation | Retryable? |
 |-----------|------------|
 | Unary: error before Response-Headers, request within budget | Yes |
 | Client streaming: error before Response-Headers, data sent ≤ budget | Yes (replay) |
 | Client streaming: data sent > budget | No (committed) |
+| Any call whose next message would pass the channel's replay total | No (committed) |
 | Bidi: error before Response-Headers, data ≤ budget | No response seen, so yes |
 | Bidi: Response-Headers or a message received | No (committed) |
 | Server streaming: error before Response-Headers | Yes |

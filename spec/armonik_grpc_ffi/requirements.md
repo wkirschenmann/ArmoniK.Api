@@ -141,11 +141,12 @@ retried automatically, so that resilience is improved without additional applica
    insufficient for the backoff).
 8. The total number of attempts includes the initial attempt (5 attempts = 1 initial + 4
    retries).
-9. The replay buffer size is configurable (per channel). A buffer of 0 makes streaming calls
+9. The replay buffer sizes are configurable on the channel: what one call may keep, and what all
+   of the channel's calls may keep together. A per-call size of 0 makes streaming calls
    non-retryable as soon as the first message is sent.
 
-**Status**: none is met. T6.3 and T6.4 carry them, after T6.1 settles what the replay ceiling
-means.
+**Status**: none is met. T6.3 and T6.4 carry them. T6.1 has settled what a ceiling means: at
+the call's own, or at the channel's total of replay bytes, the call is committed and goes on.
 
 ---
 

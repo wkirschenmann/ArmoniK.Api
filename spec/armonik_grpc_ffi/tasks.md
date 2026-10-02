@@ -263,8 +263,9 @@ The set delivered here is not the set the package promises. Requirement 8.1 name
 identifiers; `RustTargets.props` declares seven of them and omits `linux-arm` and the three musl
 ones, while `linux-x86` - which the requirement used to ask for - is gone, .NET publishing no
 runtime for it. Of the eleven, CI builds three: win-x64, win-x86, linux-x64. Closing that gap is
-its own task, T6.6: each musl triple needs its own toolchain, and the CI matrix, the Framework copy
-step and the loader have to derive from the props table instead of repeating it.
+its own task, T6.6 for the table and T6.12 for CI: each musl triple needs its own toolchain, and
+the CI matrix, the Framework copy step and the loader have to derive from the props table instead of
+repeating it.
 
 ### Phase 1 closing — the reviews, and what is deliberately left
 
@@ -1027,9 +1028,9 @@ This was T8.1, after V1. It comes before the retry it bounds, because its own fi
 contract and not an implementation detail, and choosing it once per-call buffers exist means
 retrofitting rather than designing.
 
-Two of its four questions are already answered: the ceilings are configuration, and there are two
-of them - one for a call that answers once, one for a stream. Neither is declared yet: they arrive
-with the `retry` unit T6.3 brings. What is left is what they mean.
+Two of its four questions are already answered: the ceilings are configuration, and each call has
+one of two - one for a call that answers once, one for a stream - which the channel's total, below,
+joins. They arrive with the `retry` unit T6.3 brings. What is left is what they mean.
 
 - **What happens at the ceiling.** Refusing a `send_message` and quietly making a call
   non-retryable are two different contracts, and the second changes what a caller may conclude
@@ -1044,6 +1045,23 @@ with the `retry` unit T6.3 brings. What is left is what they mean.
 
 **Deliverable**: a decision recorded in the design, and either an implementation or a stated
 reason for accepting the unbounded product.
+
+**Status**: decided on 2026-10-02, the three questions as gRFC A6 and grpc-dotnet answer them.
+
+- **At a ceiling the call is committed**: it goes on and is no longer retryable, and its copy is
+  let go. `send_message` is never refused for it. A caller may then read a failure that a retry
+  would have hidden, which is A6's contract and grpc-dotnet's, `MaxRetryBufferPerCallSize`.
+- **The product is bounded per channel**, as A6's channel-wide limit and grpc-dotnet's
+  `MaxRetryBufferSize` bound it: the `retry` unit declares a third value, the bytes every call of
+  the channel may hold for a replay together, and a call whose next message would pass it is
+  committed as at its own ceiling. Not the runtime's `Ledger`: that budget is backpressure and
+  refuses a lend, where a replay copy must never refuse a send. Several channels add their limits,
+  which is stated rather than bounded, as in grpc-dotnet.
+- **The host observes nothing new**: no event and no status, a call committed for its buffer
+  failing as any committed call fails. A trace records the commit, as grpc-dotnet logs it.
+
+T6.3 chooses the defaults, grpc-dotnet's - 1 MiB per call, 16 MiB per channel - being the
+reference. The send window's depth, the question below, is not changed by this.
 
 **A fourth question belongs here, because it shares the subject: whether this binding starts using
 the send window's depth.** The window is a memory bound on the arena and it is live for any host -
@@ -1106,10 +1124,11 @@ definitions and the flag; the binding's `UnaryTests` expiry, a past deadline and
 **Source**: the retry types from the #7xx stack
 **Commit**: exponential backoff, retryable codes, and the `retry` unit that configures them. A
 single message is replayable without a buffer, so this cardinality needs none of its own - but
-the unit declares **two** replay ceilings, one for a call that answers once and one for a stream,
-because they bound different things: a single message kept in case it has to go again, against a
-whole sent prefix. One value would either starve the stream or let a unary call reserve a
-stream's worth. T6.1 has already settled what happens when either is reached.
+the unit declares **two** per-call replay ceilings, one for a call that answers once and one for a
+stream, because they bound different things: a single message kept in case it has to go again,
+against a whole sent prefix. One value would either starve the stream or let a unary call reserve
+a stream's worth. A third value is the channel's total of replay bytes, which T6.1 added; T6.1 has
+already settled what happens when any of them is reached.
 
 **Deliverable**: a retry on UNAVAILABLE that succeeds on the second attempt.
 
@@ -1145,21 +1164,12 @@ as this channel's own.
 
 **Prerequisite**: T4.1
 **Commit**: the eleven runtime identifiers of requirement 8.1 in `RustTargets.props` - it gains
-`linux-arm` and the three musl ones - with the CI matrix, the .NET Framework copy step and
+`linux-arm` and the three musl ones - with the .NET Framework copy step and
 `NativeMethods.EngineDirectory` derived from that table rather than each carrying its own list.
-`dotnet pack` producing a package that resolves on each platform, and arm64 executed at last
-rather than only mapped and packed.
+Building, running and packing every engine in CI is T6.12's.
 
-**Where the work actually is: the two armv7 targets.** GitHub offers hosted arm64 runners for public
-repositories - `ubuntu-24.04-arm` and `windows-11-arm` - and this workspace uses `ubuntu-latest` and
-`windows-latest` and nothing else. Where those runners are available, win-arm64, linux-arm64 and
-linux-musl-arm64 are built and executed natively with no cross toolchain at all, which closes the
-oldest gap this document carries: T1.5's arm64, mapped and never once built or run. `osx-x64`
-and `osx-arm64` have hosted runners too. What no hosted runner covers is 32-bit armv7 - `linux-arm`
-and `linux-musl-arm` are cross-compiled and stay unexecuted, and that is the honest tier boundary.
-
-Musl costs less than it looks, and for three reasons that are independent of each other - none of
-them the C ABI, which rustc emits on its own.
+Musl is a row of its own, and its build needs a flag, for two reasons - neither of them the C
+ABI, which rustc emits on its own.
 
 **Why musl is a separate asset at all**: `std` is compiled per `target_env`, and `target_env` is
 part of the triple - `rustc --print cfg` answers `gnu` for one and `musl` for the other. What this
@@ -1168,13 +1178,6 @@ whose sockets and clock go the same way, so the C library is linked whatever the
 shared object linked against glibc does not load on Alpine. This reason survives dropping TLS and
 survives a pure-Rust crypto backend.
 
-**Why every target needs a C compiler**: `rustls` reaches `ring`, which is not written in Rust
-alone - 107 C and assembly files its build script hands to `cc`. That is also the whole reason a
-Windows build needs `cl.exe`. The crypto itself is nearly freestanding, including two libc headers
-and no allocation, but `cc` still has to produce code for the target, so a musl target needs a
-musl-targeting compiler rather than the host's. And `ring` is not libc-free on the two arm targets:
-it reads CPU capabilities through `getauxval`, and branches on the libc flavour to do it.
-
 **Why the musl builds need a flag**: `crt-static` is on by default on those targets and on no gnu
 one, which statically links the C runtime into a `cdylib`. They need
 `-C target-feature=-crt-static`.
@@ -1182,16 +1185,13 @@ one, which statically links the C runtime into a `cdylib`. They need
 `EngineDirectory` has to name the folder of the process architecture, which pointer width alone
 does not: .NET Framework 4.8.1 runs natively on Arm64, where a 64-bit pointer is not x64.
 
-**Deliverable**: a package that works on every runtime identifier it claims, and one table that
-every consumer of the list reads.
+**Deliverable**: one table that every consumer of the list reads.
 
-**Status**: the table half is done. `RustTargets.props` lists the eleven runtime identifiers,
+**Status**: done. `RustTargets.props` lists the eleven runtime identifiers,
 with a `Libc` column; `.cargo/config.toml` turns `crt-static` off on the musl triples. The .NET
 Framework copy step and `EngineDirectory` list nothing: every `runtimes/win-*/native` engine the
 package carries goes into a folder named for its architecture, which the process architecture
-picks. The CI half is not done - the matrix derived from the table, the hosted arm64 and macOS
-runners, the armv7 and musl cross builds, a pack of every engine - because no run of this branch
-exercises `test.yml`, which runs on pushes to main and on pull requests.
+picks.
 
 ### T6.7: Benchmarks
 
@@ -1339,6 +1339,42 @@ sees the server's connection close after the timeout and the next call open a se
 within the timeout restart it, a session with no timeout stay open, a bidirectional call that has
 its head and a message keep the session open past it, and a dial whose call gave up close once it
 lands.
+
+### T6.12: Packaging in CI
+
+**Prerequisite**: T6.6
+**Commit**: the CI half of T6.6 - the matrix derived from `RustTargets.props`, the hosted arm64
+and macOS runners, the armv7 and musl cross builds, and a pack of every engine whose list of
+runtime identifiers is checked.
+
+**Where the work actually is: the two armv7 targets.** GitHub offers hosted arm64 runners for public
+repositories - `ubuntu-24.04-arm` and `windows-11-arm` - and this workspace uses `ubuntu-latest` and
+`windows-latest` and nothing else. Where those runners are available, win-arm64, linux-arm64 and
+linux-musl-arm64 are built and executed natively with no cross toolchain at all, which closes the
+oldest gap this document carries: T1.5's arm64, mapped and never once built or run. `osx-x64`
+and `osx-arm64` have hosted runners too. What no hosted runner covers is 32-bit armv7 - `linux-arm`
+and `linux-musl-arm` are cross-compiled and stay unexecuted, and that is the honest tier boundary.
+
+**Why every target needs a C compiler**: `rustls` reaches `ring`, which is not written in Rust
+alone - 107 C and assembly files its build script hands to `cc`. That is also the whole reason a
+Windows build needs `cl.exe`. The crypto itself is nearly freestanding, including two libc headers
+and no allocation, but `cc` still has to produce code for the target, so a musl target needs a
+musl-targeting compiler rather than the host's. And `ring` is not libc-free on the two arm targets:
+it reads CPU capabilities through `getauxval`, and branches on the libc flavour to do it.
+
+Last in the phase, and settled with the team first, because three of its choices are not the
+code's to make:
+
+- how this work runs in CI at all: `test.yml` runs on pushes to main and on pull requests, so a
+  branch is exercised only by a `workflow_dispatch` trigger or a pull request;
+- which cross toolchain builds armv7 and musl, for `ring`'s C as much as for the link:
+  `cargo-zigbuild`, `cross`'s images, or apt's cross compilers beside a musl compiler for each of
+  the three musl targets;
+- whether `publish.yml` publishes `ArmoniK.Api.Client.RustGrpcChannel`, which it does not today:
+  a new package on NuGet.
+
+**Deliverable**: a package that works on every runtime identifier it claims, built and checked by
+CI.
 
 ---
 
@@ -1524,6 +1560,7 @@ T1.1 ─────────────→ T1.2 ←────────
         T4.1 → T4.2 → T4.3     T5.1 → T5.2, T5.3      T6.1, T6.5, T6.6 → T6.7 → T6.8 → T6.9
           └──→ T4.4                                     │
                                                   T6.2 → T6.3 → T6.4
+                                                  T6.6 → T6.12   (last, with the team)
 ```
 
 T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
