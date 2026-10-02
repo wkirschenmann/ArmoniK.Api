@@ -240,8 +240,9 @@ processes. That is a scope addition rather than a detail of T1.3, so it gets its
   host architecture alone, plus the cross toolchains for each.
 - `runtimes/<rid>/native` packaging, so .NET resolves the engine with no code of ours; plus the
   `build/*.targets` and the `NativeMethods` static constructor that .NET Framework needs, having no
-  RID probing. One loading path for every Framework consumer: both architectures are copied beside
-  the application and `IntPtr.Size` picks, AnyCPU and an explicit `PlatformTarget` alike. The loader
+  RID probing. One loading path for every Framework consumer: every Windows engine is copied beside
+  the application, a folder per architecture, and the process architecture picks, AnyCPU and an
+  explicit `PlatformTarget` alike. The loader
   is a no-op where that folder is absent, which is the .NET case, so it is the same code there.
 - The echo server as its own `net8.0` executable, because Kestrel and Grpc.AspNetCore do not run on
   .NET Framework, and the tests multi-targeted `net4.7;net4.8;net8.0` dialling it — which is how
@@ -1178,11 +1179,19 @@ it reads CPU capabilities through `getauxval`, and branches on the libc flavour 
 one, which statically links the C runtime into a `cdylib`. They need
 `-C target-feature=-crt-static`.
 
-`EngineDirectory` picks between `x64` and `x86` on `IntPtr.Size` alone, which answers for the two
-platforms .NET Framework runs on and for nothing else; the table has to reach it.
+`EngineDirectory` has to name the folder of the process architecture, which pointer width alone
+does not: .NET Framework 4.8.1 runs natively on Arm64, where a 64-bit pointer is not x64.
 
 **Deliverable**: a package that works on every runtime identifier it claims, and one table that
 every consumer of the list reads.
+
+**Status**: the table half is done. `RustTargets.props` lists the eleven runtime identifiers,
+with a `Libc` column; `.cargo/config.toml` turns `crt-static` off on the musl triples. The .NET
+Framework copy step and `EngineDirectory` list nothing: every `runtimes/win-*/native` engine the
+package carries goes into a folder named for its architecture, which the process architecture
+picks. The CI half is not done - the matrix derived from the table, the hosted arm64 and macOS
+runners, the armv7 and musl cross builds, a pack of every engine - because no run of this branch
+exercises `test.yml`, which runs on pushes to main and on pull requests.
 
 ### T6.7: Benchmarks
 

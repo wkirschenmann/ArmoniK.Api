@@ -96,7 +96,7 @@
   <PropertyGroup>
     <!-- The host alone by default: the other architectures need cross toolchains this machine may
          not have, and a routine build should not spend minutes on engines nobody is about to run.
-         CI and packing pass the whole list. -->
+         CI and packing pass the identifiers they want, separated by `;` or `,`. -->
     <NativeEngineRids Condition="'$(NativeEngineRids)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeEngineRids>
   </PropertyGroup>
 
@@ -169,8 +169,10 @@
           Outputs="%(RustTarget.Identity)">
     <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild
          run this once per architecture rather than once with all of them. -->
+    <!-- Whole identifiers, between separators: linux-arm is a substring of linux-arm64. -->
     <PropertyGroup>
-      <RustTargetWanted>$(NativeEngineRids.Contains('%(RustTarget.Identity)'))</RustTargetWanted>
+      <_NativeEngineRidList>;$(NativeEngineRids.Replace(',', ';').Replace(' ', ''));</_NativeEngineRidList>
+      <RustTargetWanted>$(_NativeEngineRidList.Contains(';%(RustTarget.Identity);'))</RustTargetWanted>
     </PropertyGroup>
 
     <Exec Condition="'$(RustTargetWanted)' == 'true'"

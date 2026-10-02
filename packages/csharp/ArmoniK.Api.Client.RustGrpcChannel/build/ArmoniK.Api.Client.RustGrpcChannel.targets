@@ -5,28 +5,26 @@
 
     .NET resolves a native asset by runtime identifier out of runtimes/<rid>/native, so it needs
     nothing from here. .NET Framework has no such mechanism at all: no deps.json, no runtime
-    identifier, just the Win32 search order. So both architectures are copied beside the
-    application, in x86 and x64, and the binding's own static constructor loads the one matching
-    IntPtr.Size before the first P/Invoke. Two is all there is to choose between, and IntPtr.Size
-    tells them apart: .NET Framework has no ARM64 flavour, and on an ARM64 host it runs emulated
-    as one of these two.
+    identifier, just the Win32 search order. So every Windows engine the package carries is copied
+    beside the application, in a folder named for its architecture - win-x64 into x64 - and the
+    binding's own static constructor loads the one matching the process architecture before the
+    first P/Invoke. It copies every engine the package carries, so it keeps no list of its own.
 
-    Conditioned on the framework and on nothing else. An explicit PlatformTarget would let one of
-    the two copies be skipped, but AnyCPU - the default - has no architecture until the process
-    starts, so there would still have to be a run-time choice. One path for every Framework
-    consumer is worth more than the few megabytes the other copy costs.
+    Conditioned on the framework and on nothing else. An explicit PlatformTarget would let all but
+    one copy be skipped, but AnyCPU - the default - has no architecture until the process starts,
+    so there would still have to be a run-time choice. One path for every Framework consumer is
+    worth more than the few megabytes the other copies cost.
   -->
-  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
-    <None Include="$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\armonik_transport_ffi.dll"
-          Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\armonik_transport_ffi.dll')"
-          Link="x64\armonik_transport_ffi.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          Visible="false" />
-    <None Include="$(MSBuildThisFileDirectory)..\runtimes\win-x86\native\armonik_transport_ffi.dll"
-          Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x86\native\armonik_transport_ffi.dll')"
-          Link="x86\armonik_transport_ffi.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          Visible="false" />
-  </ItemGroup>
+  <Target Name="CopyArmoniKNativeEngines" BeforeTargets="AssignTargetPaths"
+          Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <ItemGroup>
+      <_ArmoniKNativeEngine Include="$(MSBuildThisFileDirectory)..\runtimes\win-*\native\armonik_transport_ffi.dll" />
+      <!-- runtimes\win-<arch>\native\<library>: the folder two levels up, past its `win-`. -->
+      <None Include="@(_ArmoniKNativeEngine)"
+            Link="$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName($([System.IO.Path]::GetDirectoryName('%(_ArmoniKNativeEngine.FullPath)'))))).Substring(4))\armonik_transport_ffi.dll"
+            CopyToOutputDirectory="PreserveNewest"
+            Visible="false" />
+    </ItemGroup>
+  </Target>
 
 </Project>

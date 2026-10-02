@@ -1,0 +1,10 @@
+# The musl targets link the C runtime statically by default, which a cdylib cannot do: the engine is
+# loaded into a process that has a C runtime of its own.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.armv7-unknown-linux-musleabihf]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]

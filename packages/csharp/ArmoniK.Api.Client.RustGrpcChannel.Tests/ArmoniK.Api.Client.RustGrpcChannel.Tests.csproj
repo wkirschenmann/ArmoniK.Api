@@ -120,7 +120,7 @@
     <!-- The one row of the shared table this host wants, so an architecture is added in one
          place instead of in two lists keyed differently. -->
     <ItemGroup>
-      <HostRustTarget Include="@(RustTarget->WithMetadataValue('Os', '$(RustHostOs)')->WithMetadataValue('Arch', '$(PlatformTarget)'))" />
+      <HostRustTarget Include="@(RustTarget->WithMetadataValue('Os', '$(RustHostOs)')->WithMetadataValue('Arch', '$(PlatformTarget)')->WithMetadataValue('Libc', '$(RustHostLibc)'))" />
     </ItemGroup>
     <PropertyGroup>
       <TestEngineTriple>@(HostRustTarget->'%(Triple)')</TestEngineTriple>
@@ -129,7 +129,7 @@
     </PropertyGroup>
     <!-- Ahead of the item group, which would otherwise glob a directory named by nothing. -->
     <Error Condition="'$(TestEngineTriple)' == ''"
-           Text="RustTargets.props maps no Rust target to $(RustHostOs)/$(PlatformTarget)" />
+           Text="RustTargets.props maps no Rust target to $(RustHostOs)/$(PlatformTarget)/$(RustHostLibc)" />
     <ItemGroup>
       <BuiltEngine Include="$(BuiltEngineDir)$(TestEngineLibrary)" />
     </ItemGroup>

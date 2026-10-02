@@ -30,11 +30,12 @@ internal static unsafe partial class NativeMethods
   // The name every generated DllImport binds to.
   private const string __DllName = Library;
 
+  /// <summary>Where the package's targets file copies the engine for .NET Framework: a folder
+  /// named for the process architecture, as the Windows runtime identifiers name it.</summary>
   internal static string EngineDirectory
     => Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty,
-                    IntPtr.Size == 8
-                      ? "x64"
-                      : "x86");
+                    RuntimeInformation.ProcessArchitecture.ToString()
+                                      .ToLowerInvariant());
 
   static NativeMethods()
   {
