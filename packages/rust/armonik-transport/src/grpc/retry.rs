@@ -23,7 +23,8 @@ use super::status::GrpcStatusCode;
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct RetryConfig {
-    /// Attempts in all, the first included; 1 never retries.
+    /// Attempts in all, the first included; 1 retries nothing. A call its peer never processed
+    /// goes again besides, whatever this is, while every message it sent is kept.
     pub max_attempts: u32,
     /// The bound of the first backoff.
     pub initial_backoff: Duration,
@@ -66,7 +67,7 @@ impl RetryConfig {
             })
         };
         if self.max_attempts == 0 {
-            return refuse("`max_attempts` of zero makes no attempt at all; 1 never retries");
+            return refuse("`max_attempts` of zero makes no attempt at all; 1 is the least");
         }
         if self.initial_backoff.is_zero() {
             return refuse("an `initial_backoff` of zero retries at once, with no backoff");
@@ -78,11 +79,6 @@ impl RetryConfig {
             return refuse("`backoff_multiplier` has to be a finite number of at least 1");
         }
         Ok(())
-    }
-
-    /// What a call may keep, or nothing when no attempt can follow the first.
-    pub(crate) fn replay_limit(&self) -> Option<usize> {
-        (self.max_attempts > 1).then_some(self.call_replay_bytes)
     }
 
     /// The bound after `bound`: multiplied, and held to `max_backoff`.
@@ -143,6 +139,8 @@ struct Kept {
     call_limit: usize,
     channel: Arc<ChannelReplay>,
     committed: bool,
+    /// A message went out that no later attempt can send again.
+    lost: bool,
     ended: bool,
     /// The current attempt; a stream of any other reads nothing more.
     attempt: u64,
@@ -163,6 +161,7 @@ impl Kept {
     }
 
     fn let_go(&mut self) {
+        self.lost |= !self.messages.is_empty();
         self.messages = Vec::new();
         self.channel.release(std::mem::take(&mut self.bytes));
     }
@@ -198,6 +197,7 @@ impl Replay {
             call_limit: call_limit.unwrap_or(0),
             channel,
             committed: call_limit.is_none(),
+            lost: false,
             ended: false,
             attempt: 0,
             replayed: 0,
@@ -221,12 +221,16 @@ impl Replay {
         }
     }
 
-    /// The attempt that failed reads nothing more, while the call waits for the next one; false
-    /// when the call is committed, and there is no next one.
-    pub(crate) fn supersede(&self) -> bool {
+    /// The attempt that failed reads nothing more, while the call waits for the next one; what
+    /// that one could be is read under the same lock, so no message the failed one takes after is
+    /// missed.
+    pub(crate) fn supersede(&self) -> Standing {
         let mut kept = self.kept();
         kept.supersede();
-        !kept.committed
+        Standing {
+            retryable: !kept.committed,
+            whole: !kept.lost,
+        }
     }
 
     /// No attempt follows.
@@ -238,6 +242,14 @@ impl Replay {
     fn is_committed(&self) -> bool {
         self.kept().committed
     }
+}
+
+/// What the attempt after a failed one could be.
+pub(crate) struct Standing {
+    /// Nothing has committed the call, so the policy may try it again.
+    pub(crate) retryable: bool,
+    /// Every message the call sent is kept, so a next attempt sends them all.
+    pub(crate) whole: bool,
 }
 
 impl Drop for Replay {
@@ -283,19 +295,20 @@ impl Stream for AttemptMessages {
                 Poll::Ready(None)
             }
             Poll::Ready(Some(message)) => {
-                if !kept.committed {
-                    let fits = kept
+                let fits = !kept.committed
+                    && kept
                         .bytes
                         .checked_add(message.len())
-                        .is_some_and(|after| after <= kept.call_limit);
-                    if fits && kept.channel.reserve(message.len()) {
-                        // A copy of its own, so the host's buffer goes back once it is encoded.
-                        kept.messages.push(Bytes::copy_from_slice(&message));
-                        kept.bytes += message.len();
-                        kept.replayed += 1;
-                    } else {
-                        kept.commit();
-                    }
+                        .is_some_and(|after| after <= kept.call_limit)
+                    && kept.channel.reserve(message.len());
+                if fits {
+                    // A copy of its own, so the host's buffer goes back once it is encoded.
+                    kept.messages.push(Bytes::copy_from_slice(&message));
+                    kept.bytes += message.len();
+                    kept.replayed += 1;
+                } else {
+                    kept.commit();
+                    kept.lost = true;
                 }
                 Poll::Ready(Some(message))
             }
@@ -389,6 +402,7 @@ mod tests {
         replay.commit();
         assert_eq!(channel.used(), 0);
         assert!(replay.is_committed());
+        assert!(!replay.supersede().whole, "the copy is gone");
     }
 
     /// A head that arrives while an attempt is still replaying commits the call, and the attempt
@@ -488,18 +502,29 @@ mod tests {
             let mut first = replay.attempt();
             assert_eq!(first.next().await, Some(Bytes::from_static(b"12345")));
             assert_eq!(channel.used(), 0);
-            assert!(!replay.supersede(), "{call_limit}/{channel_limit}");
+            let standing = replay.supersede();
+            assert!(!standing.retryable, "{call_limit}/{channel_limit}");
+            assert!(!standing.whole, "{call_limit}/{channel_limit}");
         }
     }
 
-    /// A policy of one attempt keeps no copy, there being no attempt to replay it.
-    #[test]
-    fn a_policy_that_never_retries_keeps_nothing() {
-        let never = RetryConfig {
-            max_attempts: 1,
-            ..RetryConfig::default()
-        };
-        assert_eq!(never.replay_limit(), None);
-        assert_eq!(RetryConfig::default().replay_limit(), Some(1024 * 1024));
+    /// A call with no policy keeps no copy: it is whole until it sends a message, and then not.
+    #[tokio::test]
+    async fn a_call_with_no_policy_is_whole_until_it_sends() {
+        let (_closed, closed) = watch::channel(false);
+        let (call, live, _driving) = create(4, closed);
+        let (mut send, _recv, _control) = call.split();
+        let channel = Arc::new(ChannelReplay::new(1024));
+        let replay = Replay::new(live, None, Arc::clone(&channel));
+
+        let standing = replay.supersede();
+        assert!(standing.whole && !standing.retryable);
+        send.send_message(Bytes::from_static(b"sent"))
+            .await
+            .expect("sent");
+        let mut first = replay.attempt();
+        assert_eq!(first.next().await, Some(Bytes::from_static(b"sent")));
+        assert!(!replay.supersede().whole);
+        assert_eq!(channel.used(), 0);
     }
 }

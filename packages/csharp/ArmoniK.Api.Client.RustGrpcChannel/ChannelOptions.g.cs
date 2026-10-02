@@ -127,8 +127,9 @@ public sealed class ChannelOptions
 
   /// <summary>When a failed call is sent again.</summary>
   /// <remarks>
-  ///   Defaults to <c>{}</c>: five attempts in all, as <c>GrpcClient</c> has them. <c>MaxAttempts</c> of 1 never
-  ///   retries.
+  ///   Defaults to <c>{}</c>: five attempts in all, as <c>GrpcClient</c> has them. A call its peer never
+  ///   processed goes again besides, whatever <c>MaxAttempts</c> is, while every message it sent is
+  ///   kept.
   /// </remarks>
   [JsonPropertyName("Retry")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -376,7 +377,10 @@ public sealed class RetryOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? InitialBackoffSeconds { get; set; }
 
-  /// <summary>Attempts in all, the first included; 1 never retries.</summary>
+  /// <summary>
+  ///   Attempts in all, the first included; 1 retries nothing. A call its peer never processed
+  ///   goes again besides, whatever this is, while every message it sent is kept.
+  /// </summary>
   /// <remarks>Defaults to 5.</remarks>
   [JsonPropertyName("MaxAttempts")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

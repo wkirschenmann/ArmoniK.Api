@@ -1142,9 +1142,13 @@ sends, within both limits, and runs attempts while one fails with a named code, 
 the reader and the copy is whole: each after a wait drawn uniformly below a bound that grows by
 the multiplier to the maximum, or the server's `grpc-retry-pushback-ms`, which a negative or
 unreadable value turns into no retry; each carrying `grpc-previous-rpc-attempts`. A wait the
-deadline would cut short ends the call with its failure. Not done: the transparent retries of a
-stream refused or left unprocessed by a GOAWAY, and the per-channel retry throttle, which gRFC A6
-makes optional; a policy per method is not wanted, `GrpcClient` giving every method the same one.
+deadline would cut short ends the call with its failure. A stream the peer refused, or that its
+GOAWAY left unprocessed, goes again at once, once a call and counted as no attempt, as gRFC A6's
+transparent retry, and a request hyper drops unsent, on a connection closing under it, goes
+again once a call too; `tests/common/refuser.rs` turns streams away both ways, and with a
+GOAWAY that names the stream as processed. Not done: the per-channel retry throttle, which gRFC
+A6 makes optional. A policy per method is not wanted, `GrpcClient` giving every method the same
+one.
 `tests/grpc_retry.rs` drives a server that fails a key's calls as often as asked.
 
 ### T6.4: Retry for a stream

@@ -114,6 +114,46 @@ fn reset_reason(error: &hyper::Error) -> Option<h2::Reason> {
     h2.reason().filter(|_| !(h2.is_go_away() && h2.is_remote()))
 }
 
+/// The source of a status whose request the peer's application never saw.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Unprocessed {
+    /// hyper dropped it before sending it, its connection closing under it.
+    Unsent,
+    /// The peer's HTTP/2 layer refused the stream, or its GOAWAY left the stream unprocessed.
+    Refused,
+}
+
+impl Unprocessed {
+    pub(crate) fn of(error: &hyper::Error) -> Option<Self> {
+        if error.is_canceled() {
+            return Some(Self::Unsent);
+        }
+        let h2 = h2_error(error)?;
+        let refused = h2.is_reset() && h2.reason() == Some(h2::Reason::REFUSED_STREAM);
+        // h2 gives a stream the peer's GOAWAY as its error only when the stream is past the last
+        // one that GOAWAY says it processes, or opened after it; a stream it processes ends on
+        // whatever closes the connection.
+        (h2.is_remote() && (h2.is_go_away() || refused)).then_some(Self::Refused)
+    }
+
+    pub(crate) fn marked(status: &tonic::Status) -> Option<Self> {
+        std::error::Error::source(status)?
+            .downcast_ref::<Self>()
+            .copied()
+    }
+}
+
+impl std::fmt::Display for Unprocessed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unsent => "the request was never sent",
+            Self::Refused => "the peer did not process the request",
+        })
+    }
+}
+
+impl std::error::Error for Unprocessed {}
+
 /// hyper's error and the h2 error behind it: hyper's own says only "http2 error", and a reason
 /// the code does not carry is read nowhere else.
 fn described(error: &hyper::Error) -> String {
@@ -153,6 +193,32 @@ impl std::fmt::Display for GrpcStatus {
 
 #[cfg(test)]
 mod tests {
+    /// A request handed to a connection that is gone never left this side, which hyper reports as
+    /// cancelled.
+    #[tokio::test]
+    async fn a_request_no_connection_took_is_unsent() {
+        use super::Unprocessed;
+        use hyper_util::rt::{TokioExecutor, TokioIo};
+
+        let (io, _peer) = tokio::io::duplex(4096);
+        let (mut sender, connection) =
+            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(io))
+                .await
+                .expect("a handshake");
+        drop(connection);
+        let error = sender
+            .send_request(http::Request::new(
+                http_body_util::Empty::<bytes::Bytes>::new(),
+            ))
+            .await
+            .expect_err("no connection to take it");
+        assert_eq!(
+            Unprocessed::of(&error),
+            Some(Unprocessed::Unsent),
+            "{error}"
+        );
+    }
+
     /// The table, reason by reason, without a `hyper::Error` - which has no public constructor,
     /// so the downcast that feeds this is `grpc_unary.rs`'s to check.
     #[test]

@@ -862,7 +862,8 @@ pub struct Http2Options {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RetryOptions {
-    /// Attempts in all, the first included; 1 never retries.
+    /// Attempts in all, the first included; 1 retries nothing. A call its peer never processed
+    /// goes again besides, whatever this is, while every message it sent is kept.
     ///
     /// Defaults to 5.
     #[cfg_attr(
@@ -1413,8 +1414,9 @@ pub struct ChannelOptions {
 
     /// When a failed call is sent again.
     ///
-    /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. `MaxAttempts` of 1 never
-    /// retries.
+    /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never
+    /// processed goes again besides, whatever `MaxAttempts` is, while every message it sent is
+    /// kept.
     #[cfg_attr(feature = "serde", serde(default))]
     pub retry: RetryOptions,
 

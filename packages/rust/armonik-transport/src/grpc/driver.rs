@@ -14,9 +14,9 @@ use super::call::{Answered, CallControl, HeadOrigin, OwnedMessage, RequestMessag
 use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
-use super::retry::{jittered, AttemptMessages, Replay, RetryConfig};
-use super::status::GrpcStatus;
+use super::retry::{jittered, AttemptMessages, Replay};
 use super::status::GrpcStatusCode;
+use super::status::{GrpcStatus, Unprocessed};
 
 pub(crate) struct Driving {
     stop: Stop,
@@ -234,19 +234,25 @@ async fn run(
     let policy = inner.retry.as_ref();
     let replay = Replay::new(
         messages,
-        policy.and_then(RetryConfig::replay_limit),
+        policy.map(|policy| policy.call_replay_bytes),
         Arc::clone(&inner.replay),
     );
     let mut bound = policy
         .map(|policy| policy.initial_backoff)
         .unwrap_or_default();
     let mut previous = 0u32;
+    let mut unsent_again = false;
+    let mut refused_again = false;
     loop {
         let mut headers = metadata.clone();
         if previous > 0 {
             headers.insert(PREVIOUS_ATTEMPTS, previous.into());
         }
-        let (status, pushback) = attempt(
+        let Ended {
+            status,
+            pushback,
+            unprocessed,
+        } = attempt(
             inner,
             path.clone(),
             headers,
@@ -257,6 +263,19 @@ async fn run(
             delivery,
         )
         .await;
+        // gRFC A6's transparent retry: a request the peer's application never saw goes again at
+        // once, whatever the policy, and counts as no attempt. Once a call for each way of not
+        // being seen, so that a GOAWAY and the request it leaves unsent are both covered, and a
+        // peer that refuses every stream, or drops every connection, meets the policy's backoff
+        // and its count rather than a loop of dials.
+        let again = match unprocessed {
+            Some(Unprocessed::Unsent) => !std::mem::replace(&mut unsent_again, true),
+            Some(Unprocessed::Refused) => !std::mem::replace(&mut refused_again, true),
+            None => false,
+        };
+        if again && replay.supersede().whole {
+            continue;
+        }
         previous += 1;
 
         let Some(policy) = policy else {
@@ -292,7 +311,7 @@ async fn run(
         }
         // Before the wait, so the failed attempt's stream reads nothing the host sends meanwhile;
         // under the same lock as that stream's last commit, so a call it committed is not retried.
-        if !replay.supersede() {
+        if !replay.supersede().retryable {
             return status;
         }
         if until_stopped(stop, tokio::time::sleep(wait))
@@ -300,6 +319,24 @@ async fn run(
             .is_none()
         {
             return GrpcStatus::cancelled();
+        }
+    }
+}
+
+/// How an attempt ended, and what its peer said of another.
+struct Ended {
+    status: GrpcStatus,
+    pushback: Pushback,
+    /// The peer's application never saw the request.
+    unprocessed: Option<Unprocessed>,
+}
+
+impl Ended {
+    fn with(status: GrpcStatus, pushback: Pushback) -> Self {
+        Self {
+            status,
+            pushback,
+            unprocessed: None,
         }
     }
 }
@@ -315,7 +352,7 @@ async fn attempt(
     replay: &Replay,
     stop: &mut Stop,
     delivery: &mut Delivery,
-) -> (GrpcStatus, Pushback) {
+) -> Ended {
     let mut request = tonic::Request::new(messages);
     *request.metadata_mut() = MetadataMap::from_headers(metadata);
     // What is left of it before any dial, which tonic writes as `grpc-timeout` in the unit that
@@ -334,10 +371,13 @@ async fn attempt(
     delivery.answered = Answered::default();
     let mut client = inner.client(delivery.answered.clone());
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
-        None => return (GrpcStatus::cancelled(), Pushback::Unsaid),
+        None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {
-            let pushback = Pushback::of(&status.metadata().clone().into_headers());
-            return (GrpcStatus::from(status), pushback);
+            return Ended {
+                pushback: Pushback::of(&status.metadata().clone().into_headers()),
+                unprocessed: Unprocessed::marked(&status),
+                status: GrpcStatus::from(status),
+            };
         }
         Some(Ok(response)) => response,
     };
@@ -350,12 +390,12 @@ async fn attempt(
     // the head, so it is read from there, and nothing goes out as a head: delivering those
     // headers twice would have the reader see a head no such response has.
     if let Some(status) = tonic::Status::from_header_map(&head) {
-        return (GrpcStatus::from(status), Pushback::of(&head));
+        return Ended::with(GrpcStatus::from(status), Pushback::of(&head));
     }
     // The reader has a head: whatever follows, this call is not tried again.
     replay.commit();
     delivery.head(Metadata::from_headers(&head), HeadOrigin::Wire);
-    (finish(stop, delivery, &mut body).await, Pushback::Unsaid)
+    Ended::with(finish(stop, delivery, &mut body).await, Pushback::Unsaid)
 }
 
 /// The response's messages and trailers, once its head is delivered.

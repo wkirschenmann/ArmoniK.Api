@@ -25,7 +25,7 @@ use super::driver::{self, Outgoing};
 use super::error::ChannelError;
 use super::executor::Spawner;
 use super::retry::{ChannelReplay, RetryConfig};
-use super::status::{GrpcStatus, GrpcStatusCode};
+use super::status::{GrpcStatus, GrpcStatusCode, Unprocessed};
 use crate::utils::safe_endpoint;
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
@@ -45,7 +45,8 @@ pub struct GrpcChannelConfig {
     pub max_recv_message_size: usize,
     /// The deadline of a call that states none, counted from its start.
     pub default_deadline: Option<Duration>,
-    /// When a failed call is sent again; none never retries.
+    /// When a failed call is sent again. With none, a call keeps no copy, so only one its peer
+    /// never processed, and that had sent nothing, goes again.
     pub retry: Option<RetryConfig>,
 }
 
@@ -513,10 +514,13 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 }
                 error => worded(GrpcStatus::unreachable(error)),
             })?;
-            let mut response = sender
-                .send_request(request)
-                .await
-                .map_err(|error| worded(GrpcStatus::request_lost(&error)))?;
+            let mut response = sender.send_request(request).await.map_err(|error| {
+                let mut status = worded(GrpcStatus::request_lost(&error));
+                if let Some(unprocessed) = Unprocessed::of(&error) {
+                    status.set_source(Arc::new(unprocessed));
+                }
+                status
+            })?;
             answered.mark();
             response.headers_mut().remove(GRPC_STATUS_DETAILS);
             refuse_what_is_not_grpc(&response)?;

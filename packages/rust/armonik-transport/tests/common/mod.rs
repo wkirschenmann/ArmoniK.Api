@@ -11,3 +11,6 @@ pub mod tls;
 
 #[allow(dead_code)]
 pub mod proxy;
+
+#[allow(dead_code)]
+pub mod refuser;

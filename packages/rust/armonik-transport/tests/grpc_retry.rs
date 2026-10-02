@@ -12,6 +12,7 @@ use armonik_transport::grpc::{
 use armonik_transport::http2::TransportConfig;
 use bytes::Bytes;
 use common::echo::*;
+use common::refuser::{Refusal, Refuser};
 use http::Uri;
 
 fn retrying(endpoint: &str, change: impl FnOnce(&mut RetryConfig)) -> GrpcChannel {
@@ -275,6 +276,89 @@ async fn a_stream_past_its_ceiling_is_not_sent_again() {
         let (_, status) = stream(&channel, options, &["one", "two"]).await;
         assert_eq!(status.code, GrpcStatusCode::Unavailable, "{key}: {status}");
         assert_eq!(flaky_seen(key).len(), 1, "{key}");
+    }
+}
+
+/// A stream the peer's HTTP/2 layer turned away goes again at once, as gRFC A6's transparent
+/// retry has it: under a policy of one attempt, which retries nothing it counts, and with no
+/// `grpc-previous-rpc-attempts`, since the first attempt is not one.
+#[tokio::test]
+async fn a_stream_the_peer_never_processed_goes_again_counting_no_attempt() {
+    for refusal in [Refusal::RefusedStream, Refusal::GoAway] {
+        let refuser = Refuser::start(refusal, 1).await;
+        let channel = retrying(&refuser.endpoint, |retry| {
+            retry.max_attempts = 1;
+            retry.initial_backoff = Duration::from_secs(30);
+            retry.max_backoff = Duration::from_secs(30);
+        });
+
+        let (messages, status) = call(&channel, CallStartOptions::new(ECHO), b"hello").await;
+        assert_eq!(status.code, GrpcStatusCode::Ok, "{refusal:?}: {status}");
+        assert_eq!(messages, vec![Bytes::from_static(b"hello")], "{refusal:?}");
+        assert_eq!(refuser.seen(), vec![None, None], "{refusal:?}");
+    }
+}
+
+/// A GOAWAY that names the stream as processed leaves it to end as the connection does, and the
+/// call is the policy's, which retries nothing at one attempt.
+#[tokio::test]
+async fn a_stream_a_goaway_names_as_processed_is_not_sent_again() {
+    let refuser = Refuser::start(Refusal::GoAwayProcessed, 1).await;
+    let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 1);
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"hello").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(refuser.seen().len(), 1);
+}
+
+/// A reset for any other reason does not say the peer left the stream unprocessed, and the call
+/// is the policy's.
+#[tokio::test]
+async fn a_stream_reset_for_another_reason_is_not_sent_again() {
+    let refuser = Refuser::start(Refusal::InternalError, 1).await;
+    let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 1);
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"hello").await;
+    assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+    assert_eq!(refuser.seen().len(), 1);
+}
+
+/// Once a call: a second refusal is the policy's to retry, after its backoff and as an attempt.
+#[tokio::test]
+async fn a_second_refusal_meets_the_policy() {
+    let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
+    let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 1);
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(refuser.seen().len(), 2);
+
+    let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
+    let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 2);
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(refuser.seen(), vec![None, None, Some("1".to_owned())]);
+}
+
+/// A call whose copy is not whole is not sent again, even unprocessed: what it sent could not be
+/// sent again whole. Past its ceiling here, and with no policy, which keeps no copy.
+#[tokio::test]
+async fn a_call_refused_with_no_whole_copy_is_not_sent_again() {
+    let past_ceiling = |endpoint: &str| retrying(endpoint, |retry| retry.call_replay_bytes = 2);
+    let no_policy = |endpoint: &str| channel(endpoint);
+    for (case, open) in [
+        (
+            "past its ceiling",
+            &past_ceiling as &dyn Fn(&str) -> GrpcChannel,
+        ),
+        ("no policy", &no_policy),
+    ] {
+        let refuser = Refuser::start(Refusal::RefusedStream, 1).await;
+        let (_, status) = call(
+            &open(&refuser.endpoint),
+            CallStartOptions::new(ECHO),
+            b"hello",
+        )
+        .await;
+        assert_eq!(status.code, GrpcStatusCode::Unavailable, "{case}: {status}");
+        assert_eq!(refuser.seen().len(), 1, "{case}");
     }
 }
 

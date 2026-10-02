@@ -38,7 +38,7 @@
       "minimum": 1
     },
     "Retry": {
-      "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. `MaxAttempts` of 1 never\nretries.",
+      "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
       "$ref": "#/$defs/RetryOptions"
     },
     "Transport": {
@@ -140,7 +140,7 @@
           "minimum": 1e-9
         },
         "MaxAttempts": {
-          "description": "Attempts in all, the first included; 1 never retries.\n\nDefaults to 5.",
+          "description": "Attempts in all, the first included; 1 retries nothing. A call its peer never processed\ngoes again besides, whatever this is, while every message it sent is kept.\n\nDefaults to 5.",
           "type": "integer",
           "format": "int32",
           "minimum": 1

@@ -365,12 +365,19 @@ sufficed, which is why each row names both. A committed call goes on; it is no l
 | Bidi: Response-Headers or a message received | No (committed) |
 | Server streaming: error before Response-Headers | Yes |
 | Remaining deadline < backoff | No |
+| Refused, or past a GOAWAY's last stream, with every message kept | Yes, at once, once a call, and not as an attempt |
+| Never sent, its connection closing under it, with every message kept | Yes, at once, once a call, and not as an attempt |
 
 **Beyond the commitment point.** The backoff is drawn uniformly below its bound, the server's
 `grpc-retry-pushback-ms` replaces it or refuses the retry, and each attempt carries
-`grpc-previous-rpc-attempts`, as gRFC A6 has them. Not specified yet: transparent retries for
-`REFUSED_STREAM` and post-GOAWAY streams, which are not attempts and are not throttled, and the
-per-channel retry throttle, which A6 makes optional. The policy is the channel's for every
+`grpc-previous-rpc-attempts`, as gRFC A6 has them. A stream the peer's HTTP/2 layer refused with
+`REFUSED_STREAM`, or that its GOAWAY left unprocessed, goes again at once, whatever the policy:
+it is A6's transparent retry, once a call, counted as no attempt and in no
+`grpc-previous-rpc-attempts`. A request hyper drops before sending it, its connection closing
+under it, goes again the same way, also once a call: A6 allows until the deadline, which a call
+with none would turn into a loop of dials. Both replay the call's copy, so a call with no policy,
+which keeps none, goes again only if it had sent nothing. Not specified yet: the per-channel
+retry throttle, which A6 makes optional. The policy is the channel's for every
 method, as `GrpcClient` configures it, where gRPC would allow one per method.
 
 ---
