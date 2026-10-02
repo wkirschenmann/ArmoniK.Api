@@ -1228,7 +1228,7 @@ against managed, on net4.8 and net8.0.
 
 **Prerequisite**: T3.5, T6.6
 **Commit**: let a consumer choose the transport by configuration rather than by which factory it
-calls, and split the assemblies so that choosing costs only what it uses.
+calls.
 
 Today the seam is `ChannelBase`: every generated ArmoniK stub takes one, `NativeChannel` is one,
 and a consumer picks by calling `NativeRuntime.Channel` instead of
@@ -1236,20 +1236,19 @@ and a consumer picks by calling `NativeRuntime.Channel` instead of
 `ArmoniK.Api.Client` knows nothing of the native engine, so a consumer that does not want it does
 not carry it.
 
-Two facts constrain whatever replaces it, and neither is a matter of taste:
+One fact constrains whatever replaces it: `GrpcChannelFactory.CreateChannel` returns
+`GrpcChannel`, grpc-dotnet's concrete type, not `ChannelBase`. It can never hand back a
+`NativeChannel` without a breaking signature change.
 
-- `GrpcChannelFactory.CreateChannel` returns `GrpcChannel`, grpc-dotnet's concrete type, not
-  `ChannelBase`. It can never hand back a `NativeChannel` without a breaking signature change.
-- A selector living inside `ArmoniK.Api.Client` makes that package depend on the native one, so
-  the cdylib and its architectures enter every consumer's build, including those that chose the
-  managed transport. The candidates that keep both properties are a third thin package that may
-  reference both, or the consumer's own dependency wiring.
+A selector may live inside `ArmoniK.Api.Client` (decided 2026-10-02). That package then depends
+on the native one, so the cdylib and its architectures enter every consumer's build, including
+those that chose the managed transport; the cost is accepted.
 
 `HttpMessageHandler` is the existing precedent for naming a transport in a string option, and
 the generated options type is a superset of `GrpcClient`, so the two vocabularies meet here or
 nowhere.
 
-**And `ArmoniK.Api.Common` has to be split before this ships.** T3.4 took a reference to it for
+**`ArmoniK.Api.Common` is not split** (decided 2026-10-02). T3.4 took a reference to it for
 `ConfigurationExt.GetRequiredValue`, which is four lines - and Common also compiles 28 `.proto`
 files, the whole ArmoniK message set, plus `Grpc.Net.Client`, `ArmoniK.Utils` and
 `System.Diagnostics.DiagnosticSource`. The reference is a real package dependency of the produced
@@ -1257,16 +1256,14 @@ nupkg, on both target frameworks, so every consumer of the transport pulls the A
 transport is meant to be independent of - `design.md` says the channel serves any generated stub,
 and `ChannelOptions.g.cs` is rendered for a trimmed or native-AOT host.
 
-What that asks for is a small assembly holding what both sides need and nothing else: the
-configuration reader, and whatever else turns out to be shared once the two vocabularies meet.
-Measured rather than assumed - `dotnet sln`'s own nuspec is where the dependency was read.
+That cost is accepted rather than paid down by a small shared assembly. Measured rather than
+assumed - `dotnet sln`'s own nuspec is where the dependency was read.
 
 **Deferred until the Rust bridge on the other side is built**, so that both directions are
-designed together rather than one constrained by the other. Recorded now so the constraints above
-are not rediscovered.
+designed together rather than one constrained by the other. Recorded now so the constraint and
+the decisions above are not rediscovered.
 
-**Deliverable**: a consumer switches transport by configuration, and one that does not want the
-native engine does not build it.
+**Deliverable**: a consumer switches transport by configuration.
 
 ### T6.9: Documentation and cleanup
 
@@ -1315,8 +1312,8 @@ large chunks on many calls at once can exhaust the process's memory with every b
   receive path is not this design, and that the budget's wake-up is a poll. Its reasons were
   that receive-side bytes belong to hyper and that a failed allocation aborts; neither holds
   against a count of messages already decoded, which needs no fallible allocation.
-- The runtime's own options - its worker count and its thresholds, however the second is set -
-  join the generated vocabulary: a schema, a default stated in each description, and a binding
+- The runtime's own options - its worker count and its two thresholds - join the generated
+  vocabulary: a schema, a default stated in each description, and a binding
   from `IConfiguration`, as a channel's options have. Today the worker count and the one ceiling
   are two bare parameters of `NativeRuntime.Create`.
 - `AK_ABI_VERSION` does not change, for the reason T4.0 gives.
@@ -1324,17 +1321,17 @@ large chunks on many calls at once can exhaust the process's memory with every b
 The models change first: level 1 charges a payload its length and gains the two thresholds and the
 event, and level 2 replaces the binding's poll by the event.
 
-What to settle:
+Settled (2026-10-02, `decisions.md`):
 
-- how the second threshold is set - a second field of `ak_runtime_config` beside
-  `memory_ceiling`, or derived from the first - and both defaults; today's ceiling defaults to
-  four gigabytes, or half the address space where that is smaller;
-- the event: its name, whether it wakes every call refused since the last release or one of them,
-  and that it carries no payload and takes no delivery credit, as WRITE_DONE does not;
-- whether a caller must tell the second threshold from a message past `MaxReceiveMessageSize`.
-  Both end the call with `RESOURCE_EXHAUSTED`, the first transient and runtime-wide, the second
-  permanent, and only the status message tells them apart - which a retry policy reading the
-  code, T6.3's, does not see.
+- the second threshold is a second field of `ak_runtime_config` beside `memory_ceiling`, which
+  keeps its meaning and its default of four gigabytes, or half the address space where that is
+  smaller; at 0 the second is 1.25 times the first;
+- the event wakes every call refused since the last release, carries no payload and takes no
+  delivery credit, as WRITE_DONE does not; its name is the model's to fix;
+- the two `RESOURCE_EXHAUSTED` are told apart by their status message only. The second threshold
+  is transient and runtime-wide, a message past `MaxReceiveMessageSize` permanent, and a retry
+  policy reading the code does not see the difference - which matters only to one that names
+  `RESOURCE_EXHAUSTED`, and T6.3's default does not.
 
 **Deliverable**: many calls receiving messages the host does not read end with some of them
 waiting and none past the second threshold, read from `ak_runtime_memory_usage`; a message that
