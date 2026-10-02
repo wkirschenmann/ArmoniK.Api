@@ -1322,8 +1322,9 @@ large chunks on many calls at once can exhaust the process's memory with every b
   are two bare parameters of `NativeRuntime.Create`.
 - `AK_ABI_VERSION` does not change, for the reason T4.0 gives.
 
-The models change first: level 1 charges a payload its length and gains the two thresholds and the
-event, and level 2 replaces the binding's poll by the event.
+The models change first: level 1 charges a payload its length and gains the two thresholds, the
+event and the lowered threshold a waiting send imposes, and level 2 replaces the binding's poll
+by the event.
 
 Settled (2026-10-02, `decisions.md`):
 
@@ -1335,7 +1336,21 @@ Settled (2026-10-02, `decisions.md`):
 - the two `RESOURCE_EXHAUSTED` are told apart by their status message only. The second threshold
   is transient and runtime-wide, a message past `MaxReceiveMessageSize` permanent, and a retry
   policy reading the code does not see the difference - which matters only to one that names
-  `RESOURCE_EXHAUSTED`, and T6.3's default does not.
+  `RESOURCE_EXHAUSTED`, and T6.3's default does not;
+- a send refused for room is served before new reads: while one waits, the threshold where reads
+  stop is lowered by the largest length waiting - the length, since a refused charge may exceed
+  the first threshold and a length cannot - and goes back once that send is served or its call
+  ends. Without it, received bytes would keep the count from falling under steady traffic, and
+  level 1's `BudgetEventuallyHasRoomFor` would no longer hold once they are counted. A host woken
+  after such a refusal is obliged to try the send again or to cancel the call, a fairness
+  obligation on the host as giving back a payload is; the .NET binding's send loop tries again at
+  every wake-up, and a cancellation ends the call;
+- level 1 splits a read in two steps, as the engine does: the call is admitted to read its next
+  message against the first threshold, lowered as above, and the decision is taken there; the
+  message is charged when it arrives decoded, which is where the second threshold applies.
+  Calls admitted together may take the count past the first threshold by a message each, and
+  that is accepted: an atomic read would hide that overshoot, and with it what the second
+  threshold is there to bound.
 
 **Deliverable**: many calls receiving messages the host does not read end with some of them
 waiting and none past the second threshold, read from `ak_runtime_memory_usage`; a message that
