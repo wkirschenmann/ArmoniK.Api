@@ -4,6 +4,10 @@
   "description": "What a caller may set on one channel.",
   "type": "object",
   "properties": {
+    "ConnectEagerly": {
+      "description": "Whether the channel starts dialling its endpoint as it is created rather than at its first\ncall, which then finds the session open or joins the dial under way. A dial that fails is\nnot reported: the first call dials again and reports what it meets.\n\nDefaults to false.",
+      "type": "boolean"
+    },
     "DefaultDeadlineSeconds": {
       "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. A call's own deadline takes its place, and a call that\nstates none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
       "$ref": "#/$defs/Seconds",

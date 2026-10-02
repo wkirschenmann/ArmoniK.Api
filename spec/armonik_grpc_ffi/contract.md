@@ -163,7 +163,9 @@ pub struct GrpcChannelConfig {
     /// How many buffers one call may have out at once before a send waits.
     /// Default 1.
     pub max_sends_in_flight: usize,
-    // No eager_connect flag: connecting is GrpcChannel::connect().await.
+    // No eager_connect flag: connecting is GrpcChannel::connect().await. The
+    // option document's ConnectEagerly is the FFI's, which calls connect()
+    // once ak_channel_create has registered the channel.
 }
 
 pub struct RetryConfig {

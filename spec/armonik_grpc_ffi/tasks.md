@@ -1129,6 +1129,17 @@ that reaches it and nothing else.
 
 **Deliverable**: with the option set, the connection is established before the first call.
 
+**Status**: done. `ConnectEagerly`, false by default, is read by the FFI: `ak_channel_create`
+spawns `GrpcChannel::connect()` once the channel is registered, so creating it does not wait on
+the dial and a refused creation dials nothing. The engine's configuration carries no such flag,
+as contract.md has it: its constructor starts no work it could not report. A dial that fails is
+not reported either: nothing caches it, so the first call dials again, or joins the dial still
+running, and reports what it meets. `tests/unary.rs` sees the eager channel's server accept a
+connection before any call, the lazy one's accept none, and the call take the eager session; an
+eager dial to a closed port leaves its first call UNAVAILABLE.
+grpc-dotnet has no such option - `GrpcChannel.ConnectAsync` is a call - so the vocabulary lists it
+as this channel's own.
+
 ### T6.6: Packaging, finished
 
 **Prerequisite**: T4.1

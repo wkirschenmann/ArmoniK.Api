@@ -88,6 +88,7 @@ public class OptionVocabularyTests
   /// <summary>An option of this channel that `GrpcClient` has no name for.</summary>
   private static readonly IReadOnlyDictionary<string, string> Ours = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                      {
+                                                                       ["ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
                                                                        ["DeliveryCredits"] = "the delivery window, which only this ABI has",
                                                                        ["MaxSendsInFlight"] = "the send window, which only this ABI has",
                                                                        ["MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",

@@ -83,8 +83,8 @@ path.
 9. **Releasing a channel is synchronous and cancels its calls.**
 10. **The JSON schema is the source of truth for the options**: the C# class is generated from
     it, never the reverse.
-11. **Connecting is lazy**: a channel dials on its first call. An eager connection is an option
-    T6.5 brings.
+11. **Connecting is lazy**: a channel dials on its first call, unless `ConnectEagerly` asks
+    `ak_channel_create` to dial as it registers the channel.
 12. **`end_send`, not `half_close`**, for the call that says nothing more will be sent.
 
 ---

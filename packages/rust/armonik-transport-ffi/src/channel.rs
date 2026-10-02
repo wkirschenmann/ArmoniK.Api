@@ -213,11 +213,13 @@ pub(crate) fn create(
     let settings = config::parse(json).map_err(Refusal::config)?;
     let delivery_credits = settings.delivery_credits();
     let max_sends_in_flight = settings.max_sends_in_flight();
+    let connect_eagerly = settings.connect_eagerly();
 
     let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), spawner.clone())
         .map_err(Refusal::channel)?;
+    let dialled = grpc.clone();
 
-    tables::channels()
+    let handle = tables::channels()
         .insert_with(|handle| {
             let channel = Arc::new(AkChannel {
                 grpc,
@@ -230,7 +232,17 @@ pub(crate) fn create(
             (channel, ())
         })
         .map(|(handle, ())| handle)
-        .ok_or(CHANNELS_SPENT)
+        .ok_or(CHANNELS_SPENT)?;
+
+    // Spawned once the channel is the host's, so a refused creation dials nothing. Its failure is
+    // the first call's to report: nothing caches a failed dial, so that call dials again, or
+    // joins this dial while it runs, and meets the same answer.
+    if connect_eagerly {
+        spawner.spawn(async move {
+            let _ = dialled.connect().await;
+        });
+    }
+    Ok(handle)
 }
 
 const ENDPOINT_NOT_UTF8: Refusal = Refusal::fixed(

@@ -53,6 +53,7 @@ public sealed class ChannelOptions
       throw new ArgumentNullException(nameof(other));
     }
 
+    ConnectEagerly = other.ConnectEagerly;
     DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
     DeliveryCredits = other.DeliveryCredits;
     Http2 = other.Http2 is null
@@ -65,6 +66,16 @@ public sealed class ChannelOptions
                   : new TransportOptions(other.Transport);
     UserAgent = other.UserAgent;
   }
+
+  /// <summary>
+  ///   Whether the channel starts dialling its endpoint as it is created rather than at its first
+  ///   call, which then finds the session open or joins the dial under way. A dial that fails is
+  ///   not reported: the first call dials again and reports what it meets.
+  /// </summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("ConnectEagerly")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public bool? ConnectEagerly { get; set; }
 
   /// <summary>
   ///   The deadline of a call that states none, counted from its start: the call ends

@@ -1248,6 +1248,18 @@ pub struct ChannelOptions {
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
     pub http2: Http2Options,
+
+    /// Whether the channel starts dialling its endpoint as it is created rather than at its first
+    /// call, which then finds the session open or joins the dial under way. A dial that fails is
+    /// not reported: the first call dials again and reports what it meets.
+    ///
+    /// Defaults to false.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
+    pub connect_eagerly: Option<bool>,
 }
 
 /// The schema of [`ChannelOptions`], as the committed file holds it.

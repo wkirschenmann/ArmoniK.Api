@@ -694,6 +694,59 @@ fn start_options(method: &str) -> ak_call_start_options {
 /// gRPC's code, which is what the ABI carries in `status_code`.
 const DEADLINE_EXCEEDED: i32 = 4;
 
+#[test]
+fn an_eager_channel_is_connected_before_its_first_call_and_a_lazy_one_is_not() {
+    let host = Host::start();
+    let eager_server = TestServer::start();
+    let lazy_server = TestServer::start();
+    let eager = host.channel_with(&eager_server.endpoint, r#"{"ConnectEagerly":true}"#);
+    let lazy = host.channel(&lazy_server.endpoint);
+
+    support::poll_until(
+        || eager_server.connections() == 1,
+        || format!("the eager server saw {}", eager_server.connections()),
+    );
+    assert_eq!(lazy_server.connections(), 0, "the lazy channel dialled");
+
+    let call = start_call(eager, ECHO, &blob(&[]));
+    send_one(call, b"hello");
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(0), "{}", seen.status_message());
+    assert_eq!(
+        eager_server.connections(),
+        1,
+        "the call took the eager session"
+    );
+    // Still none, a whole call later.
+    assert_eq!(lazy_server.connections(), 0, "the lazy channel dialled");
+
+    ak_channel_release(eager);
+    ak_channel_release(lazy);
+    host.stop();
+}
+
+/// gRPC's code, which is what the ABI carries in `status_code`.
+const UNAVAILABLE: i32 = 14;
+
+#[test]
+fn an_eager_dial_that_fails_leaves_the_first_call_to_report_it() {
+    let host = Host::start();
+    let channel = host.channel_with("http://127.0.0.1:1", r#"{"ConnectEagerly":true}"#);
+
+    let call = start_call(channel, ECHO, &blob(&[]));
+    send_one(call, b"hello");
+    let seen = host.recorder.await_terminal();
+    assert_eq!(
+        seen.status_code(),
+        Some(UNAVAILABLE),
+        "{}",
+        seen.status_message()
+    );
+
+    ak_channel_release(channel);
+    host.stop();
+}
+
 /// The flag names a field this record does not reach, which would read as a deadline passed.
 #[test]
 fn a_deadline_flag_on_a_record_too_short_for_its_field_is_refused() {

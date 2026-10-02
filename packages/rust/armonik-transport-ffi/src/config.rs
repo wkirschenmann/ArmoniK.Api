@@ -30,6 +30,10 @@ impl ChannelSettings {
         self.options.delivery_credits.unwrap_or(DELIVERY_CREDITS) as usize
     }
 
+    pub(crate) fn connect_eagerly(&self) -> bool {
+        self.options.connect_eagerly.unwrap_or(false)
+    }
+
     pub(crate) fn max_sends_in_flight(&self) -> usize {
         self.options
             .max_sends_in_flight
@@ -355,6 +359,11 @@ mod tests {
             Some(Duration::from_nanos(1))
         );
         assert_eq!(config_of(b"{}").default_deadline, None);
+
+        assert!(parse(br#"{"ConnectEagerly":true}"#)
+            .expect("valid")
+            .connect_eagerly());
+        assert!(!parse(b"{}").expect("valid").connect_eagerly());
 
         // The ceiling is the type's rather than the option's, so it is read off `Seconds`: every
         // duration becomes a `Duration`, which holds `u64::MAX` seconds, and 2^64 is the first
