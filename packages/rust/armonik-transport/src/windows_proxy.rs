@@ -2,7 +2,8 @@
 //! the configured address and run by WinHTTP, else the manual proxy with its bypass list.
 
 use std::ffi::c_void;
-use std::time::Duration;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use http::Uri;
 use windows_sys::core::PWSTR;
@@ -104,7 +105,13 @@ pub(crate) struct WindowsProxy {
     /// Open when the settings are automatic. A session that cannot be opened leaves the manual
     /// proxy to decide.
     session: Option<Session>,
+    /// When finding or running the script last failed. A failure can take as long as discovery
+    /// does, and WinHTTP does not always remember one, so it is not tried again for
+    /// `RETRY_SCRIPT_AFTER`.
+    failed_at: Mutex<Option<Instant>>,
 }
+
+const RETRY_SCRIPT_AFTER: Duration = Duration::from_secs(120);
 
 impl std::fmt::Debug for WindowsProxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -122,7 +129,11 @@ impl WindowsProxy {
         } else {
             None
         };
-        Self { settings, session }
+        Self {
+            settings,
+            session,
+            failed_at: Mutex::new(None),
+        }
     }
 
     /// The proxy entry a dial of `target` goes through, as the settings write it - `host:port`,
@@ -151,9 +162,35 @@ impl WindowsProxy {
             .or_else(|| for_scheme(proxy, "socks").map(|socks| format!("socks://{socks}")))
     }
 
-    /// What the PAC script says, or none when there is no script or it could not be run.
+    /// What the PAC script says, or none when there is no script, it could not be run, or it last
+    /// failed less than `RETRY_SCRIPT_AFTER` ago.
     fn automatic(&self, target: &Uri) -> Option<Option<String>> {
         let session = self.session.as_ref()?;
+        self.remembering_failure(|| self.run_script(session, target))
+    }
+
+    /// `run`'s answer, unless it failed less than `RETRY_SCRIPT_AFTER` ago; a failure is
+    /// remembered.
+    fn remembering_failure(
+        &self,
+        run: impl FnOnce() -> Option<Option<String>>,
+    ) -> Option<Option<String>> {
+        let failed_at = || {
+            self.failed_at
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+        };
+        if failed_at().is_some_and(|at| at.elapsed() < RETRY_SCRIPT_AFTER) {
+            return None;
+        }
+        let answer = run();
+        if answer.is_none() {
+            *failed_at() = Some(Instant::now());
+        }
+        answer
+    }
+
+    fn run_script(&self, session: &Session, target: &Uri) -> Option<Option<String>> {
         let url = wide(&target.to_string());
         let config_url = self.settings.auto_config_url.as_deref().map(wide);
         let mut options = WINHTTP_AUTOPROXY_OPTIONS::default();
@@ -287,6 +324,30 @@ mod tests {
 
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    /// A failed script is not run again at once, whatever WinHTTP remembers; a script that
+    /// answered is.
+    #[test]
+    fn a_failed_script_is_not_run_again_for_a_while() {
+        let proxy = WindowsProxy::new(Settings::default(), Duration::from_secs(1));
+        let runs = std::cell::Cell::new(0);
+        let failing = || {
+            runs.set(runs.get() + 1);
+            None
+        };
+        assert_eq!(proxy.remembering_failure(failing), None);
+        assert_eq!(proxy.remembering_failure(failing), None);
+        assert_eq!(runs.get(), 1, "the script was run again");
+
+        let answered = WindowsProxy::new(Settings::default(), Duration::from_secs(1));
+        let answering = || {
+            runs.set(runs.get() + 1);
+            Some(Some("proxy.test:3128".to_owned()))
+        };
+        assert!(answered.remembering_failure(answering).is_some());
+        assert!(answered.remembering_failure(answering).is_some());
+        assert_eq!(runs.get(), 3);
+    }
 
     #[test]
     fn a_manual_list_gives_each_scheme_its_own_entry_or_the_shared_one() {

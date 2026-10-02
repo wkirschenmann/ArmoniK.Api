@@ -129,7 +129,8 @@ pub struct ProxyOptions {
     /// WinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and
     /// its bypass list. Those settings are read when the channel is created, and an `https://` or
     /// `socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which
-    /// WinHTTP drops, leaving a direct dial.
+    /// WinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried
+    /// again for two minutes.
     ///
     /// The system's proxy is never used for a loopback endpoint.
     ///
