@@ -178,12 +178,13 @@ async fn a_peer_that_answers_no_ping_ends_the_session_and_the_call_on_it() {
 #[tokio::test]
 async fn a_window_or_a_keepalive_no_session_could_use_is_refused() {
     let endpoint = "http://127.0.0.1:1";
-    let changes: [fn(&mut Http2Config); 5] = [
+    let changes: [fn(&mut Http2Config); 6] = [
         |http2| http2.stream_window = 0,
         |http2| http2.connection_window = 1 << 31,
         |http2| http2.connection_window = 65_534,
         |http2| http2.keep_alive_interval = Some(Duration::ZERO),
         |http2| http2.keep_alive_timeout = Duration::ZERO,
+        |http2| http2.idle_timeout = Some(Duration::ZERO),
     ];
     let refusals = changes.map(|change| {
         let mut http2 = Http2Config::default();

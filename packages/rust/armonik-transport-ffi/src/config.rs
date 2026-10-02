@@ -418,6 +418,10 @@ mod tests {
                 "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
                 r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
             ),
+            (
+                "/$defs/Http2Options/properties/IdleTimeoutSeconds/minimum",
+                r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
+            ),
         ] {
             let minimum = schema
                 .pointer(pointer)

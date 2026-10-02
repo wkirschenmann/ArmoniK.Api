@@ -308,6 +308,9 @@ impl Http2Config {
         if self.keep_alive_timeout.is_zero() {
             return refuse("an HTTP/2 keepalive timeout of zero ends a session at its first PING");
         }
+        if self.idle_timeout.is_some_and(|after| after.is_zero()) {
+            return refuse("an idle timeout of zero closes the session after every call");
+        }
         for (window, what, least) in [
             (self.stream_window, "stream", 1),
             (self.connection_window, "connection", INITIAL_HTTP2_WINDOW),
