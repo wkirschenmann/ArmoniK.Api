@@ -1,11 +1,14 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 
-use crate::abi::{ak_event_kind, ak_host_debt, ak_runtime_state, ak_status, AK_MAX_WORKER_THREADS};
+use crate::abi::{
+    ak_error_kind, ak_event_kind, ak_host_debt, ak_runtime_state, ak_status, AK_MAX_WORKER_THREADS,
+};
 use crate::call::CallServices;
 use crate::held::Held;
 use crate::host::Host;
 use crate::ledger::Ledger;
+use crate::refusal::Refusal;
 
 static LIVE: AtomicBool = AtomicBool::new(false);
 
@@ -59,6 +62,18 @@ impl Drop for Claim {
     }
 }
 
+const TOO_MANY_WORKERS: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "worker_threads is above AK_MAX_WORKER_THREADS",
+);
+
+const THRESHOLDS_CROSSED: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "memory_hard_ceiling is below the first threshold in force: memory_ceiling, or this library's own when that is zero",
+);
+
 impl AkRuntime {
     pub(crate) fn relinquish() {
         LIVE.store(false, Ordering::Release);
@@ -67,11 +82,14 @@ impl AkRuntime {
     pub(crate) fn new(
         worker_threads: u32,
         memory_ceiling: u64,
+        memory_hard_ceiling: u64,
         host: Host,
-    ) -> Result<Arc<Self>, ak_status> {
+    ) -> Result<Arc<Self>, Refusal> {
         if worker_threads > AK_MAX_WORKER_THREADS {
-            return Err(ak_status::AK_STATUS_INVALID_ARG);
+            return Err(TOO_MANY_WORKERS);
         }
+        let ledger =
+            Ledger::new(memory_ceiling, memory_hard_ceiling).map_err(|_| THRESHOLDS_CROSSED)?;
 
         let mut builder = tokio::runtime::Builder::new_multi_thread();
         builder.enable_all();
@@ -85,7 +103,7 @@ impl AkRuntime {
             tokio: Mutex::new(Some(tokio)),
             spawner,
             host: Arc::new(host),
-            ledger: Arc::new(Ledger::new(memory_ceiling)),
+            ledger: Arc::new(ledger),
             state: AtomicI32::new(ak_runtime_state::AK_RUNTIME_RUNNING as i32),
             gate: RwLock::new(()),
             teardown: Mutex::new(None),
@@ -244,15 +262,28 @@ mod tests {
         // of one entry per worker before creating any, and near `u32::MAX` that allocation aborts
         // the process. An abort is not a status, and no guard here can make it one.
         let refused = |workers| {
-            AkRuntime::new(workers, 0, Host::new(never_called, std::ptr::null_mut()))
+            AkRuntime::new(workers, 0, 0, Host::new(never_called, std::ptr::null_mut()))
                 .err()
                 .expect("a count past the maximum is refused")
         };
 
-        assert_eq!(refused(u32::MAX), ak_status::AK_STATUS_INVALID_ARG);
+        assert_eq!(refused(u32::MAX).status(), ak_status::AK_STATUS_INVALID_ARG);
         assert_eq!(
-            refused(AK_MAX_WORKER_THREADS + 1),
+            refused(AK_MAX_WORKER_THREADS + 1).status(),
             ak_status::AK_STATUS_INVALID_ARG
+        );
+    }
+
+    #[test]
+    fn a_second_threshold_below_the_first_is_refused_with_its_reason() {
+        let refused = AkRuntime::new(0, 64, 32, Host::new(never_called, std::ptr::null_mut()))
+            .err()
+            .expect("a second threshold below the first is refused");
+
+        assert_eq!(refused.status(), ak_status::AK_STATUS_INVALID_ARG);
+        assert!(
+            format!("{refused:?}").contains("memory_hard_ceiling is below"),
+            "{refused:?}"
         );
     }
 

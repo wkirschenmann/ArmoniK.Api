@@ -9,15 +9,17 @@ use tokio::sync::{mpsc, watch, Semaphore};
 use crate::abi::{ak_buffer, ak_call_debt, ak_handle, ak_status};
 use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
-use crate::ledger::Ledger;
+use crate::ledger::{Ledger, Waiter};
 
 mod actor;
 mod lent;
 mod start;
+mod turn;
 
 use lent::{arena, LENT_TAG};
 pub(crate) use lent::{keep, take_lent, take_payload, Lent};
 pub(crate) use start::start_on;
+use turn::ReadTurn;
 
 pub(crate) struct CallServices<'a> {
     pub(crate) host: &'a Arc<Host>,
@@ -86,6 +88,9 @@ pub(crate) struct CallState {
     /// it finds: the WRITE_DONE of a send can reach the host before that send's downcall has
     /// returned, and a host ending from inside it is ending after the send, not beside it.
     sending: AtomicU32,
+    /// The send this call has refused for room, and the wake-up a release owes it.
+    waiter: Arc<Waiter>,
+    turn: Arc<ReadTurn>,
     handle: ak_handle,
     // The channel itself, not its name: leaving it is not optional, and a name would make it
     // conditional on a lookup whose failure the reader has no answer for.
@@ -191,7 +196,22 @@ impl CallState {
         };
         #[cfg(feature = "test-hooks")]
         crate::hooks::run_before_charge();
-        self.ledger.hold_bytes(len)?;
+        if self.ledger.hold_bytes(len).is_err() {
+            // Recorded, then tried again: a release between the refusal and the record owes this
+            // send nothing, and the second try is what sees it. Read against the end after the
+            // record, for the order `Ledger::stop_waiting` states.
+            self.ledger.wait(&self.waiter, len);
+            if !self.live() {
+                self.ledger.stop_waiting(&self.waiter);
+                return Err(ak_status::AK_STATUS_INVALID_STATE);
+            }
+            self.ledger.hold_bytes(len)?;
+        }
+        // Served: reads are no longer held back for it. Only a lend of this call records a wait,
+        // and one lend runs at a time, so a wait this reads as absent is absent.
+        if self.waiter.is_waiting() {
+            self.ledger.stop_waiting(&self.waiter);
+        }
 
         // Read again once counted: a shutdown that ran after the checks above found nothing
         // owed. The other half is `Debt::quiet` then `Ledger::empty`.
@@ -263,6 +283,30 @@ impl CallState {
         };
         self.handed_over();
         slot.send(Command::Send(Bytes::from(lent.data)));
+        ak_status::AK_STATUS_OK
+    }
+
+    /// Queues an empty message, which no buffer carries.
+    ///
+    /// It takes a slot of the window as a lend does, given back at its WRITE_DONE, and is counted
+    /// like one so a shutdown waits for that acquittal: the writer gives back the count with the
+    /// message's bytes, of which there are none.
+    pub(crate) fn commit_empty(&self) -> ak_status {
+        let Some(_queueing) = Queueing::enter(&self.sending) else {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        };
+        if !self.accepts_work() {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        }
+        let Ok(window) = self.window.try_acquire() else {
+            return ak_status::AK_STATUS_SLOT_BUSY;
+        };
+        let Ok(slot) = self.commands.try_reserve() else {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        };
+        self.ledger.hold();
+        window.forget();
+        slot.send(Command::Send(Bytes::new()));
         ak_status::AK_STATUS_OK
     }
 

@@ -135,6 +135,7 @@ pub unsafe extern "C" fn ak_runtime_create(
                 lifecycle::create_runtime(
                     config.worker_threads,
                     config.memory_ceiling,
+                    config.memory_hard_ceiling,
                     Host::new(callback, runtime_ctx),
                 ),
             )
@@ -415,9 +416,10 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
 /// counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
 /// the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
 /// is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
-/// runtime-wide ceiling, and has no single event announcing room: poll ak_runtime_memory_usage.
-/// AK_STATUS_MESSAGE_TOO_LARGE is permanent. An allocator failure for the buffer is
-/// AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
+/// runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
+/// AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
+/// message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
+/// the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
 /// cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no
 /// buffer is lent and `*out` is untouched.
 ///
@@ -432,12 +434,27 @@ pub unsafe extern "C" fn ak_get_call_buffer(
     out: *mut ak_buffer,
     out_error: *mut ak_error,
 ) -> ak_status {
-    let answered =
-        guard(|| unsafe { observe(tables::calls(), call, out, |found| found.lend(len)) });
+    let answered = guard(|| {
+        if len == 0 {
+            return Err(EMPTY_LEND);
+        }
+        unsafe { observe(tables::calls(), call, out, |found| found.lend(len)) }
+    });
     unsafe { refusal::answer(out_error, answered) }
 }
 
+const EMPTY_LEND: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "a lend of no bytes: an empty message is sent with no buffer",
+);
+
 /// Commits a lent buffer as the next message. Ownership passes back to this library.
+///
+/// An empty message takes no buffer: `buffer` is then the empty one, owner NULL and len 0, and the
+/// send takes a slot of the window as any other, AK_STATUS_SLOT_BUSY when there is none. A zeroed
+/// `ak_buffer` is that empty one, so committing the zeroed `*out` of a refused
+/// ak_get_call_buffer, which the refusal leaves untouched, sends an empty message.
 ///
 /// AK_EVENT_WRITE_DONE settles an accepted send and frees its slot from the moment the event is
 /// emitted, not when the callback returns - so a host woken by it may ask for a buffer from inside
@@ -460,6 +477,12 @@ pub unsafe extern "C" fn ak_call_send_message(
     out_error: *mut ak_error,
 ) -> ak_status {
     let answered = guard(|| {
+        if buffer.owner.is_null() && buffer.len == 0 {
+            let found = tables::calls()
+                .get(call)
+                .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+            return done(found.commit_empty());
+        }
         let lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
         let Some(found) = tables::calls().get(call) else {
             return done(call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE));

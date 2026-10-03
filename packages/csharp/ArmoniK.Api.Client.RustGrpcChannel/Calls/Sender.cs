@@ -49,13 +49,16 @@ internal interface ICallState
 internal sealed class Sender
 {
   private readonly ICallState call_;
-  private readonly NativeRuntime runtime_;
 
   private int inFlight_;
 
   private int holding_;
 
   private readonly ArrivalSignal handedBack_ = new();
+
+  // Set at each AK_EVENT_BUDGET_WAKE: a release gave bytes back since a send of this call was
+  // refused for room.
+  private readonly ArrivalSignal woken_ = new();
 
   // The write waiting for its acquittal, or null between writes, and the claim a writer takes
   // to become the one. A write linearizes at its WRITE_DONE and not at the commit, which is what
@@ -64,12 +67,8 @@ internal sealed class Sender
   // holder of this claim makes.
   private TaskCompletionSource<bool>? writing_;
 
-  internal Sender(ICallState call,
-                  NativeRuntime runtime)
-  {
-    call_    = call;
-    runtime_ = runtime;
-  }
+  internal Sender(ICallState call)
+    => call_ = call;
 
   /// <summary>What the engine has taken and not yet acquitted.</summary>
   internal int Unacquitted
@@ -82,6 +81,10 @@ internal sealed class Sender
     Volatile.Read(ref writing_)
             ?.TrySetResult(true);
   }
+
+  /// <summary>An AK_EVENT_BUDGET_WAKE: a send refused for room may find it now.</summary>
+  internal void Woken()
+    => woken_.Set();
 
   /// <summary>Waits until no serializer holds a buffer of the engine's.</summary>
   /// <remarks>What the settlement waits on: a call still holding a buffer is not settled,
@@ -240,6 +243,10 @@ internal sealed class Sender
     // is what lets the ceiling be waited on instead of allocated around.
     while (true)
     {
+      // Taken before the lend, so a wake-up raised between its refusal and the wait below is not
+      // lost: the engine owes one only to a send it has already refused.
+      var woken = woken_.Next();
+
       using var lent = new LentBuffer(call_.Handle);
 
       ak_status status;
@@ -275,21 +282,34 @@ internal sealed class Sender
         throw Failed($"the message was refused ({status})");
       }
 
-      try
-      {
-        await runtime_.WaitForRoomAsync(call_.Ending)
-                      .ConfigureAwait(false);
-      }
-      catch (OperationCanceledException)
-      {
-        throw new RpcException(new Status(StatusCode.Cancelled,
-                                          "the call ended while its send waited for room against the ceiling"));
-      }
+      // Tried again at every wake-up, which the ABI asks of a host woken after a refusal: until
+      // the send is served or the call ends, the engine holds reads back for it.
+      await WokenOrEndedAsync(woken)
+        .ConfigureAwait(false);
     }
 
     if (halfClose)
     {
       HalfClose();
+    }
+  }
+
+  private async Task WokenOrEndedAsync(Task woken)
+  {
+    var ending = call_.Ending;
+    var ended  = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    using (ending.Register(static source => ((TaskCompletionSource<bool>)source!).TrySetResult(true),
+                           ended))
+    {
+      await Task.WhenAny(woken,
+                         ended.Task)
+                .ConfigureAwait(false);
+    }
+
+    if (ending.IsCancellationRequested)
+    {
+      throw new RpcException(new Status(StatusCode.Cancelled,
+                                        "the call ended while its send waited for room against the ceiling"));
     }
   }
 

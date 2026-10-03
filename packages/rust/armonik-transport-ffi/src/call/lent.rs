@@ -6,6 +6,7 @@ use bytes::Bytes;
 
 use super::CallState;
 use crate::abi::{ak_bytes, ak_status};
+use crate::ledger::Received;
 use crate::tagged::take_tagged;
 
 // Written into the boxes the host is given a pointer to, and checked before either is read back:
@@ -47,6 +48,9 @@ pub(crate) struct Payload {
     data: Bytes,
     call: Arc<CallState>,
     returns_credit: bool,
+    /// A message's bytes against the ceiling, given back with the payload. The metadata and the
+    /// terminal carry none.
+    _charge: Option<Received>,
 }
 
 impl Drop for Payload {
@@ -67,7 +71,12 @@ pub(super) fn arena(len: usize) -> Result<Vec<u8>, ak_status> {
     Ok(data)
 }
 
-pub(super) fn lend_payload(call: &Arc<CallState>, data: Bytes, returns_credit: bool) -> ak_bytes {
+pub(super) fn lend_payload(
+    call: &Arc<CallState>,
+    data: Bytes,
+    returns_credit: bool,
+    charge: Option<Received>,
+) -> ak_bytes {
     call.debt.payloads.fetch_add(1, Ordering::AcqRel);
     call.ledger.hold();
 
@@ -76,6 +85,7 @@ pub(super) fn lend_payload(call: &Arc<CallState>, data: Bytes, returns_credit: b
         data,
         call: Arc::clone(call),
         returns_credit,
+        _charge: charge,
     });
     let ptr = payload.data.as_ptr();
     let len = payload.data.len();

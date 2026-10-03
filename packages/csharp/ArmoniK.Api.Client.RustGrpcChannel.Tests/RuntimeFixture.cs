@@ -52,11 +52,13 @@ public abstract class RuntimeFixture
   /// <remarks>For a test whose subject is what the engine was started with. One runtime per
   /// process, so the current one goes first - and the fixture disposes whichever is current, so
   /// restarting leaves nothing behind either.</remarks>
-  protected async Task<NativeRuntime> RestartAsync(uint workerThreads = 0,
-                                                   ulong memoryCeiling = 0)
+  protected async Task<NativeRuntime> RestartAsync(uint  workerThreads     = 0,
+                                                   ulong memoryCeiling     = 0,
+                                                   ulong memoryHardCeiling = 0)
   {
     await RunOn(() => NativeRuntime.Create(workerThreads,
-                                           memoryCeiling))
+                                           memoryCeiling,
+                                           memoryHardCeiling))
       .ConfigureAwait(false);
     return Runtime;
   }

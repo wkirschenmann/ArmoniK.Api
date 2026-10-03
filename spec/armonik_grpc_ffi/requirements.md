@@ -417,9 +417,10 @@ undefined behavior when used from .NET.
    `RESOURCE_EXHAUSTED`. The engine's copy of a message being sent, and a message still being
    assembled from the network, are outside both.
 
-**Status**: 10 is met for sends only, against a single ceiling, and a refused send polls
-`ak_runtime_memory_usage` rather than being woken. A received message is counted for quiescence
-and not in bytes, so nothing bounds received messages across calls. T6.10 carries the rest.
+**Status**: 10 is met. One count holds the buffers lent and the messages received until the host
+gives them back; a call reads only below `memory_ceiling`, lowered by what a refused send waits
+on, and a message past `memory_hard_ceiling` ends its call with `RESOURCE_EXHAUSTED`. A refused
+send is woken by `AK_EVENT_BUDGET_WAKE`, which is what the .NET binding waits on.
 
 ---
 

@@ -235,8 +235,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                         "the channel is being disposed and takes no new calls"));
     }
 
-    var call = NativeCall<TResponse>.Start(runtime_,
-                                           handle_,
+    var call = NativeCall<TResponse>.Start(handle_,
                                            deliveryCredits_,
                                            method,
                                            metadata,

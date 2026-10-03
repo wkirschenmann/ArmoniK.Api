@@ -192,10 +192,11 @@ public class ClientStreamingTests : EchoServerFixture
   ///   other calls' to give up, on a schedule this one does not control. Here nothing gives it up:
   ///   the ceiling is held by a serializer on another channel that is held open on purpose.
   ///   <para>
-  ///     The disposal path is not this one and was never exposed: `CancelAndDrain` ends the call
-  ///     before it drains, so a cancelled or disposed call already releases its parked sender.
-  ///     What this drives is the natural terminal - the server answered, the reduction consumed
-  ///     it, and nobody cancelled anything.
+  ///     The disposal path is not this one: `CancelAndDrain` ends the call before it drains, so a
+  ///     cancelled or disposed call releases its parked sender. What this drives is a terminal
+  ///     nobody asked for, the call's deadline. It is the one such terminal a full ceiling lets
+  ///     in: no call reads while the ceiling is held, so a server's answer waits for room, and a
+  ///     deadline ends the call without a read.
   ///   </para>
   /// </remarks>
   [Test]
@@ -261,7 +262,7 @@ public class ClientStreamingTests : EchoServerFixture
       using var call = parked.CreateCallInvoker()
                              .AsyncClientStreamingCall(CollectWith(announces),
                                                        null,
-                                                       new CallOptions());
+                                                       new CallOptions(deadline: DateTime.UtcNow + TimeSpan.FromSeconds(2)));
 
       var parkedWrite = Task.Run(() => call.RequestStream.WriteAsync(new EchoRequest
                                                                     {
@@ -272,15 +273,17 @@ public class ClientStreamingTests : EchoServerFixture
                   Is.True,
                   "the second call reached its lend, which the ceiling refuses");
 
-      // The server answers on the half-close, so the terminal arrives while that send is parked -
-      // and the reduction below consumes it, which is what starts the settlement.
-      await call.RequestStream.CompleteAsync()
-                .ConfigureAwait(false);
-
-      var reply = await call.ResponseAsync.ConfigureAwait(false);
-      Assert.That(reply.Text,
-                  Is.EqualTo("0:"),
-                  "the server read no message, the one this call had never left");
+      // The terminal arrives while that send is parked, and the reduction consumes it, which is
+      // what starts the settlement. Bounded, as the outcome below is.
+      var response = call.ResponseAsync;
+      Assert.That(await Task.WhenAny(response,
+                                     Task.Delay(TimeSpan.FromSeconds(30)))
+                            .ConfigureAwait(false),
+                  Is.SameAs(response),
+                  "the call hears its deadline although no call may read");
+      var ended = Assert.ThrowsAsync<RpcException>(() => response);
+      Assert.That(ended?.StatusCode,
+                  Is.EqualTo(StatusCode.DeadlineExceeded));
 
       // Bounded, and awaited through its outcome rather than by an assertion that awaits: what
       // the missing cancel costs is a wait and not a fault, so an unbounded assertion here would

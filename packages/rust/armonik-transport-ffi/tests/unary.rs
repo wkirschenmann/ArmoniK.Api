@@ -944,6 +944,7 @@ fn a_runtime_config_carries_the_same_head_as_call_options() {
         reserved: 0,
         worker_threads: 1,
         memory_ceiling: 0,
+        memory_hard_ceiling: 0,
     };
     let mut runtime = AK_HANDLE_NONE;
     let status = unsafe {

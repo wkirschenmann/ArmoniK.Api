@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use armonik_transport::grpc::{CallStartOptions, Deadline, Metadata};
 
-use super::{actor, CallServices};
+use super::{actor, CallServices, ReadTurn};
 use crate::abi::{ak_error_kind, ak_handle, ak_status};
 use crate::channel::AkChannel;
 use crate::host::HostPtr;
@@ -41,9 +41,11 @@ pub(crate) fn start_on(
     channel.join()?;
     let joined = Joined(Some(channel));
 
+    let turn = Arc::new(ReadTurn::new(Arc::clone(services.ledger)));
     let mut options = CallStartOptions::new(method);
     options.metadata = metadata;
     options.deadline = deadline;
+    options.read_gate = Some(Arc::clone(&turn) as _);
 
     let grpc_call = match channel.grpc.start_call(options) {
         Ok(call) => call,
@@ -52,15 +54,8 @@ pub(crate) fn start_on(
 
     let (send, recv, control) = grpc_call.split();
     let inserted = tables::calls().insert_with(|handle| {
-        let (state, commands) = actor::create(
-            ctx,
-            handle,
-            Arc::clone(channel),
-            services,
-            control,
-            channel.max_sends_in_flight,
-            channel.delivery_credits,
-        );
+        let (state, commands) =
+            actor::create(ctx, handle, Arc::clone(channel), services, control, turn);
         (Arc::clone(&state), (state, commands))
     });
 

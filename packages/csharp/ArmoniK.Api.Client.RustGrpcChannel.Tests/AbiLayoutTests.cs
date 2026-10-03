@@ -100,7 +100,7 @@ public class AbiLayoutTests
     => Assert.Multiple(() =>
                        {
                          Assert.That(Marshal.SizeOf<ak_runtime_config>(),
-                                     Is.EqualTo(32));
+                                     Is.EqualTo(40));
                          Assert.That(Offset<ak_runtime_config>("struct_size"),
                                      Is.EqualTo(0));
                          Assert.That(Offset<ak_runtime_config>("version"),
@@ -113,6 +113,8 @@ public class AbiLayoutTests
                                      Is.EqualTo(16));
                          Assert.That(Offset<ak_runtime_config>("memory_ceiling"),
                                      Is.EqualTo(24));
+                         Assert.That(Offset<ak_runtime_config>("memory_hard_ceiling"),
+                                     Is.EqualTo(32));
 
                          Assert.That(Marshal.SizeOf<ak_call_start_options>(),
                                      Is.EqualTo(16 + 4 * Ptr + 8));
@@ -211,6 +213,8 @@ public class AbiLayoutTests
                                      Is.EqualTo(5));
                          Assert.That((int)ak_event_kind.AK_EVENT_RESOURCES_RELEASED,
                                      Is.EqualTo(6));
+                         Assert.That((int)ak_event_kind.AK_EVENT_BUDGET_WAKE,
+                                     Is.EqualTo(7));
 
                          Assert.That((int)ak_host_debt.AK_HOST_NOTHING_TO_RETURN,
                                      Is.EqualTo(0));

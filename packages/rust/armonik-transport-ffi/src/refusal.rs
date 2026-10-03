@@ -43,6 +43,11 @@ impl Refusal {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn status(&self) -> ak_status {
+        self.status
+    }
+
     pub(crate) fn config(refused: ConfigRefusal) -> Self {
         Self {
             status: ak_status::AK_STATUS_INVALID_ARG,

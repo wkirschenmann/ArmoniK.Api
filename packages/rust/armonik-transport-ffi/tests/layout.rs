@@ -65,6 +65,7 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_runtime_config) -> &u32 = |config| &config.reserved;
     let _: fn(&ak_runtime_config) -> &u32 = |config| &config.worker_threads;
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_ceiling;
+    let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_hard_ceiling;
 
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.struct_size;
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.version;
@@ -105,7 +106,8 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_runtime_config, reserved), 12);
     assert_eq!(offset_of!(ak_runtime_config, worker_threads), 16);
     assert_eq!(offset_of!(ak_runtime_config, memory_ceiling), 24);
-    assert_eq!(size_of::<ak_runtime_config>(), 32);
+    assert_eq!(offset_of!(ak_runtime_config, memory_hard_ceiling), 32);
+    assert_eq!(size_of::<ak_runtime_config>(), 40);
 
     assert_eq!(offset_of!(ak_call_start_options, struct_size), 0);
     assert_eq!(offset_of!(ak_call_start_options, version), 4);
@@ -305,6 +307,10 @@ fn every_enum_value_is_the_one_the_header_gives_it() {
         (
             "AK_EVENT_RESOURCES_RELEASED",
             ak_event_kind::AK_EVENT_RESOURCES_RELEASED as i32,
+        ),
+        (
+            "AK_EVENT_BUDGET_WAKE",
+            ak_event_kind::AK_EVENT_BUDGET_WAKE as i32,
         ),
         ("AK_HEAD_RECEIVED", ak_head_origin::AK_HEAD_RECEIVED as i32),
         (

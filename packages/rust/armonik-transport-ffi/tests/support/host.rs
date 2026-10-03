@@ -56,10 +56,16 @@ impl Host {
     }
 
     pub fn with_ceiling(memory_ceiling: u64) -> Self {
+        Self::with_ceilings(memory_ceiling, 0)
+    }
+
+    /// A runtime with both thresholds set: where work waits, and where the engine stops.
+    pub fn with_ceilings(memory_ceiling: u64, memory_hard_ceiling: u64) -> Self {
         let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
         let recorder = Arc::new(Recorder::default());
         let lent = Arc::into_raw(Arc::clone(&recorder));
-        let (status, runtime) = try_create_runtime(2, memory_ceiling, lent as *mut c_void);
+        let (status, runtime) =
+            try_create_runtime_with(2, memory_ceiling, memory_hard_ceiling, lent as *mut c_void);
         if status != ak_status::AK_STATUS_OK {
             // No runtime, so no callback, and the reference it would have held is this one's.
             drop(unsafe { Arc::from_raw(lent) });
@@ -243,6 +249,15 @@ pub fn try_create_runtime(
     memory_ceiling: u64,
     runtime_ctx: *mut c_void,
 ) -> (ak_status, ak_handle) {
+    try_create_runtime_with(worker_threads, memory_ceiling, 0, runtime_ctx)
+}
+
+pub fn try_create_runtime_with(
+    worker_threads: u32,
+    memory_ceiling: u64,
+    memory_hard_ceiling: u64,
+    runtime_ctx: *mut c_void,
+) -> (ak_status, ak_handle) {
     let config = ak_runtime_config {
         struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
         version: 0,
@@ -250,6 +265,7 @@ pub fn try_create_runtime(
         reserved: 0,
         worker_threads,
         memory_ceiling,
+        memory_hard_ceiling,
     };
     let mut runtime = AK_HANDLE_NONE;
     let status = unsafe {
@@ -283,10 +299,23 @@ pub fn memory_usage(runtime: ak_handle) -> ak_memory_usage {
 }
 
 pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_status, ak_handle) {
+    try_start_call_within(channel, method, metadata, None)
+}
+
+fn try_start_call_within(
+    channel: ak_handle,
+    method: &str,
+    metadata: &[u8],
+    timeout: Option<Duration>,
+) -> (ak_status, ak_handle) {
     let options = ak_call_start_options {
         struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
         version: 0,
-        flags: 0,
+        flags: if timeout.is_some() {
+            AK_CALL_HAS_DEADLINE
+        } else {
+            0
+        },
         reserved: 0,
         method: ak_bytes_in {
             ptr: method.as_ptr(),
@@ -296,7 +325,7 @@ pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_
             ptr: metadata.as_ptr(),
             len: metadata.len(),
         },
-        timeout_ns: 0,
+        timeout_ns: timeout.map_or(0, |timeout| timeout.as_nanos() as u64),
     };
     let mut call = AK_HANDLE_NONE;
     let status = unsafe {
@@ -313,6 +342,17 @@ pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_
 
 pub fn start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> ak_handle {
     let (status, call) = try_start_call(channel, method, metadata);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    call
+}
+
+pub fn start_call_within(
+    channel: ak_handle,
+    method: &str,
+    metadata: &[u8],
+    timeout: Duration,
+) -> ak_handle {
+    let (status, call) = try_start_call_within(channel, method, metadata, Some(timeout));
     assert_eq!(status, ak_status::AK_STATUS_OK);
     call
 }

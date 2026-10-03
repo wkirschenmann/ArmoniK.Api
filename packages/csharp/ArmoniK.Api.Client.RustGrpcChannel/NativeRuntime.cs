@@ -32,7 +32,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///
 /// One per process, because the engine admits one and says so: `ak_runtime_create` refuses while
 /// another lives. That is a fact about the library and not a policy of this type, which is why a
-/// second <see cref="Create" /> answers at once instead of waiting for the first to go.
+/// second <see cref="Create(uint,ulong,ulong)" /> answers at once instead of waiting for the first to go.
 ///
 /// <para>
 ///   Its lifetime is the caller's, declared: what it makes, it disposes. A channel cannot outlive
@@ -41,8 +41,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// </para>
 public sealed class NativeRuntime : IAsyncDisposable
 {
-  private static readonly TimeSpan RoomPollInterval = TimeSpan.FromMilliseconds(2);
-
   private static readonly TimeSpan JoinPollInterval = TimeSpan.FromMilliseconds(1);
 
   private static readonly TimeSpan FailurePollInterval = TimeSpan.FromMilliseconds(100);
@@ -74,16 +72,18 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
   private readonly ArrivalSignal announced_ = new();
 
-  private NativeRuntime(uint workerThreads,
-                        ulong memoryCeiling)
+  private NativeRuntime(uint  workerThreads,
+                        ulong memoryCeiling,
+                        ulong memoryHardCeiling)
   {
     self_ = GCHandle.Alloc(this);
 
     var config = new ak_runtime_config
                  {
-                   struct_size    = (uint)Marshal.SizeOf<ak_runtime_config>(),
-                   worker_threads = workerThreads,
-                   memory_ceiling = memoryCeiling,
+                   struct_size         = (uint)Marshal.SizeOf<ak_runtime_config>(),
+                   worker_threads      = workerThreads,
+                   memory_ceiling      = memoryCeiling,
+                   memory_hard_ceiling = memoryHardCeiling,
                  };
 
     unsafe
@@ -132,13 +132,24 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   /// <summary>Starts the engine, which the caller owns until it disposes it.</summary>
   /// <param name="workerThreads">How many threads the engine runs on; 0 leaves it its own.</param>
-  /// <param name="memoryCeiling">What it may lend for messages at once; 0 leaves it its own.</param>
+  /// <param name="memoryCeiling">
+  ///   The bytes of messages, sent and received, it holds before work waits: a call stops reading
+  ///   and a send waits for room. 0 leaves it its own.
+  /// </param>
+  /// <param name="memoryHardCeiling">
+  ///   The bytes past which it stops: a received message that would pass them ends its call with
+  ///   <c>RESOURCE_EXHAUSTED</c>. 0 is a quarter above the first threshold in force -
+  ///   <paramref name="memoryCeiling" />, or the engine's own when that is 0 - and less than that
+  ///   threshold is refused.
+  /// </param>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
   /// <exception cref="InvalidOperationException">
-  ///   The library speaks another ABI, or a runtime already lives in this process.
+  ///   The library speaks another ABI, a runtime already lives in this process, or the second
+  ///   threshold is below the first.
   /// </exception>
-  public static NativeRuntime Create(uint workerThreads = 0,
-                                     ulong memoryCeiling = 0)
+  public static NativeRuntime Create(uint  workerThreads     = 0,
+                                     ulong memoryCeiling     = 0,
+                                     ulong memoryHardCeiling = 0)
   {
     int found;
     try
@@ -156,7 +167,8 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
 
     return new NativeRuntime(workerThreads,
-                             memoryCeiling);
+                             memoryCeiling,
+                             memoryHardCeiling);
   }
 
   /// <summary>Opens a channel with the options a configuration carries.</summary>
@@ -374,32 +386,6 @@ public sealed class NativeRuntime : IAsyncDisposable
         throw RustEngineMissingException.For(absent);
       }
     }
-  }
-
-  internal async Task WaitForRoomAsync(CancellationToken token)
-  {
-    while (true)
-    {
-      await Task.Delay(RoomPollInterval,
-                       token)
-                .ConfigureAwait(false);
-
-      if (HasRoom(handle_))
-      {
-        return;
-      }
-    }
-  }
-
-  // Out of WaitForRoomAsync, because the usage is read through its address and an async method
-  // may not take one.
-  private static unsafe bool HasRoom(ulong runtime)
-  {
-    ak_memory_usage usage;
-    return NativeMethods.ak_runtime_memory_usage(runtime,
-                                                 &usage,
-                                                 null) != ak_status.AK_STATUS_OK || usage.ceiling == 0 ||
-           usage.bytes_used < usage.ceiling;
   }
 
   private async Task RetireAsync()

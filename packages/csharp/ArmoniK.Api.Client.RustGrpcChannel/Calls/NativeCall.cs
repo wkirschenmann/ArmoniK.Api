@@ -64,15 +64,13 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   /// <summary>The settlement, kept so its completion is owned rather than dropped.</summary>
   private Task? settling_;
 
-  private NativeCall(NativeRuntime runtime,
-                     int deliveryCredits,
+  private NativeCall(int deliveryCredits,
                      Marshaller<TResponse> marshaller)
   {
     receiving_ = new Receiver<TResponse>(this,
                                         deliveryCredits,
                                         marshaller);
-    sending_ = new Sender(this,
-                          runtime);
+    sending_ = new Sender(this);
 
     self_ = GCHandle.Alloc(this);
   }
@@ -95,8 +93,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   public void EndCall()
     => ending_.Cancel();
 
-  internal static NativeCall<TResponse> Start(NativeRuntime runtime,
-                                              ulong channel,
+  internal static NativeCall<TResponse> Start(ulong channel,
                                               int deliveryCredits,
                                               string method,
                                               Metadata? metadata,
@@ -109,8 +106,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                            static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = RawMetadata.Encode(metadata);
     var (flags, timeoutNs) = TimeoutOf(deadline);
-    var call = new NativeCall<TResponse>(runtime,
-                                         deliveryCredits,
+    var call = new NativeCall<TResponse>(deliveryCredits,
                                          marshaller);
 
     // The engine copies both before it answers, so the pin lasts exactly the call.
@@ -216,6 +212,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     if (kind == ak_event_kind.AK_EVENT_WRITE_DONE)
     {
       sending_.Acquitted();
+      return false;
+    }
+
+    if (kind == ak_event_kind.AK_EVENT_BUDGET_WAKE)
+    {
+      sending_.Woken();
       return false;
     }
 

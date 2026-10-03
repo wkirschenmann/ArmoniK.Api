@@ -230,7 +230,7 @@ larger, reference-counted one; the host passes it back unchanged. This library n
 lent buffer on its own - not on cancellation, not on channel close - which is what removes the
 race between a writing thread and a cancelling one.
 
-The payload of `AK_EVENT_WRITE_DONE`, `AK_EVENT_SHUTDOWN_COMPLETE` and
+The payload of `AK_EVENT_WRITE_DONE`, `AK_EVENT_BUDGET_WAKE`, `AK_EVENT_SHUTDOWN_COMPLETE` and
 `AK_EVENT_RESOURCES_RELEASED` is still present, as the empty and unowned value, so
 `owner == NULL` is the single test for there being nothing to give back, and `ak_event_consumed`
 on it is a no-op rather than an error. Reading `len` instead of `owner` is how a call would
@@ -265,6 +265,14 @@ a slot of the window and gets its `AK_EVENT_WRITE_DONE` like any other.
 
 A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
 refused as the others are - nothing charged, no slot spent - while the runtime carries on.
+
+A lend refused with `AK_STATUS_BUDGET_BUSY` leaves the call waiting on that length until a lend
+of it succeeds or the call ends, and every release that gives bytes back meanwhile owes the call
+an `AK_EVENT_BUDGET_WAKE`. While it waits, every call of the runtime reads only below the ceiling
+lowered by that length, so the host must try again when woken or cancel the call: a send given up
+on a live call holds reception lowered for the whole runtime. The event may arrive in parallel
+with the call's data callbacks, like `AK_EVENT_WRITE_DONE`, and before its terminal; it promises
+no room, since another call may take it first.
 
 When `ak_call_send_message`'s allocation is freed is this library's business and is not
 observable: the engine copies the message out when it encodes it, and the allocation goes then,
@@ -313,10 +321,14 @@ given - which is to say the host owes nothing.
 
 #### Memory usage
 
-`ak_runtime_memory_usage` is what a retry after `AK_STATUS_BUDGET_BUSY` needs, and it needs
-nothing else. A buffer occupies the ceiling from `ak_get_call_buffer` until the runtime frees its
-bytes, and committing it frees nothing - it hands the same bytes from the host to the runtime -
-so only a fall in the total proves capacity came back, and one number carries that. It answers
+`ak_runtime_memory_usage` is the runtime's accounting, one number against the ceiling: the bytes
+of the buffers lent and of the messages received and not yet given back. A retry after
+`AK_STATUS_BUDGET_BUSY` does not read it - `AK_EVENT_BUDGET_WAKE` says when a release gave bytes
+back - but an operator does. A buffer occupies the ceiling from `ak_get_call_buffer` until the
+runtime frees its bytes, and committing it frees nothing - it hands the same bytes from the host
+to the runtime - so only a fall in the total proves capacity came back. The number may pass the
+ceiling, the first threshold, by a message per call admitted to read below it, and never the
+second. It answers
 on a failed runtime, where a host wants the accounting most, and with `AK_STATUS_HANDLE_STALE`
 after `ak_runtime_destroy`. The detailed form, under "Specified, not built" below, says why the
 ceiling is held.

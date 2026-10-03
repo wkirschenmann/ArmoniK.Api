@@ -185,6 +185,20 @@ impl Recorder {
         })
     }
 
+    pub fn await_budget_wake(&self) -> Seen {
+        self.await_kind("a budget wake-up", ak_event_kind::AK_EVENT_BUDGET_WAKE)
+    }
+
+    /// Waits until `wanted` calls have their terminal.
+    pub fn await_terminals(&self, wanted: usize) -> Seen {
+        self.wait_for(&format!("{wanted} terminal(s)"), |seen| {
+            seen.iter()
+                .filter(|event| event.kind == ak_event_kind::AK_EVENT_STATUS)
+                .count()
+                >= wanted
+        })
+    }
+
     pub fn await_shutdown(&self) -> Seen {
         self.await_kind("a shutdown", ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
     }

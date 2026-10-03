@@ -8,11 +8,12 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use super::lent::lend_payload;
-use super::{CallServices, CallState, Command, Debt};
+use super::{CallServices, CallState, Command, Debt, ReadTurn};
 use crate::abi::{ak_event_kind, ak_handle, ak_head_origin};
 use crate::blob;
 use crate::channel::AkChannel;
 use crate::host::HostPtr;
+use crate::ledger::{Received, Waiter};
 
 pub(super) fn create(
     ctx: HostPtr,
@@ -20,10 +21,9 @@ pub(super) fn create(
     channel: Arc<AkChannel>,
     services: &CallServices<'_>,
     control: CallControl,
-    max_sends_in_flight: usize,
-    delivery_credits: usize,
+    turn: Arc<ReadTurn>,
 ) -> (Arc<CallState>, mpsc::Receiver<Command>) {
-    let (tx, rx) = mpsc::channel(max_sends_in_flight + 1);
+    let (tx, rx) = mpsc::channel(channel.max_sends_in_flight + 1);
 
     let state = Arc::new(CallState {
         ctx,
@@ -31,13 +31,15 @@ pub(super) fn create(
         ledger: Arc::clone(services.ledger),
         control,
         commands: tx,
-        window: Semaphore::new(max_sends_in_flight),
-        credits: Semaphore::new(delivery_credits),
+        window: Semaphore::new(channel.max_sends_in_flight),
+        credits: Semaphore::new(channel.delivery_credits),
         debt: Debt::default(),
         cancelled: AtomicBool::new(false),
         progress: watch::channel(0).0,
         over: watch::channel(false).0,
         sending: AtomicU32::new(0),
+        waiter: Arc::new(Waiter::default()),
+        turn,
         channel,
         handle,
     });
@@ -93,6 +95,18 @@ async fn write_until_closed(
                     draining = true;
                     continue;
                 }
+                // Raised here, on the task the reader waits for before the terminal, so the
+                // terminal stays the call's last callback.
+                () = state.waiter.notified() => {
+                    if state.waiter.take_owed() && state.accepts_work() {
+                        state.in_callback(|| {
+                            state
+                                .host
+                                .signal(state.ctx, ak_event_kind::AK_EVENT_BUDGET_WAKE)
+                        });
+                    }
+                    continue;
+                }
                 command = commands.recv() => command,
             }
         };
@@ -119,8 +133,8 @@ async fn write_until_closed(
                         "a send accepted at the lend was refused by the transport: {sent:?}"
                     );
                 }
-                // Given back inside the callback, so a host that lends again on WRITE_DONE finds the
-                // room the message it just sent freed rather than a refusal it cannot explain.
+                // Given back inside the callback, so a host that lends again on WRITE_DONE finds
+                // the room the message it just sent freed rather than a refusal it cannot explain.
                 state.in_callback(|| {
                     state.window.add_permits(1);
                     state.ledger.release_bytes(charged);
@@ -155,6 +169,8 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
 
     state.over.send_replace(true);
     let _ = writer_is_done.await;
+    // The call is over, so its send waits on nothing more.
+    state.ledger.stop_waiting(&state.waiter);
 
     {
         let payload = lend_payload(
@@ -165,6 +181,7 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
             )),
             // The terminal was never charged a delivery credit, so consuming it returns none.
             false,
+            None,
         );
         state.in_callback(|| {
             state.host.deliver(
@@ -207,6 +224,7 @@ async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatu
         ak_event_kind::AK_EVENT_INITIAL_METADATA,
         Bytes::from(head),
         origin as i32,
+        None,
     )
     .await;
 
@@ -219,11 +237,31 @@ async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatu
             break GrpcStatus::cancelled();
         }
 
+        // The engine waits on the call's turn before it reads the message off the stream; the
+        // message is charged here, once it arrives decoded.
         match recv.next_message().await {
             Ok(RecvResult::Message(message)) => {
-                if !deliver(state, ak_event_kind::AK_EVENT_MESSAGE, message.data, 0).await {
+                let Some(charge) = state.ledger.hold_received(message.data.len()) else {
+                    // Freed at once, and the peer told: past the second threshold the process
+                    // would run out of memory before the host gave anything back.
+                    state.control.cancel();
+                    break GrpcStatus::new(
+                        GrpcStatusCode::ResourceExhausted,
+                        "the runtime's ceiling on received messages is reached",
+                    );
+                };
+                if !deliver(
+                    state,
+                    ak_event_kind::AK_EVENT_MESSAGE,
+                    message.data,
+                    0,
+                    Some(charge),
+                )
+                .await
+                {
                     break GrpcStatus::cancelled();
                 }
+                state.turn.delivered();
             }
             Ok(RecvResult::End(status)) => break status,
             Err(_) => break GrpcStatus::cancelled(),
@@ -237,7 +275,13 @@ async fn reclaim(state: &Arc<CallState>) {
     crate::lifecycle::call_settled(state.handle);
 }
 
-async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes, code: i32) -> bool {
+async fn deliver(
+    state: &Arc<CallState>,
+    kind: ak_event_kind,
+    data: Bytes,
+    code: i32,
+    charge: Option<Received>,
+) -> bool {
     let permit = tokio::select! {
         biased;
         permit = state.credits.acquire() => permit,
@@ -250,7 +294,7 @@ async fn deliver(state: &Arc<CallState>, kind: ak_event_kind, data: Bytes, code:
         Err(_) => return false,
     }
 
-    let payload = lend_payload(state, data, true);
+    let payload = lend_payload(state, data, true, charge);
     state.in_callback(|| state.host.deliver(state.ctx, kind, payload, code));
     true
 }

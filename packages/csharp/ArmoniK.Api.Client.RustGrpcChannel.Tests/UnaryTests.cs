@@ -50,6 +50,10 @@ public class UnaryTests : EchoServerFixture
   /// <summary>Room for one of the messages the ceiling test sends, and not two.</summary>
   private const ulong Ceiling = 128 * 1024;
 
+  /// <summary>Past the first threshold by a reply for every call the ceiling test makes: a call
+  /// admitted to read below the first takes at most one reply past it, so none reaches this.</summary>
+  private const ulong HardCeiling = Ceiling + 16 * 100_000;
+
   /// <summary>Every option set in a configuration, and a call over the channel it opens.</summary>
   /// <remarks>
   ///   The whole path: an environment variable, .NET's binder, the generated options, the JSON,
@@ -668,15 +672,17 @@ public class UnaryTests : EchoServerFixture
                           100_000);
 
     var runtime = await RestartAsync(workerThreads: 2,
-                                     memoryCeiling: Ceiling)
+                                     memoryCeiling: Ceiling,
+                                     memoryHardCeiling: HardCeiling)
                     .ConfigureAwait(false);
 
     await using var channel = runtime.Channel(Endpoint);
     var client = Client(channel);
 
-    // Sampled while they run, because what the ceiling promises is about the middle of this and
-    // not its end: that the bytes lent at once never pass it. Read at the end alone, every call
-    // has given everything back and the reading is zero whether the ceiling held or not.
+    // Sampled while they run, because what the ceilings promise is about the middle of this and
+    // not its end: that the bytes held at once, sent and received, never pass the second. Read at
+    // the end alone, every call has given everything back and the reading is zero whether the
+    // ceiling held or not.
     using var over = new CancellationTokenSource();
     var high = 0UL;
     var watching = Task.Run(() =>
@@ -723,8 +729,8 @@ public class UnaryTests : EchoServerFixture
                                   Is.GreaterThanOrEqualTo((ulong)text.Length),
                                   "the ceiling was reached, so a call did wait for room");
                       Assert.That(high,
-                                  Is.LessThanOrEqualTo(Ceiling),
-                                  "and nothing was lent past it");
+                                  Is.LessThanOrEqualTo(HardCeiling),
+                                  "and nothing was held past the second threshold");
                     });
   }
 

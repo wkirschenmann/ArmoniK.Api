@@ -379,21 +379,52 @@ allocation the host sizes - is reserved with the fallible form, `try_reserve_exa
 failure returns rather than aborting, and that return is what `AK_STATUS_INTERNAL` reports. The infallible `Vec` and `Bytes`
 APIs are what abort; the emission path does not use them.
 
-**The budget covers the emission path and only it.** What it governs is the memory this
-runtime allocates against a quota of its own and can therefore refuse: the buffers
-`ak_get_call_buffer` lends. Receive-side memory is not in it. Those bytes belong to hyper and
-are governed by the HTTP/2 flow-control window rather than by anything the ABI exposes, and
-there is no refusal to expose: a genuine allocation failure in Rust runs the allocation error
-hook and aborts, so `Vec` and `Bytes` offer no `Result` to turn into a status. A fallible
-receive path would be a different design - reserving from a bounded pool and resetting the
-stream with `RESOURCE_EXHAUSTED` when the reservation fails - and it is not this one. This is
-why the model's budget is welded to the send-buffer lifecycle alone, and why
-`BudgetEventuallyHasRoomFor` is a statement about lending rather than about all memory.
+**The budget covers both directions, with two thresholds.** One count of bytes holds what
+`ak_get_call_buffer` lends and what the engine receives: a message is charged its length from
+the moment it is decoded until the host gives it back with `ak_event_consumed`, or until its call
+ends without having delivered it. The slack a message may keep alive in tonic's decode buffer is
+taken as negligible. Nothing on the receive side allocates against a refusal, which is what made
+a fallible receive path look necessary: a count of messages already decoded needs none. The
+decision is taken before the read instead - a call is admitted to read its next message only
+below the first threshold, `memory_ceiling`, and held back above it, HTTP/2 flow control then
+stopping the peer as it does when a call is out of delivery credits. The second threshold,
+`memory_hard_ceiling`, is where the engine stops: calls admitted together below the first may
+pass it by a message each, and a decoded message that would take the count past the second ends
+its call with `RESOURCE_EXHAUSTED` and is freed at once. Level 1 models the two steps of the read
+as two actions, `AdmitRead` and `NetworkReceive`, because an atomic read would hide the very
+overshoot the second threshold bounds.
+
+**A send refused for room is served before new reads.** While one waits, the threshold where
+reads stop is lowered by the largest length waiting, and goes back once that send is served or
+its call ends. Without it, received bytes would keep the count from falling under steady
+traffic, and a refused send could wait forever - level 1's `RefusedSendEventuallyHasRoom` is
+proved from that hold. The length and not the charge: a refused charge may exceed the first
+threshold, while a length past it is `MESSAGE_TOO_LARGE`, so the lowered threshold is never below
+zero.
+
+**Sends in flight hold reads back too.** The count holds a committed message until its WRITE_DONE,
+and HTTP/2 flow control can hold that send until the peer reads, which on a bidirectional call may
+wait for this side to read. With the count at the first threshold, neither moves until another
+call gives room back or a deadline ends the call; a BUDGET_WAKE owed to that call waits as well,
+since its writer raises it once the send returns. The ceiling is therefore sized above what the
+calls a process runs at once keep in flight. The .NET binding keeps at most one, and holds none
+when it lends.
+
+**The engine decides when a call reads; the runtime supplies the rule.** The admission is a
+`ReadGate` the call starts with, which `armonik-transport` waits on before it reads each message
+off the stream. The runtime's gate opens once the call has delivered the message it read last and
+the ceiling admits a read - level 1's two conditions for `AdmitRead`. Waiting there, a call is
+still ended by what ends any of its waits - its deadline, its cancellation, its channel closing -
+as grpc-java and grpc-dotnet end a call whose reader is not reading. A status the peer sends is
+read where its messages are, behind the gate, as both deliver a status only after the messages
+before it: a held-back call learns how its peer ended it once there is room. Level 1 receives a
+status ungated; a call that waits there is the back-pressure the budget exists to apply, and the
+host ends it by giving back what it holds or by cancelling.
 
 **What a buffer charges against the budget** is the capacity of the allocation that backs it,
 not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
 `len` is the request it must cover, and `bytes_used` is the sum of `charge(b)` over every buffer
-lent and not yet freed. Each lend gets a fresh allocation of exactly `len`, so today the charge
+lent and not yet freed, plus the length of every message received and not yet given back. Each lend gets a fresh allocation of exactly `len`, so today the charge
 is the request; a pooled arena would charge the capacity of the buffer it hands out.
 The two refusals are then
 
@@ -416,9 +447,9 @@ outside the ceiling, wrong by however much it comes to - silently, and in the di
 matters. The allocator's own size-class rounding stays outside regardless: Rust's stable
 allocation interface does not report it, and it is small against a message.
 
-What the ceiling bounds is what the engine lends. The copy tonic's encoder makes of each
-message is outside it, and so is what the receive path buffers; neither is bounded
-runtime-wide.
+What the ceiling bounds is what the engine lends and what it has received and not had back.
+The copy tonic's encoder makes of each message is outside it, and so is what hyper buffers below
+the decoder within the flow-control window; neither is bounded runtime-wide.
 
 What that costs is the predictability of one refusal, and only one. `MESSAGE_TOO_LARGE` stays
 a predicate the host can evaluate *before* it calls, because it reads `len` and the ceiling
@@ -438,25 +469,27 @@ standing. Configuring the ceiling as though it were an RSS limit is the concrete
 paragraph exists to prevent, and stating that much does not require the bound.
 
 Two of the refusals are transient and each needs its own wake-up. `AK_STATUS_SLOT_BUSY`
-has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has none of its own - a call refused for the
-ceiling has no send in flight, so nothing of that call can wake it - and that is why
-`ak_runtime_memory_usage` exists: the host polls the runtime's accounting instead. The third
-refusal, `AK_STATUS_MESSAGE_TOO_LARGE`, needs no wake-up because waiting cannot help, and
-`AK_STATUS_INVALID_STATE` needs none either: it reports a guard, not a shortage.
+has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has `AK_EVENT_BUDGET_WAKE`: a call refused for the
+ceiling has no send in flight, so nothing of that call frees room, and the event comes from the
+releases of others. The third refusal, `AK_STATUS_MESSAGE_TOO_LARGE`, needs no wake-up because
+waiting cannot help, and `AK_STATUS_INVALID_STATE` needs none either: it reports a guard, not a
+shortage.
 
-The budget wake-up is a poll and not a signal on purpose, for now. A signal would have to
-fire at the moment the native budget is genuinely recredited rather than when the host hands
-something back - committing a buffer moves bytes from the host to the runtime without
-freeing any - and a signal on the wrong edge is a wake-up that never comes. A
-signal or an epoch can be added later without changing the contract, since the poll remains
-correct in its presence. What the poll does *not* give on its own is freedom from
-starvation: another call can win the capacity between the observation and the retry. Level 2
-states the honest contract there: the wait is cancellable and nothing more - cancellation
-and dispose end it, the successful lend ends it, and no repetition of attempts, cadence or
-backoff is promised, because a promise of attempts would prove nothing (a refused retry
-changes nothing observable) while acquisition would need the arbitration formal-model.md's
-liveness sections discuss.
-The cadence and the backoff are implementation choices, verified by review and tests.
+The wake-up fires where the count falls - a send buffer's release, at its WRITE_DONE or when it
+is given back unsent, and a received message's at `ak_event_consumed` - and never at a commit,
+which moves bytes from the host to the runtime without freeing any: a signal on that edge would
+be a wake-up that never comes. It wakes every call refused since the last release, carries no
+payload and takes no delivery credit, as WRITE_DONE takes none. Waking every one rather than one
+is what keeps the wake-up from being lost: a single call woken that does not try again would
+leave the others asleep with room available. The engine raises it from the task that also
+delivers the call's terminal, which waits for it, so the terminal stays the call's last event.
+
+A host woken is obliged to try the send again or to cancel the call, as it is obliged to give a
+payload back: one that gives up a send and keeps its call holds reception lowered for the whole
+runtime. What the wake-up does *not* give is freedom from starvation: another call can take the
+room between the release and the retry. Level 2 states the honest contract there: the wait is
+cancellable and nothing more - cancellation and dispose end it, the successful lend ends it, and
+no acquisition is promised, because that would need an arbitration the ABI does not have.
 
 A fatal ceiling - the rejected alternative - would be wrong, not merely pessimistic:
 `AK_RUNTIME_FAILED_UNQUIESCED` is absorbing and `ak_runtime_destroy` is refused from it

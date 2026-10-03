@@ -4,16 +4,18 @@ use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_st
 use crate::channel::AkChannel;
 use crate::host::Host;
 use crate::ledger::Ledger;
+use crate::refusal::Refusal;
 use crate::runtime::{AkRuntime, Claim};
 use crate::tables;
 
 pub(crate) fn create_runtime(
     worker_threads: u32,
     memory_ceiling: u64,
+    memory_hard_ceiling: u64,
     host: Host,
-) -> Result<ak_handle, ak_status> {
+) -> Result<ak_handle, Refusal> {
     let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
-    let runtime = AkRuntime::new(worker_threads, memory_ceiling, host)?;
+    let runtime = AkRuntime::new(worker_threads, memory_ceiling, memory_hard_ceiling, host)?;
     let handle = tables::runtimes()
         .insert(runtime)
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;

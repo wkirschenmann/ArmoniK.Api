@@ -86,6 +86,13 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
                                         $"the serializer announced a length twice: {Capacity} bytes, then {payloadLength}"));
     }
 
+    // An empty message needs no buffer: the engine sends it with none, and refuses a lend of no
+    // bytes.
+    if (payloadLength == 0)
+    {
+      return;
+    }
+
     if (Take(payloadLength) == ak_status.AK_STATUS_BUDGET_BUSY)
     {
       // Serializing onto the managed heap instead would answer backpressure with the very
@@ -119,6 +126,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     if (Holding)
     {
       GiveBack();
+    }
+
+    if (payload.Length == 0)
+    {
+      return;
     }
 
     if (Take(payload.Length) == ak_status.AK_STATUS_BUDGET_BUSY)

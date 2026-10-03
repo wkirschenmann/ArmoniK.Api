@@ -210,9 +210,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
         ///  the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
         ///  is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
-        ///  runtime-wide ceiling, and has no single event announcing room: poll ak_runtime_memory_usage.
-        ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. An allocator failure for the buffer is
-        ///  AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
+        ///  runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
+        ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
+        ///  message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
+        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
         ///  cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no
         ///  buffer is lent and `*out` is untouched.
         ///
@@ -226,6 +227,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
         /// <summary>
         ///  Commits a lent buffer as the next message. Ownership passes back to this library.
+        ///
+        ///  An empty message takes no buffer: `buffer` is then the empty one, owner NULL and len 0, and the
+        ///  send takes a slot of the window as any other, AK_STATUS_SLOT_BUSY when there is none. A zeroed
+        ///  `ak_buffer` is that empty one, so committing the zeroed `*out` of a refused
+        ///  ak_get_call_buffer, which the refusal leaves untouched, sends an empty message.
         ///
         ///  AK_EVENT_WRITE_DONE settles an accepted send and frees its slot from the moment the event is
         ///  emitted, not when the callback returns - so a host woken by it may ask for a buffer from inside
@@ -383,9 +389,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     /// <summary>
     ///  On the callback's stack; no lifecycle of its own. The payload is owned when owner is not NULL.
     ///
-    ///  WRITE_DONE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED carry no payload: ptr == NULL, len == 0,
-    ///  owner == NULL. ak_event_consumed on such a payload is a no-op, so a host may route every event
-    ///  through one path.
+    ///  WRITE_DONE, BUDGET_WAKE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED carry no payload: ptr ==
+    ///  NULL, len == 0, owner == NULL. ak_event_consumed on such a payload is a no-op, so a host may
+    ///  route every event through one path.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct ak_event
@@ -424,19 +430,31 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public uint worker_threads;
         /// <summary>
-        ///  Bytes lent buffers may occupy at once. Zero, or more than this library can lend, asks for
-        ///  its own ceiling: four gigabytes, or half the address space where that is smaller - the gRPC
-        ///  length prefix and the allocator between them admit no more, so a budget above it is one no
-        ///  single lend could draw on.
+        ///  Bytes past which work waits, counting the buffers lent and the messages received until
+        ///  the host consumes them: a call stops reading, and a lend is refused with
+        ///  AK_STATUS_BUDGET_BUSY. Zero, or more than this library can lend, asks for its own: four
+        ///  gigabytes, or half the address space where that is smaller - the gRPC length prefix and the
+        ///  allocator between them admit no more, so a budget above it is one no single lend could draw
+        ///  on.
         /// </summary>
         public ulong memory_ceiling;
+        /// <summary>
+        ///  Bytes past which the engine stops: a received message that would take the count past it
+        ///  ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below memory_ceiling may pass
+        ///  it together, by a message each, and this bounds them. Zero is a quarter above the first
+        ///  threshold in force, memory_ceiling or this library's own; a value below that threshold is
+        ///  AK_STATUS_INVALID_ARG.
+        /// </summary>
+        public ulong memory_hard_ceiling;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct ak_memory_usage
     {
         /// <summary>
-        ///  Occupied against the ceiling, atomic snapshot.
+        ///  The buffers lent and the messages received and not yet given back, atomic snapshot. Past
+        ///  `ceiling` by up to a message per call admitted to read, and never past the second
+        ///  threshold.
         /// </summary>
         public ulong bytes_used;
         /// <summary>
@@ -549,7 +567,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         AK_STATUS_INTERNAL = 4,
         /// <summary>
-        ///  The runtime-wide byte ceiling is reached - poll ak_runtime_memory_usage and retry.
+        ///  The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE.
+        ///  Until the send is served or the call ends, reads are held back for it across the whole
+        ///  runtime, so a host woken must try again or cancel the call.
         /// </summary>
         AK_STATUS_BUDGET_BUSY = 5,
         /// <summary>
@@ -632,6 +652,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  And now nothing of it is outstanding.
         /// </summary>
         AK_EVENT_RESOURCES_RELEASED = 6,
+        /// <summary>
+        ///  A release gave bytes back since this call's send was refused with AK_STATUS_BUDGET_BUSY:
+        ///  try it again. Every call refused since the last release is woken, and none is promised
+        ///  the room: another may take it first.
+        /// </summary>
+        AK_EVENT_BUDGET_WAKE = 7,
     }
 
     /// <summary>

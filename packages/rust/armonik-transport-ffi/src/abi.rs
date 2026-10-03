@@ -32,7 +32,9 @@ pub enum ak_status {
     AK_STATUS_INVALID_ARG = 3,
     /// A fault the ABI cannot attribute.
     AK_STATUS_INTERNAL = 4,
-    /// The runtime-wide byte ceiling is reached - poll ak_runtime_memory_usage and retry.
+    /// The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE.
+    /// Until the send is served or the call ends, reads are held back for it across the whole
+    /// runtime, so a host woken must try again or cancel the call.
     AK_STATUS_BUDGET_BUSY = 5,
     /// A valid handle at the wrong moment: a send after the terminal, a start while stopping, a
     /// destroy before quiescence. A guard refused, which is not a fault.
@@ -86,6 +88,10 @@ pub enum ak_event_kind {
     AK_EVENT_SHUTDOWN_COMPLETE = 5,
     /// And now nothing of it is outstanding.
     AK_EVENT_RESOURCES_RELEASED = 6,
+    /// A release gave bytes back since this call's send was refused with AK_STATUS_BUDGET_BUSY:
+    /// try it again. Every call refused since the last release is woken, and none is promised
+    /// the room: another may take it first.
+    AK_EVENT_BUDGET_WAKE = 7,
 }
 
 /// Carried by AK_EVENT_INITIAL_METADATA in status_code: where the head came from. The event comes
@@ -207,9 +213,9 @@ pub struct ak_buffer {
 
 /// On the callback's stack; no lifecycle of its own. The payload is owned when owner is not NULL.
 ///
-/// WRITE_DONE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED carry no payload: ptr == NULL, len == 0,
-/// owner == NULL. ak_event_consumed on such a payload is a no-op, so a host may route every event
-/// through one path.
+/// WRITE_DONE, BUDGET_WAKE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED carry no payload: ptr ==
+/// NULL, len == 0, owner == NULL. ak_event_consumed on such a payload is a no-op, so a host may
+/// route every event through one path.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ak_event {
@@ -226,9 +232,9 @@ pub struct ak_event {
 /// runtime's last event.
 ///
 /// Data callbacks (INITIAL_METADATA, MESSAGE, STATUS) are serialized per call and concurrent
-/// between calls. WRITE_DONE may arrive in parallel with any of them, including for the same call:
-/// a per-call lock in the handler would hold the slot release hostage behind a slow message
-/// handler.
+/// between calls. WRITE_DONE and BUDGET_WAKE may arrive in parallel with any of them, including
+/// for the same call: a per-call lock in the handler would hold the slot release hostage behind a
+/// slow message handler. Both come before the call's STATUS, which stays its last event.
 ///
 /// A callback runs on one of this library's own worker threads, and every promise made here about
 /// progress - a send reaching the wire, an acquittal, a call being reclaimed, a shutdown
@@ -253,11 +259,19 @@ pub struct ak_runtime_config {
     pub reserved: u32,
     /// Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
     pub worker_threads: u32,
-    /// Bytes lent buffers may occupy at once. Zero, or more than this library can lend, asks for
-    /// its own ceiling: four gigabytes, or half the address space where that is smaller - the gRPC
-    /// length prefix and the allocator between them admit no more, so a budget above it is one no
-    /// single lend could draw on.
+    /// Bytes past which work waits, counting the buffers lent and the messages received until
+    /// the host consumes them: a call stops reading, and a lend is refused with
+    /// AK_STATUS_BUDGET_BUSY. Zero, or more than this library can lend, asks for its own: four
+    /// gigabytes, or half the address space where that is smaller - the gRPC length prefix and the
+    /// allocator between them admit no more, so a budget above it is one no single lend could draw
+    /// on.
     pub memory_ceiling: u64,
+    /// Bytes past which the engine stops: a received message that would take the count past it
+    /// ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below memory_ceiling may pass
+    /// it together, by a message each, and this bounds them. Zero is a quarter above the first
+    /// threshold in force, memory_ceiling or this library's own; a value below that threshold is
+    /// AK_STATUS_INVALID_ARG.
+    pub memory_hard_ceiling: u64,
 }
 
 /// How far along a channel's closing is. A handle this library no longer knows reads as NONE,
@@ -277,7 +291,9 @@ pub enum ak_channel_state {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ak_memory_usage {
-    /// Occupied against the ceiling, atomic snapshot.
+    /// The buffers lent and the messages received and not yet given back, atomic snapshot. Past
+    /// `ceiling` by up to a message per call admitted to read, and never past the second
+    /// threshold.
     pub bytes_used: u64,
     /// The limit in force, which is what was configured or this library's own where that is
     /// smaller. Never zero.
@@ -393,7 +409,7 @@ pub(crate) unsafe trait Record: Copy {
 
 // SAFETY: integers only.
 unsafe impl Record for ak_runtime_config {
-    const FIRST_SIZE: usize = std::mem::size_of::<Self>();
+    const FIRST_SIZE: usize = std::mem::offset_of!(Self, memory_hard_ceiling);
     const FLAGS: u32 = 0;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[];
 }
