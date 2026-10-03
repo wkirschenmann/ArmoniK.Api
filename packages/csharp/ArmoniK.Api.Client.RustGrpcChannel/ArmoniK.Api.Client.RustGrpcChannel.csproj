@@ -163,6 +163,8 @@
            Text="Interop/NativeMethods.g.cs or the C header is not what armonik-transport-ffi declares. Write them again with `cargo run -p armonik-transport-ffi-bindgen` in packages/rust; on Windows that needs a Visual Studio environment." />
     <Error Condition="'$(BindingsCheckExitCode)' != '0' AND '$(BindingsCheckExitCode)' != '1'"
            Text="Interop/NativeMethods.g.cs and the C header could not be checked: `cargo run -p armonik-transport-ffi-bindgen -- --check` in packages/rust exited $(BindingsCheckExitCode). On Windows it needs a Visual Studio environment." />
+    <!-- Runs before PrepareForBuild, which is what creates the intermediate directory. -->
+    <MakeDir Directories="$(IntermediateOutputPath)" />
     <Touch Files="$(IntermediateOutputPath)bindings-checked.stamp" AlwaysCreate="true" />
     <ItemGroup>
       <FileWrites Include="$(IntermediateOutputPath)bindings-checked.stamp" />
