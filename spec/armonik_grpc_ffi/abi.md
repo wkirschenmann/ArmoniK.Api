@@ -281,8 +281,8 @@ with the call's data callbacks, like `AK_EVENT_WRITE_DONE`, and before its termi
 no room, since another call may take it first.
 
 When `ak_call_send_message`'s allocation is freed is this library's business and is not
-observable: the engine copies the message out when it encodes it, and the allocation goes then,
-so `AK_EVENT_WRITE_DONE` says the slot is free and nothing about the memory. The acquittal is
+observable: a call that may be retried keeps it for a replay, past its WRITE_DONE, so
+`AK_EVENT_WRITE_DONE` says the slot is free and nothing about the memory. The acquittal is
 owed whatever became of the message - written, or abandoned because the call was cancelled, the
 peer ended it or the connection closed - which is what lets a cancelled call reach its terminal
 without leaving a send unaccounted for. The slot goes back to the window on emission, which

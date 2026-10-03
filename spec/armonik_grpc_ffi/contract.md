@@ -379,7 +379,7 @@ sufficed, which is why each row names both. A committed call goes on; it is no l
 it is A6's transparent retry, once a call, counted as no attempt and in no
 `grpc-previous-rpc-attempts`. A request hyper drops before sending it, its connection closing
 under it, goes again the same way, also once a call: A6 allows until the deadline, which a call
-with none would turn into a loop of dials. Both replay the call's copy, so a call with no policy,
+with none would turn into a loop of dials. Both replay what the call kept, so a call with no policy,
 which keeps none, goes again only if it had sent nothing. Not specified yet: the per-channel
 retry throttle, which A6 makes optional. The policy is the channel's for every
 method, as `GrpcClient` configures it, where gRPC would allow one per method.

@@ -1050,14 +1050,14 @@ reason for accepting the unbounded product.
 
 **Status**: decided on 2026-10-02, the three questions as gRFC A6 and grpc-dotnet answer them.
 
-- **At a ceiling the call is committed**: it goes on and is no longer retryable, and its copy is
-  let go. `send_message` is never refused for it. A caller may then read a failure that a retry
+- **At a ceiling the call is committed**: it goes on and is no longer retryable, and what it kept
+  is let go. `send_message` is never refused for it. A caller may then read a failure that a retry
   would have hidden, which is A6's contract and grpc-dotnet's, `MaxRetryBufferPerCallSize`.
 - **The product is bounded per channel**, as A6's channel-wide limit and grpc-dotnet's
   `MaxRetryBufferSize` bound it: the `retry` unit declares a third value, the bytes every call of
   the channel may hold for a replay together, and a call whose next message would pass it is
   committed as at its own ceiling. Not the runtime's `Ledger`: that budget is backpressure and
-  refuses a lend, where a replay copy must never refuse a send. Several channels add their limits,
+  refuses a lend, where what a replay keeps must never refuse a send. Several channels add their limits,
   which is stated rather than bounded, as in grpc-dotnet.
 - **The host observes nothing new**: no event and no status, a call committed for its buffer
   failing as any committed call fails. A trace records the commit, as grpc-dotnet logs it.
@@ -1087,10 +1087,9 @@ multi-slot and its refinement proof is redone, then the binding returns at the c
 acquittal and `LentBuffer`'s default branch becomes a wait.
 
 **The window and the replay cache do not constrain each other** (2026-09-28, superseding the
-decision that the window had to be the larger). That decision rested on a replay resending the
-arena original through the send window. The engine takes tonic's encoder instead, which copies
-each message out of the arena, and a replay resends that copy: it takes no slot in the window, so
-the two values are chosen independently and no unit relates them.
+decision that the window had to be the larger). A replay resends what it kept through tonic's
+encoder, outside the send window: it takes no slot in it, so the two values are chosen
+independently and no unit relates them.
 
 ### T6.2: Deadline
 
@@ -1137,9 +1136,9 @@ T6.4 is what exercises streams. `GrpcChannelConfig::retry` is a `RetryConfig` - 
 the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, the codes
 UNAVAILABLE, ABORTED and UNKNOWN, `CallReplayBytes` and `ChannelReplayBytes` - which the `Retry`
 option unit fills, its defaults `GrpcClient`'s and grpc-dotnet's; the engine's own config has none,
-and an options document that sets nothing retries. The driver keeps a copy of each message a call
-sends, within both limits, and runs attempts while one fails with a named code, no head has reached
-the reader and the copy is whole: each after a wait drawn uniformly below a bound that grows by
+and an options document that sets nothing retries. The driver keeps each message a call sends,
+within both limits, and runs attempts while one fails with a named code, no head has reached the
+reader and what it kept is whole: each after a wait drawn uniformly below a bound that grows by
 the multiplier to the maximum, or the server's `grpc-retry-pushback-ms`, which a negative or
 unreadable value turns into no retry; each carrying `grpc-previous-rpc-attempts`. A wait the
 deadline would cut short ends the call with its failure. A stream the peer refused, or that its
@@ -1159,7 +1158,7 @@ fits; a bidi one while nothing has been answered and it fits. Commitment detecti
 
 **Deliverable**: a stream within the buffer retries, one past it is committed and does not.
 
-**Status**: done. T6.3's copy and commitment serve every cardinality, so this task adds no engine
+**Status**: done. T6.3's replay and commitment serve every cardinality, so this task adds no engine
 code: a client stream is retryable while what it sent fits, a bidi one while no head has reached
 its reader and what it sent fits, the head being the first thing a server answers. The test
 server's `FlakyCollect` and `FlakyChat` fail a key's streams once they have read a given number of

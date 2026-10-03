@@ -1,6 +1,6 @@
 //! Sending a call again after it failed, as gRFC A6 has it: a number of attempts, a backoff drawn
-//! below a growing bound, the codes worth another try, and the copy of what the call sent that a
-//! later attempt replays.
+//! below a growing bound, the codes worth another try, and what the call sent, kept for a later
+//! attempt to replay.
 //!
 //! A call stays retryable while no response head has reached its reader and what it sent fits its
 //! replay ceiling and the channel's total of replay bytes. Past either, it is committed: it goes
@@ -129,7 +129,7 @@ impl ChannelReplay {
 }
 
 /// What a call sent, kept for the attempts after the first, and the messages it is still to
-/// send. Dropping it lets the copy go and ends the last attempt's stream.
+/// send. Dropping it lets what it kept go and ends the last attempt's stream.
 pub(crate) struct Replay(Arc<Mutex<Kept>>);
 
 struct Kept {
@@ -151,7 +151,7 @@ struct Kept {
 }
 
 impl Kept {
-    /// No attempt follows. The copy goes now, or once the current attempt has sent all of it:
+    /// No attempt follows. What was kept goes now, or once the current attempt has sent all of it:
     /// a replay cut short would send the server a stream with a hole.
     fn commit(&mut self) {
         self.committed = true;
@@ -302,8 +302,9 @@ impl Stream for AttemptMessages {
                         .is_some_and(|after| after <= kept.call_limit)
                     && kept.channel.reserve(message.len());
                 if fits {
-                    // A copy of its own, so the host's buffer goes back once it is encoded.
-                    kept.messages.push(Bytes::copy_from_slice(&message));
+                    // Shared with the encoder, which only reads it; its length is what the
+                    // budget is charged.
+                    kept.messages.push(message.clone());
                     kept.bytes += message.len();
                     kept.replayed += 1;
                 } else {
@@ -372,7 +373,7 @@ mod tests {
         }
     }
 
-    /// The kept copy is what a second attempt sends, and the channel's total counts it until the
+    /// What was kept is what a second attempt sends, and the channel's total counts it until the
     /// call is committed.
     #[tokio::test]
     async fn a_second_attempt_replays_what_the_first_sent() {
@@ -402,7 +403,31 @@ mod tests {
         replay.commit();
         assert_eq!(channel.used(), 0);
         assert!(replay.is_committed());
-        assert!(!replay.supersede().whole, "the copy is gone");
+        assert!(!replay.supersede().whole, "nothing is kept");
+    }
+
+    /// What a replay sends is the message the first attempt sent, not a copy of it.
+    #[tokio::test]
+    async fn a_replay_keeps_the_message_rather_than_a_copy() {
+        let (_closed, closed) = watch::channel(false);
+        let (call, live, _driving) = create(4, closed);
+        let (mut send, _recv, _control) = call.split();
+        let replay = Replay::new(live, Some(64), Arc::new(ChannelReplay::new(1024)));
+
+        let message = Bytes::from(b"one".to_vec());
+        send.send_message(message.clone()).await.expect("sent");
+        let mut first = replay.attempt();
+        assert_eq!(
+            first.next().await.map(|sent| sent.as_ptr()),
+            Some(message.as_ptr())
+        );
+        drop(send);
+
+        let mut second = replay.attempt();
+        assert_eq!(
+            second.next().await.map(|kept| kept.as_ptr()),
+            Some(message.as_ptr())
+        );
     }
 
     /// A head that arrives while an attempt is still replaying commits the call, and the attempt
@@ -427,7 +452,7 @@ mod tests {
         let mut second = replay.attempt();
         assert_eq!(second.next().await, Some(Bytes::from_static(b"one")));
         replay.commit();
-        assert_eq!(channel.used(), 6, "the copy is still being sent");
+        assert_eq!(channel.used(), 6, "what was kept is still being sent");
         assert_eq!(second.next().await, Some(Bytes::from_static(b"two")));
         assert_eq!(channel.used(), 0, "and goes once it is");
 
@@ -508,7 +533,7 @@ mod tests {
         }
     }
 
-    /// A call with no policy keeps no copy: it is whole until it sends a message, and then not.
+    /// A call with no policy keeps nothing: it is whole until it sends a message, and then not.
     #[tokio::test]
     async fn a_call_with_no_policy_is_whole_until_it_sends() {
         let (_closed, closed) = watch::channel(false);

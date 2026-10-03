@@ -330,14 +330,14 @@ and only then writes.
 
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
 the writer it wakes can act on it straight away. The bytes leave the arena once, when tonic's
-encoder copies the message into the request body, and the allocation is released there. **The
-replay cache is the engine's copy**, not the arena original: a retry resends what the engine
-holds, which is a copy it needs whatever the send path does.
+encoder copies the message into the request body. **The replay keeps the arena allocation
+itself**, shared with the encoder rather than copied: a retry resends the message the host
+wrote, and a call that cannot be retried lets it go once it is encoded.
 
-So the slot budget and the replay buffer (`RetryConfig`'s replay bytes) charge two different
-buffers - the arena allocation while it is lent or queued, the engine's copy while a retry may
-still send it - and they do not constrain each other: a replay takes no slot in the send window,
-which bounds what the host serializes at once and nothing a replay does.
+So the slot budget and the replay buffer (`RetryConfig`'s replay bytes) charge the same
+allocation at two times - the slot budget while it is lent or queued, the replay bytes while a
+retry may still send it - and they do not constrain each other: a replay takes no slot in the
+send window, which bounds what the host serializes at once and nothing a replay does.
 
 **Receive (Rust → host)**:
 - `ak_event.payload` is an owned `ak_bytes` (reference-counted Rust buffer)
@@ -349,9 +349,10 @@ which bounds what the host serializes at once and nothing a replay does.
 - Send side: every send buffer comes out of the call's arena, bounded by
   `MaxSendsInFlight` buffers at a time, and the arena is dropped in one piece when the call
   is released - which the release precondition guarantees is safe. Retained replay bytes are
-  not these allocations but the engine's copies, bounded separately, per call and per channel,
-  by the retry unit's replay bytes.
-  Arenas are a natural fit for a pool held by the channel, so the same memory serves every call
+  these allocations, kept past their WRITE_DONE, and bounded separately, per call and per
+  channel, by the retry unit's replay bytes.
+  Arenas are a natural fit for a pool held by the channel, recycling an allocation when the last
+  of its holders, the replay included, lets it go, so the same memory serves every call
   the channel carries and the steady-state fast path allocates nothing the binding controls - no
   payload, no event object - which is a budget to measure, not an absolute: task completions,
   scheduling, exception paths and arbitrary marshallers allocate.
@@ -364,7 +365,7 @@ which bounds what the host serializes at once and nothing a replay does.
 **A global ceiling above the per-call budgets.** `MaxSendsInFlight` bounds one call's
 outstanding buffers; nothing bounded their product across the calls a process carries. The
 runtime therefore holds a byte budget shared by every channel, handed out by
-`ak_get_call_buffer`. Replay copies are not charged to it: a channel's total of replay bytes bounds
+`ak_get_call_buffer`. What a replay keeps is not charged to it: a channel's total of replay bytes bounds
 them, past which a call is committed rather than any send refused.
 
 **Reaching the ceiling and failing to allocate are two different events, and only the

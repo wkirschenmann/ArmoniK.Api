@@ -6,7 +6,7 @@ use http::uri::PathAndQuery;
 use http::HeaderMap;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
-use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
+use tonic::codec::{BufferSettings, Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tonic::metadata::MetadataMap;
 use tonic::Code;
 
@@ -458,6 +458,14 @@ fn past_the_limit(status: tonic::Status) -> tonic::Status {
     }
 }
 
+/// Room for a small message and its prefix; a larger one has the buffer grown to fit it. Not 0: tonic
+/// divides by it when it decompresses.
+const CODEC_BUFFER: usize = 1024;
+
+/// How much a stream's encoder gathers before it hands a batch on: tonic's default, which its
+/// settings do not expose.
+const YIELD_THRESHOLD: usize = 32 * 1024;
+
 /// Messages as the caller's bytes, both ways: the engine serializes nothing of its own.
 #[derive(Clone, Copy, Debug, Default)]
 struct BytesCodec;
@@ -481,10 +489,14 @@ impl Encoder for BytesCodec {
     type Item = Bytes;
     type Error = tonic::Status;
 
-    /// The one copy a message makes on its way out, and the point the caller's buffer is let go.
+    /// The one copy a message makes on its way out.
     fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
         dst.put(item);
         Ok(())
+    }
+
+    fn buffer_settings(&self) -> BufferSettings {
+        BufferSettings::new(CODEC_BUFFER, YIELD_THRESHOLD)
     }
 }
 
@@ -494,6 +506,10 @@ impl Decoder for BytesCodec {
 
     fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
         Ok(Some(src.copy_to_bytes(src.remaining())))
+    }
+
+    fn buffer_settings(&self) -> BufferSettings {
+        BufferSettings::new(CODEC_BUFFER, YIELD_THRESHOLD)
     }
 }
 

@@ -1167,7 +1167,7 @@ race. Ordered by what a defect would cost.
 | An arbitrary marshaller that allocates, throws, or keeps the sequence | the zero-copy claim overstated, a lifetime violated | generated fast path plus a copying fallback; a stated lifetime contract; exception and retention tests |
 | A budget wake-up with no arbitration | one refused send overtaken by others at every release, admitted starvation | every refused call woken at each release, the host's obligation to try again or cancel, a wait level 2 promises cancellable and nothing more; metrics on refusals and waiting time |
 | Calls admitted together past the first threshold | the count past `memory_ceiling` by a message per admitted call | `memory_hard_ceiling` ends the call whose message would pass it, `MemoryWithinHardCeiling` proved; size the gap between the two for the calls a process runs at once |
-| Replay holding copies of sent messages | memory the lending ceiling does not see | a separate budget, replay metrics, cancel and retry tests |
+| Replay holding sent messages | memory the lending ceiling does not see | a separate budget, replay metrics, cancel and retry tests |
 | Handle space exhaustion | a late refusal | the counter climbs past its range's end and every claim after it is refused, so one kind never spills into the next; tested on an artificially small space |
 | `FAILED_UNQUIESCED` with no operational procedure | a process durably degraded, memory unrecoverable | an alert, a debt dump, a documented fail-fast or restart threshold |
 | State tables in this document drifting from the modules | the model transcribed wrongly into the code | generate the tables from one source, or compare them in CI |
@@ -1413,7 +1413,7 @@ refinement.
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
 | `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
-| `FreeReturnedBuffer` | the actor drops the allocation, once no unacquitted send lives in it. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's. A replay reads the engine's own copy of a message and never the arena, so nothing past the send keeps the allocation |
+| `FreeReturnedBuffer` | the runtime releases the buffer's bytes from its count, once no unacquitted send lives in it; the allocation goes when nothing holds it, which the model does not see. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
 | `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue |
 | `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE` |

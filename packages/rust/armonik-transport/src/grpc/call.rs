@@ -125,6 +125,9 @@ pub struct SendHalf {
 }
 
 impl SendHalf {
+    /// Queues `message`. A call that may be retried keeps it for a replay, charging its length to
+    /// the replay's budget: a slice of a larger buffer keeps that whole buffer alive while the
+    /// budget counts the slice, so a caller passes a buffer of its own.
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
         // Here and not in the encoder, which would fail the whole call later and far from the send
         // that caused it.

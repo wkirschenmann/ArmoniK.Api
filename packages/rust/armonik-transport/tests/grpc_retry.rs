@@ -337,10 +337,10 @@ async fn a_second_refusal_meets_the_policy() {
     assert_eq!(refuser.seen(), vec![None, None, Some("1".to_owned())]);
 }
 
-/// A call whose copy is not whole is not sent again, even unprocessed: what it sent could not be
-/// sent again whole. Past its ceiling here, and with no policy, which keeps no copy.
+/// A call that did not keep all it sent is not sent again, even unprocessed: what it sent could not
+/// be sent again whole. Past its ceiling here, and with no policy, which keeps nothing.
 #[tokio::test]
-async fn a_call_refused_with_no_whole_copy_is_not_sent_again() {
+async fn a_call_refused_without_all_it_sent_kept_is_not_sent_again() {
     let past_ceiling = |endpoint: &str| retrying(endpoint, |retry| retry.call_replay_bytes = 2);
     let no_policy = |endpoint: &str| channel(endpoint);
     for (case, open) in [
