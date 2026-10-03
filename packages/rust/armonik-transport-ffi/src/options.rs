@@ -2,21 +2,13 @@
 //!
 //! `ak_runtime_create` takes them as `ak_runtime_config`, where zero asks for the default. A host
 //! reads them from its configuration instead, where an option left out is the default, so the
-//! schema names the same three fields and refuses the zero a configuration has no reason to
+//! schema names the same two fields and refuses the zero a configuration has no reason to
 //! write.
-
-use crate::abi::AK_MAX_WORKER_THREADS;
 
 /// What a caller may set on the runtime.
 #[derive(Default, schemars::JsonSchema)]
 #[schemars(rename_all = "PascalCase", deny_unknown_fields)]
 pub struct RuntimeOptions {
-    /// How many threads the engine runs its calls on.
-    ///
-    /// Defaults to one per core.
-    #[schemars(with = "i32", range(min = 1, max = AK_MAX_WORKER_THREADS), default)]
-    pub worker_threads: Option<u32>,
-
     /// The bytes the runtime holds before work waits, counting the buffers lent to send and the
     /// messages received until the host gives them back: a call stops reading, and a send waits
     /// for room.
@@ -89,18 +81,10 @@ mod tests {
             version: 0,
             flags: 0,
             reserved: 0,
-            worker_threads: 0,
             memory_ceiling: 0,
             memory_hard_ceiling: 0,
         };
-        let _ = (
-            config.worker_threads,
-            config.memory_ceiling,
-            config.memory_hard_ceiling,
-        );
-        assert_eq!(
-            names,
-            ["MemoryCeiling", "MemoryHardCeiling", "WorkerThreads"]
-        );
+        let _ = (config.memory_ceiling, config.memory_hard_ceiling);
+        assert_eq!(names, ["MemoryCeiling", "MemoryHardCeiling"]);
     }
 }

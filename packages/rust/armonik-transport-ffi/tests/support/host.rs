@@ -65,7 +65,7 @@ impl Host {
         let recorder = Arc::new(Recorder::default());
         let lent = Arc::into_raw(Arc::clone(&recorder));
         let (status, runtime) =
-            try_create_runtime_with(2, memory_ceiling, memory_hard_ceiling, lent as *mut c_void);
+            try_create_runtime_with(memory_ceiling, memory_hard_ceiling, lent as *mut c_void);
         if status != ak_status::AK_STATUS_OK {
             // No runtime, so no callback, and the reference it would have held is this one's.
             drop(unsafe { Arc::from_raw(lent) });
@@ -244,16 +244,11 @@ pub fn send_one(call: ak_handle, message: &[u8]) {
     );
 }
 
-pub fn try_create_runtime(
-    worker_threads: u32,
-    memory_ceiling: u64,
-    runtime_ctx: *mut c_void,
-) -> (ak_status, ak_handle) {
-    try_create_runtime_with(worker_threads, memory_ceiling, 0, runtime_ctx)
+pub fn try_create_runtime(memory_ceiling: u64, runtime_ctx: *mut c_void) -> (ak_status, ak_handle) {
+    try_create_runtime_with(memory_ceiling, 0, runtime_ctx)
 }
 
 pub fn try_create_runtime_with(
-    worker_threads: u32,
     memory_ceiling: u64,
     memory_hard_ceiling: u64,
     runtime_ctx: *mut c_void,
@@ -263,7 +258,6 @@ pub fn try_create_runtime_with(
         version: 0,
         flags: 0,
         reserved: 0,
-        worker_threads,
         memory_ceiling,
         memory_hard_ceiling,
     };

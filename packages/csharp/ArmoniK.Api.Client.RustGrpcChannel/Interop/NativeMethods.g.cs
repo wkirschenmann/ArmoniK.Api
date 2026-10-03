@@ -39,15 +39,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         internal const uint AK_CALL_HAS_DEADLINE = 1;
         internal const int AK_ABI_VERSION = 1;
-        /// <summary>
-        ///  The largest worker_threads a runtime is created with; above it, AK_STATUS_INVALID_ARG.
-        ///
-        ///  A worker is an OS thread, so the useful range is the machine's core count and this is far past
-        ///  any of them. The bound exists because the failures past it are not reportable: the runtime
-        ///  sizes a per-worker table before creating anything, and near UINT32_MAX that allocation ends the
-        ///  process - the one failure no status can report.
-        /// </summary>
-        internal const uint AK_MAX_WORKER_THREADS = 1024;
 
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -57,7 +48,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
         /// <summary>
         ///  Creates a runtime, synchronously; it starts in AK_RUNTIME_RUNNING. One exists at a time: a
-        ///  second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE.
+        ///  second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE. Each
+        ///  channel created on it runs on a thread of its own, so that a call never moves between threads.
+        ///  AK_RUNTIME_QUIESCENT means those threads are gone too.
         ///
         ///  # Safety
         ///
@@ -425,10 +418,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  Zero.
         /// </summary>
         public uint reserved;
-        /// <summary>
-        ///  Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
-        /// </summary>
-        public uint worker_threads;
         /// <summary>
         ///  Bytes past which work waits, counting the buffers lent and the messages received until
         ///  the host consumes them: a call stops reading, and a lend is refused with

@@ -24,7 +24,6 @@ use turn::ReadTurn;
 pub(crate) struct CallServices<'a> {
     pub(crate) host: &'a Arc<Host>,
     pub(crate) ledger: &'a Arc<Ledger>,
-    pub(crate) spawner: &'a tokio::runtime::Handle,
 }
 
 pub(crate) enum Command {

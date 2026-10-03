@@ -39,15 +39,12 @@ public class RuntimeOptionsTests : RuntimeFixture
   {
     var options = NativeRuntime.RuntimeOptionsFrom(Configuration(new Dictionary<string, string?>
                                                                  {
-                                                                   ["RustGrpcRuntime:WorkerThreads"]     = "2",
                                                                    ["RustGrpcRuntime:MemoryCeiling"]     = "65536",
                                                                    ["RustGrpcRuntime:MemoryHardCeiling"] = "131072",
                                                                  }));
 
     Assert.Multiple(() =>
                     {
-                      Assert.That(options.WorkerThreads,
-                                  Is.EqualTo(2));
                       Assert.That(options.MemoryCeiling,
                                   Is.EqualTo(65536));
                       Assert.That(options.MemoryHardCeiling,

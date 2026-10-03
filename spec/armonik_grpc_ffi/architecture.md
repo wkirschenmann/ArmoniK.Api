@@ -236,9 +236,22 @@ That count is why the order matters. A host that waits for QUIESCENT before rele
 waits for a condition it is itself the only obstacle to, which is a deadlock - so the
 host-debt field on `AK_EVENT_SHUTDOWN_COMPLETE` tells it, at that moment, whether the ball
 is in its court. `AK_EVENT_RESOURCES_RELEASED` then says its part is done. Neither event
-is the guarantee: a callback runs on the runtime's own thread, so it cannot report that
-the thread is gone. `ak_runtime_status` returning QUIESCENT is the guarantee, and from
+is the guarantee: a callback runs on one of the runtime's own threads, so it cannot report
+that the threads are gone. `ak_runtime_status` returning QUIESCENT is the guarantee, and from
 there unloading the library, destroying the runtime and starting a new one are all safe.
+
+**A thread per channel.** Each channel runs on a thread of its own, a current-thread tokio
+runtime that carries the channel's connection, the driver of each of its calls and the
+call's own tasks, so that a call never moves between threads (`decisions.md` gives what that
+was measured against). The calls of one channel share that thread for all their work -
+framing, encoding and decoding, the host's callbacks - and channels run in parallel. The
+runtime keeps one worker of its own, which delivers AK_EVENT_SHUTDOWN_COMPLETE. A channel's
+thread stops with the channel, once the host has released it and its last call has been
+reclaimed, or with the teardown; either way it first gives the close of the connection up to a
+second to finish, so that the peer sees the connection closed rather than dropped. The teardown
+waits for every channel's thread before it finishes - so QUIESCENT still means that no thread
+of the runtime is left, and may come up to that second later. What a callback costs is its
+channel's to pay: one that blocks stops that channel's connection and every call on it.
 
 Both STOPPED and QUIESCENT refine one level-0 state. Freeing a handle is not a gRPC
 concept, so level 0 has nothing to say about the difference, and level 1 carries it

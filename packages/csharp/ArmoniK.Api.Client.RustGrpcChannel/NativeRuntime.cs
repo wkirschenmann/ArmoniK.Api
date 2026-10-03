@@ -32,7 +32,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///
 /// One per process, because the engine admits one and says so: `ak_runtime_create` refuses while
 /// another lives. That is a fact about the library and not a policy of this type, which is why a
-/// second <see cref="Create(uint,ulong,ulong)" /> answers at once instead of waiting for the first to go.
+/// second <see cref="Create(ulong,ulong)" /> answers at once instead of waiting for the first to go.
 ///
 /// <para>
 ///   Its lifetime is the caller's, declared: what it makes, it disposes. A channel cannot outlive
@@ -72,8 +72,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
   private readonly ArrivalSignal announced_ = new();
 
-  private NativeRuntime(uint  workerThreads,
-                        ulong memoryCeiling,
+  private NativeRuntime(ulong memoryCeiling,
                         ulong memoryHardCeiling)
   {
     self_ = GCHandle.Alloc(this);
@@ -81,7 +80,6 @@ public sealed class NativeRuntime : IAsyncDisposable
     var config = new ak_runtime_config
                  {
                    struct_size         = (uint)Marshal.SizeOf<ak_runtime_config>(),
-                   worker_threads      = workerThreads,
                    memory_ceiling      = memoryCeiling,
                    memory_hard_ceiling = memoryHardCeiling,
                  };
@@ -131,7 +129,6 @@ public sealed class NativeRuntime : IAsyncDisposable
   public const string SettingSection = "RustGrpcChannel";
 
   /// <summary>Starts the engine, which the caller owns until it disposes it.</summary>
-  /// <param name="workerThreads">How many threads the engine runs on; 0 leaves it its own.</param>
   /// <param name="memoryCeiling">
   ///   The bytes of messages, sent and received, it holds before work waits: a call stops reading
   ///   and a send waits for room. 0 leaves it its own.
@@ -147,8 +144,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   The library speaks another ABI, a runtime already lives in this process, or the second
   ///   threshold is below the first.
   /// </exception>
-  public static NativeRuntime Create(uint  workerThreads     = 0,
-                                     ulong memoryCeiling     = 0,
+  public static NativeRuntime Create(ulong memoryCeiling     = 0,
                                      ulong memoryHardCeiling = 0)
   {
     int found;
@@ -166,8 +162,7 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new InvalidOperationException($"the native library speaks ABI {found}, this binding speaks {NativeMethods.AK_ABI_VERSION}");
     }
 
-    return new NativeRuntime(workerThreads,
-                             memoryCeiling,
+    return new NativeRuntime(memoryCeiling,
                              memoryHardCeiling);
   }
 
@@ -181,7 +176,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <exception cref="ArgumentOutOfRangeException">An option in the section is outside its stated bounds.</exception>
   /// <exception cref="InvalidOperationException">
   ///   <paramref name="key" /> names no section, the section holds a key no option matches, or the
-  ///   engine refused as <see cref="Create(uint,ulong,ulong)" /> does.
+  ///   engine refused as <see cref="Create(ulong,ulong)" /> does.
   /// </exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
   public static NativeRuntime Create(IConfiguration configuration,
@@ -214,7 +209,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <param name="options">What the engine is started with.</param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(uint,ulong,ulong)" /> does.</exception>
+  /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(ulong,ulong)" /> does.</exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
   public static NativeRuntime Create(RuntimeOptions options)
   {
@@ -227,8 +222,7 @@ public sealed class NativeRuntime : IAsyncDisposable
     // the only way to ask for the default.
     options.Validate();
 
-    return Create((uint)(options.WorkerThreads ?? 0),
-                  (ulong)(options.MemoryCeiling ?? 0),
+    return Create((ulong)(options.MemoryCeiling ?? 0),
                   (ulong)(options.MemoryHardCeiling ?? 0));
   }
 

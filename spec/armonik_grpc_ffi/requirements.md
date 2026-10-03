@@ -221,8 +221,8 @@ efficient, so that I do not have to manually manage HTTP/2 connections.
 4. The connection pool manages TCP keepalive and idle timeout.
 5. A connect timeout is configurable and applied to connection establishment.
 6. A single process can create multiple channels to different endpoints.
-7. Channels share a single native runtime (one Tokio thread pool per process), whose worker count
-   its creator may set, up to `AK_MAX_WORKER_THREADS`; zero leaves the choice to the runtime.
+7. Channels share a single native runtime per process, and each channel runs its connection and
+   its calls on a thread of its own, so that a call never moves between threads.
 
 ---
 
@@ -404,8 +404,7 @@ undefined behavior when used from .NET.
    an error.
 9. One runtime exists per process: a second create before the first is destroyed is refused.
    Several tokio runtimes in one process share the machine's cores without knowing of each other,
-   which is what this forbids. The worker-thread count and memory ceiling its creator sets are
-   the process's.
+   which is what this forbids. The memory thresholds its creator sets are the process's.
 10. A runtime bounds the bytes it holds for messages at once - those a host fills to send, and
    those the engine received and lends to the host until they are given back - by two thresholds
    its creator sets; zero leaves each to the library. Past the first, work waits. A send is

@@ -39,11 +39,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 [TestFixture]
 public class UnaryTests : EchoServerFixture
 {
-  /// <summary>Two workers, so a test that reads while another callback runs has a thread for
-  /// both. Here rather than in the base, which every fixture shares.</summary>
-  protected override NativeRuntime Start()
-    => NativeRuntime.Create(workerThreads: 2);
-
   private NativeChannel Channel()
     => Runtime.Channel(Endpoint);
 
@@ -671,8 +666,7 @@ public class UnaryTests : EchoServerFixture
     var text = new string('x',
                           100_000);
 
-    var runtime = await RestartAsync(workerThreads: 2,
-                                     memoryCeiling: Ceiling,
+    var runtime = await RestartAsync(memoryCeiling: Ceiling,
                                      memoryHardCeiling: HardCeiling)
                     .ConfigureAwait(false);
 

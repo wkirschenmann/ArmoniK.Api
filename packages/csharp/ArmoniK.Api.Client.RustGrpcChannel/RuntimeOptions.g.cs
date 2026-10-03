@@ -47,7 +47,6 @@ public sealed class RuntimeOptions
 
     MemoryCeiling = other.MemoryCeiling;
     MemoryHardCeiling = other.MemoryHardCeiling;
-    WorkerThreads = other.WorkerThreads;
   }
 
   /// <summary>
@@ -74,12 +73,6 @@ public sealed class RuntimeOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public long? MemoryHardCeiling { get; set; }
 
-  /// <summary>How many threads the engine runs its calls on.</summary>
-  /// <remarks>Defaults to one per core.</remarks>
-  [JsonPropertyName("WorkerThreads")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? WorkerThreads { get; set; }
-
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -96,13 +89,6 @@ public sealed class RuntimeOptions
       throw new ArgumentOutOfRangeException(nameof(MemoryHardCeiling),
                                             memoryHardCeiling,
                                             "MemoryHardCeiling has to be at least 1.");
-    }
-
-    if (WorkerThreads is int workerThreads && (workerThreads < 1 || workerThreads > 1024))
-    {
-      throw new ArgumentOutOfRangeException(nameof(WorkerThreads),
-                                            workerThreads,
-                                            "WorkerThreads has to be at least 1 and at most 1024.");
     }
   }
 }

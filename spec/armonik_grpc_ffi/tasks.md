@@ -1322,10 +1322,9 @@ large chunks on many calls at once can exhaust the process's memory with every b
   receive path is not this design, and that the budget's wake-up is a poll. Its reasons were
   that receive-side bytes belong to hyper and that a failed allocation aborts; neither holds
   against a count of messages already decoded, which needs no fallible allocation.
-- The runtime's own options - its worker count and its two thresholds - join the generated
-  vocabulary: a schema, a default stated in each description, and a binding
-  from `IConfiguration`, as a channel's options have. Today the worker count and the one ceiling
-  are two bare parameters of `NativeRuntime.Create`.
+- The runtime's own options - its two thresholds - join the generated vocabulary: a schema, a
+  default stated in each description, and a binding from `IConfiguration`, as a channel's
+  options have.
 - `AK_ABI_VERSION` does not change, for the reason T4.0 gives.
 
 The models change first: level 1 charges a payload its length and gains the two thresholds, the

@@ -78,6 +78,6 @@ pub(crate) fn start_on(
     // From here the call is the channel's to count, and its terminal is what gives the count
     // back.
     joined.kept();
-    actor::start(&state, send, recv, commands, services.spawner);
+    actor::start(&state, send, recv, commands, &channel.spawner);
     Ok(handle)
 }

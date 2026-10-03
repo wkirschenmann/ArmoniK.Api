@@ -110,7 +110,9 @@ unsafe fn observe<T, V, R: Into<Refusal>>(
 }
 
 /// Creates a runtime, synchronously; it starts in AK_RUNTIME_RUNNING. One exists at a time: a
-/// second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE.
+/// second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE. Each
+/// channel created on it runs on a thread of its own, so that a call never moves between threads.
+/// AK_RUNTIME_QUIESCENT means those threads are gone too.
 ///
 /// # Safety
 ///
@@ -135,7 +137,6 @@ pub unsafe extern "C" fn ak_runtime_create(
             hand_over(
                 out,
                 lifecycle::create_runtime(
-                    config.worker_threads,
                     config.memory_ceiling,
                     config.memory_hard_ceiling,
                     Host::new(callback, runtime_ctx),
@@ -273,7 +274,7 @@ pub unsafe extern "C" fn ak_channel_create(
             let _pass = found.pass_the_gate().ok_or(RUNTIME_STOPPING)?;
             let endpoint = unsafe { endpoint.as_slice() }.ok_or(NULL_SLICE)?;
             let json = unsafe { config_json.as_slice() }.ok_or(NULL_SLICE)?;
-            channel::create(runtime, found.spawner(), endpoint, json)
+            channel::create(runtime, found, endpoint, json)
         })
     });
     unsafe { refusal::answer(out_error, answered) }

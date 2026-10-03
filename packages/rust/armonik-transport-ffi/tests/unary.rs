@@ -40,7 +40,7 @@ fn a_second_buffer_while_the_first_is_still_held_is_a_host_bug() {
 fn a_second_runtime_is_refused_while_the_first_is_alive() {
     let host = Host::start();
 
-    let (status, second) = try_create_runtime(1, 0, std::ptr::null_mut());
+    let (status, second) = try_create_runtime(0, std::ptr::null_mut());
 
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
     assert_eq!(second, AK_HANDLE_NONE, "a refusal leaves *out as it was");
@@ -410,6 +410,39 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
     fixture.close();
 }
 
+/// A channel runs its calls on a thread of its own: a call's events all come from its channel's
+/// thread, and another channel's from another.
+#[test]
+fn each_channel_runs_its_calls_on_a_thread_of_its_own() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let first = host.channel(&server.endpoint);
+    let second = host.channel(&server.endpoint);
+
+    send_one(start_call(first, ECHO, &[]), b"one");
+    let on_first = host.recorder.await_terminal().threads();
+    send_one(start_call(second, ECHO, &[]), b"two");
+    let on_both = host.recorder.await_terminals(2).threads();
+    let on_second = &on_both[on_first.len()..];
+
+    let only = |threads: &[Option<String>]| {
+        let name = threads[0].clone().expect("a named thread");
+        assert!(name.starts_with("armonik-channel-"), "{threads:?}");
+        assert!(
+            threads
+                .iter()
+                .all(|thread| thread.as_deref() == Some(name.as_str())),
+            "{threads:?}"
+        );
+        name
+    };
+    assert_ne!(only(&on_first), only(on_second));
+
+    ak_channel_release(first);
+    ak_channel_release(second);
+    host.stop();
+}
+
 #[test]
 fn a_refused_method_comes_back_as_its_status_behind_a_synthesized_metadata_event() {
     let fixture = Host::connected();
@@ -754,6 +787,27 @@ fn an_eager_channel_is_connected_before_its_first_call_and_a_lazy_one_is_not() {
     host.stop();
 }
 
+/// A released channel closes its connection the way HTTP/2 closes one, rather than dropping it.
+#[test]
+fn a_released_channel_closes_its_connection_cleanly() {
+    let host = Host::start();
+    let server = TestServer::start();
+    let channel = host.channel_with(&server.endpoint, r#"{"ConnectEagerly":true}"#);
+    support::poll_until(
+        || server.connections() == 1,
+        || format!("the server saw {}", server.connections()),
+    );
+
+    ak_channel_release(channel);
+
+    support::poll_until(
+        || !server.goodbyes().is_empty(),
+        || "the connection did not end".to_owned(),
+    );
+    assert_eq!(server.goodbyes(), [true], "the connection was dropped");
+    host.stop();
+}
+
 /// gRPC's code, which is what the ABI carries in `status_code`.
 const UNAVAILABLE: i32 = 14;
 
@@ -942,7 +996,6 @@ fn a_runtime_config_carries_the_same_head_as_call_options() {
         version: 1,
         flags: 0,
         reserved: 0,
-        worker_threads: 1,
         memory_ceiling: 0,
         memory_hard_ceiling: 0,
     };

@@ -65,16 +65,6 @@
 #define AK_ABI_VERSION 1
 
 /**
- * The largest worker_threads a runtime is created with; above it, AK_STATUS_INVALID_ARG.
- *
- * A worker is an OS thread, so the useful range is the machine's core count and this is far past
- * any of them. The bound exists because the failures past it are not reportable: the runtime
- * sizes a per-worker table before creating anything, and near UINT32_MAX that allocation ends the
- * process - the one failure no status can report.
- */
-#define AK_MAX_WORKER_THREADS 1024
-
-/**
  * Returned by every entry point that can fail. ak_event_consumed, ak_return_call_buffer and
  * ak_channel_release are void because a wrong token is a host bug the ABI cannot report anywhere
  * useful; ak_runtime_status, ak_channel_status and ak_abi_version return their answer.
@@ -372,10 +362,6 @@ typedef struct {
      */
     uint32_t reserved;
     /**
-     * Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
-     */
-    uint32_t worker_threads;
-    /**
      * Bytes past which work waits, counting the buffers lent and the messages received until
      * the host consumes them: a call stops reading, and a lend is refused with
      * AK_STATUS_BUDGET_BUSY. Zero, or more than this library can lend, asks for its own: four
@@ -444,13 +430,16 @@ typedef struct {
  * for the same call: a per-call lock in the handler would hold the slot release hostage behind a
  * slow message handler. Both come before the call's STATUS, which stays its last event.
  *
- * A callback runs on one of this library's own worker threads, and every promise made here about
- * progress - a send reaching the wire, an acquittal, a call being reclaimed, a shutdown
- * completing - is made on those threads. So the callback must publish and return: record the
- * event where the host's own thread will find it, hand the payload on, and end. It must not
- * parse, allocate what it could have allocated earlier, take a lock the host's own code holds,
- * or run application code. A host that blocks here does not slow itself down; it stops the
- * library, and the guarantees above stop with it.
+ * A callback runs on one of this library's own threads: a call's events on its channel's
+ * thread, which runs that channel's connection and every call on it; AK_EVENT_SHUTDOWN_COMPLETE
+ * on the runtime's own; AK_EVENT_RESOURCES_RELEASED on the thread that finishes the shutdown.
+ * Every promise made here about progress - a send reaching the wire, an acquittal, a call being
+ * reclaimed, a shutdown completing - is made on those threads. So the callback must publish and
+ * return: record the event where the host's own thread will find it, hand the payload on, and
+ * end. It must not parse, allocate what it could have allocated earlier, take a lock the host's
+ * own code holds, or run application code. A host that blocks here does not slow itself down; it
+ * stops what that thread runs - a channel, or the shutdown - and the guarantees above stop with
+ * it.
  */
 typedef void (*ak_callback)(void *runtime_ctx, ak_call_ctx call_ctx, const ak_event *event);
 
@@ -565,7 +554,9 @@ extern "C" {
 
 /**
  * Creates a runtime, synchronously; it starts in AK_RUNTIME_RUNNING. One exists at a time: a
- * second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE.
+ * second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE. Each
+ * channel created on it runs on a thread of its own, so that a call never moves between threads.
+ * AK_RUNTIME_QUIESCENT means those threads are gone too.
  *
  * # Safety
  *

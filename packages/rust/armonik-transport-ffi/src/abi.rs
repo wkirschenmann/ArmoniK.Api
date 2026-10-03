@@ -236,13 +236,16 @@ pub struct ak_event {
 /// for the same call: a per-call lock in the handler would hold the slot release hostage behind a
 /// slow message handler. Both come before the call's STATUS, which stays its last event.
 ///
-/// A callback runs on one of this library's own worker threads, and every promise made here about
-/// progress - a send reaching the wire, an acquittal, a call being reclaimed, a shutdown
-/// completing - is made on those threads. So the callback must publish and return: record the
-/// event where the host's own thread will find it, hand the payload on, and end. It must not
-/// parse, allocate what it could have allocated earlier, take a lock the host's own code holds,
-/// or run application code. A host that blocks here does not slow itself down; it stops the
-/// library, and the guarantees above stop with it.
+/// A callback runs on one of this library's own threads: a call's events on its channel's
+/// thread, which runs that channel's connection and every call on it; AK_EVENT_SHUTDOWN_COMPLETE
+/// on the runtime's own; AK_EVENT_RESOURCES_RELEASED on the thread that finishes the shutdown.
+/// Every promise made here about progress - a send reaching the wire, an acquittal, a call being
+/// reclaimed, a shutdown completing - is made on those threads. So the callback must publish and
+/// return: record the event where the host's own thread will find it, hand the payload on, and
+/// end. It must not parse, allocate what it could have allocated earlier, take a lock the host's
+/// own code holds, or run application code. A host that blocks here does not slow itself down; it
+/// stops what that thread runs - a channel, or the shutdown - and the guarantees above stop with
+/// it.
 pub type ak_callback = Option<
     unsafe extern "C" fn(runtime_ctx: *mut c_void, call_ctx: ak_call_ctx, event: *const ak_event),
 >;
@@ -257,8 +260,6 @@ pub struct ak_runtime_config {
     pub flags: u32,
     /// Zero.
     pub reserved: u32,
-    /// Zero leaves the choice to the runtime; at most AK_MAX_WORKER_THREADS.
-    pub worker_threads: u32,
     /// Bytes past which work waits, counting the buffers lent and the messages received until
     /// the host consumes them: a call stops reading, and a lend is refused with
     /// AK_STATUS_BUDGET_BUSY. Zero, or more than this library can lend, asks for its own: four
@@ -372,14 +373,6 @@ pub struct ak_error {
 }
 
 pub const AK_ABI_VERSION: i32 = 1;
-
-/// The largest worker_threads a runtime is created with; above it, AK_STATUS_INVALID_ARG.
-///
-/// A worker is an OS thread, so the useful range is the machine's core count and this is far past
-/// any of them. The bound exists because the failures past it are not reportable: the runtime
-/// sizes a per-worker table before creating anything, and near UINT32_MAX that allocation ends the
-/// process - the one failure no status can report.
-pub const AK_MAX_WORKER_THREADS: u32 = 1024;
 
 /// The four fields every options struct starts with, which `tests/layout.rs` pins at the same
 /// offsets in each.

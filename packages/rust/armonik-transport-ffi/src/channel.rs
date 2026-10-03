@@ -9,6 +9,7 @@ use crate::config;
 use crate::held::Held;
 use crate::refusal::Refusal;
 use crate::registry::Spread;
+use crate::runtime::{AkRuntime, ChannelThread};
 use crate::tables;
 
 pub(crate) struct AkChannel {
@@ -16,6 +17,11 @@ pub(crate) struct AkChannel {
     pub(crate) runtime: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: usize,
+    /// Its thread's runtime, where its connection and its calls run.
+    pub(crate) spawner: tokio::runtime::Handle,
+    /// Dropped with the channel, which is what stops its thread: a channel goes once the host
+    /// has released it and the last of its calls has been reclaimed.
+    _stop: tokio::sync::oneshot::Sender<()>,
     /// Its own handle, which it takes out of the table once it is released and closed.
     handle: ak_handle,
     members: Mutex<Members>,
@@ -201,7 +207,7 @@ impl AkChannel {
 
 pub(crate) fn create(
     runtime: ak_handle,
-    spawner: &tokio::runtime::Handle,
+    owner: &AkRuntime,
     endpoint: &[u8],
     json: &[u8],
 ) -> Result<ak_handle, Refusal> {
@@ -215,6 +221,7 @@ pub(crate) fn create(
     let max_sends_in_flight = settings.max_sends_in_flight();
     let connect_eagerly = settings.connect_eagerly();
 
+    let ChannelThread { spawner, stop } = owner.start_channel_thread()?;
     let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), spawner.clone())
         .map_err(Refusal::channel)?;
     let dialled = grpc.clone();
@@ -226,6 +233,8 @@ pub(crate) fn create(
                 runtime,
                 delivery_credits,
                 max_sends_in_flight,
+                spawner: spawner.clone(),
+                _stop: stop,
                 handle,
                 members: Mutex::new(Members::open()),
             });

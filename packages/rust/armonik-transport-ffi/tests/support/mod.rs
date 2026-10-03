@@ -265,6 +265,11 @@ impl Seen {
         kinds(&self.0)
     }
 
+    /// The thread each event was delivered on, by name.
+    pub fn threads(&self) -> Vec<Option<String>> {
+        self.0.iter().map(|event| event.on_thread.clone()).collect()
+    }
+
     pub fn data_kinds(&self) -> Vec<ak_event_kind> {
         self.0
             .iter()

@@ -9,13 +9,12 @@ use crate::runtime::{AkRuntime, Claim};
 use crate::tables;
 
 pub(crate) fn create_runtime(
-    worker_threads: u32,
     memory_ceiling: u64,
     memory_hard_ceiling: u64,
     host: Host,
 ) -> Result<ak_handle, Refusal> {
     let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
-    let runtime = AkRuntime::new(worker_threads, memory_ceiling, memory_hard_ceiling, host)?;
+    let runtime = AkRuntime::new(memory_ceiling, memory_hard_ceiling, host)?;
     let handle = tables::runtimes()
         .insert(runtime)
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;
@@ -89,9 +88,8 @@ async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledge
     };
 
     // On the blocking pool rather than on this worker. What it waits for is every host thread to
-    // leave `ak_channel_create` and `ak_call_start`, which is short and is not this thread's to
-    // predict - and a worker parked on a lock is one not driving the calls that have to reach
-    // their terminals before this shutdown can go on.
+    // leave `ak_channel_create` and `ak_call_start`, which is short but not this thread's to
+    // predict, and a tokio worker does not block.
     if let Some(runtime) = weak.upgrade() {
         tokio::task::spawn_blocking(move || runtime.close_the_gate())
             .await

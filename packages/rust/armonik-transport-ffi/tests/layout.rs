@@ -63,7 +63,6 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_runtime_config) -> &u32 = |config| &config.version;
     let _: fn(&ak_runtime_config) -> &u32 = |config| &config.flags;
     let _: fn(&ak_runtime_config) -> &u32 = |config| &config.reserved;
-    let _: fn(&ak_runtime_config) -> &u32 = |config| &config.worker_threads;
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_ceiling;
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_hard_ceiling;
 
@@ -104,10 +103,9 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_runtime_config, version), 4);
     assert_eq!(offset_of!(ak_runtime_config, flags), 8);
     assert_eq!(offset_of!(ak_runtime_config, reserved), 12);
-    assert_eq!(offset_of!(ak_runtime_config, worker_threads), 16);
-    assert_eq!(offset_of!(ak_runtime_config, memory_ceiling), 24);
-    assert_eq!(offset_of!(ak_runtime_config, memory_hard_ceiling), 32);
-    assert_eq!(size_of::<ak_runtime_config>(), 40);
+    assert_eq!(offset_of!(ak_runtime_config, memory_ceiling), 16);
+    assert_eq!(offset_of!(ak_runtime_config, memory_hard_ceiling), 24);
+    assert_eq!(size_of::<ak_runtime_config>(), 32);
 
     assert_eq!(offset_of!(ak_call_start_options, struct_size), 0);
     assert_eq!(offset_of!(ak_call_start_options, version), 4);
@@ -382,17 +380,6 @@ fn the_header_and_the_library_agree_on_the_version() {
     let declared = format!("#define AK_ABI_VERSION {AK_ABI_VERSION}");
     assert!(
         header.lines().any(|line| line.trim() == declared),
-        "the header does not say {declared}"
-    );
-}
-
-#[test]
-fn the_header_and_the_library_agree_on_the_worker_ceiling() {
-    // A bound a host reads and a bound the library enforces are the same number or the header
-    // lies about what is accepted.
-    let declared = format!("#define AK_MAX_WORKER_THREADS {AK_MAX_WORKER_THREADS}");
-    assert!(
-        header().lines().any(|line| line.trim() == declared),
         "the header does not say {declared}"
     );
 }

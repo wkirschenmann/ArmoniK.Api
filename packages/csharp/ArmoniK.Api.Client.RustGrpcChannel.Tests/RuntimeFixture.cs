@@ -52,11 +52,9 @@ public abstract class RuntimeFixture
   /// <remarks>For a test whose subject is what the engine was started with. One runtime per
   /// process, so the current one goes first - and the fixture disposes whichever is current, so
   /// restarting leaves nothing behind either.</remarks>
-  protected Task<NativeRuntime> RestartAsync(uint  workerThreads     = 0,
-                                             ulong memoryCeiling     = 0,
+  protected Task<NativeRuntime> RestartAsync(ulong memoryCeiling     = 0,
                                              ulong memoryHardCeiling = 0)
-    => RestartAsync(() => NativeRuntime.Create(workerThreads,
-                                               memoryCeiling,
+    => RestartAsync(() => NativeRuntime.Create(memoryCeiling,
                                                memoryHardCeiling));
 
   /// <summary>Starts this test's engine again through <paramref name="start" />.</summary>

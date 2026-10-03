@@ -30,8 +30,8 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "ti
 schemars = { workspace = true, optional = true }
 
 [features]
-# Points where a test holds a host thread inside a downcall. Off unless a test asks for it; no
-# shipped build enables it.
+# Points where a test holds a host thread inside a downcall, and a count of the channels'
+# threads. Off unless a test asks for it; no shipped build enables it.
 test-hooks = []
 # A JSON schema of the runtime options, for generating an options class in another language.
 schema = ["dep:schemars"]
@@ -44,6 +44,10 @@ required-features = ["schema"]
 # Skipped without the feature: run it with `--features test-hooks`, or `--all-features`.
 [[test]]
 name = "races"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "threads"
 required-features = ["test-hooks"]
 
 [dev-dependencies]

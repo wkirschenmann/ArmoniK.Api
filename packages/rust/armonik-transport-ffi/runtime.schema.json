@@ -15,13 +15,6 @@
       "type": "integer",
       "format": "int64",
       "minimum": 1
-    },
-    "WorkerThreads": {
-      "description": "How many threads the engine runs its calls on.\n\nDefaults to one per core.",
-      "type": "integer",
-      "format": "int32",
-      "maximum": 1024,
-      "minimum": 1
     }
   },
   "additionalProperties": false

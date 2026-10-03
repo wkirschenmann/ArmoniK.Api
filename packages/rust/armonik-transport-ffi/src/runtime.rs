@@ -1,9 +1,10 @@
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
+use std::time::Duration;
 
-use crate::abi::{
-    ak_error_kind, ak_event_kind, ak_host_debt, ak_runtime_state, ak_status, AK_MAX_WORKER_THREADS,
-};
+use tokio::sync::{oneshot, watch};
+
+use crate::abi::{ak_error_kind, ak_event_kind, ak_host_debt, ak_runtime_state, ak_status};
 use crate::call::CallServices;
 use crate::held::Held;
 use crate::host::Host;
@@ -24,6 +25,21 @@ pub(crate) struct AkRuntime {
     /// Not a tokio task: it emits the last event and then shuts tokio down, which tokio refuses
     /// from inside itself. Its having finished is what QUIESCENT means - see `state`.
     teardown: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The channels' threads, each a current-thread runtime that runs its channel's connection
+    /// and calls, so that a call never moves between threads. Joined by the teardown, which is
+    /// what keeps QUIESCENT meaning that no thread of this runtime is left.
+    channel_threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    /// Raised by the teardown, which every channel's thread stops on.
+    stop_channels: watch::Sender<bool>,
+    /// Numbers the channels' threads, so that each is told apart by its name.
+    channels_started: AtomicU64,
+}
+
+/// A channel's thread, from the channel's side: where its work runs, and what stops it when the
+/// channel goes.
+pub(crate) struct ChannelThread {
+    pub(crate) spawner: tokio::runtime::Handle,
+    pub(crate) stop: oneshot::Sender<()>,
 }
 
 /// The process-wide claim on being the one runtime.
@@ -62,11 +78,15 @@ impl Drop for Claim {
     }
 }
 
-const TOO_MANY_WORKERS: Refusal = Refusal::fixed(
-    ak_status::AK_STATUS_INVALID_ARG,
-    ak_error_kind::AK_ERROR_USAGE,
-    "worker_threads is above AK_MAX_WORKER_THREADS",
+// The OS's reason is not kept: whichever it is, the host's remedy is fewer channels.
+const CHANNEL_THREAD_REFUSED: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INTERNAL,
+    ak_error_kind::AK_ERROR_NONE,
+    "the channel's thread could not be started",
 );
+
+/// How long a channel's thread waits, once its channel is gone, for the channel's leftover work.
+const CHANNEL_WIND_DOWN: Duration = Duration::from_secs(1);
 
 const THRESHOLDS_CROSSED: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
@@ -80,23 +100,21 @@ impl AkRuntime {
     }
 
     pub(crate) fn new(
-        worker_threads: u32,
         memory_ceiling: u64,
         memory_hard_ceiling: u64,
         host: Host,
     ) -> Result<Arc<Self>, Refusal> {
-        if worker_threads > AK_MAX_WORKER_THREADS {
-            return Err(TOO_MANY_WORKERS);
-        }
         let ledger =
             Ledger::new(memory_ceiling, memory_hard_ceiling).map_err(|_| THRESHOLDS_CROSSED)?;
 
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.enable_all();
-        if worker_threads > 0 {
-            builder.worker_threads(worker_threads as usize);
-        }
-        let tokio = builder.build().map_err(|_| ak_status::AK_STATUS_INTERNAL)?;
+        // One worker: what runs here is the shutdown's orchestration, the channels' work running
+        // on threads of their own.
+        let tokio = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("armonik-runtime")
+            .enable_all()
+            .build()
+            .map_err(|_| ak_status::AK_STATUS_INTERNAL)?;
         let spawner = tokio.handle().clone();
 
         Ok(Arc::new(Self {
@@ -107,7 +125,79 @@ impl AkRuntime {
             state: AtomicI32::new(ak_runtime_state::AK_RUNTIME_RUNNING as i32),
             gate: RwLock::new(()),
             teardown: Mutex::new(None),
+            channel_threads: Mutex::new(Vec::new()),
+            stop_channels: watch::channel(false).0,
+            channels_started: AtomicU64::new(0),
         }))
+    }
+
+    /// Starts a channel's thread: a current-thread runtime that runs until the channel drops the
+    /// `stop` it is handed, or the teardown stops every channel.
+    ///
+    /// Stopped either way, the thread first gives what the channel left running - the close of
+    /// its connection, a cancelled call's cleanup - up to `CHANNEL_WIND_DOWN` to finish, so that
+    /// a peer sees the connection closed rather than dropped. The teardown comes after the
+    /// shutdown has closed every channel, so its connections are closing too.
+    pub(crate) fn start_channel_thread(&self) -> Result<ChannelThread, Refusal> {
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut all_stop = self.stop_channels.subscribe();
+        let thread = std::thread::Builder::new()
+            .name(format!(
+                "armonik-channel-{}",
+                self.channels_started.fetch_add(1, Ordering::Relaxed)
+            ))
+            .spawn(move || {
+                #[cfg(feature = "test-hooks")]
+                let _alive = crate::hooks::ChannelThreadAlive::new();
+                let tokio = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(tokio) => tokio,
+                    Err(_) => return,
+                };
+                let (stop, stopped) = oneshot::channel();
+                if ready_tx.send((tokio.handle().clone(), stop)).is_err() {
+                    return;
+                }
+                tokio.block_on(async move {
+                    tokio::select! {
+                        _ = stopped => {}
+                        _ = all_stop.wait_for(|stopping| *stopping) => {}
+                    }
+                    // Polled, because tokio offers no wait on a runtime's tasks.
+                    let left = tokio::runtime::Handle::current();
+                    let _ = tokio::time::timeout(CHANNEL_WIND_DOWN, async {
+                        while left.metrics().num_alive_tasks() > 0 {
+                            tokio::time::sleep(Duration::from_millis(1)).await;
+                        }
+                    })
+                    .await;
+                });
+            })
+            .map_err(|_| CHANNEL_THREAD_REFUSED)?;
+        let Ok((spawner, stop)) = ready_rx.recv() else {
+            let _ = thread.join();
+            return Err(CHANNEL_THREAD_REFUSED);
+        };
+
+        let mut threads = Held::new(
+            self.channel_threads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        // The threads of channels already gone, reaped as new ones start, so that the handles
+        // kept are bounded by the channels open at the last start rather than by every channel
+        // the process ever had.
+        let (finished, running): (Vec<_>, Vec<_>) = threads
+            .drain(..)
+            .partition(std::thread::JoinHandle::is_finished);
+        for done in finished {
+            let _ = done.join();
+        }
+        *threads = running;
+        threads.push(thread);
+        Ok(ChannelThread { spawner, stop })
     }
 
     pub(crate) fn spawner(&self) -> &tokio::runtime::Handle {
@@ -126,7 +216,6 @@ impl AkRuntime {
         CallServices {
             host: &self.host,
             ledger: &self.ledger,
-            spawner: &self.spawner,
         }
     }
 
@@ -214,6 +303,19 @@ impl AkRuntime {
 
     /// Waits for every worker to stop, which only a thread outside tokio may do.
     fn release_threads(&self) {
+        // The channels' threads first, each after its wind-down. Every call has reached its
+        // terminal with no callback in flight; a reclaim the wind-down does not reach is a
+        // removal from the calls table, which `ak_runtime_destroy` repeats.
+        self.stop_channels.send_replace(true);
+        let channel_threads = std::mem::take(&mut *Held::new(
+            self.channel_threads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        ));
+        for thread in channel_threads {
+            let _ = thread.join();
+        }
+
         let taken = Held::new(self.tokio.lock().unwrap_or_else(PoisonError::into_inner)).take();
         if let Some(tokio) = taken {
             // Dropped rather than given a deadline. This thread finishing is what `state` reports
@@ -257,26 +359,8 @@ mod tests {
     }
 
     #[test]
-    fn a_worker_count_no_machine_could_serve_is_refused() {
-        // Refused rather than attempted, because the attempt does not fail: tokio sizes a table
-        // of one entry per worker before creating any, and near `u32::MAX` that allocation aborts
-        // the process. An abort is not a status, and no guard here can make it one.
-        let refused = |workers| {
-            AkRuntime::new(workers, 0, 0, Host::new(never_called, std::ptr::null_mut()))
-                .err()
-                .expect("a count past the maximum is refused")
-        };
-
-        assert_eq!(refused(u32::MAX).status(), ak_status::AK_STATUS_INVALID_ARG);
-        assert_eq!(
-            refused(AK_MAX_WORKER_THREADS + 1).status(),
-            ak_status::AK_STATUS_INVALID_ARG
-        );
-    }
-
-    #[test]
     fn a_second_threshold_below_the_first_is_refused_with_its_reason() {
-        let refused = AkRuntime::new(0, 64, 32, Host::new(never_called, std::ptr::null_mut()))
+        let refused = AkRuntime::new(64, 32, Host::new(never_called, std::ptr::null_mut()))
             .err()
             .expect("a second threshold below the first is refused");
 
