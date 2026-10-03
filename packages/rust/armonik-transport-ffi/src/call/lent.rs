@@ -1,3 +1,4 @@
+use std::alloc::Layout;
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -63,12 +64,20 @@ pub(crate) unsafe fn take_payload(owner: *mut c_void) -> Option<Box<Payload>> {
     unsafe { take_tagged(owner, PAYLOAD_TAG) }
 }
 
+/// Zeroed by the allocator rather than after it, which skips the pass for pages fresh from the
+/// system: for a large buffer, the host's own write is then the one pass over it.
 pub(super) fn arena(len: usize) -> Result<Vec<u8>, ak_status> {
-    let mut data = Vec::new();
-    data.try_reserve_exact(len)
-        .map_err(|_| ak_status::AK_STATUS_INTERNAL)?;
-    data.resize(len, 0);
-    Ok(data)
+    if len == 0 {
+        return Ok(Vec::new());
+    }
+    let layout = Layout::array::<u8>(len).map_err(|_| ak_status::AK_STATUS_INTERNAL)?;
+    // SAFETY: the layout is not zero-sized, and the memory it gives is initialized, to zero.
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+    if ptr.is_null() {
+        return Err(ak_status::AK_STATUS_INTERNAL);
+    }
+    // SAFETY: `ptr` is the global allocator's, for `len` bytes of `u8`, all of them initialized.
+    Ok(unsafe { Vec::from_raw_parts(ptr, len, len) })
 }
 
 pub(super) fn lend_payload(
@@ -93,5 +102,22 @@ pub(super) fn lend_payload(
         ptr,
         len,
         owner: Box::into_raw(payload) as *mut c_void,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lent_buffer_holds_no_old_bytes() {
+        for len in [1, 4096, 64 * 1024, 1024 * 1024] {
+            // Dirty the heap with blocks of the same size first, so a recycled one would show.
+            drop(vec![0xAB_u8; len]);
+            let data = arena(len).expect("an arena");
+            assert_eq!(data.len(), len);
+            assert!(data.iter().all(|byte| *byte == 0), "{len} bytes");
+        }
+        assert!(arena(0).expect("an empty arena").is_empty());
     }
 }
