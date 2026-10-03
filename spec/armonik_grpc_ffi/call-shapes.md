@@ -1,9 +1,9 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03, decisions 10 to 12 to confirm; not built. Until each of its steps
-lands, every other document of the specification wins over this one on what that step changes.
-`DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it
-describes the binding as it was before.
+**Status**: decided 2026-10-03 and 2026-10-04; not built. Until each of its steps lands, every
+other document of the specification wins over this one on what that step changes.
+`DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it describes
+the binding as it was before.
 
 A gRPC method has one of four cardinalities, and each direction of a call carries either exactly
 one message or a stream of them. The ABI treats every call as a bidirectional stream: the host
@@ -75,21 +75,20 @@ the binding reports a unary call answered with more than one message.
   refused with `AK_STATUS_INVALID_STATE`, as on a call whose sending has ended, even before the
   commit: a one-request call with no request is not a call gRPC has, and a host that wants none
   cancels.
-- A one-request call has no AK_EVENT_WRITE_DONE (decision 5 for a unary call, decision 10 to
-  confirm for a server stream): the host commits its only buffer, gives it up at
-  the commit, and sends nothing more, so an acquittal would tell it nothing. The engine still
-  settles the send for itself - the window's slot, the bytes released from the runtime's count -
-  when the send settles, written or abandoned, before the call's terminal.
+- A one-request call has no AK_EVENT_WRITE_DONE (decisions 5 and 10): the host commits its only
+  buffer, gives it up at the commit, and sends nothing more, so an acquittal would tell it nothing.
+  The engine still settles the send for itself - the window's slot, the bytes released from the
+  runtime's count - when the send settles, written or abandoned, before the call's terminal.
 - After the commit, `ak_get_call_buffer` on a one-request call answers `AK_STATUS_INVALID_STATE`,
   as after the end of the sending: `AK_STATUS_SLOT_BUSY`, whose wake-up is a WRITE_DONE, would
   promise one that never comes.
-- Committing the empty buffer is the empty request, as it is today an empty message. The hazard
-  the header states - the zeroed `*out` of a refused lend, committed, is that empty message -
-  changes its outcome here: today a host that then sends its real message sends two requests on
-  a unary call, which the server refuses; on a one-request call the empty message is the request,
-  and the server runs it, so the mistake succeeds silently. That is accepted: the .NET binding
-  never meets it - it throws on a refused lend before any commit, and commits the empty buffer
-  only for a message of no bytes - and a C host is told so by the header.
+- Committing the empty buffer is the empty request, as it is today an empty message. The hazard the
+  header states - the zeroed `*out` of a refused lend, committed, is that empty message - changes
+  its outcome here: today a host that then sends its real message sends two requests on a unary
+  call, which the server refuses; on a one-request call the empty message is the request, the
+  server runs it, and the host learns of its mistake only when its real send is refused. That is
+  accepted: the .NET binding never meets it - it throws on a refused lend before any commit, and
+  commits the empty buffer only for a message of no bytes - and a C host is told so by the header.
 
 **Engine.**
 
@@ -180,9 +179,9 @@ represent it.
   downcall, in delivery order, each as `ak_event_consumed` gives back one: an unowned payload,
   owner NULL, is a no-op there too, and a zero-length payload with an owner is given back, its
   credit with it.
-- A batch carries data events only - INITIAL_METADATA, MESSAGE, STATUS (decision 11, to
-  confirm). AK_EVENT_WRITE_DONE, on a call whose sends cross the ABI, and AK_EVENT_BUDGET_WAKE come
-  alone, as today.
+- A batch carries data events only - INITIAL_METADATA, MESSAGE, STATUS (decision 11).
+  AK_EVENT_WRITE_DONE, on a call whose sends cross the ABI, and AK_EVENT_BUDGET_WAKE come alone, as
+  today.
 
 **Engine.**
 
@@ -191,12 +190,18 @@ represent it.
 - When a data event is ready, the task looks once more, without waiting, at what is already there
   - a message in hand, trailers received - and delivers all of it in one callback. A head that
   arrives alone, from a server that sends its headers early, goes alone and at once.
-- Every read of that look, the status's included, goes through `ReadGate` as today: the gate's
-  turn, then the ledger's admission against the runtime's threshold. The look polls them and
-  never waits: a read not admitted, or admitted with nothing to read yet, ends the batch and goes
-  on after the callback. A batch is also bounded by the delivery window. The turn opens at the
-  previous message's delivery step, taken as soon as the message is in hand (level 1 below), so
-  `ReadTurn::delivered()` moves there from after the callback.
+- Every read of that look, the status's included but for the one below, goes through `ReadGate` as
+  today: the gate's turn, then the ledger's admission against the runtime's threshold. The look
+  polls them and never waits: a read not admitted, or admitted with nothing to read yet, ends the
+  batch and goes on after the callback. A batch is also bounded by the delivery window. The turn
+  opens at the previous message's delivery step, taken as soon as the message is in hand (level 1
+  below), so `ReadTurn::delivered()` moves there from after the callback.
+- On a one-response call, the read after the message takes the gate's turn, which the message's
+  delivery step opens, and not the ledger's admission (decision 12): it can only yield the
+  trailers or the refusal of further bytes below, and is charged nothing. Behind the admission it
+  would wait, once the message takes the runtime's count to its limit, for the message to be given
+  back, which the binding's reader does only once the status is in. `ReadGate` gains that second
+  entry, the turn alone. Level 1 receives every status ungated, so this read is within it.
 - On a call whose sends cross the ABI, a status found while a WRITE_DONE is owed waits for it, as
   `DeliverStatus` needs every send acquitted: the batch ends before the status, the WRITE_DONE
   comes alone, and the status follows.
@@ -248,14 +253,11 @@ stays, as a property of the model rather than of the callback.
 - `OnEvent` copies a batch's events into the call's ring - the array does not outlive the
   callback - and signals its reader once per batch. A WRITE_DONE, alone, goes to the sender as
   today.
-- A one-response call's reader is woken once a batch brings the message or the terminal, the
-  delivery window is full, or the call is cancelled, and takes what the ring holds in one pass
-  with one `ak_events_consumed`: typically head, message and status, and a status that came later
-  wakes it once more (decision 12, to confirm). Without the message's condition, a status the
-  ledger holds back - the message having taken the runtime's count to its limit, alone or with
-  other calls' - would wait for the message to be given back, which the reader would do only once
-  the status is in; without the window's, a call whose window is one credit would wait for a
-  message the engine holds until the head is given back.
+- A one-response call's reader is woken once the terminal is in the ring, the delivery window is
+  full, or the call is cancelled, and takes head, message and status in one pass with one
+  `ak_events_consumed`. The terminal always comes, the engine reading the status past the
+  ledger's admission (decision 12). Without the window's condition, a call whose window is one
+  credit would wait for a message the engine holds until the head is given back.
 - The task that answers `ResponseHeadersAsync` starts when a caller asks for the headers, not on
   every call. Once started, it waits on the ring's arrival as it does today, so every batch wakes
   it, and a head that arrives alone and early answers it at once. The head is then consumed by
@@ -288,10 +290,10 @@ What the steps must achieve:
   as the runtime's are (`RuntimeOwedFairness`).
 - `ak_events_consumed` is `n` binding steps, one per payload, each `FinishConsumePayload`
   refining one `HostConsumesEvent`.
-- `BeginParseEvent`, the step from waiting to parsing, gains the one-response wake condition,
-  enabled whenever the ring holds an event whose give-back the engine waits on. Level 1 receives
-  a status ungated, so the model cannot show the deadlock the condition prevents: step 3 tests it,
-  with a message that takes the runtime's count to its limit.
+- `BeginParseEvent`, the step from waiting to parsing, gains the one-response wake condition.
+  Level 1 receives a status ungated, so the model cannot show the wait decision 12 removes - a
+  status held behind a message the reader gives back only once the status is in: step 3 tests
+  it, with a message that takes the runtime's count to its limit.
 - The headers task on demand changes `ConsumeHeader`, the prologue phase,
   `PastPrologueHeadersAnswered` and the liveness of `HeadersEventuallyResolved`: a head answers a
   headers request whenever one is made, before or after the reader consumed it.
@@ -344,6 +346,12 @@ untouched.
   cardinality declared at start" - it still needs none, but calls may declare one.
   `architecture.md`'s "Unary is not a special case" holds: the response's message still travels
   the ring and is parsed by the reader, typically woken once.
+- The rule that a status waits behind the gate as its messages do, decided on 2026-10-03, which
+  decision 12 reverses for a one-response call's status: `architecture.md`'s "A status the peer
+  sends is read where its messages are, behind the gate", `tasks.md`'s "A status the peer sends
+  waits behind the gate too", the documentation of `ReadGate` in `armonik-transport`'s
+  `grpc/call.rs`, and the test `the_gate_is_asked_before_each_read_the_status_included` in
+  `tests/grpc_read_gate.rs`.
 - Requirement 2.5 and its status, and the promise on `timeout_ns` of zero in `abi.rs` (so the
   header and `NativeMethods.g.cs`) and in `abi.md`, as the deadline paragraph says.
 - The engine's structure that step 1 replaces - a driver, an actor with a writer and a reader -
@@ -355,10 +363,10 @@ untouched.
 
 ## What it should buy
 
-Per unary call, in the typical case: the server sends its head, message and status together,
-and the delivery window holds them. A head sent early, a window of one credit or a status the
-ledger holds back each cost one callback more. The times are the measured costs of what goes, and
-the whole is measured after each step rather than added up:
+Per unary call, in the typical case: the server sends its head, message and status together, and
+the delivery window holds them. A head sent early or a window of one credit each cost one callback
+more. The times are the measured costs of what goes, and the whole is measured after each step
+rather than added up:
 
 | | today | then |
 |---|---|---|
@@ -397,24 +405,20 @@ Taken on 2026-10-03:
 9. **`INTERNAL` for a broken shape; `ak_call_end_send` refused on a one-request call; the headers
    task on demand.**
 
-To confirm:
+Taken on 2026-10-04:
 
 10. **No WRITE_DONE on any one-request call**, server streaming as well as unary: the reason of
-    decision 5 holds for both, the host sending one message either way. Every statement here that a
-    one-request call has no WRITE_DONE, or answers `AK_STATUS_INVALID_STATE` to a lend after its
-    commit, rests on it for a server stream.
+    decision 5 holds for both, the host sending one message either way.
 11. **A batch carries data events only.** A WRITE_DONE on a call whose sends cross the ABI comes
     alone, as today, rather than heading a batch of data events ready with it. That keeps the
     binding's acquittal as it is and adds no level-2 step for it; a stream whose WRITE_DONE is
     ready with its data takes one callback more than a batch would have, as many as today.
-12. **A one-response call's status stays behind the ledger's admission**, as every status has been
-    since 2026-10-03 (`architecture.md`, `tasks.md`), and the binding's reader is woken by the
-    message as well as by the terminal, so that it gives the message back without waiting for a
-    status the ledger holds behind it, once the message takes the runtime's count to its limit. The
-    status costs a second wake only when it is not in the message's batch. The other way exempts
-    that one read from the admission - it can only yield the trailers or refuse further bytes, and
-    is charged nothing - which keeps one wake, but splits `ReadGate::admitted` into its turn and
-    its admission and reverses the decided rule for this case.
+12. **A one-response call's status takes the read gate's turn and not the ledger's admission**: it
+    can only yield the trailers or refuse further bytes, and is charged nothing, and the binding's
+    reader keeps its one wake. That reverses, for this read, the rule decided on 2026-10-03 that a
+    status waits behind the gate as its messages do. The other way kept the rule and woke the
+    reader on the message as well, at the cost of a second wake whenever the status is not in the
+    message's batch.
 
 ## Steps
 
@@ -432,10 +436,11 @@ says.
    the header, and the rows of the delivery steps and `DeliveryCallbackReturns`, which a batch
    moves; level 1's prose on one event per callback and on the delivery flag; the binding
    copies, publishes and signals per batch.
-3. **One response**: `AK_CALL_ONE_RESPONSE`, which the binding sets on a call whose method
-   returns one message; what follows the message looked at in the engine's response body; the
-   binding's single-pass reader and on-demand headers; the test of a message that takes the
-   runtime's count to its limit.
+3. **One response**: `AK_CALL_ONE_RESPONSE`, which the binding sets on a call whose method returns
+   one message; what follows the message looked at in the engine's response body; the binding's
+   single-pass reader and on-demand headers; the test of a message that takes the runtime's count
+   to its limit; the gate's turn alone, for a one-response call's status, with the documents and
+   the test of the rule decision 12 reverses.
 4. **One request**: `AK_CALL_ONE_REQUEST`, which the binding sets on a call whose method takes one
    message; the commit that ends the sending and spawns the task, the one-shot slot for a call
    spawned early, the framed body swapped below tonic, the replay of the same buffer, no WRITE_DONE
