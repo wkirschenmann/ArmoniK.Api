@@ -471,7 +471,10 @@ whether optimizations are needed.
 5. Results are documented and serve as a baseline for future evolutions.
 6. The campaign covers at minimum .NET Framework 4.8 and .NET 8.
 
-**Status**: none is met. T6.7 carries them.
+**Status**: 1, 2, 5 and 6 are met, by T6.7 and benchmarks.md; throughput is in MiB/s of 64 KiB
+messages, 16 messages a second per MiB/s, which holds for that size only. 3 is met in part: the
+process's private bytes and its managed heap, neither a count of allocations nor the resident
+set. 4 is not met: the campaign runs by hand, the same server and load each time, and not in CI.
 
 ---
 

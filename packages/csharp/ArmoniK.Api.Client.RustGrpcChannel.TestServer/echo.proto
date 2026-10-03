@@ -13,6 +13,15 @@ message EchoReply {
   string saw_metadata = 2;
 }
 
+message StreamRequest {
+  int32 count = 1;
+  int32 size = 2;
+}
+
+message Chunk {
+  bytes data = 1;
+}
+
 service Echo {
   rpc Say (EchoRequest) returns (EchoReply);
   rpc Collect (stream EchoRequest) returns (EchoReply);
@@ -30,4 +39,7 @@ service Echo {
   // Resets its own stream with ENHANCE_YOUR_CALM, after the response head when the text says
   // "after the head" and before it otherwise, so a client reads the reason off the RST_STREAM.
   rpc Reset (EchoRequest) returns (EchoReply);
+  // `count` chunks of `size` bytes each, so a client measures what it can read rather than what
+  // the server takes to build.
+  rpc Stream (StreamRequest) returns (stream Chunk);
 }

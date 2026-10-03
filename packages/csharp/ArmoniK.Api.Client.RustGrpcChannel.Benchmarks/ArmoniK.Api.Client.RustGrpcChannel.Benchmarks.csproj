@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- The two hosts the baseline is recorded on: the binding's netstandard2.0 half on .NET
+         Framework, its net8.0 half on .NET. -->
+    <TargetFrameworks>net4.8;net8.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <PackageVersion>3.29.2</PackageVersion>
+    <Version>3.29.2</Version>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- The engine is a native library of one architecture; see the test project. -->
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.32.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.71.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj"
+                      UndefineProperties="PlatformTarget;Prefer32Bit" />
+    <!-- The managed side is what ArmoniK clients use: GrpcChannelFactory over grpc-dotnet. -->
+    <ProjectReference Include="..\ArmoniK.Api.Client\ArmoniK.Api.Client.csproj"
+                      UndefineProperties="PlatformTarget;Prefer32Bit" />
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\ArmoniK.Api.Client.RustGrpcChannel.TestServer.csproj"
+                      ReferenceOutputAssembly="false"
+                      SetTargetFramework="TargetFramework=net8.0"
+                      UndefineProperties="PlatformTarget;Prefer32Bit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\echo.proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="TestServerAssembly"
+                      Value="$(MSBuildThisFileDirectory)../ArmoniK.Api.Client.RustGrpcChannel.TestServer/bin/$(Configuration)/net8.0/ArmoniK.Api.Client.RustGrpcChannel.TestServer.dll" />
+  </ItemGroup>
+
+  <!-- The engine beside the host, for its architecture, as the test project does. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\RustTargets.props" />
+
+  <Target Name="CopyNativeEngineForBenchmarks" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(SkipNativeEngine)' != 'true'">
+    <ItemGroup>
+      <HostRustTarget Include="@(RustTarget->WithMetadataValue('Os', '$(RustHostOs)')->WithMetadataValue('Arch', '$(PlatformTarget)')->WithMetadataValue('Libc', '$(RustHostLibc)'))" />
+    </ItemGroup>
+    <PropertyGroup>
+      <BenchEngineTriple>@(HostRustTarget->'%(Triple)')</BenchEngineTriple>
+      <BenchEngineLibrary>@(HostRustTarget->'%(Library)')</BenchEngineLibrary>
+      <BuiltEngineDir>$(RustWorkspace)target\$(BenchEngineTriple)\$(RustProfile)\</BuiltEngineDir>
+    </PropertyGroup>
+    <Error Condition="'$(BenchEngineTriple)' == ''"
+           Text="RustTargets.props maps no Rust target to $(RustHostOs)/$(PlatformTarget)/$(RustHostLibc)" />
+    <ItemGroup>
+      <BuiltEngine Include="$(BuiltEngineDir)$(BenchEngineLibrary)" />
+    </ItemGroup>
+    <Error Condition="'@(BuiltEngine)' == ''"
+           Text="no $(BenchEngineLibrary) in $(BuiltEngineDir); build the binding with -p:NativeEngineRids for this architecture" />
+    <Copy SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

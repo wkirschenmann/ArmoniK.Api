@@ -20,6 +20,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Google.Protobuf;
+
 using Grpc.Core;
 
 using Microsoft.AspNetCore.Http;
@@ -96,6 +98,22 @@ public class EchoService : Echo.EchoBase
                                  {
                                    Text = part,
                                  })
+                     .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>`Count` chunks of `Size` zero bytes, the same chunk each time.</summary>
+  public override async Task Stream(StreamRequest              request,
+                                    IServerStreamWriter<Chunk> responses,
+                                    ServerCallContext          context)
+  {
+    var chunk = new Chunk
+                {
+                  Data = ByteString.CopyFrom(new byte[request.Size]),
+                };
+    for (var sent = 0; sent < request.Count; sent++)
+    {
+      await responses.WriteAsync(chunk)
                      .ConfigureAwait(false);
     }
   }

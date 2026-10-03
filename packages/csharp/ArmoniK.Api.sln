@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.RustGrpc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests", "ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.Tests.csproj", "{C2866C5E-8F6A-4625-8BA8-07D3FCF672B3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArmoniK.Api.Client.RustGrpcChannel.Benchmarks", "ArmoniK.Api.Client.RustGrpcChannel.Benchmarks\ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.csproj", "{7292B01F-2403-4991-981E-EC01247DF4F4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -195,6 +197,18 @@ Global
 		{C2866C5E-8F6A-4625-8BA8-07D3FCF672B3}.Release|x64.Build.0 = Release|Any CPU
 		{C2866C5E-8F6A-4625-8BA8-07D3FCF672B3}.Release|x86.ActiveCfg = Release|Any CPU
 		{C2866C5E-8F6A-4625-8BA8-07D3FCF672B3}.Release|x86.Build.0 = Release|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Debug|x64.Build.0 = Debug|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Debug|x86.Build.0 = Debug|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Release|x64.ActiveCfg = Release|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Release|x64.Build.0 = Release|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Release|x86.ActiveCfg = Release|Any CPU
+		{7292B01F-2403-4991-981E-EC01247DF4F4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
