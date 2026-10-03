@@ -253,6 +253,11 @@ waits for every channel's thread before it finishes - so QUIESCENT still means t
 of the runtime is left, and may come up to that second later. What a callback costs is its
 channel's to pay: one that blocks stops that channel's connection and every call on it.
 
+**Writes gather what is ready.** The connection writes once the work already ready on the
+channel's thread adds nothing to what it has to write, or once that reaches
+`Http2.WriteCoalescingBytes`: a request's message, handed over from the host's thread while
+its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
+
 Both STOPPED and QUIESCENT refine one level-0 state. Freeing a handle is not a gRPC
 concept, so level 0 has nothing to say about the difference, and level 1 carries it
 entirely in its own variables - the only shape the refinement rule allows.

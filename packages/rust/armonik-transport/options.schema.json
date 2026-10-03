@@ -87,6 +87,12 @@
           "type": "integer",
           "format": "int32",
           "minimum": 1
+        },
+        "WriteCoalescingBytes": {
+          "description": "How many bytes a write to the connection may gather before it goes. A write waits while\nthe work already ready adds frames to it, one round of the runtime at a time, and goes once\na round adds none or it holds this many bytes: a request's message handed over while its\nheaders wait then goes out with them, in one write rather than two. 0 writes at once.\n\nDefaults to 16384, 16 KiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
         }
       },
       "additionalProperties": false

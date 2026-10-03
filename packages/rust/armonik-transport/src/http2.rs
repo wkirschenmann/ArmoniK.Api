@@ -20,6 +20,7 @@ use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
+use crate::coalesce::Coalescing;
 use crate::proxy::ProxyConnector;
 use crate::proxy::ProxyError;
 pub use crate::proxy::{ProxyConfig, ProxySource};
@@ -269,6 +270,9 @@ pub struct Http2Config {
     /// How long the session stays open with no call on it before the channel closes it; none
     /// keeps it open.
     pub idle_timeout: Option<Duration>,
+    /// How many bytes a write to the connection may gather while the work already ready adds to
+    /// it; 0 writes at once.
+    pub write_coalescing: usize,
 }
 
 /// The largest window RFC 9113 admits, 2^31 - 1.
@@ -287,6 +291,7 @@ impl Default for Http2Config {
             stream_window: 2 * 1024 * 1024,
             connection_window: 5 * 1024 * 1024,
             idle_timeout: None,
+            write_coalescing: 16 * 1024,
         }
     }
 }
@@ -497,9 +502,15 @@ pub(crate) async fn open<E, B>(
     connector: &TransportConnector,
     endpoint: &Uri,
     executor: E,
-) -> Result<(SendRequest<B>, Connection<TransportConnection, B, E>), TransportError>
+) -> Result<
+    (
+        SendRequest<B>,
+        Connection<Coalescing<TransportConnection>, B, E>,
+    ),
+    TransportError,
+>
 where
-    E: Http2ClientConnExec<B, TransportConnection> + Unpin + Clone,
+    E: Http2ClientConnExec<B, Coalescing<TransportConnection>> + Unpin + Clone,
     B: hyper::body::Body + 'static,
     B::Data: Send,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -518,7 +529,7 @@ where
             .keep_alive_while_idle(http2.keep_alive_while_idle)
             .initial_stream_window_size(http2.stream_window)
             .initial_connection_window_size(http2.connection_window)
-            .handshake(io)
+            .handshake(Coalescing::new(io, http2.write_coalescing))
             .await
             .map_err(|error| {
                 Http2HandshakeSnafu {

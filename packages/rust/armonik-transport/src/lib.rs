@@ -14,6 +14,7 @@
 //! named in [`options`], where the schema states its bounds and the generated .NET class its
 //! spelling.
 
+mod coalesce;
 mod config;
 mod connect;
 pub mod grpc;

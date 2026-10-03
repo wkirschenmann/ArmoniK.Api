@@ -276,6 +276,10 @@ mod tests {
             stated("/$defs/Http2Options/properties/ConnectionWindowSize/description"),
             http2.connection_window as f64
         );
+        assert_eq!(
+            stated("/$defs/Http2Options/properties/WriteCoalescingBytes/description"),
+            http2.write_coalescing as f64
+        );
         let retry = config.retry.expect("a retry policy by default");
         for (option, applied) in [
             ("MaxAttempts", f64::from(retry.max_attempts)),
@@ -419,6 +423,10 @@ mod tests {
             (
                 "/$defs/Http2Options/properties/ConnectionWindowSize/minimum",
                 r#"{"Http2":{"ConnectionWindowSize":N}}"#,
+            ),
+            (
+                "/$defs/Http2Options/properties/WriteCoalescingBytes/minimum",
+                r#"{"Http2":{"WriteCoalescingBytes":N}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/MaxAttempts/minimum",

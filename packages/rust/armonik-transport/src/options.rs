@@ -847,6 +847,19 @@ pub struct Http2Options {
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
     pub idle_timeout_seconds: Option<Seconds>,
+
+    /// How many bytes a write to the connection may gather before it goes. A write waits while
+    /// the work already ready adds frames to it, one round of the runtime at a time, and goes once
+    /// a round adds none or it holds this many bytes: a request's message handed over while its
+    /// headers wait then goes out with them, in one write rather than two. 0 writes at once.
+    ///
+    /// Defaults to 16384, 16 KiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub write_coalescing_bytes: Option<i32>,
 }
 
 /// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
@@ -1320,6 +1333,16 @@ impl Http2Options {
                 defaults.connection_window,
             )?,
             idle_timeout: duration("IdleTimeoutSeconds", self.idle_timeout_seconds, 1e-9, None)?,
+            write_coalescing: match self.write_coalescing_bytes {
+                None => defaults.write_coalescing,
+                Some(bytes) if bytes < 0 => {
+                    return Err(OptionRefusal::new(
+                        "WriteCoalescingBytes",
+                        format!("{bytes} has to be at least 0"),
+                    ))
+                }
+                Some(bytes) => bytes as usize,
+            },
         })
     }
 }
@@ -2067,10 +2090,12 @@ mod tests {
             stream_window_size: Some(1024),
             connection_window_size: Some(65_535),
             idle_timeout_seconds: Some(Seconds(300.0)),
+            write_coalescing_bytes: Some(0),
         }
         .to_config()
         .expect("admissible");
         assert_eq!(config.idle_timeout, Some(Duration::from_secs(300)));
+        assert_eq!(config.write_coalescing, 0);
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
         assert!(config.keep_alive_while_idle);
@@ -2091,6 +2116,14 @@ mod tests {
         .to_config()
         .expect_err("below the window every connection starts with");
         assert_eq!(refused.key(), "ConnectionWindowSize");
+
+        let refused = Http2Options {
+            write_coalescing_bytes: Some(-1),
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("a negative size");
+        assert_eq!(refused.key(), "WriteCoalescingBytes");
     }
 
     /// The committed schema is what generates the C# class, so it has to be what these types

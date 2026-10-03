@@ -234,6 +234,7 @@ public sealed class Http2Options
     KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
     KeepAliveWhileIdle = other.KeepAliveWhileIdle;
     StreamWindowSize = other.StreamWindowSize;
+    WriteCoalescingBytes = other.WriteCoalescingBytes;
   }
 
   /// <summary>
@@ -278,6 +279,17 @@ public sealed class Http2Options
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? StreamWindowSize { get; set; }
 
+  /// <summary>
+  ///   How many bytes a write to the connection may gather before it goes. A write waits while
+  ///   the work already ready adds frames to it, one round of the runtime at a time, and goes once
+  ///   a round adds none or it holds this many bytes: a request's message handed over while its
+  ///   headers wait then goes out with them, in one write rather than two. 0 writes at once.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
+  [JsonPropertyName("WriteCoalescingBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? WriteCoalescingBytes { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -315,6 +327,13 @@ public sealed class Http2Options
       throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
                                             streamWindowSize,
                                             "StreamWindowSize has to be at least 1.");
+    }
+
+    if (WriteCoalescingBytes is int writeCoalescingBytes && writeCoalescingBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(WriteCoalescingBytes),
+                                            writeCoalescingBytes,
+                                            "WriteCoalescingBytes has to be at least 0.");
     }
   }
 }
