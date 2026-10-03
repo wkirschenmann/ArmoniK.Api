@@ -10,7 +10,9 @@ use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tonic::metadata::MetadataMap;
 use tonic::Code;
 
-use super::call::{Answered, CallControl, HeadOrigin, OwnedMessage, RequestMessages, ResponseHead};
+use super::call::{
+    Answered, CallControl, HeadOrigin, OwnedMessage, ReadGate, RequestMessages, ResponseHead,
+};
 use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
@@ -56,6 +58,7 @@ pub(crate) struct Outgoing {
     pub(crate) metadata: HeaderMap,
     pub(crate) messages: RequestMessages,
     pub(crate) deadline: Option<Instant>,
+    pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
 }
 
 pub(crate) async fn drive(inner: Arc<Inner>, outgoing: Outgoing, driving: Driving) {
@@ -229,6 +232,7 @@ async fn run(
         metadata,
         messages,
         deadline,
+        read_gate,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -258,6 +262,7 @@ async fn run(
             headers,
             replay.attempt(),
             deadline,
+            read_gate.as_deref(),
             &replay,
             stop,
             delivery,
@@ -349,6 +354,7 @@ async fn attempt(
     metadata: HeaderMap,
     messages: AttemptMessages,
     deadline: Option<Instant>,
+    read_gate: Option<&dyn ReadGate>,
     replay: &Replay,
     stop: &mut Stop,
     delivery: &mut Delivery,
@@ -395,16 +401,27 @@ async fn attempt(
     // The reader has a head: whatever follows, this call is not tried again.
     replay.commit();
     delivery.head(Metadata::from_headers(&head), HeadOrigin::Wire);
-    Ended::with(finish(stop, delivery, &mut body).await, Pushback::Unsaid)
+    Ended::with(
+        finish(stop, delivery, read_gate, &mut body).await,
+        Pushback::Unsaid,
+    )
 }
 
 /// The response's messages and trailers, once its head is delivered.
 async fn finish(
     stop: &mut Stop,
     delivery: &mut Delivery,
+    read_gate: Option<&dyn ReadGate>,
     body: &mut tonic::Streaming<Bytes>,
 ) -> GrpcStatus {
     loop {
+        // Before the read, not after the message: a call the gate holds pulls nothing off the
+        // stream, so flow control holds its peer and nothing is decoded that the gate refused.
+        if let Some(gate) = read_gate {
+            if until_stopped(stop, gate.admitted()).await.is_none() {
+                return GrpcStatus::cancelled();
+            }
+        }
         match until_stopped(stop, body.message()).await {
             None => return GrpcStatus::cancelled(),
             Some(Err(status)) => return GrpcStatus::from(past_the_limit(status)),

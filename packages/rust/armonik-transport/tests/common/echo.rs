@@ -539,6 +539,18 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 ],
             )
         }
+        // As many messages as `x-sizes` lists, each of that many bytes, whatever was sent, then
+        // OK.
+        "Sized" => {
+            let sizes = header_of(request, "x-sizes").unwrap_or_default();
+            let mut frames: Vec<Frame<Bytes>> = sizes
+                .split(',')
+                .filter_map(|size| size.trim().parse::<usize>().ok())
+                .map(|size| Frame::data(grpc_message(0, &vec![b'z'; size])))
+                .collect();
+            frames.push(trailers(&[("grpc-status", "0")]));
+            (grpc_head(), frames)
+        }
         "NotFound" => (
             hyper::Response::builder()
                 .status(StatusCode::NOT_FOUND)

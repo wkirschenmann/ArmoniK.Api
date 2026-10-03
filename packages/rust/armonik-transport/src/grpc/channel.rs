@@ -169,6 +169,7 @@ impl GrpcChannel {
             metadata,
             messages,
             deadline,
+            read_gate: options.read_gate,
         };
         self.inner
             .spawner

@@ -58,6 +58,19 @@ pub enum Deadline {
     Timeout(Duration),
 }
 
+/// When a call may read its next message off the network: the caller's rule, the engine's wait.
+///
+/// The engine waits on it before each message it reads, so a call it holds reads nothing and
+/// HTTP/2 flow control stops its peer, while the call's deadline, its cancellation and its
+/// channel closing still end it as they end any other wait. A status the peer sends after its
+/// messages is read in the same place, so it too waits for the gate.
+pub trait ReadGate: std::fmt::Debug + Send + Sync {
+    /// Completes once the call may read its next message. Asked once per read, from the first
+    /// one after the response head, which is not gated; the future is dropped unfinished when the
+    /// call ends first.
+    fn admitted(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct CallStartOptions {
@@ -65,6 +78,9 @@ pub struct CallStartOptions {
     pub metadata: Metadata,
     /// None takes the channel's default deadline, which may be none.
     pub deadline: Option<Deadline>,
+    /// None reads as far ahead as the reader's queue lets it: a message off the stream while the
+    /// one before waits there to be taken.
+    pub read_gate: Option<Arc<dyn ReadGate>>,
 }
 
 impl CallStartOptions {
@@ -73,6 +89,7 @@ impl CallStartOptions {
             method: method.into(),
             metadata: Metadata::new(),
             deadline: None,
+            read_gate: None,
         }
     }
 }

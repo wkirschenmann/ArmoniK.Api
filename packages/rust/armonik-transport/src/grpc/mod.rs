@@ -9,8 +9,8 @@ mod retry;
 mod status;
 
 pub use call::{
-    CallControl, CallStartOptions, Deadline, GrpcCall, HeadOrigin, OwnedMessage, RecvHalf,
-    RecvResult, ResponseHead, SendHalf,
+    CallControl, CallStartOptions, Deadline, GrpcCall, HeadOrigin, OwnedMessage, ReadGate,
+    RecvHalf, RecvResult, ResponseHead, SendHalf,
 };
 pub use channel::{GrpcChannel, GrpcChannelConfig};
 pub use error::{CallError, ChannelError, GrpcChannelConfigError};
