@@ -82,7 +82,7 @@ impl Drop for Claim {
 const CHANNEL_THREAD_REFUSED: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INTERNAL,
     ak_error_kind::AK_ERROR_NONE,
-    "the channel's thread could not be started",
+    "too many channels",
 );
 
 /// How long a channel's thread waits, once its channel is gone, for the channel's leftover work.
