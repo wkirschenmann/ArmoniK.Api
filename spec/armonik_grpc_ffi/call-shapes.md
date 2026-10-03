@@ -416,9 +416,11 @@ Taken on 2026-10-04:
 12. **A one-response call's status takes the read gate's turn and not the ledger's admission**: it
     can only yield the trailers or refuse further bytes, and is charged nothing, and the binding's
     reader keeps its one wake. That reverses, for this read, the rule decided on 2026-10-03 that a
-    status waits behind the gate as its messages do. The other way kept the rule and woke the
-    reader on the message as well, at the cost of a second wake whenever the status is not in the
-    message's batch.
+    status waits behind the gate as its messages do. Its cost: the message stays in the ring, and
+    in the runtime's count, until the terminal comes, the window fills or the call is cancelled, so
+    a server that sends its message and then delays its trailers keeps that charge for the whole
+    delay. The other way kept the rule and woke the reader on the message as well, at the cost of a
+    second wake whenever the status is not in the message's batch.
 
 ## Steps
 
