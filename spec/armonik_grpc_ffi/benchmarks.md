@@ -1,9 +1,9 @@
 # Benchmarks: native against managed
 
 The baseline requirement 16 asks for: the native engine through `NativeChannel` against
-grpc-dotnet through `GrpcChannelFactory`, on .NET Framework 4.8 and .NET 8, measured with the engine
-of the commit that adds this document. It is a baseline, not a verdict: one machine, one server, the loopback
-interface, and numbers to compare the next measurement with.
+grpc-dotnet through `GrpcChannelFactory`, on .NET Framework 4.8 and .NET 8, measured with the
+engine of the commit that adds these figures. It is a baseline, not a verdict: one machine, one
+server, the loopback interface, and numbers to compare the next measurement with.
 
 ## What is measured
 
@@ -21,33 +21,47 @@ loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only
 
 Every transport option is left at its default, the runtime's ceilings included.
 
+Every measurement runs in two scenarios. **Idle**: the benchmark is all the process does, so the
+.NET thread pool sleeps between calls. **Busy**: two pool workers compute for 50 us and yield,
+over and over, as in an application whose pool is never idle.
+
 ## Results
 
-Three passes, interleaved; each cell is the median of the three.
+Three passes, the eight runs of a pass interleaved; each cell is the median of the three.
 
-| Host | Transport | P50 (us) | P95 (us) | P99 (us) | Stream (MiB/s) | Private (MiB) | Managed heap (MiB) |
-|------|-----------|---------:|---------:|---------:|---------------:|--------------:|-------------------:|
-| .NET 8 | native | 839 | 1553 | 1981 | 155 | 13.7 | 0.2 |
-| .NET 8 | managed | 704 | 1436 | 1925 | 162 | 18.2 | 1.1 |
-| .NET Framework 4.8 | native | 1026 | 1519 | 1879 | 148 | 13.4 | 0.3 |
-| .NET Framework 4.8 | managed | 4481 | 7557 | 10193 | 128 | 17.4 | 0.7 |
+| Host | Scenario | Transport | P50 (us) | P95 (us) | P99 (us) | Stream (MiB/s) |
+|------|----------|-----------|---------:|---------:|---------:|---------------:|
+| .NET 8 | idle | native | 517 | 1590 | 2087 | 161 |
+| .NET 8 | idle | managed | 400 | 1274 | 1869 | 189 |
+| .NET 8 | busy | native | 785 | 1490 | 1880 | 186 |
+| .NET 8 | busy | managed | 657 | 1169 | 1629 | 181 |
+| .NET Framework 4.8 | idle | native | 708 | 1414 | 1888 | 150 |
+| .NET Framework 4.8 | idle | managed | 3395 | 5491 | 7602 | 133 |
+| .NET Framework 4.8 | busy | native | 717 | 1021 | 1254 | 177 |
+| .NET Framework 4.8 | busy | managed | 3243 | 5335 | 6515 | 128 |
+
+Memory, idle: native holds 14.3 MiB of private bytes on .NET 8 and 13.2 on .NET Framework,
+managed 17.7 and 17.4; the managed heap grows by 0.2 and 0.3 MiB native, 1.1 and 0.7 managed.
+A busy run does not report memory: the load's own is in it.
 
 What the numbers say:
 
-- **On .NET Framework the native engine is the faster transport**, about 4.4 times at P50 and 5.4
-  times at P99, and it streams faster in each pass, 148 MiB/s against 128 at the median.
-  grpc-dotnet there runs over `WinHttpHandler`.
-- **On .NET 8 it is the slower one at the median for small unary calls**, by about 135 us, and so
-  in each of the three passes; at P99 the two are level. Where those microseconds go is not
-  measured here. The likely place is the boundary: the start, the head, the message and the status
-  each cross it, and each completion is a callback into managed code, where the managed stack has
-  nothing to cross. grpc-dotnet streams faster there in each pass, 162 MiB/s against 155 at the
-  median.
-- **The native process holds 4 to 5 MiB less**, and its managed heap barely moves, as the design
+- **On .NET Framework the native engine is the faster transport**, about 4.8 times at P50 and 4
+  times at P99 idle, 4.5 and 5.2 times busy, and it streams faster in each pass of both
+  scenarios. grpc-dotnet there runs over `WinHttpHandler`.
+- **On .NET 8 it is the slower one at the median**, by about 120 us idle and 130 us busy, and so
+  in each pass of both. Idle, its P99 is above grpc-dotnet's in each pass too; busy, the passes
+  disagree. Streaming is within the spread, the passes of the two overlapping.
+- **A busy pool lowers both stacks' P99 and leaves the gap at the median.** Native's P99 falls
+  from 2087 to 1880 us on .NET 8 and from 1888 to 1254 on .NET Framework, grpc-dotnet's from 1869
+  to 1629 and from 7602 to 6515. On .NET 8 both medians rise, native's from 517 to 785 us and
+  grpc-dotnet's from 400 to 657, the load taking CPU from both; on .NET Framework they barely
+  move. Why the tail falls is not measured here; a pool worker found awake rather than woken is
+  the likely part.
+- **The native process holds 3 to 4 MiB less**, and its managed heap barely moves, as the design
   has it: what it receives lives in native memory until the host gives it back.
-- **The passes spread.** The P50 of one configuration varied by up to 30 percent from one pass to
-  another on this machine - native on .NET Framework ran from 823 to 1068 us - which is why each
-  cell is a median, and why a difference smaller than that is reported only where every pass
+- **The passes spread.** The idle P50 of native on .NET 8 ran from 517 to 885 us, which is why
+  each cell is a median, and why a difference smaller than that is reported only where every pass
   shows it.
 
 What this baseline does not settle: the HTTP/2 window default, which the audit response leaves to
@@ -80,4 +94,5 @@ dotnet net8.0/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.dll native
 net4.8/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.exe native
 ```
 
-Each run prints one line with the six figures above.
+and the same with `busy` after the transport for the busy scenario. Each run prints one line: the
+latencies and the throughput, and for an idle run the two memory figures.

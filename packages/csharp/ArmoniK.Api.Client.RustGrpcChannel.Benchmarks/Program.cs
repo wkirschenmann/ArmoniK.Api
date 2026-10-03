@@ -47,18 +47,46 @@ public static class Program
   private const int StreamRuns    = 5;
   private const int ChunkCount    = 2_000;
   private const int ChunkSize     = 64 * 1024;
+  private const int BusyWorkers   = 2;
 
   public static async Task<int> Main(string[] args)
   {
-    if (args.Length != 1 || (args[0] != "native" && args[0] != "managed"))
+    if (args.Length is < 1 or > 2 || (args[0] != "native" && args[0] != "managed") || (args.Length == 2 && args[1] != "busy"))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|managed");
+      Console.Error.WriteLine("usage: Benchmarks native|managed [busy]");
       return 2;
     }
 
     var transport = args[0];
+    var busy      = args.Length == 2;
     using var server = Server.Start();
 
+    using var occupied = new CancellationTokenSource();
+    var load = Array.Empty<Task>();
+    try
+    {
+      if (busy)
+      {
+        load = Occupy(occupied.Token);
+      }
+
+      return await Measure(transport,
+                           server,
+                           busy)
+               .ConfigureAwait(false);
+    }
+    finally
+    {
+      occupied.Cancel();
+      await Task.WhenAll(load)
+                .ConfigureAwait(false);
+    }
+  }
+
+  private static async Task<int> Measure(string transport,
+                                         Server server,
+                                         bool   busy)
+  {
     var before = Footprint.Read();
     var (channel, release) = Open(transport,
                                   server);
@@ -110,19 +138,31 @@ public static class Program
       throughputs.Sort();
 
       var after = Footprint.Read();
-      Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                                      "{0} {1} p50_us={2:F0} p95_us={3:F0} p99_us={4:F0} stream_mib_s={5:F0} private_mib={6:F1} managed_mib={7:F1}",
-                                      transport,
-                                      Framework(),
-                                      Percentile(latencies,
-                                                 0.50),
-                                      Percentile(latencies,
-                                                 0.95),
-                                      Percentile(latencies,
-                                                 0.99),
-                                      throughputs[throughputs.Count / 2],
-                                      (after.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024),
-                                      (after.ManagedBytes - before.ManagedBytes) / (1024.0 * 1024)));
+      var line = string.Format(CultureInfo.InvariantCulture,
+                               "{0} {1}{2} p50_us={3:F0} p95_us={4:F0} p99_us={5:F0} stream_mib_s={6:F0}",
+                               transport,
+                               Framework(),
+                               busy
+                                 ? " busy"
+                                 : "",
+                               Percentile(latencies,
+                                          0.50),
+                               Percentile(latencies,
+                                          0.95),
+                               Percentile(latencies,
+                                          0.99),
+                               throughputs[throughputs.Count / 2]);
+      // The load holds memory of its own, so a busy run's says as much about it as about the
+      // transport.
+      if (!busy)
+      {
+        line += string.Format(CultureInfo.InvariantCulture,
+                              " private_mib={0:F1} managed_mib={1:F1}",
+                              (after.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024),
+                              (after.ManagedBytes - before.ManagedBytes) / (1024.0 * 1024));
+      }
+
+      Console.WriteLine(line);
       return 0;
     }
     finally
@@ -131,6 +171,25 @@ public static class Program
         .ConfigureAwait(false);
     }
   }
+
+  /// <summary>Thread-pool workers kept running, as in an application whose pool is never idle.</summary>
+  /// <remarks>Each computes for 50 us and yields, so a completion may find a worker awake.</remarks>
+  private static Task[] Occupy(CancellationToken stop)
+    => Enumerable.Range(0,
+                        BusyWorkers)
+                 .Select(_ => Task.Run(async () =>
+                                       {
+                                         while (!stop.IsCancellationRequested)
+                                         {
+                                           var until = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 20_000;
+                                           while (Stopwatch.GetTimestamp() < until)
+                                           {
+                                           }
+
+                                           await Task.Yield();
+                                         }
+                                       }))
+                 .ToArray();
 
   private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
                                                                Server server)
