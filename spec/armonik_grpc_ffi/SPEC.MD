@@ -98,6 +98,7 @@ path.
 | [tasks.md](tasks.md) | The plan, in phases. Each task's status records what shipped and where the plan did not survive. |
 | [tla/](tla/) | The TLA+ models, at three levels each refining the one before - gRPC in the abstract, the C ABI, the .NET binding - proved with TLAPS. |
 | `packages/rust/armonik-transport-ffi/include/armonik_transport_ffi.h` | The ABI as a C host reads it, rendered from the crate's Rust, which is its reference. |
+| [call-shapes.md](call-shapes.md) | A proposal: calls that declare a single request or a single response, and what the ABI, the engine and the binding would do with it. It binds nothing; every other document here wins over it. |
 
 Where they disagree on how, the TLA+ models win over the design, and the design over tasks.md.
 What V1 includes is requirements.md's criteria, and what it excludes is that document's
