@@ -120,10 +120,10 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <remarks>
   ///   Resolved into the document a channel sends, so the engine is never left to apply its own -
   ///   which is what keeps the ring this side sizes and the credits that side grants the same
-  ///   number. One, the smallest window the option admits: a host that asks for nothing holds at
-  ///   most one payload of a call and its terminal status.
+  ///   number. Four: the head and the message of a unary call each take one, and a stream has
+  ///   the rest.
   /// </remarks>
-  public const int DefaultDeliveryCredits = 1;
+  public const int DefaultDeliveryCredits = 4;
 
   /// <summary>The section a channel's options are read from when a caller names none.</summary>
   public const string SettingSection = "RustGrpcChannel";

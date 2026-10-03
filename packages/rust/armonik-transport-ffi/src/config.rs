@@ -6,9 +6,10 @@ use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, T
 use armonik_transport::options::{ChannelOptions, OptionRefusal, Seconds, LARGEST_WINDOW};
 use armonik_transport::reexports::http::Uri;
 
-// What a configuration that names neither gets: one each, the smallest window either admits.
+// What a configuration that names neither gets. One send, the smallest window. Four deliveries:
+// the head and the message of a unary call each take one, and a stream has the rest.
 const MAX_SENDS_IN_FLIGHT: i32 = 1;
-const DELIVERY_CREDITS: i32 = 1;
+const DELIVERY_CREDITS: i32 = 4;
 
 /// The options a host sent, read and found admissible.
 ///

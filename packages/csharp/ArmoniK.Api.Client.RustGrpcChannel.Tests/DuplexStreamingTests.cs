@@ -59,7 +59,7 @@ public class DuplexStreamingTests : EchoServerFixture
 
   /// <summary>Each answer read before the next message is sent.</summary>
   /// <remarks>Interleaved and not batched, because that is what the cardinality is for and what
-  /// a single send window and one held event per call have to allow.</remarks>
+  /// a single send window has to allow.</remarks>
   [Test]
   public async Task EachMessageIsAnsweredBeforeTheNextIsSent()
   {

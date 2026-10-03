@@ -343,7 +343,7 @@ ceiling is held.
 
 `ak_event_consumed` does two things at once: it frees the native memory, and it arms the next
 event of the call, the demand signal. At most `DeliveryCredits` payloads of a call are
-outstanding at once, a channel option whose default is 1: while the host owes that many, the
+outstanding at once, a channel option whose default is 4: while the host owes that many, the
 runtime withholds the next data callback, and only a terminal may still go out with every credit
 spent.
 
@@ -482,7 +482,7 @@ FFI note:
 - **Receive (demand via consumed)**: the `ak_bytes` payload is owned. The host consumes
   (deserializes directly from the native pointer) then calls `ak_event_consumed`. This
   call frees the memory AND arms reception of the next event. At most `DeliveryCredits`
-  non-consumed payloads per call (default 1) — this is the backpressure mechanism.
+  non-consumed payloads per call (default 4) — this is the backpressure mechanism.
 The terminal `AK_EVENT_STATUS` may arrive instead of a next MESSAGE (end of stream or error).
 
 ### Shutdown sequence

@@ -631,8 +631,9 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out, ak_er
  * The two windows mirror each other. DeliveryCredits bounds the payloads of one call outstanding
  * at once - the terminal status takes no credit, so a host holds at most one more - and the host
  * chooses it because the host is what has to hold them; MaxSendsInFlight bounds the buffers one
- * call may have out, counting those being filled and those awaiting their WRITE_DONE. Both
- * default to 1, and the schema states the range either may take.
+ * call may have out, counting those being filled and those awaiting their WRITE_DONE.
+ * DeliveryCredits defaults to 4 and MaxSendsInFlight to 1, and the schema states the range either
+ * may take.
  *
  * A call whose payloads the host does not consume reads a few messages past its spent credits,
  * which the engine holds outside what the credits count, and then stops reading its stream; what

@@ -63,7 +63,7 @@ public class UnaryTests : EchoServerFixture
 
     var variables = new[]
                     {
-                      ("DeliveryCredits", "4"),
+                      ("DeliveryCredits", "1"),
                       ("MaxReceiveMessageSize", "65536"),
                       ("MaxSendsInFlight", "2"),
                       ("Transport__ConnectTimeoutSeconds", "2.5"),
@@ -732,7 +732,7 @@ public class UnaryTests : EchoServerFixture
   public async Task AChannelMaySpeakWithADeeperDeliveryWindow()
   {
     await using var channel = Runtime.Channel(Endpoint,
-                                              deliveryCredits: 4);
+                                              deliveryCredits: 8);
 
     var reply = await Client(channel)
                       .SayAsync(new EchoRequest

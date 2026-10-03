@@ -98,7 +98,7 @@ public sealed class ChannelOptions
   ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
   ///   The terminal status takes none, so a host holds at most one more.
   /// </summary>
-  /// <remarks>Defaults to 1.</remarks>
+  /// <remarks>Defaults to 4.</remarks>
   [JsonPropertyName("DeliveryCredits")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? DeliveryCredits { get; set; }

@@ -121,10 +121,40 @@ fn a_head_event_says_where_the_head_came_from() {
     host.stop();
 }
 
+/// The default window lets a response's message through while its head is still held, so a host
+/// does not have to give the head back before the message it arrived with.
 #[test]
-fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
+fn a_default_channel_delivers_the_message_while_the_head_is_held() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
+
+    host.recorder.hold_payloads();
+    let call = start_call(channel, ECHO, &blob(&[]));
+    send_one(call, b"hello");
+
+    support::poll_until(
+        || {
+            host.recorder
+                .kinds()
+                .contains(&ak_event_kind::AK_EVENT_MESSAGE)
+        },
+        || format!("only {:?} with the head held", host.recorder.kinds()),
+    );
+
+    host.recorder.consume_all();
+    host.recorder.await_terminal();
+    host.recorder.consume_all();
+    fixture.close();
+}
+
+/// A window of one, so that a call whose head is held is parked before its message.
+const ONE_CREDIT: &str = r#"{"DeliveryCredits":1}"#;
+
+#[test]
+fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
+    let server = TestServer::start();
+    let host = &Host::start();
+    let channel = host.channel_with(&server.endpoint, ONE_CREDIT);
 
     host.recorder.hold_payloads();
     let call = start_call(channel, ECHO, &blob(&[]));
@@ -171,8 +201,8 @@ fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
 fn releasing_a_channel_cancels_its_calls_and_none_of_another_channels() {
     let server = TestServer::start();
     let host = Host::start();
-    let released = host.channel(&server.endpoint);
-    let kept = host.channel(&server.endpoint);
+    let released = host.channel_with(&server.endpoint, ONE_CREDIT);
+    let kept = host.channel_with(&server.endpoint, ONE_CREDIT);
 
     host.recorder.hold_payloads();
     let doomed = start_call(released, ECHO, &blob(&[]));
@@ -235,8 +265,9 @@ fn releasing_a_channel_cancels_its_calls_and_none_of_another_channels() {
 /// ended sending's rather than a finished call's.
 #[test]
 fn nothing_is_sent_after_the_sending_has_ended() {
-    let fixture = Host::connected();
-    let (host, channel) = (&fixture.host, fixture.channel);
+    let server = TestServer::start();
+    let host = &Host::start();
+    let channel = host.channel_with(&server.endpoint, ONE_CREDIT);
     host.recorder.hold_payloads();
     let call = start_call(channel, ECHO, &blob(&[]));
 

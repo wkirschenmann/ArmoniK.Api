@@ -1395,7 +1395,7 @@ pub struct ChannelOptions {
     /// How many of a call's payloads the host may hold at once, delivered and not yet given back.
     /// The terminal status takes none, so a host holds at most one more.
     ///
-    /// Defaults to 1.
+    /// Defaults to 4.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
