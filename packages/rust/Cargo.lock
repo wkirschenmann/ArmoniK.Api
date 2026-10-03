@@ -124,6 +124,7 @@ dependencies = [
  "http",
  "hyper",
  "rcgen",
+ "schemars",
  "serde_json",
  "serde_path_to_error",
  "tokio",

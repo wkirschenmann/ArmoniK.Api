@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuntimeOptions",
+  "description": "What a caller may set on the runtime.",
+  "type": "object",
+  "properties": {
+    "MemoryCeiling": {
+      "description": "The bytes the runtime holds before work waits, counting the buffers lent to send and the\nmessages received until the host gives them back: a call stops reading, and a send waits\nfor room.\n\nDefaults to 4294967295, four gigabytes, or half the address space where that is smaller;\na larger value is that too.",
+      "type": "integer",
+      "format": "int64",
+      "minimum": 1
+    },
+    "MemoryHardCeiling": {
+      "description": "The bytes past which the runtime stops: a received message that would take the count past\nthem ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may\npass it together, by a message each, and this bounds them. At least MemoryCeiling, or\nMemoryCeiling's default when that is left out.\n\nDefaults to a quarter above MemoryCeiling.",
+      "type": "integer",
+      "format": "int64",
+      "minimum": 1
+    },
+    "WorkerThreads": {
+      "description": "How many threads the engine runs its calls on.\n\nDefaults to one per core.",
+      "type": "integer",
+      "format": "int32",
+      "maximum": 1024,
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

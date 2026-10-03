@@ -147,7 +147,7 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? UserAgent { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -278,7 +278,7 @@ public sealed class Http2Options
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? StreamWindowSize { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -392,7 +392,7 @@ public sealed class RetryOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? MaxBackoffSeconds { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -505,7 +505,7 @@ public sealed class TransportOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public TlsOptions? Tls { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -593,7 +593,7 @@ public sealed class ProxyOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? Username { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -653,7 +653,7 @@ public sealed class TcpKeepaliveOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? Retries { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -782,7 +782,7 @@ public sealed class TlsOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? OverrideTargetName { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -886,7 +886,7 @@ public sealed class StoreCertificate
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? Thumbprint { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {

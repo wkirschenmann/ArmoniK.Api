@@ -171,6 +171,67 @@ public sealed class NativeRuntime : IAsyncDisposable
                              memoryHardCeiling);
   }
 
+  /// <summary>The section a runtime's options are read from when a caller names none.</summary>
+  public const string RuntimeSettingSection = "RustGrpcRuntime";
+
+  /// <summary>Starts the engine with the options a configuration carries.</summary>
+  /// <param name="configuration">What the options are read from.</param>
+  /// <param name="key">The section holding them.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">An option in the section is outside its stated bounds.</exception>
+  /// <exception cref="InvalidOperationException">
+  ///   <paramref name="key" /> names no section, the section holds a key no option matches, or the
+  ///   engine refused as <see cref="Create(uint,ulong,ulong)" /> does.
+  /// </exception>
+  /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  public static NativeRuntime Create(IConfiguration configuration,
+                                     string         key = RuntimeSettingSection)
+    => Create(RuntimeOptionsFrom(configuration,
+                                 key));
+
+  /// <summary>The runtime options a configuration's section carries, bound strictly.</summary>
+  /// <param name="configuration">What they are read from.</param>
+  /// <param name="key">The section holding them.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
+  /// <exception cref="InvalidOperationException">
+  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
+  /// </exception>
+  public static RuntimeOptions RuntimeOptionsFrom(IConfiguration configuration,
+                                                  string         key = RuntimeSettingSection)
+  {
+    if (configuration is null)
+    {
+      throw new ArgumentNullException(nameof(configuration));
+    }
+
+    var options = configuration.GetRequiredSection(key)
+                               .Get<RuntimeOptions>(binder => binder.ErrorOnUnknownConfiguration = true);
+
+    return options ?? throw new InvalidOperationException($"{key} carries no options");
+  }
+
+  /// <summary>Starts the engine with the options given, each one left out taking its default.</summary>
+  /// <param name="options">What the engine is started with.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(uint,ulong,ulong)" /> does.</exception>
+  /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  public static NativeRuntime Create(RuntimeOptions options)
+  {
+    if (options is null)
+    {
+      throw new ArgumentNullException(nameof(options));
+    }
+
+    // Zero is the ABI's spelling of the default and Validate refuses it, so an option left out is
+    // the only way to ask for the default.
+    options.Validate();
+
+    return Create((uint)(options.WorkerThreads ?? 0),
+                  (ulong)(options.MemoryCeiling ?? 0),
+                  (ulong)(options.MemoryHardCeiling ?? 0));
+  }
+
   /// <summary>Opens a channel with the options a configuration carries.</summary>
   /// <param name="endpoint">Where the channel connects, as the engine's own argument.</param>
   /// <param name="configuration">What the options are read from.</param>

@@ -29,7 +29,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
 Usage:
   dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- \
-    --schema <path to the JSON schema> --output <path to the .cs file> [--namespace <ns>] [--check]
+    --schema <path to the JSON schema> --output <path to the .cs file> [--namespace <ns>]
+    [--no-document] [--check]
 
 Options:
   --schema <path>     The option schema, as printed by
@@ -37,6 +38,8 @@ Options:
   --output <path>     The file to write; its directory has to exist.
   --namespace <ns>    The namespace of the generated classes. Defaults to
                       ArmoniK.Api.Client.RustGrpcChannel.
+  --no-document       The engine takes these options as fields, not as a JSON document: no
+                      encoding and no serializer context are rendered.
   --check             Writes nothing and fails if --output is not what --schema renders.
   -h, --help          Prints this text.
 
@@ -56,6 +59,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
       string? outputPath = null;
       var     namespaceName = DefaultNamespace;
       var     check         = false;
+      var     document      = true;
 
       // One rule, applied wherever an option takes a value: reading an argument consumes it.
       var read = 0;
@@ -81,6 +85,9 @@ The same schema always renders the same bytes, which is what makes --check a bui
             break;
           case "--check":
             check = true;
+            break;
+          case "--no-document":
+            document = false;
             break;
           // Named separately from the default, or an option written last with nothing after it
           // falls through its `when` and is reported as an argument nobody knows.
@@ -131,7 +138,8 @@ The same schema always renders the same bytes, which is what makes --check a bui
 
         generated = CSharpSource.Render(groups,
                                         namespaceName,
-                                        Path.GetFileName(schemaPath));
+                                        Path.GetFileName(schemaPath),
+                                        document);
       }
       catch (Exception e) when (IsFileFailure(e) || e is JsonException or NotSupportedException or InvalidOperationException)
       {
@@ -166,7 +174,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
           return 0;
         }
 
-        Console.Error.WriteLine($"'{outputPath}' is not what '{schemaPath}' renders. Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema {schemaPath} --output {outputPath}`.");
+        Console.Error.WriteLine($"'{outputPath}' is not what '{schemaPath}' renders. Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema {schemaPath} --output {outputPath}{(document ? "" : " --no-document")}`.");
         return 4;
       }
 

@@ -44,10 +44,10 @@
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.0" />
   </ItemGroup>
 
-  <!-- ChannelOptions.g.cs is generated from the engine's own option schema and committed, so a
-       reader of this assembly sees the vocabulary without running anything. Built but not
-       referenced: it is a net8.0 tool this build runs, not a library the binding links, and
-       OutputItemType is what hands over where it landed. -->
+  <!-- ChannelOptions.g.cs and RuntimeOptions.g.cs are generated from the engine's own option
+       schemas and committed, so a reader of this assembly sees the vocabulary without running
+       anything. Built but not referenced: it is a net8.0 tool this build runs, not a library the
+       binding links, and OutputItemType is what hands over where it landed. -->
   <ItemGroup>
     <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator\ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator.csproj"
                       ReferenceOutputAssembly="false"
@@ -63,6 +63,8 @@
          slashes, because a backslash is an ordinary filename character on Linux. -->
     <OptionsSchema>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../rust/armonik-transport/options.schema.json'))</OptionsSchema>
     <GeneratedOptions>$(MSBuildThisFileDirectory)ChannelOptions.g.cs</GeneratedOptions>
+    <RuntimeSchema>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/runtime.schema.json'))</RuntimeSchema>
+    <GeneratedRuntimeOptions>$(MSBuildThisFileDirectory)RuntimeOptions.g.cs</GeneratedRuntimeOptions>
   </PropertyGroup>
 
   <!-- A committed generated file is one that can be stale, and a stale one is an option the
@@ -75,7 +77,7 @@
        edit the emitter alone and both declared files stay older than the stamp. Its assembly
        rather than its sources, because that is what a build of it produces. -->
   <Target Name="CheckGeneratedOptionsMatchTheSchema" AfterTargets="ResolveProjectReferences"
-          Inputs="$(OptionsSchema);$(GeneratedOptions);@(OptionsGeneratorTool)"
+          Inputs="$(OptionsSchema);$(GeneratedOptions);$(RuntimeSchema);$(GeneratedRuntimeOptions);@(OptionsGeneratorTool)"
           Outputs="$(IntermediateOutputPath)options-checked.stamp">
     <Exec Command="dotnet exec &quot;@(OptionsGeneratorTool)&quot; --schema &quot;$(OptionsSchema)&quot; --output &quot;$(GeneratedOptions)&quot; --check"
           ContinueOnError="true">
@@ -83,6 +85,12 @@
     </Exec>
     <Error Condition="'$(OptionsCheckExitCode)' != '0'"
            Text="ChannelOptions.g.cs is not what $(OptionsSchema) renders (exit $(OptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport/options.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs`." />
+    <Exec Command="dotnet exec &quot;@(OptionsGeneratorTool)&quot; --schema &quot;$(RuntimeSchema)&quot; --output &quot;$(GeneratedRuntimeOptions)&quot; --no-document --check"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="RuntimeOptionsCheckExitCode" />
+    </Exec>
+    <Error Condition="'$(RuntimeOptionsCheckExitCode)' != '0'"
+           Text="RuntimeOptions.g.cs is not what $(RuntimeSchema) renders (exit $(RuntimeOptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport-ffi/runtime.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/RuntimeOptions.g.cs --no-document`." />
     <Touch Files="$(IntermediateOutputPath)options-checked.stamp" AlwaysCreate="true" />
     <!-- Or `dotnet clean` leaves the stamp and the next build skips the check. -->
     <ItemGroup>

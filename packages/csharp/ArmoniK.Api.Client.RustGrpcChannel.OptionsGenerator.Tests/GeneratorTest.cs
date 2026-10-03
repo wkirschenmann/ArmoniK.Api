@@ -188,7 +188,7 @@ public sealed class Options
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public TransportOptions? Transport { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -237,7 +237,7 @@ public sealed class TransportOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? Name { get; set; }
 
-  /// <summary>Refuses an option outside the range this channel accepts.</summary>
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its stated bounds.</exception>
   public void Validate()
   {
@@ -354,6 +354,35 @@ public sealed class TransportOptions
                                     "the group is copied");
                         Assert.That(rendered,
                                     Does.Contain("throw new ArgumentNullException(nameof(other));"));
+                      });
+    }
+
+    /// <summary>A vocabulary the engine takes as fields has no document to encode.</summary>
+    [Test]
+    public async Task AVocabularyTakenAsFieldsRendersNoEncoding()
+    {
+      var groups = await OptionVocabulary.ReadAsync(Wrap($@"""Credits"": {{ {Documented}""type"": ""integer"", ""format"": ""int32"" }}"))
+                                         .ConfigureAwait(false);
+
+      var fields = CSharpSource.Render(groups,
+                                       "Test",
+                                       "test.schema.json",
+                                       document: false);
+      var document = CSharpSource.Render(groups,
+                                         "Test",
+                                         "test.schema.json");
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(fields,
+                                    Does.Not.Contain("Encode()"));
+                        Assert.That(fields,
+                                    Does.Not.Contain("JsonSerializerContext"));
+                        Assert.That(fields,
+                                    Does.Contain("public void Validate()"),
+                                    "the bounds are checked all the same");
+                        Assert.That(document,
+                                    Does.Contain("internal byte[] Encode()"));
                       });
     }
 

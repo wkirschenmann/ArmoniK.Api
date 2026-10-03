@@ -68,6 +68,12 @@ The schema is the source of truth for:
 - Options documentation
 - Rust-side validation at channel creation
 
+The runtime's options have a schema of their own, `runtime.schema.json`, generated from
+`armonik-transport-ffi`'s `options::RuntimeOptions` under its `schema` feature. It names the
+fields of `ak_runtime_config` a host reads from its configuration - the .NET binding from the
+section `RustGrpcRuntime` - and `RuntimeOptions.g.cs` is generated from it without an encoding,
+since `ak_runtime_create` takes the fields and no document.
+
 Note: `RetryConfig` appears both in `GrpcChannelConfig` (channel default) and, post-V1, as a
 per-call override. Only the type is shared with the schema; the per-call override travels as
 an ABI field like the rest of `CallStartOptions`.

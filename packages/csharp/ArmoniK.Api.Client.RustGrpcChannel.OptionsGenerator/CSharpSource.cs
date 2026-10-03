@@ -53,11 +53,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     /// <param name="groups">The vocabulary, its root group first.</param>
     /// <param name="namespaceName">The namespace the classes are declared in.</param>
     /// <param name="schemaName">The schema file, named in the header so a reader can find it.</param>
+    /// <param name="document">
+    ///   Whether the engine reads the vocabulary as a JSON document, which the root then encodes.
+    ///   One it takes as fields is rendered without the encoding and its serializer context.
+    /// </param>
     /// <returns>The file's whole text, ending with one newline.</returns>
     /// <exception cref="NotSupportedException">A name or a bound has no C# this can emit.</exception>
     public static string Render(IReadOnlyList<OptionGroup> groups,
                                 string namespaceName,
-                                string schemaName)
+                                string schemaName,
+                                bool   document = true)
     {
       var root = groups[0]
         .Name;
@@ -73,7 +78,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
         // The serializer context is declared beside the classes and named after the root, so a
         // group of that name would be two types of one name in a file nobody wrote.
-        if (group.Name == context)
+        if (document && group.Name == context)
         {
           throw new NotSupportedException($"`{group.Name}` names a schema, and it is also the serializer context this renders for `{root}`.");
         }
@@ -118,26 +123,32 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
               #nullable enable
 
               using System;
-              using System.Text.Json;
-              using System.Text.Json.Serialization;
+              {{(document ? "using System.Text.Json;\n" : "")}}using System.Text.Json.Serialization;
 
               namespace {{namespaceName}};
-
-              // Rooted at {{root}}, which reaches every group of the vocabulary, so the whole graph is
-              // serialized without reflection - which is what lets a trimmed or native-AOT host use this.
-              [JsonSerializable(typeof({{root}}))]
-              internal partial class {{context}} : JsonSerializerContext
-              {
-              }
               """);
+
+      if (document)
+      {
+        Lines(source,
+              $$"""
+
+                // Rooted at {{root}}, which reaches every group of the vocabulary, so the whole graph is
+                // serialized without reflection - which is what lets a trimmed or native-AOT host use this.
+                [JsonSerializable(typeof({{root}}))]
+                internal partial class {{context}} : JsonSerializerContext
+                {
+                }
+                """);
+      }
 
       foreach (var group in groups)
       {
         Blank(source);
         Append(source,
                group,
-               ReferenceEquals(group,
-                               groups[0]));
+               document && ReferenceEquals(group,
+                                           groups[0]));
       }
 
       return text.ToString();
@@ -145,7 +156,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     private static void Append(IndentedTextWriter source,
                                OptionGroup group,
-                               bool isRoot)
+                               bool encodes)
     {
       Document(source,
                group.Description);
@@ -186,7 +197,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       AppendValidate(source,
                      group);
 
-      if (isRoot)
+      if (encodes)
       {
         AppendEncode(source,
                      group);
@@ -289,7 +300,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       Lines(source,
             """
 
-            /// <summary>Refuses an option outside the range this channel accepts.</summary>
+            /// <summary>Refuses an option outside the range the engine accepts.</summary>
             /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
             public void Validate()
             {

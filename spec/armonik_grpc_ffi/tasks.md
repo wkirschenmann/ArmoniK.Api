@@ -1359,6 +1359,22 @@ would cross the second ends its call with `RESOURCE_EXHAUSTED`; a send refused w
 `AK_STATUS_BUDGET_BUSY` resumes on the event when a received message is given back, with no poll;
 and the runtime's options are read from a configuration as a channel's are.
 
+**Status**: done. `tests/ceiling.rs` drives each item of the deliverable through the ABI, and
+`RuntimeOptionsTests` reads a runtime's options from a section as `ChannelOptionsTests` reads a
+channel's. Four items read differently from the plan:
+
+- **The engine waits, the runtime decides.** The read admission is a `ReadGate` that
+  `armonik-transport` waits on before each read off the stream, and the runtime gives each call
+  one. A call held there is still ended by its deadline, its cancellation or its channel closing,
+  which the engine ends any wait with.
+- **A status the peer sends waits behind the gate too**, after the messages before it, as grpc-java
+  and grpc-dotnet deliver it. Level 1 receives a status ungated; the engine is the stricter of the
+  two, decided on 2026-10-03, and tightening level 1 to match is left for later.
+- **No lend is of zero bytes.** `ak_get_call_buffer` refuses a length of zero, and an empty message
+  is sent by `ak_call_send_message` with no buffer.
+- **`memory_hard_ceiling` is checked against the threshold in force**, `memory_ceiling` or this
+  library's own when it is zero, and the refusal names it.
+
 ### T6.11: An idle session is closed
 
 **Prerequisite**: T4.1

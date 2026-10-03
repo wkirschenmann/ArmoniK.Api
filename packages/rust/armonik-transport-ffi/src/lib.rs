@@ -11,6 +11,8 @@ pub mod hooks;
 mod host;
 mod ledger;
 mod lifecycle;
+#[cfg(feature = "schema")]
+pub mod options;
 mod refusal;
 mod registry;
 mod runtime;

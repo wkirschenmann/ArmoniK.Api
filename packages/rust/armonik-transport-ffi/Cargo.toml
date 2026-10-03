@@ -27,11 +27,19 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 # unknown one and not for a value of the wrong type.
 serde_path_to_error.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+schemars = { workspace = true, optional = true }
 
 [features]
 # Points where a test holds a host thread inside a downcall. Off unless a test asks for it; no
 # shipped build enables it.
 test-hooks = []
+# A JSON schema of the runtime options, for generating an options class in another language.
+schema = ["dep:schemars"]
+
+# The schema is what the options type exists to produce, so an example prints it.
+[[example]]
+name = "runtime_schema"
+required-features = ["schema"]
 
 # Skipped without the feature: run it with `--features test-hooks`, or `--all-features`.
 [[test]]
