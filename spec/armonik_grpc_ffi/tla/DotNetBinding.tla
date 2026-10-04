@@ -16,16 +16,19 @@
 (*     WRITE_DONE, the managed completions, the roots, and the dispose     *)
 (*     ordering.                                                           *)
 (*                                                                         *)
-(* Scope.  The model is the generic bidirectional-streaming call: the      *)
-(* five CallInvoker methods are refinements of it that fix the number of   *)
-(* messages in each direction, not separate machines, and are therefore    *)
-(* not modelled.  The start/send command queue is level-1 stutter.  The    *)
-(* .NET async runtime is not modelled: completions signal, continuations   *)
-(* run elsewhere - RunContinuationsAsynchronously is an implementation     *)
-(* rule verified by review and tests, not a theorem.  The memory model of  *)
-(* the ring stays a coding rule for review, outside every level.  The     *)
-(* runtime counts nothing: it holds what it made, and the teardown's       *)
-(* guard is that every channel is settled.                                 *)
+(* Scope.  The model is the generic bidirectional-streaming call: the five *)
+(* CallInvoker methods are refinements of it that fix the number of        *)
+(* messages in each direction, not separate machines.  What a call         *)
+(* declares of them is modelled, as a shape: a one-request call's commit   *)
+(* ends its sending and is acquitted by the engine, and a one-response     *)
+(* call's reader waits for the whole response.  The start/send command     *)
+(* queue is level-1 stutter.  The .NET async runtime is not modelled:      *)
+(* completions signal, continuations run elsewhere -                       *)
+(* RunContinuationsAsynchronously is an implementation rule verified by    *)
+(* review and tests, not a theorem.  The memory model of the ring stays a  *)
+(* coding rule for review, outside every level.  The runtime counts        *)
+(* nothing: it holds what it made, and the teardown's guard is that every  *)
+(* channel is settled.                                                     *)
 (*                                                                         *)
 (* The application owes one progression fact per call, and only while the  *)
 (* response stream is readable: begin the next read, or dispose the call   *)
@@ -85,7 +88,22 @@ ReaderStates == {"idle", "waiting", "parsing", "parsing_cancelled",
 ReadInFlight(cId) ==
     reader_state[cId] \in {"waiting", "parsing", "parsing_cancelled"}
 WriterStates == {"idle", "serializing", "waiting_budget",
-                 "awaiting_write_done", "closed"}
+                 "awaiting_write_done", "sealing", "closed"}
+
+OneRequestCall(cId) == cId \in OneRequestCalls
+OneResponseCall(cId) == cId \in OneResponseCalls
+
+\* A one-request commit between its send and its end of the sending.
+IsSealing(cId) == writer_state[cId] = "sealing"
+
+\* What wakes a waiting read.  A one-response call's reader takes the whole
+\* response in one pass, so it waits until the terminal is in the ring or
+\* the delivery window is full - the engine delivers nothing more until
+\* something is given back.  Any other read wakes on its first event.
+ReaderWakes(cId) ==
+    \/ ~OneResponseCall(cId)
+    \/ L1!L0!HasStatus(cId)
+    \/ RingOccupancy(cId) >= DeliveryCredits
 CallDisposeStates == {"active", "draining", "settled"}
 ChannelDisposeStates == {"unopened", "constructing", "rejected", "active",
                          "disposing", "released", "disposed"}
@@ -143,6 +161,7 @@ ManagedTypeOK ==
     \* can lend.
     /\ retry_len \in [CallIds -> L1!Sizes \union {NoRetryLen}]
     /\ headers_completion \in [CallIds -> HeadersCompletions]
+    /\ headers_asked \in [CallIds -> BOOLEAN]
     /\ status_completion \in [CallIds -> StatusCompletions]
     /\ call_dispose_state \in [CallIds -> CallDisposeStates]
 
@@ -163,6 +182,7 @@ ManagedInit ==
     /\ writer_state = [c \in CallIds |-> "idle"]
     /\ retry_len = [c \in CallIds |-> NoRetryLen]
     /\ headers_completion = [c \in CallIds |-> "pending"]
+    /\ headers_asked = [c \in CallIds |-> FALSE]
     /\ status_completion = [c \in CallIds |-> "pending"]
     /\ call_dispose_state = [c \in CallIds |-> "active"]
 
@@ -347,8 +367,8 @@ StartCall(cId, chId) ==
     /\ call_token_published' = [call_token_published EXCEPT ![cId] = TRUE]
     /\ call_root_live' = [call_root_live EXCEPT ![cId] = TRUE]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
-               WriterVars, headers_completion, status_completion,
-               call_dispose_state>>
+               WriterVars, headers_completion, headers_asked,
+               status_completion, call_dispose_state>>
 
 \* MoveNext called: the reader is committed, payload or not.
 BeginMoveNext(cId) ==
@@ -386,7 +406,7 @@ ManagedCallState(cId) ==
     <<call_token_published[cId], call_root_live[cId],
       consumer_phase[cId], reader_state[cId], read_cancel_pending[cId],
       writer_state[cId], retry_len[cId],
-      headers_completion[cId], status_completion[cId],
+      headers_completion[cId], headers_asked[cId], status_completion[cId],
       call_dispose_state[cId], cancel_requested[cId]>>
 
 \* The consumed slot is the terminal one exactly when it is the last
@@ -428,7 +448,7 @@ FinishConsumePayload(cId) ==
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, consumer_phase,
-               headers_completion, call_dispose_state>>
+               headers_completion, headers_asked, call_dispose_state>>
 
 \* MoveNext's token fires.  The environment's step, not the binding's: it
 \* carries no fairness, because a token that never fires is the normal
@@ -468,7 +488,7 @@ CancelWaitingRead(cId) ==
                 ![cId] = IF @ = "pending" THEN "failed" ELSE @]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, consumer_phase,
-               status_completion>>
+               headers_asked, status_completion>>
 
 \* A request that lands on a parse cannot preempt it: a synchronous
 \* marshaller already writing is not interruptible, so the slot stays
@@ -485,7 +505,7 @@ CancelParsingRead(cId) ==
            [call_dispose_state EXCEPT ![cId] = "draining"]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, consumer_phase,
-               headers_completion, status_completion>>
+               headers_completion, headers_asked, status_completion>>
 
 \* The cancelled parse returns: its slot is released exactly once, here
 \* and nowhere else, and the reader is done.  When the slot it held was
@@ -505,7 +525,8 @@ FinishCancelledParse(cId) ==
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, consumer_phase,
-               read_cancel_pending, headers_completion, call_dispose_state>>
+               read_cancel_pending, headers_completion, headers_asked,
+               call_dispose_state>>
 
 \* A waiter caught by the dispose resolves exceptionally.
 CancelWaiter(cId) ==
@@ -530,15 +551,18 @@ HandoffToDrain(cId) ==
                WriterVars, reader_state, read_cancel_pending>>
 
 \* The prologue owns slot 0: it releases the header, resolves the headers
-\* completion, and hands the ring to the application.  The headers succeed,
-\* or fail: a head whose event says no response came fails them with the
-\* call's status, as grpc-dotnet's do, and the binding takes this step for
-\* such a head, or for a Trailers-Only one, only once the terminal is in the
-\* ring.  This level does not carry the head's origin, so it leaves the
-\* outcome open.
+\* completion, and hands the ring to the application.  Slot 0 is taken by
+\* the task a caller's request for the headers started, or by a read in
+\* flight, whichever comes first - the phase arbitrates, and nothing takes
+\* the head while neither exists.  The headers succeed, or fail: a head
+\* whose event says no response came fails them with the call's status, as
+\* grpc-dotnet's do, and the binding takes this step for such a head, or
+\* for a Trailers-Only one, only once the terminal is in the ring.  This
+\* level does not carry the head's origin, so it leaves the outcome open.
 ConsumeHeader(cId) ==
     /\ consumer_phase[cId] = "prologue"
     /\ call_dispose_state[cId] = "active"
+    /\ headers_asked[cId] \/ reader_state[cId] = "waiting"
     /\ RingTail(cId) = 0
     /\ L1!HostConsumesEvent(cId)
     /\ consumer_phase' = [consumer_phase EXCEPT ![cId] = "application"]
@@ -547,7 +571,21 @@ ConsumeHeader(cId) ==
                [headers_completion EXCEPT ![cId] = outcome]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, reader_state,
-               read_cancel_pending, status_completion, call_dispose_state>>
+               read_cancel_pending, headers_asked, status_completion,
+               call_dispose_state>>
+
+\* ResponseHeadersAsync: a caller asks for the headers, which starts the
+\* task that answers them, once.  The application's step, with no
+\* fairness: most callers never ask.  A request that comes after the head
+\* was taken finds the headers already answered.
+AskHeaders(cId) ==
+    /\ call_token_published[cId]
+    /\ ~headers_asked[cId]
+    /\ headers_asked' = [headers_asked EXCEPT ![cId] = TRUE]
+    /\ UNCHANGED l1_vars
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
+               WriterVars, call_token_published, call_root_live,
+               headers_completion, status_completion, call_dispose_state>>
 
 \* DisposeAsync on a call - also fired by its channel's dispose.  Latches
 \* cancellation if the call can still take one, and faults a headers task
@@ -565,7 +603,7 @@ BeginDisposeCall(cId) ==
           /\ UNCHANGED l1_vars
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
                WriterVars, call_token_published, call_root_live,
-               status_completion>>
+               headers_asked, status_completion>>
 
 \* A disposing channel settles its own calls - and no one else's:
 \* ownership is call_channel, the level-0 relation.
@@ -585,7 +623,7 @@ DrainRelease(cId) ==
                 ![cId] = IF ConsumingTerminal(cId) THEN "resolved" ELSE @]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
                WriterVars, call_token_published, call_root_live,
-               headers_completion, call_dispose_state>>
+               headers_completion, headers_asked, call_dispose_state>>
 
 \* The drain finished, the writer settled, the status resolved by the
 \* consumer that parsed the terminal: the call is disposed, and a dispose
@@ -602,7 +640,8 @@ FinishDisposeCall(cId) ==
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, reader_state,
-               read_cancel_pending, headers_completion, status_completion>>
+               read_cancel_pending, headers_completion, headers_asked,
+               status_completion>>
 
 \* The call is over and owes nothing, so it settles - no user step, and no
 \* Dispose: for a normally finished call the .NET API says disposing does
@@ -626,7 +665,8 @@ SettleCall(cId) ==
     /\ UNCHANGED l1_vars
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, WriterVars,
                call_token_published, call_root_live, reader_state,
-               read_cancel_pending, headers_completion, status_completion>>
+               read_cancel_pending, headers_completion, headers_asked,
+               status_completion>>
 
 (***************************************************************************)
 (* THE WRITER.  WriteAsync begins with the lend; a write completes at its  *)
@@ -674,12 +714,17 @@ RetryLendSucceeds(cId, b, charge) ==
                ReaderVars>>
 
 \* Serialization completed: the commit is accepted and the write is in
-\* flight, its task to be completed by WRITE_DONE.
+\* flight, its task to be completed by WRITE_DONE - or, on a one-request
+\* call, the commit goes on to end the sending, SealRequest, and no
+\* WRITE_DONE callback reaches the binding.
 CommitWrite(cId, msg, b) ==
     /\ writer_state[cId] = "serializing"
     /\ BindingMayDowncall(cId)
     /\ L1!SendMessage(cId, msg, b)
-    /\ writer_state' = [writer_state EXCEPT ![cId] = "awaiting_write_done"]
+    /\ writer_state' =
+           [writer_state EXCEPT
+                ![cId] = IF OneRequestCall(cId) THEN "sealing"
+                         ELSE "awaiting_write_done"]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
                ReaderVars, retry_len>>
 
@@ -714,8 +759,10 @@ CancelWriterWait(cId) ==
                ReaderVars>>
 
 \* The WRITE_DONE callback returns: the write in flight - there is at
-\* most one, the writer being single - completes its task.
+\* most one, the writer being single - completes its task.  A one-request
+\* call has no callback: the engine takes the return, PassWriteDoneReturns.
 WriteDoneCompletes(cId) ==
+    /\ ~OneRequestCall(cId)
     /\ L1!WriteDoneReturns(cId)
     /\ writer_state' =
            [writer_state EXCEPT
@@ -723,10 +770,31 @@ WriteDoneCompletes(cId) ==
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
                ReaderVars, retry_len>>
 
-\* CompleteAsync: end_send, legal only beside no pending write.
+\* The same return on a one-request call, where it is the engine's: the
+\* commit settles its send itself, with no callback, and nothing of the
+\* binding waits on it.
+PassWriteDoneReturns(cId) ==
+    OneRequestCall(cId) /\ L1!WriteDoneReturns(cId) /\ ManagedStutter
+
+\* CompleteAsync: end_send, legal only beside no pending write, and
+\* refused on a one-request call, whose commit ends the sending.
 CloseWriter(cId) ==
     /\ writer_state[cId] = "idle"
+    /\ ~OneRequestCall(cId)
     /\ BindingMayDowncall(cId)
+    /\ L1!EndSend(cId)
+    /\ writer_state' = [writer_state EXCEPT ![cId] = "closed"]
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
+
+\* The rest of a one-request call's commit: the same downcall ends the
+\* sending, so nothing that would close the sending's guard comes between
+\* the send and this.  Those are the runtime's steps - a status, a message
+\* past the second threshold, and the acquittal that would let a
+\* cancellation end the call - and they wait for it.  It reads no binding
+\* guard: a dispose cannot stop a downcall already under way.
+SealRequest(cId) ==
+    /\ IsSealing(cId)
     /\ L1!EndSend(cId)
     /\ writer_state' = [writer_state EXCEPT ![cId] = "closed"]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
@@ -737,7 +805,10 @@ CloseWriter(cId) ==
 (***************************************************************************)
 
 \* A non-terminal delivery callback returns after publishing the slot and
-\* completing the TCS the event answers.
+\* completing the TCS the event answers.  It is also the engine's own step
+\* between two events of one batch, where the host has not been called:
+\* the status is always a batch's last event, so the split on it leaves
+\* the root's release at the batch's own return.
 OnEventReturns(cId) ==
     /\ ~L1!L0!HasStatus(cId)
     /\ L1!DeliveryCallbackReturns(cId)
@@ -753,7 +824,7 @@ TerminalCallbackReturns(cId) ==
     /\ call_root_live' = [call_root_live EXCEPT ![cId] = FALSE]
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ReaderVars,
                WriterVars, call_token_published, headers_completion,
-               status_completion, call_dispose_state>>
+               headers_asked, status_completion, call_dispose_state>>
 
 \* The runtime-level callbacks return without touching managed call state.
 ShutdownReturns(rtId) ==
@@ -767,7 +838,13 @@ ResourcesReleasedReturns(rtId) ==
 (***************************************************************************)
 (* PASSTHROUGHS - the runtime's own steps, undecorated.  Every binding     *)
 (* downcall is coupled above; nothing lends, sends, closes or releases     *)
-(* outside the machines.                                                   *)
+(* outside the machines.  Three wait for a one-request commit to end its   *)
+(* sending, which is one downcall in the engine: a status arriving, a      *)
+(* message past the second threshold, and the acquittal, which the engine  *)
+(* takes after the end of the sending - before it, a cancellation could    *)
+(* end the call between the two.  The acquittal's return on such a call   *)
+(* is the engine's too, PassWriteDoneReturns, listed with the call's       *)
+(* steps beside WriteDoneCompletes, which takes it on every other call.    *)
 (***************************************************************************)
 
 RuntimeSteps ==
@@ -780,9 +857,9 @@ RuntimeSteps ==
     \/ L1!RemainReleased
     \/ \E chId \in ChannelIds : L1!ChannelFinishClosing(chId)
     \/ \E cId \in CallIds :
-           \/ L1!EmitWriteDone(cId)
+           \/ ~IsSealing(cId) /\ L1!EmitWriteDone(cId)
            \/ L1!NetworkSend(cId)
-           \/ L1!ReceiveStatus(cId)
+           \/ ~IsSealing(cId) /\ L1!ReceiveStatus(cId)
            \/ L1!DeliverInitialMetadata(cId)
            \/ L1!DeliverMessage(cId)
            \/ L1!DeliverStatus(cId)
@@ -793,7 +870,8 @@ RuntimeSteps ==
     \* The receive side's admission, the wake-up a refused send is owed, and
     \* the message past the second threshold.
     \/ \E cId \in CallIds : L1!AdmitRead(cId) \/ L1!EmitBudgetWake(cId)
-    \/ \E cId \in CallIds, msg \in Messages : L1!EndCallPastHardCeiling(cId, msg)
+    \/ \E cId \in CallIds, msg \in Messages :
+           ~IsSealing(cId) /\ L1!EndCallPastHardCeiling(cId, msg)
 
 BindingDowncalls ==
     \E cId \in CallIds :
@@ -846,6 +924,9 @@ Next ==
            \/ CloseWriter(cId)
            \/ OnEventReturns(cId)
            \/ TerminalCallbackReturns(cId)
+           \/ AskHeaders(cId)
+           \/ SealRequest(cId)
+           \/ PassWriteDoneReturns(cId)
     \/ \E cId \in CallIds, chId \in ChannelIds : StartCall(cId, chId)
     \/ \E cId \in CallIds, b \in BufferIds,
          len \in L1!Sizes, charge \in L1!Sizes :
@@ -890,13 +971,15 @@ Next ==
 \* PassthroughReachesNext pins these definitions to Next, so a passthrough
 \* that drifts out of it fails a proof instead of quietly weakening Spec.
 PassNetworkSend(cId) == L1!NetworkSend(cId) /\ ManagedStutter
-PassReceiveStatus(cId) == L1!ReceiveStatus(cId) /\ ManagedStutter
+PassReceiveStatus(cId) ==
+    ~IsSealing(cId) /\ L1!ReceiveStatus(cId) /\ ManagedStutter
 PassDeliverInitialMetadata(cId) ==
     L1!DeliverInitialMetadata(cId) /\ ManagedStutter
 PassDeliverMessage(cId) == L1!DeliverMessage(cId) /\ ManagedStutter
 PassDeliverStatus(cId) == L1!DeliverStatus(cId) /\ ManagedStutter
 PassDeliverCancelled(cId) == L1!DeliverCancelled(cId) /\ ManagedStutter
-PassEmitWriteDone(cId) == L1!EmitWriteDone(cId) /\ ManagedStutter
+PassEmitWriteDone(cId) ==
+    ~IsSealing(cId) /\ L1!EmitWriteDone(cId) /\ ManagedStutter
 PassEmitBudgetWake(cId) == L1!EmitBudgetWake(cId) /\ ManagedStutter
 PassReleaseCallHandle(cId) == L1!ReleaseCallHandle(cId) /\ ManagedStutter
 PassFreeReturnedBuffer(cId, b) ==
@@ -918,6 +1001,20 @@ PassChannelFinishClosing(chId) ==
 \* split on the status and cover it, so this is enabled exactly when level
 \* 1's family is.
 DeliveryReturns(cId) == OnEventReturns(cId) \/ TerminalCallbackReturns(cId)
+
+\* The ring's consumers as the fairness names them, by what wakes them: the
+\* headers task a caller started, the read in flight - on a one-response
+\* call once the response is in or the window full - and the read past the
+\* head, under the same wake.  Next does not confine the steps to these:
+\* within a pass the read goes on past its wake.
+HeadersTaskTakesHead(cId) == headers_asked[cId] /\ ConsumeHeader(cId)
+
+ReaderTakesHead(cId) ==
+    /\ reader_state[cId] = "waiting"
+    /\ ReaderWakes(cId)
+    /\ ConsumeHeader(cId)
+
+ReaderParses(cId) == ReaderWakes(cId) /\ BeginParseEvent(cId)
 
 \* The abort at whichever buffer the writer holds.  Named because a
 \* quantifier written inside an action is not something ExpandENABLED can
@@ -946,6 +1043,9 @@ RuntimeOwedFairness ==
     /\ \A cId \in CallIds : WF_vars(PassDeliverCancelled(cId))
     \* the acquittal comes, which is where a write completes
     /\ \A cId \in CallIds : WF_vars(PassEmitWriteDone(cId))
+    \* and on a one-request call the engine takes its return, so the
+    \* call's terminal does not wait on the send for good
+    /\ \A cId \in CallIds : WF_vars(PassWriteDoneReturns(cId))
     \* a refused send is told of the room a release made
     /\ \A cId \in CallIds : WF_vars(PassEmitBudgetWake(cId))
     \* a settled call is reclaimed, so its arena goes with it
@@ -981,18 +1081,25 @@ BindingOwedFairness ==
     \* the same, for the event this level never owes
     /\ \A rtId \in RuntimeIds : WF_vars(ResourcesReleasedReturns(rtId))
     \* the prologue releases slot 0 and resolves the headers, and it is the
-    \* only way out of the prologue on a live call; true: decoding metadata
-    \* is the binding's own code, a decode that throws drains the call, and
-    \* a head that waits for the terminal waits for an event that arrives
-    /\ \A cId \in CallIds : WF_vars(ConsumeHeader(cId))
+    \* only way out of the prologue on a live call; true of the headers
+    \* task once a caller asked, and of a read in flight once it is woken:
+    \* decoding metadata is the binding's own code, a decode that throws
+    \* drains the call, and a head that waits for the terminal waits for an
+    \* event that arrives
+    /\ \A cId \in CallIds : WF_vars(HeadersTaskTakesHead(cId))
+    /\ \A cId \in CallIds : WF_vars(ReaderTakesHead(cId))
     \* the drain releases what is left, the only consumer its phase admits
     \* and the only step that can empty the ring; true: the drain decodes
     \* no payload - it releases them - and the terminal's status decode is
     \* the binding's, with a synthetic status when it throws
     /\ \A cId \in CallIds : WF_vars(DrainRelease(cId))
-    \* wakes a suspended MoveNext once a payload exists; true: the TCS
-    \* completion is the binding's, and the pool runs it
-    /\ \A cId \in CallIds : WF_vars(BeginParseEvent(cId))
+    \* wakes a suspended MoveNext once a payload exists, or on a
+    \* one-response call once the response is in or the window full; true:
+    \* the TCS completion is the binding's, and the pool runs it
+    /\ \A cId \in CallIds : WF_vars(ReaderParses(cId))
+    \* a one-request commit ends the sending it began; true: the same
+    \* downcall
+    /\ \A cId \in CallIds : WF_vars(SealRequest(cId))
     \* resolves a waiter caught by a dispose; true: the binding cancels it
     /\ \A cId \in CallIds : WF_vars(CancelWaiter(cId))
     \* a request that landed is acted on - the trigger itself carries no
@@ -1340,10 +1447,12 @@ BudgetWaitEndsWhenHopeless ==
             ~> writer_state[cId] # "waiting_budget"
 
 \* A write in flight settles: its WRITE_DONE completes it, level 1
-\* guaranteeing the acquittal before the terminal.
+\* guaranteeing the acquittal before the terminal, and a one-request
+\* commit closes the writer.
 PendingWriteEventuallySettled ==
     \A cId \in CallIds :
-        writer_state[cId] \in {"serializing", "awaiting_write_done"} ~>
+        writer_state[cId] \in {"serializing", "awaiting_write_done",
+                               "sealing"} ~>
             (writer_state[cId] \in {"idle", "closed"} \/ ~L1!L0!NotFailed)
 
 \* A constructor's answer: exposed, or refused - a terminal outcome either
@@ -1545,16 +1654,54 @@ ConsumedTerminalFinishesTheReader ==
          /\ RingDrained(cId)) =>
             reader_state[cId] = "finished"
 
-\* A write in flight has its acquittal still owed, or on the host stack.
-\* The two disjuncts are what EmitWriteDone and WriteDoneReturns ask for, so
-\* one of them is always enabled while the writer waits - which is how the
-\* wait ends without any hypothesis on the application.  The writer being
+\* A write in flight is a stream's - a one-request commit seals instead -
+\* and has its acquittal still owed, or on the host stack.  The two
+\* disjuncts are what EmitWriteDone and WriteDoneReturns ask for, so one of
+\* them is always enabled while the writer waits - which is how the wait
+\* ends without any hypothesis on the application.  The writer being
 \* single, no second send can be submitted meanwhile.
 AwaitingWriteDoneHasOneComing ==
     \A cId \in CallIds :
         writer_state[cId] = "awaiting_write_done" =>
-            \/ L1!IsAwaitingWriteDone(cId)
-            \/ L1!IsWriteDoneCallbackRunning(cId)
+            /\ ~OneRequestCall(cId)
+            /\ \/ L1!IsAwaitingWriteDone(cId)
+               \/ L1!IsWriteDoneCallbackRunning(cId)
+
+\* One send at most is in flight, and the writer says where: none while it
+\* is idle, serializing or waiting, and a running WRITE_DONE is the
+\* acquittal of the last.  What lets the send side's drain be two steps
+\* rather than a descent.
+OneSendInFlight ==
+    \A cId \in CallIds :
+        /\ Len(submitted[cId]) <= write_dones_emitted[cId] + 1
+        /\ L1!IsWriteDoneCallbackRunning(cId) =>
+               write_dones_emitted[cId] = Len(submitted[cId])
+        /\ writer_state[cId] \in {"idle", "serializing", "waiting_budget"} =>
+               L1!HasNoSendInFlight(cId)
+
+\* A one-request commit holds the end of its sending's guard until the end
+\* comes: the call is started or sending, its sending open, no status pending,
+\* its handle held, and its acquittal not yet emitted.  So SealRequest is
+\* enabled for as long as the writer seals, and the terminal, which needs
+\* the send acquitted, cannot come first.
+SealingHoldsTheEndOfSending ==
+    \A cId \in CallIds :
+        IsSealing(cId) =>
+            /\ OneRequestCall(cId)
+            /\ call_state[cId] \in {"started", "sending"}
+            /\ ~send_closed[cId]
+            /\ ~status_pending[cId]
+            /\ ~L1!IsHandleReleased(cId)
+            /\ L1!IsAwaitingWriteDone(cId)
+            /\ ~L1!IsWriteDoneCallbackRunning(cId)
+
+\* The head leads: a call's first event is its initial metadata.  Level 0
+\* states it within its failure escape, and a progress that must hold past
+\* a failure needs it without.
+MetadataLeads ==
+    \A cId \in CallIds :
+        Len(events_delivered[cId]) >= 1 =>
+            events_delivered[cId][1] = "INITIAL_METADATA"
 
 \* A live root is served: its call was published, and once the status is
 \* on the ring the terminal callback that frees the root is still in
@@ -1692,11 +1839,13 @@ PublishedCallEventuallySettled ==
         call_token_published[cId] ~>
             (call_dispose_state[cId] = "settled" \/ ~L1!L0!NotFailed)
 
-\* The public completions are never left pending.
+\* The public completions are never left pending.  The headers are owed
+\* to a caller that asked for them, whether or not it reads the stream.
 HeadersEventuallyResolved ==
     \A cId \in CallIds :
-        (headers_completion[cId] = "pending"
-             /\ ~L1!L0!IsUnusedCall(cId)) ~>
+        (/\ headers_completion[cId] = "pending"
+         /\ headers_asked[cId]
+         /\ ~L1!L0!IsUnusedCall(cId)) ~>
             (headers_completion[cId] # "pending" \/ ~L1!L0!NotFailed)
 
 StatusEventuallyResolved ==

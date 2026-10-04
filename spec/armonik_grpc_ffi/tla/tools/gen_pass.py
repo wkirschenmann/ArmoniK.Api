@@ -51,11 +51,20 @@ def pass_groups():
                     binders.append((RENAME.get(v.strip(), v.strip()),
                                     dom.strip()))
             calls = []
-            for act, args in re.findall(
+            # A step the model holds back carries its guard into the case:
+            # without it, the case is a step the passthrough never takes.
+            for guard, act, args in re.findall(
+                    r"(~IsSealing\(\w+\) /\\ )?"
                     r"(L1!(?:L0!)?[A-Z][A-Za-z0-9_]*)\(([^)]*)\)", text):
                 inner = ", ".join(RENAME.get(x.strip(), x.strip())
                                   for x in args.split(","))
-                calls.append("%s(%s)" % (act, inner))
+                guard = re.sub(r"\((\w+)\)",
+                               lambda m: "(%s)" % RENAME.get(m.group(1),
+                                                             m.group(1)),
+                               guard)
+                # Parenthesized: an infix \/ beside an infix /\ is no parse.
+                calls.append("(%s%s(%s))" % (guard, act, inner) if guard
+                             else "%s(%s)" % (act, inner))
             calls += re.findall(r"\\/ (L1!(?:L0!)?[A-Z][A-Za-z0-9_]*)\s*$",
                                 text, re.M)
             if calls:
@@ -145,8 +154,11 @@ def build(name, assume, prove, goal_defs, method="SMT", deep=True):
                 out.append("          " + ("\\/ " if i else "   ") + c)
         def defs(c):
             ordered, seen = [], set()
-            for d in ([c.split("(")[0]]
-                      + ([] if not deep else behind(c)) + goal_defs + FRAME):
+            act = re.search(r"L1!(?:L0!)?[A-Z][A-Za-z0-9_]*", c).group(0)
+            guard = ["IsSealing"] if c.startswith("(~IsSealing") else []
+            for d in ([act] + guard
+                      + ([] if not deep else behind(act))
+                      + goal_defs + FRAME):
                 if d not in seen:
                     seen.add(d)
                     ordered.append(d)

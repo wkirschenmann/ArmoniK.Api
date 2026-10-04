@@ -7,11 +7,14 @@
 (* level-2 machinery over it and reaches the level-1 machinery through an  *)
 (* INSTANCE of FfiGrpcTheorems.                                            *)
 (*                                                                         *)
-(* No new constants.  The managed side adds discipline, not capacity: the  *)
-(* pipelining depths, the byte ceiling and the identity spaces are the     *)
-(* ABI's and arrived at level 1.  Generations of the runtime are bounded   *)
-(* by the finite RuntimeIds and the channels made from one by the finite   *)
-(* ChannelIds - modelling bounds, like BufferIds.                          *)
+(* The managed side adds discipline, not capacity: the pipelining depths,  *)
+(* the byte ceiling and the identity spaces are the ABI's and arrived at   *)
+(* level 1.  Generations of the runtime are bounded by the finite          *)
+(* RuntimeIds and the channels made from one by the finite ChannelIds -    *)
+(* modelling bounds, like BufferIds.  Its two constants are the shapes a   *)
+(* call declares at its start: a call identity is started at most once, so *)
+(* the shape it starts with can be fixed beforehand, which loses no        *)
+(* behaviour and keeps the choice out of the state.                        *)
 (*                                                                         *)
 (* The ring is deliberately NOT here.  Both of its indexes are level-1     *)
 (* state read through level-2 names: the trampoline publishes inside the   *)
@@ -26,6 +29,10 @@
 (***************************************************************************)
 
 EXTENDS FfiGrpcState
+
+CONSTANTS
+    OneRequestCalls,   \* the calls that declare AK_CALL_ONE_REQUEST
+    OneResponseCalls   \* the calls that declare AK_CALL_ONE_RESPONSE
 
 VARIABLES
     (***********************************************************************)
@@ -97,12 +104,14 @@ VARIABLES
     (* The writer.  One value per call is IClientStreamWriter's            *)
     (* single-writer contract made structural; a write completes at its    *)
     (* WRITE_DONE, so the .NET surface exercises a native depth of one.    *)
-    (* serializing is the only state that holds a lent buffer.             *)
+    (* serializing is the only state that holds a lent buffer.  sealing is *)
+    (* a one-request call's commit between its send and its end of the     *)
+    (* sending, which the engine takes in the same downcall.               *)
     (***********************************************************************)
     writer_state,           \* [CallIds -> {"idle", "serializing",
                             \*              "waiting_budget",
                             \*              "awaiting_write_done",
-                            \*              "closed"}]
+                            \*              "sealing", "closed"}]
     retry_len,              \* [CallIds -> RequestLengths + a sentinel]:
                             \* the refused request's length while a wait
                             \* is in progress, NoRetryLen otherwise
@@ -116,6 +125,9 @@ VARIABLES
     (***********************************************************************)
     headers_completion,     \* [CallIds -> {"pending", "succeeded",
                             \*              "failed"}]
+    headers_asked,          \* [CallIds -> BOOLEAN]: a caller asked for the
+                            \* headers, which starts the task that answers
+                            \* them
     status_completion,      \* [CallIds -> {"pending", "resolved"}]
 
     (***********************************************************************)
@@ -135,7 +147,7 @@ ManagedRuntimeVars == <<runtime_root_live, current_runtime,
                         runtime_dispose_state>>
 ManagedChannelVars == <<channel_dispose_state>>
 ManagedCallVars == <<call_token_published, call_root_live,
-                     headers_completion, status_completion,
+                     headers_completion, headers_asked, status_completion,
                      call_dispose_state>>
 ReaderVars == <<consumer_phase, reader_state, read_cancel_pending>>
 WriterVars == <<writer_state, retry_len>>
@@ -145,7 +157,7 @@ managed_vars == <<call_token_published, call_root_live, runtime_root_live,
                   channel_dispose_state,
                   consumer_phase, reader_state, read_cancel_pending,
                   writer_state, retry_len,
-                  headers_completion, status_completion,
+                  headers_completion, headers_asked, status_completion,
                   call_dispose_state>>
 
 ===============================================================================
