@@ -477,9 +477,10 @@ ak_call_end_send(handle)           -> signal end_send
                              last access - it is the call's last]
 // host can deserialize directly from evts[1].payload.ptr (zero-copy recv)
 ak_events_consumed(payloads, 3)    // free all three (no next, the terminal is in)
-                            [the actor sees the debt cleared and reclaims
-                             the handle and the arena; the host does
-                             nothing, and its handle is now stale]
+                            [the last debt cleared, this downcall
+                             reclaims the handle and the arena; the host
+                             asks nothing more, and its handle is now
+                             stale]
 ```
 
 FFI note:

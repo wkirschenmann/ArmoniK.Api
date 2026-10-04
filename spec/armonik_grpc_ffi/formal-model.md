@@ -180,8 +180,9 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
   delivery order, so this one counter says exactly which payloads the host still owes -
   the mirror of the send side, and what the host owes is the gap to `events_delivered`
 - `handle_released`: per call, the runtime has reclaimed the call - the handle is stale and
-  the arena may go. Set by `ReleaseCallHandle`, which is the actor's own step and not a
-  downcall: the ABI has no `ak_call_release`
+  the arena may go. Set by `ReleaseCallHandle`, the runtime's own step and not a downcall of
+  its own: the ABI has no `ak_call_release`, and the step is taken by the thread that clears the
+  call's last debt, inside the host's downcall or as the last callback returns
 - `cancel_requested`: per call, cancellation latched - by `ak_call_cancel` or by a
   channel or runtime closing. Reclamation does not latch it: it only happens past the
   terminal, so by then there is nothing left to cancel. The latching step models the moment the call's delivery
@@ -521,7 +522,7 @@ host owes are exactly the obligations a level-2 binding has to discharge.
 
 | Owed by | Conjuncts | What it means |
 | --- | --- | --- |
-| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator. Nothing outside the library can stall them |
+| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
 | FFI layer | `DeliverInitialMetadata`, `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
 | Host (binding + application) | `DeliveryCallbackReturns`, `WriteDoneReturns`, `ShutdownCallbackReturns`, `ResourcesReleasedCallbackReturns`, `HostConsumesEvent`, `HostReturnsBuffer` | Six hypotheses the ABI imposes and cannot enforce |
 
@@ -1470,7 +1471,7 @@ refinement.
 | `DeliveryCallbackReturns` | that callback returns to the actor; for an event another of the same callback follows, the actor takes it just before it stages that one, the host not having been called |
 | `HostConsumesEvent(c)` | `ak_event_consumed` frees the oldest outstanding payload, identified by its `owner`; `ak_events_consumed` of `n` payloads is `n` of these, in order |
 | `RequestCallCancellation` | `ak_call_cancel`: the actor observes the flag, not the downcall's return |
-| `ReleaseCallHandle` | the actor observes the last debt cleared on a terminal call: no payload owed, no buffer out, its own callbacks returned. Not a downcall |
+| `ReleaseCallHandle` | the last debt of a terminal call clears: no payload owed, no buffer out, its own callbacks returned. Taken by the thread that clears it - the host's, in the downcall that gives the last payload or buffer back, or the engine's, as the last callback returns. Not a downcall of its own |
 | `RuntimeBeginShutdown` | `ak_runtime_begin_shutdown` closes the start gate |
 | `EmitShutdownComplete` | the runtime task invokes the callback with `AK_EVENT_SHUTDOWN_COMPLETE` |
 | `ShutdownCallbackReturns` | that callback returns |
@@ -1517,8 +1518,8 @@ order. That assumption sits with the fairness hypotheses, and the level-2 obliga
 where the binding pays it. A defensive ABI that rejected a duplicate token would need the
 identities in the model; this design chooses assume-guarantee instead.
 
-`ReleaseCallHandle` linearizes where the actor observes the last debt clear, not at a
-downcall - the ABI has none for it. What it establishes - `ReleasedCallIsClean` - is
+`ReleaseCallHandle` linearizes where the last debt clears, on the thread that clears it, not
+at a downcall of its own - the ABI has none for it. What it establishes - `ReleasedCallIsClean` - is
 proved to survive every later step, since nothing can lend or deliver on a retired call.
 That is the formal content of "at the end of a call, whatever the ending, everything is
 back".

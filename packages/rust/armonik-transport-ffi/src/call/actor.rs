@@ -37,6 +37,7 @@ pub(super) fn create(
         debt: Debt::default(),
         cancelled: AtomicBool::new(false),
         progress: watch::channel(0).0,
+        reclaimed: AtomicBool::new(false),
         over: watch::channel(false).0,
         sending: AtomicU32::new(0),
         waiter: Arc::new(Waiter::default()),
@@ -370,15 +371,7 @@ impl ResponseSink for Delivering {
             state.channel.leave(Some(state.handle));
         });
         staged.0.clear();
-
-        reclaim(state).await;
     }
-}
-
-async fn reclaim(state: &Arc<CallState>) {
-    let mut progress = state.progress.subscribe();
-    let _ = progress.wait_for(|_| state.debt.settled()).await;
-    crate::lifecycle::call_settled(state.handle);
 }
 
 async fn wait_for_cancel(state: &CallState) {

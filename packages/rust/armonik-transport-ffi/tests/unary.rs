@@ -1264,3 +1264,30 @@ fn consuming_an_unowned_payload_is_a_no_op() {
         })
     };
 }
+
+/// The downcall that pays an ended call's last debt reclaims it: once the host has given back
+/// every payload, the handle is stale, with nothing left to wait for.
+#[test]
+fn the_downcall_that_pays_the_last_debt_reclaims_the_call() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    host.recorder.hold_payloads();
+
+    let call = start_call(channel, ECHO, &[]);
+    send_one(call, b"hello");
+    host.recorder.await_terminals(1);
+    // Out of its terminal callback, so that the payloads are the call's last debt.
+    support::poll_until(
+        || debt_of(call).callbacks_in_flight == 0,
+        || "the terminal callback did not return".to_owned(),
+    );
+
+    host.recorder.consume_all_together();
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_HANDLE_STALE
+    );
+
+    host.recorder.stop_holding();
+    fixture.close();
+}

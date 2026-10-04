@@ -115,11 +115,13 @@ level-1 stutter, which is why the model never had to promise anything about it: 
 callbacks may still arrive after `ak_call_cancel` returns, exactly as the ABI documents.
 
 **Reclaiming a call is the runtime's own step, not a downcall.** `ReleaseCallHandle`
-linearizes when the actor observes the last debt cleared on a terminal call: no payload
-owed, no buffer out, its own callbacks returned. Every one of those is an event the
-runtime already sees, so nothing had to be asked of the host to evaluate them, and the
-guarantee that follows - the arena goes back with nothing of it in the host's hands - is
-unconditional rather than contingent on the host calling something.
+linearizes when the last debt of a terminal call clears: no payload owed, no buffer out, its
+own callbacks returned. Every one of those is an event the runtime already sees, so nothing
+had to be asked of the host to evaluate them, and the guarantee that follows - the arena goes
+back with nothing of it in the host's hands - is unconditional rather than contingent on the
+host calling something. The thread that clears the last debt takes the step: the host's,
+inside the downcall that gives the last payload or buffer back, or the engine's, as the last
+callback returns. No task waits for it, so none has to be woken.
 
 **That is the difference between this and `ak_runtime_destroy`, which stays a downcall.**
 Destroy answers a question only the host can ask - may I unload the library - so the host

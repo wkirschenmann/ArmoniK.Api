@@ -304,8 +304,9 @@ impl AkRuntime {
     /// Waits for every worker to stop, which only a thread outside tokio may do.
     fn release_threads(&self) {
         // The channels' threads first, each after its wind-down. Every call has reached its
-        // terminal with no callback in flight; a reclaim the wind-down does not reach is a
-        // removal from the calls table, which `ak_runtime_destroy` repeats.
+        // terminal with no callback in flight, and no task waits for a call's reclaim: the thread
+        // that pays a call's last debt removes it from the calls table, and
+        // `ak_runtime_destroy` removes what is still owed.
         self.stop_channels.send_replace(true);
         let channel_threads = std::mem::take(&mut *Held::new(
             self.channel_threads

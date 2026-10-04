@@ -97,6 +97,9 @@ pub(crate) struct CallState {
     debt: Debt,
     cancelled: AtomicBool,
     progress: watch::Sender<u64>,
+    /// Set by the first reclaim. A call whose debt stays paid is announced again by each later
+    /// `moved_on` - a lend refused on it, for one - and the table's lock is not taken again.
+    reclaimed: AtomicBool,
     over: watch::Sender<bool>,
     /// Whether the sending has ended, in `SENDING_ENDED`, beside how many sends are being queued.
     ///
@@ -458,23 +461,34 @@ impl CallState {
         self.debt.callbacks.fetch_add(1, Ordering::AcqRel);
         emit();
         self.debt.callbacks.fetch_sub(1, Ordering::SeqCst);
-        // Quiet is what `finished` waits for; settled, which the reclaim waits for, implies it. This
-        // is also what announces a debt paid inside the callback, before the terminal, which
-        // `moved_on` saw no reason to.
+        // Quiet is what `finished` waits for, and settled implies it. This is also what announces
+        // a debt paid inside the callback, before the terminal, which `moved_on` saw no reason to,
+        // and what reclaims a call whose host paid everything there.
         if self.debt.quiet() {
             self.announce();
+            self.reclaim_if_settled();
         }
     }
 
-    /// Wakes the reclaim once the call is settled, and not before: a wake-up that finds a debt
-    /// still owed costs the channel's thread a turn for nothing, and a host that gives back a
-    /// callback's payloads one by one would pay it for each.
+    /// Announces and reclaims a settled call, and only a settled one: an announcement for a debt
+    /// still owed wakes whoever waits on the call for nothing, and a host that gives back a
+    /// callback's payloads one by one would pay that wake-up for each.
     ///
     /// The counters' decrements and the reads in `settled` are sequentially consistent, so of two
-    /// last debts paid at once, the one later in that order reads the other paid, and announces.
+    /// last debts paid at once, the one later in that order reads the other paid, and announces
+    /// and reclaims.
     fn moved_on(&self) {
         if self.debt.settled() {
             self.announce();
+            self.reclaim_if_settled();
+        }
+    }
+
+    /// Reclaims a settled call on the thread that paid its last debt: a downcall that pays it
+    /// must not pay a wake-up of the channel's thread besides.
+    fn reclaim_if_settled(&self) {
+        if self.debt.settled() && !self.reclaimed.swap(true, Ordering::AcqRel) {
+            crate::lifecycle::call_settled(self.handle);
         }
     }
 
