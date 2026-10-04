@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -30,7 +31,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 Usage:
   dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- \
     --schema <path to the JSON schema> --output <path to the .cs file> [--namespace <ns>]
-    [--no-document] [--check]
+    [--no-document] [--reuse <path to another schema>] [--check]
 
 Options:
   --schema <path>     The option schema, as printed by
@@ -40,6 +41,8 @@ Options:
                       ArmoniK.Api.Client.RustGrpcChannel.
   --no-document       The engine takes these options as fields, not as a JSON document: no
                       encoding and no serializer context are rendered.
+  --reuse <path>      A schema whose classes are rendered elsewhere: a group of the same name is
+                      taken as declared already, and has to be the same group.
   --check             Writes nothing and fails if --output is not what --schema renders.
   -h, --help          Prints this text.
 
@@ -60,6 +63,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
       var     namespaceName = DefaultNamespace;
       var     check         = false;
       var     document      = true;
+      string? reusePath     = null;
 
       // One rule, applied wherever an option takes a value: reading an argument consumes it.
       var read = 0;
@@ -83,6 +87,15 @@ The same schema always renders the same bytes, which is what makes --check a bui
           case "--namespace" when read < args.Length:
             namespaceName = args[read++];
             break;
+          // One only: a second would take the place of the first, and a schema's worth of classes
+          // would be rendered again with nothing said.
+          case "--reuse" when reusePath is not null:
+            Console.Error.WriteLine("'--reuse' is given twice.");
+            Console.Error.WriteLine(Usage);
+            return 1;
+          case "--reuse" when read < args.Length:
+            reusePath = args[read++];
+            break;
           case "--check":
             check = true;
             break;
@@ -94,6 +107,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
           case "--schema":
           case "--output":
           case "--namespace":
+          case "--reuse":
             Console.Error.WriteLine($"'{argument}' takes a value, and nothing follows it.");
             Console.Error.WriteLine(Usage);
             return 1;
@@ -120,6 +134,9 @@ The same schema always renders the same bytes, which is what makes --check a bui
         // path can be refused for its shape and the reason belongs on one line like the others.
         schemaPath = Path.GetFullPath(schemaPath);
         outputPath = Path.GetFullPath(outputPath);
+        reusePath  = reusePath is null
+                       ? null
+                       : Path.GetFullPath(reusePath);
 
         var schemaJson = File.ReadAllText(schemaPath);
 
@@ -135,6 +152,24 @@ The same schema always renders the same bytes, which is what makes --check a bui
 
         var groups = await OptionVocabulary.ReadAsync(schemaJson)
                                            .ConfigureAwait(false);
+
+        if (reusePath is not null)
+        {
+          IReadOnlyList<OptionGroup> reused;
+          try
+          {
+            reused = await OptionVocabulary.ReadAsync(File.ReadAllText(reusePath))
+                                           .ConfigureAwait(false);
+          }
+          catch (Exception e) when (IsFileFailure(e) || e is JsonException or NotSupportedException or InvalidOperationException)
+          {
+            Console.Error.WriteLine($"Cannot read the classes of '{reusePath}': {e.Message}");
+            return 2;
+          }
+
+          groups = OptionVocabulary.Without(groups,
+                                            reused);
+        }
 
         generated = CSharpSource.Render(groups,
                                         namespaceName,
@@ -174,7 +209,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
           return 0;
         }
 
-        Console.Error.WriteLine($"'{outputPath}' is not what '{schemaPath}' renders. Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema {schemaPath} --output {outputPath}{(document ? "" : " --no-document")}`.");
+        Console.Error.WriteLine($"'{outputPath}' is not what '{schemaPath}' renders. Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema {schemaPath} --output {outputPath}{(document ? "" : " --no-document")}{(reusePath is null ? "" : $" --reuse {reusePath}")}`.");
         return 4;
       }
 

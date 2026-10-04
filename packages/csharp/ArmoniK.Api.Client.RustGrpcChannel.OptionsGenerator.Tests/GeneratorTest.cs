@@ -859,6 +859,119 @@ public sealed class TransportOptions
                   + "--output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs");
     }
 
+    private const string TransportDefs = @",
+  ""$defs"": {
+    ""TransportOptions"": {
+      ""type"": ""object"",
+      ""description"": ""What the transport does."",
+      ""properties"": { ""Timeout"": { ""description"": ""How long."", ""type"": ""number"", ""format"": ""double"" } },
+      ""additionalProperties"": false
+    }
+  }";
+
+    /// <summary>A group another schema renders is taken as declared there, and only the rest is
+    /// rendered.</summary>
+    [Test]
+    public async Task AGroupAnotherSchemaRendersIsNotRenderedAgain()
+    {
+      var groups = await OptionVocabulary.ReadAsync(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs))
+                                         .ConfigureAwait(false);
+      var reused = await OptionVocabulary.ReadAsync(Wrap($@"""Elsewhere"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs)
+                                                      .Replace(@"""title"": ""Options""",
+                                                               @"""title"": ""Other"""))
+                                         .ConfigureAwait(false);
+
+      var kept = OptionVocabulary.Without(groups,
+                                          reused);
+
+      Assert.That(kept.Select(group => group.Name),
+                  Is.EqualTo(new[]
+                             {
+                               "Options",
+                             }));
+      Assert.That(CSharpSource.Render(kept,
+                                      "Test",
+                                      "test.schema.json"),
+                  Does.Contain("public TransportOptions? Transport { get; set; }")
+                      .And.Not.Contain("public sealed class TransportOptions"));
+    }
+
+    /// <summary>Two groups of one name that differ would be one class that is not what one of the
+    /// schemas states.</summary>
+    [Test]
+    public async Task AReusedGroupThatDiffersIsRefused()
+    {
+      var groups = await OptionVocabulary.ReadAsync(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs))
+                                         .ConfigureAwait(false);
+      var reused = await OptionVocabulary.ReadAsync(Wrap($@"""Elsewhere"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs.Replace("How long.",
+                                                                               "How long, in seconds."))
+                                                      .Replace(@"""title"": ""Options""",
+                                                               @"""title"": ""Other"""))
+                                         .ConfigureAwait(false);
+
+      Assert.That(() => OptionVocabulary.Without(groups,
+                                                 reused),
+                  Throws.InstanceOf<NotSupportedException>()
+                        .With.Message.Contains("TransportOptions"));
+    }
+
+    /// <summary>A reused group whose option is of another type is a drift too.</summary>
+    [Test]
+    public async Task AReusedGroupWhoseOptionDiffersIsRefused()
+    {
+      var groups = await OptionVocabulary.ReadAsync(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs))
+                                         .ConfigureAwait(false);
+      var reused = await OptionVocabulary.ReadAsync(Wrap($@"""Elsewhere"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs.Replace(@"""type"": ""number"", ""format"": ""double""",
+                                                                               @"""type"": ""integer"", ""format"": ""int32"""))
+                                                      .Replace(@"""title"": ""Options""",
+                                                               @"""title"": ""Other"""))
+                                         .ConfigureAwait(false);
+
+      Assert.That(() => OptionVocabulary.Without(groups,
+                                                 reused),
+                  Throws.InstanceOf<NotSupportedException>()
+                        .With.Message.Contains("TransportOptions"));
+    }
+
+    /// <summary>A reused schema holding none of the groups reuses nothing, and the classes it was
+    /// meant to stand for would be declared twice.</summary>
+    [Test]
+    public async Task AReusedSchemaHoldingNoneOfTheGroupsIsRefused()
+    {
+      var groups = await OptionVocabulary.ReadAsync(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs))
+                                         .ConfigureAwait(false);
+      var unrelated = await OptionVocabulary.ReadAsync(Wrap($@"""Credits"": {{ {Documented}""type"": ""integer"", ""format"": ""int32"" }}")
+                                                         .Replace(@"""title"": ""Options""",
+                                                                  @"""title"": ""Other"""))
+                                            .ConfigureAwait(false);
+
+      Assert.That(() => OptionVocabulary.Without(groups,
+                                                 unrelated),
+                  Throws.InstanceOf<NotSupportedException>()
+                        .With.Message.Contains("nothing is reused"));
+    }
+
+    /// <summary>The root reused would leave nothing to render the file for.</summary>
+    [Test]
+    public async Task AReusedRootIsRefused()
+    {
+      var groups = await OptionVocabulary.ReadAsync(Wrap($@"""Transport"": {{ {Documented}""$ref"": ""#/$defs/TransportOptions"" }}",
+                                                         TransportDefs))
+                                         .ConfigureAwait(false);
+
+      Assert.That(() => OptionVocabulary.Without(groups,
+                                                 groups),
+                  Throws.InstanceOf<NotSupportedException>()
+                        .With.Message.Contains("root"));
+    }
+
     private static string Metadata(string key)
       => Assembly.GetExecutingAssembly()
                  .GetCustomAttributes<AssemblyMetadataAttribute>()

@@ -119,6 +119,71 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       return groups;
     }
 
+    /// <summary>
+    ///   The groups of <paramref name="groups" /> that <paramref name="reused" /> does not hold: a
+    ///   group of the same name there is one class, rendered from that other schema.
+    /// </summary>
+    /// <exception cref="NotSupportedException">
+    ///   The root is held there, or a group held there differs from it - two classes of one name,
+    ///   one of which would not be what its schema states - or no group is held there, which is a
+    ///   schema that reuses nothing and would declare again the classes it was meant to reuse.
+    /// </exception>
+    public static IReadOnlyList<OptionGroup> Without(IReadOnlyList<OptionGroup> groups,
+                                                     IReadOnlyList<OptionGroup> reused)
+    {
+      var held = reused.ToDictionary(group => group.Name,
+                                     StringComparer.Ordinal);
+
+      if (held.ContainsKey(groups[0].Name))
+      {
+        throw new NotSupportedException($"`{groups[0].Name}` is the root, and the reused schema renders it already.");
+      }
+
+      var kept = new List<OptionGroup>();
+      foreach (var group in groups)
+      {
+        if (!held.TryGetValue(group.Name,
+                              out var other))
+        {
+          kept.Add(group);
+        }
+        else if (!Same(group,
+                       other))
+        {
+          throw new NotSupportedException($"`{group.Name}` differs from the class of that name the reused schema renders.");
+        }
+      }
+
+      if (kept.Count == groups.Count)
+      {
+        throw new NotSupportedException("the reused schema holds none of these groups, so nothing is reused.");
+      }
+
+      return kept;
+    }
+
+    private static bool Same(OptionGroup one,
+                             OptionGroup other)
+    {
+      if (one.Description != other.Description || one.Options.Count != other.Options.Count)
+      {
+        return false;
+      }
+
+      for (var at = 0; at < one.Options.Count; at++)
+      {
+        var mine   = one.Options[at];
+        var theirs = other.Options[at];
+        if (mine.Name != theirs.Name || mine.Type != theirs.Type || mine.IsGroup != theirs.IsGroup || mine.Description != theirs.Description ||
+            !mine.Bounds.SequenceEqual(theirs.Bounds))
+        {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
     // Depth first, and a group is read once: the root is emitted first, and a group reached twice
     // is one class rather than two.
     private static void Read(TypeDeclaration declaration,
