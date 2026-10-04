@@ -319,8 +319,8 @@ pub struct ak_call_start_options {
     pub struct_size: u32,
     /// Zero, the one revision of this record there is.
     pub version: u32,
-    /// AK_CALL_HAS_DEADLINE and AK_CALL_ONE_RESPONSE, either, both or neither. Any other flag is
-    /// refused rather than ignored.
+    /// AK_CALL_HAS_DEADLINE, AK_CALL_ONE_RESPONSE and AK_CALL_ONE_REQUEST, any of them or none. Any
+    /// other flag is refused rather than ignored.
     pub flags: u32,
     /// Zero.
     pub reserved: u32,
@@ -345,6 +345,15 @@ pub const AK_CALL_HAS_DEADLINE: u32 = 1;
 /// that follows the message is read whatever the runtime's first memory threshold says, so a host
 /// may hold the message until the status is in.
 pub const AK_CALL_ONE_RESPONSE: u32 = 2;
+
+/// In ak_call_start_options.flags: the request is exactly one message, as on a unary or a
+/// server-streaming method. ak_call_send_message also ends the sending, ak_call_end_send is
+/// refused with AK_STATUS_INVALID_STATE, and no AK_EVENT_WRITE_DONE comes: the send is settled
+/// when it is committed, and an ak_get_call_buffer after it answers AK_STATUS_INVALID_STATE. The
+/// call sends nothing until its commit, and nothing watches its deadline before: a commit past it
+/// is accepted and the call ends DEADLINE_EXCEEDED, and a call never committed ends at its
+/// cancellation.
+pub const AK_CALL_ONE_REQUEST: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -429,7 +438,7 @@ unsafe impl Record for ak_runtime_config {
 // SAFETY: integers, and views whose null pointer and zero length are an empty slice.
 unsafe impl Record for ak_call_start_options {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, timeout_ns);
-    const FLAGS: u32 = AK_CALL_HAS_DEADLINE | AK_CALL_ONE_RESPONSE;
+    const FLAGS: u32 = AK_CALL_HAS_DEADLINE | AK_CALL_ONE_RESPONSE | AK_CALL_ONE_REQUEST;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[(
         AK_CALL_HAS_DEADLINE,
         std::mem::offset_of!(Self, timeout_ns) + std::mem::size_of::<u64>(),

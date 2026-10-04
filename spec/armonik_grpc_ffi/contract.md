@@ -261,7 +261,9 @@ impl SendHalf {
     /// In FFI usage the bytes are already ours - they came from the call's arena - so
     /// nothing is borrowed and nothing is copied.
     /// At most max_sends_in_flight buffers out of one arena (a channel option, default 1);
-    /// the next must wait for a WRITE_DONE to free a slot.
+    /// the next must wait for a WRITE_DONE to free a slot. A call that sends one request has
+    /// no SendHalf: `prepare_one_request_call` gives it a `OneRequest`, which takes the request
+    /// framed in place, once, and settles it there.
     pub async fn send_message(&mut self, msg: Bytes) -> Result<(), CallError>;
 
     /// Signals end of sending (END_STREAM on the request body). Takes self:

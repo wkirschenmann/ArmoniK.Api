@@ -25,7 +25,9 @@ const PAYLOAD_TAG: u64 = 0x414b_5f50_4159_4c00;
 pub(crate) struct Lent {
     pub(super) tag: u64,
     pub(super) call: Arc<CallState>,
+    /// What the host writes, after `prefix` bytes kept for the gRPC prefix of a call's one request.
     pub(super) data: Vec<u8>,
+    pub(super) prefix: usize,
 }
 
 impl Lent {

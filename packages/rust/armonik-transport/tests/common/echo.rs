@@ -524,6 +524,7 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 "grpc-accept-encoding",
                 "user-agent",
                 "grpc-timeout",
+                "content-length",
             ]
             .iter()
             .filter_map(|key| {

@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use armonik_transport::grpc::{
     CallControl, CallDriver, CallError, GrpcStatus, GrpcStatusCode, ResponseHead, ResponseSink,
@@ -9,7 +9,7 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use super::lent::lend_payload;
-use super::{CallServices, CallState, Command, Debt, ReadTurn};
+use super::{CallServices, CallState, CallTask, Command, Debt, ReadTurn, Requests};
 use crate::abi::{ak_event, ak_event_kind, ak_handle, ak_head_origin, ak_host_debt};
 use crate::blob;
 use crate::channel::AkChannel;
@@ -23,15 +23,15 @@ pub(super) fn create(
     services: &CallServices<'_>,
     control: CallControl,
     turn: Arc<ReadTurn>,
-) -> (Arc<CallState>, mpsc::Receiver<Command>) {
-    let (tx, rx) = mpsc::channel(channel.max_sends_in_flight + 1);
-
-    let state = Arc::new(CallState {
+    (requests, task): (Requests, CallTask),
+) -> Arc<CallState> {
+    Arc::new(CallState {
         ctx,
         host: Arc::clone(services.host),
         ledger: Arc::clone(services.ledger),
         control,
-        commands: tx,
+        requests,
+        task: Mutex::new(Some(task)),
         window: Semaphore::new(channel.max_sends_in_flight),
         credits: Semaphore::new(channel.delivery_credits),
         debt: Debt::default(),
@@ -43,33 +43,74 @@ pub(super) fn create(
         turn,
         channel,
         handle,
-    });
-    (state, rx)
+    })
+}
+
+/// A stream's commands to its writer, and what its task is made of.
+pub(super) fn streaming(
+    driver: CallDriver,
+    send: SendHalf,
+    channel: &AkChannel,
+) -> (Requests, CallTask) {
+    let (tx, rx) = mpsc::channel(channel.max_sends_in_flight + 1);
+    (
+        Requests::Stream(tx),
+        CallTask {
+            driver,
+            writing: Some((send, rx)),
+        },
+    )
 }
 
 /// The call's one task: the transport's driver, which delivers the response itself, and the
-/// writer, joined. One spawn wakes the channel's thread once for both, and they share its task
-/// cell.
-pub(super) fn start(
-    state: &Arc<CallState>,
-    driver: CallDriver,
-    send: SendHalf,
-    commands: mpsc::Receiver<Command>,
-    spawner: &tokio::runtime::Handle,
-) {
+/// writer - or, on a call that sends one request, what stands for it: the budget's wake-ups.
+/// One spawn wakes the channel's thread once for both, and they share its task cell.
+pub(super) fn spawn(state: &Arc<CallState>, task: CallTask) {
     let (writer_done, writer_is_done) = oneshot::channel();
     let state = Arc::clone(state);
+    let spawner = state.channel.spawner.clone();
+    let CallTask { driver, writing } = task;
 
     // The futures are made inside, where they are polled, so the task is laid out with each once.
     // The writer after the driver on every poll, so it sees at once that the driver has ended the
     // call.
-    spawner.spawn(async move {
-        tokio::join!(
+    match writing {
+        Some((send, commands)) => spawner.spawn(async move {
+            tokio::join!(
+                biased;
+                driver.drive(Delivering::new(Arc::clone(&state), writer_is_done)),
+                writer(state, send, commands, writer_done),
+            );
+        }),
+        None => spawner.spawn(async move {
+            tokio::join!(
+                biased;
+                driver.drive(Delivering::new(Arc::clone(&state), writer_is_done)),
+                budget_wakes(state, writer_done),
+            );
+        }),
+    };
+}
+
+/// What a call with no writer raises in its place: a refused lend's wake-up, until the call is over.
+async fn budget_wakes(state: Arc<CallState>, done: oneshot::Sender<()>) {
+    let mut over = state.over.subscribe();
+    loop {
+        tokio::select! {
             biased;
-            driver.drive(Delivering::new(Arc::clone(&state), writer_is_done)),
-            writer(state, send, commands, writer_done),
-        );
-    });
+            _ = over.wait_for(|over| *over) => break,
+            () = state.waiter.notified() => {
+                if state.waiter.take_owed() && state.accepts_work() {
+                    state.in_callback(|| {
+                        state
+                            .host
+                            .signal(state.ctx, ak_event_kind::AK_EVENT_BUDGET_WAKE)
+                    });
+                }
+            }
+        }
+    }
+    let _ = done.send(());
 }
 
 async fn writer(

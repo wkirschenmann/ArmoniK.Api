@@ -1,7 +1,7 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03 and 2026-10-04; steps 1 to 3 built, steps 4 and 5 not. Until each of
-its steps lands, every other document of the specification wins over this one on what that step
+**Status**: decided 2026-10-03 and 2026-10-04; steps 1 to 4 built, step 5 not. Until each of its
+steps lands, every other document of the specification wins over this one on what that step
 changes. `DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it
 describes the binding as it was before.
 
@@ -478,6 +478,18 @@ says.
    `EndSend`, `EmitWriteDone` and `WriteDoneReturns` in the mapping table, and the statements on
    WRITE_DONE's "exactly once", the SLOT_BUSY wake-up and the write-done flag that what else
    changes and level 1 above list; and the measure of hyper's body pipe task, of the socket writes
-   per request and of `content-length`.
+   per request and of `content-length`. Done: `AK_CALL_ONE_REQUEST`, which the binding sets on
+   unary and server-streaming calls; the transport's `FramedRequest` and `OneRequest`, a slot the
+   commit fills only while the call takes it, so a refused commit leaves the host its buffer whole;
+   the call's task spawned by the commit, or earlier by a cancellation or a lend refused for the
+   budget; the body swapped in the engine's HTTP/2 service and kept, the same buffer, for a replay.
+   Measured: hyper states a framed body's length in a `content-length`, which a stream's request
+   has none of, and the test server and Kestrel take it, every one-request call of their suites
+   carrying one; the socket writes per request are what they were, one with the writes gathered and
+   two without, so hyper's body pipe still takes the DATA after the HEADERS. With the two engines
+   in one process and their calls interleaved, 10 000 pairs twice: `ak_call_start` from 8.1 to 3.8
+   us at the median, one callback per unary call where there were two, the round trip a paired
+   median of 3.4 and 1.7 us shorter, the channel's thread being woken at the commit rather than at
+   the start; 177.4 allocations per call and 53 KB, where a stream's call takes 193.9 and 59 KB.
 5. **Level 2**: `DotNetBinding.tla` following the binding with its refinement proved again, and
    the TLC instantiability check.

@@ -6,8 +6,8 @@ mod common;
 use std::time::{Duration, Instant};
 
 use armonik_transport::grpc::{
-    CallStartOptions, Deadline, GrpcChannel, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
-    MetadataValue, RecvResult, RetryConfig,
+    CallStartOptions, Deadline, FramedRequest, GrpcChannel, GrpcChannelConfig, GrpcStatus,
+    GrpcStatusCode, MetadataValue, RecvResult, ResponseHead, ResponseSink, RetryConfig,
 };
 use armonik_transport::http2::TransportConfig;
 use bytes::Bytes;
@@ -359,6 +359,44 @@ async fn a_call_refused_without_all_it_sent_kept_is_not_sent_again() {
         .await;
         assert_eq!(status.code, GrpcStatusCode::Unavailable, "{case}: {status}");
         assert_eq!(refuser.seen().len(), 1, "{case}");
+    }
+}
+
+/// A call that sends one request holds it whole for the whole call, so a stream the peer refused
+/// unprocessed is sent again at once, with no policy, as gRFC A6's transparent retry has it.
+#[tokio::test]
+async fn a_one_request_call_refused_unprocessed_is_sent_again_with_no_policy() {
+    let refuser = Refuser::start(Refusal::RefusedStream, 1).await;
+    let (request, _control, driver) = channel(&refuser.endpoint)
+        .prepare_one_request_call(CallStartOptions::new(ECHO))
+        .expect("an open channel");
+    assert!(request.give(|| FramedRequest::copy_of(b"hello").expect("a message")));
+
+    let (ended, code) = tokio::sync::oneshot::channel();
+    driver.drive(EndOnly(Some(ended))).await;
+
+    assert_eq!(code.await.expect("the call ended"), GrpcStatusCode::Ok);
+    assert_eq!(refuser.seen().len(), 2, "refused once, then answered");
+}
+
+/// Hears a call's end and nothing else.
+struct EndOnly(Option<tokio::sync::oneshot::Sender<GrpcStatusCode>>);
+
+impl ResponseSink for EndOnly {
+    async fn head(&mut self, _: ResponseHead) -> Result<(), GrpcStatus> {
+        Ok(())
+    }
+
+    async fn message(&mut self, _: Bytes) -> Result<(), GrpcStatus> {
+        Ok(())
+    }
+
+    fn flush(&mut self) {}
+
+    async fn end(mut self, status: GrpcStatus, _: Option<ResponseHead>) {
+        if let Some(ended) = self.0.take() {
+            let _ = ended.send(status.code);
+        }
     }
 }
 

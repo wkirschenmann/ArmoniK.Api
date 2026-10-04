@@ -244,6 +244,99 @@ impl Replay {
     }
 }
 
+/// What a call sent, kept for another attempt: a stream of messages, or one framed request.
+pub(crate) enum Sent {
+    Stream(Replay),
+    One(OneReplay),
+}
+
+impl Sent {
+    /// A new attempt's request: what tonic encodes, and the body the engine's own service gives
+    /// the request instead when there is one.
+    pub(crate) fn attempt(&self) -> (Attempt, Option<Bytes>) {
+        match self {
+            Self::Stream(replay) => (Attempt::Stream(replay.attempt()), None),
+            Self::One(one) => (Attempt::Framed, Some(one.request.clone())),
+        }
+    }
+
+    pub(crate) fn supersede(&self) -> Standing {
+        match self {
+            Self::Stream(replay) => replay.supersede(),
+            Self::One(one) => one.standing(),
+        }
+    }
+
+    pub(crate) fn commit(&self) {
+        match self {
+            Self::Stream(replay) => replay.commit(),
+            Self::One(one) => one.commit(),
+        }
+    }
+}
+
+/// One attempt's messages as tonic encodes them: the call's stream, or nothing when the request's
+/// body is the framed one.
+pub(crate) enum Attempt {
+    Stream(AttemptMessages),
+    Framed,
+}
+
+impl Stream for Attempt {
+    type Item = Bytes;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.get_mut() {
+            Self::Stream(messages) => Pin::new(messages).poll_next(cx),
+            Self::Framed => Poll::Ready(None),
+        }
+    }
+}
+
+/// The one request of a call that sends one, which every attempt sends again whole. Held for the
+/// whole call, so a transparent retry can always send it; retried under the policy while it fits
+/// the call's ceiling and the channel's total, to which it is charged until the call commits.
+pub(crate) struct OneReplay {
+    request: Bytes,
+    channel: Arc<ChannelReplay>,
+    /// What it holds of the channel's total; zero once committed, or when it never fitted.
+    reserved: AtomicUsize,
+}
+
+impl OneReplay {
+    pub(crate) fn new(
+        request: Bytes,
+        call_limit: Option<usize>,
+        channel: Arc<ChannelReplay>,
+    ) -> Self {
+        let len = request.len();
+        let kept = call_limit.is_some_and(|limit| len <= limit) && channel.reserve(len);
+        Self {
+            request,
+            channel,
+            reserved: AtomicUsize::new(if kept { len } else { 0 }),
+        }
+    }
+
+    fn standing(&self) -> Standing {
+        Standing {
+            retryable: self.reserved.load(Ordering::Acquire) > 0,
+            whole: true,
+        }
+    }
+
+    fn commit(&self) {
+        self.channel
+            .release(self.reserved.swap(0, Ordering::AcqRel));
+    }
+}
+
+impl Drop for OneReplay {
+    fn drop(&mut self) {
+        self.commit();
+    }
+}
+
 /// What the attempt after a failed one could be.
 pub(crate) struct Standing {
     /// Nothing has committed the call, so the policy may try it again.

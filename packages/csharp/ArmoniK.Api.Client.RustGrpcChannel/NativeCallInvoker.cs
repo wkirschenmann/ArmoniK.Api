@@ -217,12 +217,14 @@ internal sealed class NativeCallInvoker : CallInvoker
     MustCarryNoHost(host);
     MustCarryNothingElseUnhonoured(options);
 
-    // Unary and client streaming answer once: the engine refuses a second message, and the
-    // reader takes the answer in one pass.
+    // Unary and server streaming send one request: its commit ends the sending, and no acquittal
+    // follows. Unary and client streaming answer once: the engine refuses a second message, and
+    // the reader takes the answer in one pass.
     var call = channel_.StartCall(method.FullName,
                                   options.Headers,
                                   method.ResponseMarshaller,
                                   options.Deadline,
+                                  method.Type is MethodType.Unary or MethodType.ServerStreaming,
                                   method.Type is MethodType.Unary or MethodType.ClientStreaming);
     call.CancelWith(options.CancellationToken);
     return call;

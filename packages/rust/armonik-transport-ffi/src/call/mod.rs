@@ -1,8 +1,10 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use armonik_transport::grpc::CallControl;
+use armonik_transport::grpc::{
+    CallControl, CallDriver, FramedRequest, OneRequest, SendHalf, FRAME_PREFIX,
+};
 use bytes::Bytes;
 use tokio::sync::{mpsc, watch, Semaphore};
 
@@ -18,12 +20,27 @@ mod turn;
 
 use lent::{arena, LENT_TAG};
 pub(crate) use lent::{keep, take_lent, take_payload, Lent};
-pub(crate) use start::start_on;
+pub(crate) use start::{start_on, Shape};
 use turn::ReadTurn;
 
 pub(crate) struct CallServices<'a> {
     pub(crate) host: &'a Arc<Host>,
     pub(crate) ledger: &'a Arc<Ledger>,
+}
+
+/// Where a call's requests go: a stream's commands to its writer, or the one request of a call that
+/// sends one.
+pub(crate) enum Requests {
+    Stream(mpsc::Sender<Command>),
+    One(OneRequest),
+}
+
+/// What a call's one task is made of, until it is spawned.
+pub(crate) struct CallTask {
+    driver: CallDriver,
+    /// A stream's writer: the transport's send half and the commands it takes. None on a call that
+    /// sends one request, which has no writer.
+    writing: Option<(SendHalf, mpsc::Receiver<Command>)>,
 }
 
 pub(crate) enum Command {
@@ -70,7 +87,11 @@ pub(crate) struct CallState {
     host: Arc<Host>,
     ledger: Arc<Ledger>,
     control: CallControl,
-    commands: mpsc::Sender<Command>,
+    requests: Requests,
+    /// The call's task until it is spawned: at once for a stream; for a call that sends one request,
+    /// by whichever comes first of its commit and what needs the task before it - a cancellation,
+    /// and a lend refused for the budget, whose wake-up the task raises.
+    task: Mutex<Option<CallTask>>,
     window: Semaphore,
     credits: Semaphore,
     debt: Debt,
@@ -131,10 +152,28 @@ impl CallState {
         self.debt.as_abi()
     }
 
-    pub(crate) fn cancel(&self) {
+    pub(crate) fn cancel(self: &Arc<Self>) {
         self.cancelled.store(true, Ordering::Release);
         self.announce();
         self.control.cancel();
+        // A call not yet spawned ends through its task, as any other.
+        self.spawn_task();
+    }
+
+    /// Spawns the call's task, once: the first to ask takes it, under the lock that decides.
+    fn spawn_task(self: &Arc<Self>) {
+        let task = self
+            .task
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(task) = task {
+            actor::spawn(self, task);
+        }
+    }
+
+    fn sends_one_request(&self) -> bool {
+        matches!(self.requests, Requests::One(_))
     }
 
     fn accepts_work(&self) -> bool {
@@ -186,6 +225,12 @@ impl CallState {
         if !self.accepts_work() {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
+        // Its one request committed, a call takes no other, and no WRITE_DONE will come for a
+        // SLOT_BUSY to wait on.
+        let one_request = self.sends_one_request();
+        if one_request && self.sending.load(Ordering::Acquire) & SENDING_ENDED != 0 {
+            return Err(ak_status::AK_STATUS_INVALID_STATE);
+        }
         // The ceiling covers what the wire and the allocator can carry as well as what the host
         // budgeted: `Ledger` caps one by the other. Refused here rather than at the send, where
         // the engine's refusal is swallowed behind a WRITE_DONE and the host is told a message it
@@ -205,7 +250,11 @@ impl CallState {
                 self.ledger.stop_waiting(&self.waiter);
                 return Err(ak_status::AK_STATUS_INVALID_STATE);
             }
-            self.ledger.hold_bytes(len)?;
+            if let Err(refused) = self.ledger.hold_bytes(len) {
+                // The wake-up this refusal promises is the task's to raise.
+                self.spawn_task();
+                return Err(refused);
+            }
         }
         // Served: reads are no longer held back for it. Only a lend of this call records a wait,
         // and one lend runs at a time, so a wait this reads as absent is absent.
@@ -221,8 +270,11 @@ impl CallState {
         }
 
         // The arena before the permit is spent: a refusal that left the ledger charged and the
-        // permit forgotten would be a send window that never opens again.
-        let data = match arena(len) {
+        // permit forgotten would be a send window that never opens again. A call that sends one
+        // request has the gRPC prefix kept ahead of what the host writes, and its commit frames
+        // the request there.
+        let prefix = if one_request { FRAME_PREFIX } else { 0 };
+        let data = match arena(prefix + len) {
             Ok(data) => data,
             Err(status) => {
                 self.ledger.release_bytes(len);
@@ -238,8 +290,9 @@ impl CallState {
             tag: LENT_TAG,
             call: Arc::clone(self),
             data,
+            prefix,
         });
-        let ptr = lent.data.as_mut_ptr();
+        let ptr = lent.data[prefix..].as_mut_ptr();
         Ok(ak_buffer {
             ptr,
             len,
@@ -267,7 +320,11 @@ impl CallState {
         self.moved_on();
     }
 
-    pub(crate) fn commit(&self, lent: Box<Lent>) -> ak_status {
+    pub(crate) fn commit(self: &Arc<Self>, lent: Box<Lent>) -> ak_status {
+        let commands = match &self.requests {
+            Requests::One(request) => return self.commit_one(request, Some(lent)),
+            Requests::Stream(commands) => commands,
+        };
         let Some(_queueing) = Queueing::enter(&self.sending) else {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         };
@@ -278,7 +335,7 @@ impl CallState {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         }
 
-        let Ok(slot) = self.commands.try_reserve() else {
+        let Ok(slot) = commands.try_reserve() else {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         };
         self.handed_over();
@@ -291,7 +348,11 @@ impl CallState {
     /// It takes a slot of the window as a lend does, given back at its WRITE_DONE, and is counted
     /// like one so a shutdown waits for that acquittal: the writer gives back the count with the
     /// message's bytes, of which there are none.
-    pub(crate) fn commit_empty(&self) -> ak_status {
+    pub(crate) fn commit_empty(self: &Arc<Self>) -> ak_status {
+        let commands = match &self.requests {
+            Requests::One(request) => return self.commit_one(request, None),
+            Requests::Stream(commands) => commands,
+        };
         let Some(_queueing) = Queueing::enter(&self.sending) else {
             return ak_status::AK_STATUS_INVALID_STATE;
         };
@@ -301,7 +362,7 @@ impl CallState {
         let Ok(window) = self.window.try_acquire() else {
             return ak_status::AK_STATUS_SLOT_BUSY;
         };
-        let Ok(slot) = self.commands.try_reserve() else {
+        let Ok(slot) = commands.try_reserve() else {
             return ak_status::AK_STATUS_INVALID_STATE;
         };
         self.ledger.hold();
@@ -310,17 +371,60 @@ impl CallState {
         ak_status::AK_STATUS_OK
     }
 
+    /// Commits a call's one request, which also ends its sending: SendMessage then EndSend, with
+    /// nothing of the call between them, as the state they share is held here. Settled at once, as
+    /// a WRITE_DONE settles a stream's send, and with no acquittal: the host gave up its only
+    /// buffer, and its slot and its bytes go back now. The task is spawned here unless something
+    /// needed it earlier, in which case it takes the request from the slot.
+    fn commit_one(self: &Arc<Self>, request: &OneRequest, lent: Option<Box<Lent>>) -> ak_status {
+        let refused = |lent: Option<Box<Lent>>| match lent {
+            Some(lent) => keep(lent, ak_status::AK_STATUS_INVALID_STATE),
+            None => ak_status::AK_STATUS_INVALID_STATE,
+        };
+        if !self.accepts_work()
+            || self
+                .sending
+                .compare_exchange(0, SENDING_ENDED, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return refused(lent);
+        }
+
+        let charged = lent.as_ref().map(|lent| lent.data.len() - lent.prefix);
+        let mut lent = lent;
+        let given = request.give(|| match lent.take() {
+            Some(lent) => FramedRequest::in_place(lent.data).expect("lent with its prefix ahead"),
+            None => FramedRequest::empty(),
+        });
+        if !given {
+            return refused(lent);
+        }
+
+        if let Some(charged) = charged {
+            self.handed_over();
+            self.window.add_permits(1);
+            self.ledger.release_bytes(charged);
+        }
+        self.spawn_task();
+        ak_status::AK_STATUS_OK
+    }
+
     #[allow(clippy::boxed_local)]
     pub(crate) fn give_back(&self, lent: Box<Lent>) {
-        self.took_back(lent.data.len());
+        self.took_back(lent.data.len() - lent.prefix);
         self.window.add_permits(1);
     }
 
     pub(crate) fn end_send(&self) -> ak_status {
+        // A call that sends one request ends its sending with it, and one with no request is not
+        // a call gRPC has: a host that wants none cancels.
+        let Requests::Stream(commands) = &self.requests else {
+            return ak_status::AK_STATUS_INVALID_STATE;
+        };
         if !self.live() {
             return ak_status::AK_STATUS_INVALID_STATE;
         }
-        let Ok(slot) = self.commands.try_reserve() else {
+        let Ok(slot) = commands.try_reserve() else {
             return ak_status::AK_STATUS_INVALID_STATE;
         };
         // From no send being counted and the sending still open. An end already queued is a

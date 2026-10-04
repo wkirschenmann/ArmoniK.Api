@@ -69,12 +69,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   private Task? settling_;
 
   private NativeCall(int deliveryCredits,
-                     Marshaller<TResponse> marshaller)
+                     Marshaller<TResponse> marshaller,
+                     bool oneRequest)
   {
     receiving_ = new Receiver<TResponse>(this,
                                         deliveryCredits,
                                         marshaller);
-    sending_ = new Sender(this);
+    sending_ = new Sender(this,
+                          oneRequest);
 
     self_ = GCHandle.Alloc(this);
   }
@@ -103,6 +105,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                               Metadata? metadata,
                                               Marshaller<TResponse> marshaller,
                                               DateTime? deadline,
+                                              bool oneRequest,
                                               bool oneResponse)
   {
     // Encoded before the call exists: the encoding refuses a reserved key by throwing, and a call
@@ -111,13 +114,19 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                            static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = RawMetadata.Encode(metadata);
     var (flags, timeoutNs) = TimeoutOf(deadline);
+    if (oneRequest)
+    {
+      flags |= NativeMethods.AK_CALL_ONE_REQUEST;
+    }
+
     if (oneResponse)
     {
       flags |= NativeMethods.AK_CALL_ONE_RESPONSE;
     }
 
     var call = new NativeCall<TResponse>(deliveryCredits,
-                                         marshaller);
+                                         marshaller,
+                                         oneRequest);
 
     // The engine copies both before it answers, so the pin lasts exactly the call.
     unsafe

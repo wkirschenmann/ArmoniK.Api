@@ -378,6 +378,7 @@ pub unsafe extern "C" fn ak_call_start(
                 options.timeout_ns,
             ))
         });
+        let one_request = options.flags & AK_CALL_ONE_REQUEST != 0;
         let one_response = options.flags & AK_CALL_ONE_RESPONSE != 0;
 
         unsafe {
@@ -389,7 +390,10 @@ pub unsafe extern "C" fn ak_call_start(
                     method,
                     metadata,
                     deadline,
-                    one_response,
+                    call::Shape {
+                        one_request,
+                        one_response,
+                    },
                     HostPtr(call_ctx),
                 ),
             )
@@ -426,8 +430,9 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
 /// AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
 /// message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
 /// the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
-/// cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no
-/// buffer is lent and `*out` is untouched.
+/// cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
+/// declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
+/// SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.
 ///
 /// # Safety
 ///
@@ -466,11 +471,12 @@ const EMPTY_LEND: Refusal = Refusal::fixed(
 /// emitted, not when the callback returns - so a host woken by it may ask for a buffer from inside
 /// the callback. It says nothing about the network: the message may have been written, or
 /// abandoned because the call was cancelled. It arrives exactly once per accepted send, in send
-/// order, and always before the terminal.
+/// order, and always before the terminal - but on a call that declared AK_CALL_ONE_REQUEST, whose
+/// commit also ends the sending and settles the send: no WRITE_DONE comes for it.
 ///
 /// Refused with AK_STATUS_INVALID_STATE once the call is over or its cancellation has been
-/// requested, and after ak_call_end_send. The buffer then stays the host's, to give back with
-/// ak_return_call_buffer.
+/// requested, after ak_call_end_send, and after a one-request call's commit. The buffer then stays
+/// the host's, to give back with ak_return_call_buffer.
 ///
 /// # Safety
 ///
@@ -535,7 +541,9 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
 }
 
 /// Signals end of sending. No ak_call_send_message after this: a send that comes after the end,
-/// and a second end, answer AK_STATUS_INVALID_STATE.
+/// and a second end, answer AK_STATUS_INVALID_STATE. So does any end on a call that declared
+/// AK_CALL_ONE_REQUEST, whose commit ends the sending, and which a host that wants no request
+/// cancels.
 ///
 /// An end that comes while an ak_call_send_message has not yet returned on another thread - from
 /// inside that send's own AK_EVENT_WRITE_DONE, which may arrive first - waits for it to return, so

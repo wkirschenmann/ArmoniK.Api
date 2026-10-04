@@ -2,12 +2,19 @@ use std::sync::Arc;
 
 use armonik_transport::grpc::{CallStartOptions, Deadline, Metadata};
 
-use super::{actor, CallServices, ReadTurn};
+use super::{actor, CallServices, CallTask, ReadTurn, Requests};
 use crate::abi::{ak_error_kind, ak_handle, ak_status};
 use crate::channel::AkChannel;
 use crate::host::HostPtr;
 use crate::refusal::Refusal;
 use crate::tables;
+
+/// What a call declared at its start of the messages each way carries.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Shape {
+    pub(crate) one_request: bool,
+    pub(crate) one_response: bool,
+}
 
 /// The channel's count, given back unless the call that took it is started.
 ///
@@ -36,9 +43,13 @@ pub(crate) fn start_on(
     method: &str,
     metadata: Metadata,
     deadline: Option<Deadline>,
-    one_response: bool,
+    shape: Shape,
     ctx: HostPtr,
 ) -> Result<ak_handle, Refusal> {
+    let Shape {
+        one_request,
+        one_response,
+    } = shape;
     channel.join()?;
     let joined = Joined(Some(channel));
 
@@ -49,18 +60,42 @@ pub(crate) fn start_on(
     options.read_gate = Some(Arc::clone(&turn) as _);
     options.one_response = one_response;
 
-    let (send, control, driver) = match channel.grpc.prepare_call(options) {
-        Ok(prepared) => prepared,
-        Err(error) => return Err(Refusal::call(error)),
+    let prepared = if one_request {
+        channel
+            .grpc
+            .prepare_one_request_call(options)
+            .map(|(request, control, driver)| {
+                let task = CallTask {
+                    driver,
+                    writing: None,
+                };
+                (Requests::One(request), control, task)
+            })
+    } else {
+        channel
+            .grpc
+            .prepare_call(options)
+            .map(|(send, control, driver)| {
+                let (requests, task) = actor::streaming(driver, send, channel);
+                (requests, control, task)
+            })
     };
+    let (requests, control, task) = prepared.map_err(Refusal::call)?;
 
     let inserted = tables::calls().insert_with(|handle| {
-        let (state, commands) =
-            actor::create(ctx, handle, Arc::clone(channel), services, control, turn);
-        (Arc::clone(&state), (state, commands))
+        let state = actor::create(
+            ctx,
+            handle,
+            Arc::clone(channel),
+            services,
+            control,
+            turn,
+            (requests, task),
+        );
+        (Arc::clone(&state), state)
     });
 
-    let Some((handle, (state, commands))) = inserted else {
+    let Some((handle, state)) = inserted else {
         return Err(Refusal::fixed(
             ak_status::AK_STATUS_INTERNAL,
             ak_error_kind::AK_ERROR_NONE,
@@ -79,6 +114,9 @@ pub(crate) fn start_on(
     // From here the call is the channel's to count, and its terminal is what gives the count
     // back.
     joined.kept();
-    actor::start(&state, driver, send, commands, &channel.spawner);
+    // A call that sends one request is spawned by its commit, or by what needs its task before.
+    if !one_request {
+        state.spawn_task();
+    }
     Ok(handle)
 }

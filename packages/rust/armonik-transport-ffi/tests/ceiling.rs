@@ -178,6 +178,14 @@ fn calls_the_host_does_not_read_wait_and_none_passes_the_second_threshold() {
 
 #[test]
 fn a_send_refused_for_room_is_woken_when_a_received_message_is_given_back() {
+    // A call that sends one request has no task until something needs it: the refusal is what
+    // spawns it, since the wake-up is the task's to raise.
+    for flags in [0, AK_CALL_ONE_REQUEST] {
+        woken_for_room(flags);
+    }
+}
+
+fn woken_for_room(flags: u32) {
     let server = TestServer::start();
     let host = Host::with_ceiling(64);
     host.recorder.hold_payloads();
@@ -186,7 +194,7 @@ fn a_send_refused_for_room_is_woken_when_a_received_message_is_given_back() {
     start_call(channel, SIZED, &sized("40"));
     host.recorder.await_terminal();
 
-    let writer = start_call(channel, ECHO, &[]);
+    let writer = start_call_flagged(channel, ECHO, &[], flags);
     assert_eq!(lend(writer, 40).0, ak_status::AK_STATUS_BUDGET_BUSY);
     assert!(
         !host

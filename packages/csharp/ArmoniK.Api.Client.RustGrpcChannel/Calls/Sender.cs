@@ -50,6 +50,9 @@ internal sealed class Sender
 {
   private readonly ICallState call_;
 
+  // A call that declared one request: its commit ends the sending, and no WRITE_DONE comes for it.
+  private readonly bool oneRequest_;
+
   private int inFlight_;
 
   private int holding_;
@@ -67,8 +70,12 @@ internal sealed class Sender
   // holder of this claim makes.
   private TaskCompletionSource<bool>? writing_;
 
-  internal Sender(ICallState call)
-    => call_ = call;
+  internal Sender(ICallState call,
+                  bool       oneRequest)
+  {
+    call_       = call;
+    oneRequest_ = oneRequest;
+  }
 
   /// <summary>What the engine has taken and not yet acquitted.</summary>
   internal int Unacquitted
@@ -268,7 +275,11 @@ internal sealed class Sender
 
       if (status == ak_status.AK_STATUS_OK)
       {
-        Interlocked.Increment(ref inFlight_);
+        if (!oneRequest_)
+        {
+          Interlocked.Increment(ref inFlight_);
+        }
+
         break;
       }
 
@@ -288,7 +299,8 @@ internal sealed class Sender
         .ConfigureAwait(false);
     }
 
-    if (halfClose)
+    // The commit of a call's one request has ended its sending already.
+    if (halfClose && !oneRequest_)
     {
       HalfClose();
     }

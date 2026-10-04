@@ -48,7 +48,8 @@ hyper-util = { workspace = true, features = [
   "tokio",
 ] }
 http.workspace = true
-# `BodyExt::frame`, to read a response body one frame at a time rather than collecting it.
+# `BodyExt::frame`, to read a response body one frame at a time rather than collecting it, and
+# `Full`, the body of a request framed whole.
 http-body-util.workspace = true
 bytes.workspace = true
 # The backoff's jitter, drawn below its bound so calls that failed together do not come back

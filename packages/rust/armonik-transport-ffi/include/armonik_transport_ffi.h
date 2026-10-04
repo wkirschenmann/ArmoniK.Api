@@ -71,6 +71,17 @@
  */
 #define AK_CALL_ONE_RESPONSE 2
 
+/**
+ * In ak_call_start_options.flags: the request is exactly one message, as on a unary or a
+ * server-streaming method. ak_call_send_message also ends the sending, ak_call_end_send is
+ * refused with AK_STATUS_INVALID_STATE, and no AK_EVENT_WRITE_DONE comes: the send is settled
+ * when it is committed, and an ak_get_call_buffer after it answers AK_STATUS_INVALID_STATE. The
+ * call sends nothing until its commit, and nothing watches its deadline before: a commit past it
+ * is accepted and the call ends DEADLINE_EXCEEDED, and a call never committed ends at its
+ * cancellation.
+ */
+#define AK_CALL_ONE_REQUEST 4
+
 #define AK_ABI_VERSION 1
 
 /**
@@ -508,8 +519,8 @@ typedef struct {
      */
     uint32_t version;
     /**
-     * AK_CALL_HAS_DEADLINE and AK_CALL_ONE_RESPONSE, either, both or neither. Any other flag is
-     * refused rather than ignored.
+     * AK_CALL_HAS_DEADLINE, AK_CALL_ONE_RESPONSE and AK_CALL_ONE_REQUEST, any of them or none. Any
+     * other flag is refused rather than ignored.
      */
     uint32_t flags;
     /**
@@ -736,8 +747,9 @@ ak_status ak_call_start(ak_handle channel,
  * AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
  * message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
  * the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
- * cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE. On every refusal no
- * buffer is lent and `*out` is untouched.
+ * cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
+ * declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
+ * SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.
  *
  * # Safety
  *
@@ -761,11 +773,12 @@ ak_status ak_get_call_buffer(ak_handle call,
  * emitted, not when the callback returns - so a host woken by it may ask for a buffer from inside
  * the callback. It says nothing about the network: the message may have been written, or
  * abandoned because the call was cancelled. It arrives exactly once per accepted send, in send
- * order, and always before the terminal.
+ * order, and always before the terminal - but on a call that declared AK_CALL_ONE_REQUEST, whose
+ * commit also ends the sending and settles the send: no WRITE_DONE comes for it.
  *
  * Refused with AK_STATUS_INVALID_STATE once the call is over or its cancellation has been
- * requested, and after ak_call_end_send. The buffer then stays the host's, to give back with
- * ak_return_call_buffer.
+ * requested, after ak_call_end_send, and after a one-request call's commit. The buffer then stays
+ * the host's, to give back with ak_return_call_buffer.
  *
  * # Safety
  *
@@ -789,7 +802,9 @@ void ak_return_call_buffer(ak_buffer buffer);
 
 /**
  * Signals end of sending. No ak_call_send_message after this: a send that comes after the end,
- * and a second end, answer AK_STATUS_INVALID_STATE.
+ * and a second end, answer AK_STATUS_INVALID_STATE. So does any end on a call that declared
+ * AK_CALL_ONE_REQUEST, whose commit ends the sending, and which a host that wants no request
+ * cancels.
  *
  * An end that comes while an ak_call_send_message has not yet returned on another thread - from
  * inside that send's own AK_EVENT_WRITE_DONE, which may arrive first - waits for it to return, so

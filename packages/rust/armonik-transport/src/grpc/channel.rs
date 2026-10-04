@@ -23,9 +23,10 @@ use super::call::{
     self, Answered, CallControl, CallStartOptions, Deadline, GrpcCall, ResponseSink, SendHalf,
 };
 use super::contained::contained;
-use super::driver::{self, Outgoing};
+use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
 use super::executor::Spawner;
+use super::request::OneRequest;
 use super::retry::{ChannelReplay, RetryConfig};
 use super::status::{GrpcStatus, GrpcStatusCode, Unprocessed};
 use crate::utils::safe_endpoint;
@@ -147,7 +148,7 @@ impl GrpcChannel {
         let outgoing = Outgoing {
             path,
             metadata,
-            messages,
+            messages: Sending::Stream(messages),
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
@@ -173,13 +174,41 @@ impl GrpcChannel {
         let outgoing = Outgoing {
             path,
             metadata,
-            messages,
+            messages: Sending::Stream(messages),
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
         };
         Ok((
             send,
+            control,
+            CallDriver {
+                inner: self.inner.clone(),
+                outgoing,
+                driving,
+            },
+        ))
+    }
+
+    /// A call that sends one request: where its request goes, its control, and what drives it,
+    /// which the caller runs as `prepare_call`'s. The request is given once, and the call sends
+    /// nothing, not even its head, until it is.
+    pub fn prepare_one_request_call(
+        &self,
+        options: CallStartOptions,
+    ) -> Result<(OneRequest, CallControl, CallDriver), ChannelError> {
+        let (path, metadata, deadline) = self.addressed(&options)?;
+        let (request, control, messages, driving) = call::create_one(self.inner.closed.subscribe());
+        let outgoing = Outgoing {
+            path,
+            metadata,
+            messages: Sending::One(messages),
+            deadline,
+            read_gate: options.read_gate,
+            one_response: options.one_response,
+        };
+        Ok((
+            request,
             control,
             CallDriver {
                 inner: self.inner.clone(),
@@ -412,12 +441,14 @@ impl Inner {
         self: &Arc<Self>,
         answered: Answered,
         one_response: bool,
+        body: Option<Bytes>,
     ) -> tonic::client::Grpc<Http2> {
         tonic::client::Grpc::with_origin(
             Http2 {
                 inner: Arc::clone(self),
                 answered,
                 one_response,
+                body,
             },
             self.endpoint.clone(),
         )
@@ -540,6 +571,9 @@ pub(crate) struct Http2 {
     inner: Arc<Inner>,
     answered: Answered,
     one_response: bool,
+    /// The request's body as it goes on the wire, framed already, in place of what tonic encoded
+    /// from an empty stream of messages.
+    body: Option<Bytes>,
 }
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
@@ -570,6 +604,9 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         let inner = Arc::clone(&self.inner);
         let answered = self.answered.clone();
         let one_response = self.one_response;
+        if let Some(body) = &self.body {
+            *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body.clone()));
+        }
         let hold = Hold::new(&inner);
         Box::pin(async move {
             request

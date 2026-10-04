@@ -169,7 +169,9 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
 - `write_dones_emitted`: per call, the monotone count of WRITE_DONEs emitted. A send is
   identified by the index of its message in the level-0 `submitted` sequence; WRITE_DONE
   acquits in send order, so this one counter says exactly which sends are acquitted
-- `write_done_callback_running`: per call, a WRITE_DONE callback is on the host stack
+- `write_done_callback_running`: per call, a WRITE_DONE callback is on the host stack. The
+  engine keeps it conservative: on a call that declared one request it is TRUE between the
+  commit's `EmitWriteDone` and `WriteDoneReturns`, with no callback
 - `delivery_callback_running`: per call, a delivery callback is on the host stack. The
   engine keeps it conservative: TRUE also while it gathers the events of one callback, from
   the first one's delivery step until the callback returns
@@ -1417,10 +1419,10 @@ refinement.
 | `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the runtime releases the buffer's bytes from its count, once no unacquitted send lives in it; the allocation goes when nothing holds it, which the model does not see. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
-| `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor |
-| `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue |
-| `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE` |
-| `WriteDoneReturns` | that callback returns to the actor |
+| `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor; on a call that declared one request, it puts the request in the call's slot, the sending still open and no status pending |
+| `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue; on a call that declared one request, `ak_call_send_message` right after `SendMessage`, in the same downcall, which ends the sending with the request |
+| `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE`; on a call that declared one request, the commit, after `EndSend`, gives back the send's slot and bytes with no callback |
+| `WriteDoneReturns` | that callback returns to the actor; on a call that declared one request, the commit, right after `EmitWriteDone` |
 | `DeliverInitialMetadata` / `DeliverMessage` / `DeliverStatus` / `DeliverCancelled` | the actor stages the event for the data callback once it has it in hand, having taken a credit; the callback carries every event staged before it calls the host |
 | `DeliveryCallbackReturns` | that callback returns to the actor; for an event another of the same callback follows, the actor takes it just before it stages that one, the host not having been called |
 | `HostConsumesEvent(c)` | `ak_event_consumed` frees the oldest outstanding payload, identified by its `owner`; `ak_events_consumed` of `n` payloads is `n` of these, in order |

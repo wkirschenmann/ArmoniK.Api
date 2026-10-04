@@ -296,6 +296,19 @@ pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_
     try_start_call_within(channel, method, metadata, None)
 }
 
+/// A call started with `flags` and a deadline `timeout` from now.
+pub fn start_call_flagged_within(
+    channel: ak_handle,
+    method: &str,
+    metadata: &[u8],
+    flags: u32,
+    timeout: Duration,
+) -> ak_handle {
+    let (status, call) = try_start_call_with(channel, method, metadata, Some(timeout), flags);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    call
+}
+
 /// A call started with `flags` and no deadline.
 pub fn start_call_flagged(
     channel: ak_handle,

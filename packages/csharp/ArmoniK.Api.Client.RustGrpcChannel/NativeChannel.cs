@@ -227,6 +227,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                                       Metadata?             metadata,
                                                       Marshaller<TResponse> marshaller,
                                                       DateTime?             deadline    = null,
+                                                      bool                  oneRequest  = false,
                                                       bool                  oneResponse = false)
     where TResponse : class
   {
@@ -242,6 +243,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                            metadata,
                                            marshaller,
                                            deadline,
+                                           oneRequest,
                                            oneResponse);
     // The settlement and not the response: a server stream has no single response, and what the
     // drain has to wait for is the terminal consumed with nothing owed either way.

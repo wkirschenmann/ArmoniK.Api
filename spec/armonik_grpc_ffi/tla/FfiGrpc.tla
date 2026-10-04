@@ -1085,7 +1085,8 @@ EndSend(cId) ==
 \* and the send pinned.  One acquittal
 \* callback at a time; WRITE_DONE always arrives, exactly once per
 \* accepted send, and always before the terminal: the send side is
-\* driven by binding threads alone.
+\* driven by binding threads alone.  On a call that declared one request,
+\* the commit takes this step and its return with no callback.
 EmitWriteDone(cId) ==
     /\ IsAwaitingWriteDone(cId)
     /\ ~IsWriteDoneCallbackRunning(cId)

@@ -12,6 +12,7 @@ use tonic::codegen::tokio_stream::Stream;
 use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
+use super::request::{self, OneRequest, RequestSlot};
 use super::status::GrpcStatus;
 
 /// Where a call's response head came from. The head's metadata is empty unless it is `Wire`.
@@ -344,6 +345,21 @@ pub(crate) fn create_with(
         },
         driving,
     )
+}
+
+/// A call that sends one request: where the request goes, the call's control, the slot its driver
+/// takes the request from, and what its driver needs but the sink.
+pub(crate) fn create_one(
+    channel_closed: watch::Receiver<bool>,
+) -> (OneRequest, CallControl, RequestSlot, Driving<()>) {
+    let (request, slot) = request::one_request();
+    let (over_tx, over_rx) = watch::channel(false);
+    let control = CallControl {
+        over: Arc::new(over_tx),
+        body_over: Arc::new(Mutex::new(None)),
+    };
+    let driving = Driving::new(over_rx, channel_closed, control.clone());
+    (request, control, slot, driving)
 }
 
 pub(crate) fn create(

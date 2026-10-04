@@ -155,6 +155,14 @@ default applies. The field is relative - the nanoseconds from `ak_call_start` - 
 of the host's clock means nothing in the library's, and zero is a deadline already passed rather
 than none, which is what the flag is for.
 
+`AK_CALL_ONE_REQUEST` declares that the request is exactly one message, as on a unary or a
+server-streaming method. Its commit also ends the sending, `ak_call_end_send` is refused, and no
+WRITE_DONE comes: the send is settled at the commit, and a lend after it is refused with
+`AK_STATUS_INVALID_STATE` rather than `SLOT_BUSY`. The call sends nothing before its commit - the
+lent buffer keeps room for the gRPC prefix ahead of what the host writes, and the commit makes it
+the request's whole body - and nothing watches its deadline before it: a commit past the deadline
+is accepted, and the call ends `DEADLINE_EXCEEDED`.
+
 `AK_CALL_ONE_RESPONSE` declares that the response is at most one message, as on a unary or a
 client-streaming method. A second one ends the call `INTERNAL` before anything decodes it or the
 runtime is charged for it, and the status after the message is read past the runtime's first
@@ -479,7 +487,8 @@ FFI note:
   time, and at most `MaxSendsInFlight` out of one arena (default 1), counting those committed
   and awaiting their WRITE_DONE; WRITE_DONE acquits in send order,
   always arrives, exactly once per accepted send, and always before the terminal event, even
-  on error or cancellation. There is nothing to pin: the memory is Rust's from the start.
+  on error or cancellation - but on a call that declared one request, whose commit settles its
+  send with no WRITE_DONE. There is nothing to pin: the memory is Rust's from the start.
   See Zero-copy in architecture.md.
 - **Receive (demand via consumed)**: the `ak_bytes` payload is owned. The host consumes
   (deserializes directly from the native pointer) then calls `ak_event_consumed`, or

@@ -383,7 +383,9 @@ So `ak_get_call_buffer` has four modeled lend outcomes - `OK`, `SLOT_BUSY`,
 are the ABI matrix's rows, outside the backpressure sub-machine level 1 formalizes.
 It lends, with `MESSAGE_TOO_LARGE` refused permanently when `len` exceeds the ceiling
 itself; or it refuses with
-`AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE; or it
+`AK_STATUS_SLOT_BUSY` because this call's window is full, whose wake-up is WRITE_DONE - a call
+that declared one request refuses a lend after its commit with `INVALID_STATE` instead, no
+WRITE_DONE coming; or it
 refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached, which is
 not necessarily this call's doing - with a window deeper than one, its own sends hold
 budget too - so a WRITE_DONE of this call is a wake-up,
@@ -671,7 +673,9 @@ The acquittal completes the armed write without taking it out of its field, beca
 same field is the one-write claim and the writer releases it itself. That the acquittal is
 that write's, and not a later one's, is the ABI's promise rather than the binding's
 check: WRITE_DONE arrives exactly once per accepted send, in send order, and a caller
-honouring the one-writer contract has no second write armed until the first returned.
+honouring the one-writer contract has no second write armed until the first returned. A call
+that declared one request has no WRITE_DONE: its send completes at the commit, which settles
+it.
 
 The trampoline is the level-1 callback boundary: it runs on a native thread, and its
 return is what the model calls `DeliveryCallbackReturns` (or `WriteDoneReturns`). Keeping

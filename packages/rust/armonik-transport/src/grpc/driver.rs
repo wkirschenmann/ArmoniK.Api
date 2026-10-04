@@ -19,7 +19,8 @@ use super::call::{
 use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
-use super::retry::{jittered, AttemptMessages, Replay};
+use super::request::RequestSlot;
+use super::retry::{jittered, Attempt, OneReplay, Replay, Sent};
 use super::status::GrpcStatusCode;
 use super::status::{GrpcStatus, Unprocessed};
 
@@ -63,12 +64,18 @@ struct Responding<S> {
     head_given: bool,
 }
 
+/// What a call sends: a stream of messages the caller writes, or its one request, given once.
+pub(crate) enum Sending {
+    Stream(RequestMessages),
+    One(RequestSlot),
+}
+
 /// What a call sends: where, with what metadata, and the messages the caller will write - and
 /// when it stops waiting for the answer.
 pub(crate) struct Outgoing {
     pub(crate) path: PathAndQuery,
     pub(crate) metadata: HeaderMap,
-    pub(crate) messages: RequestMessages,
+    pub(crate) messages: Sending,
     pub(crate) deadline: Option<Instant>,
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
     pub(crate) one_response: bool,
@@ -290,11 +297,24 @@ async fn run<S: ResponseSink>(
     } = outgoing;
 
     let policy = inner.retry.as_ref();
-    let replay = Replay::new(
-        messages,
-        policy.map(|policy| policy.call_replay_bytes),
-        Arc::clone(&inner.replay),
-    );
+    let replay_limit = policy.map(|policy| policy.call_replay_bytes);
+    let replay = match messages {
+        Sending::Stream(messages) => Sent::Stream(Replay::new(
+            messages,
+            replay_limit,
+            Arc::clone(&inner.replay),
+        )),
+        // Nothing goes out, not even the request's head, until the request is in: a call that ends
+        // first has sent nothing its peer could act on.
+        Sending::One(slot) => match until_stopped(stop, slot.taken()).await {
+            Some(Some(request)) => Sent::One(OneReplay::new(
+                request.body(),
+                replay_limit,
+                Arc::clone(&inner.replay),
+            )),
+            None | Some(None) => return GrpcStatus::cancelled(),
+        },
+    };
     let mut bound = policy
         .map(|policy| policy.initial_backoff)
         .unwrap_or_default();
@@ -407,11 +427,11 @@ async fn attempt<S: ResponseSink>(
     inner: &Arc<Inner>,
     path: PathAndQuery,
     metadata: HeaderMap,
-    messages: AttemptMessages,
+    (messages, body): (Attempt, Option<Bytes>),
     deadline: Option<Instant>,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
-    replay: &Replay,
+    replay: &Sent,
     stop: &mut Stop,
     responding: &mut Responding<S>,
 ) -> Ended {
@@ -431,7 +451,7 @@ async fn attempt<S: ResponseSink>(
 
     // Each attempt's own: whether a response came is the last attempt's to say.
     responding.answered = Answered::default();
-    let mut client = inner.client(responding.answered.clone(), one_response);
+    let mut client = inner.client(responding.answered.clone(), one_response, body);
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {

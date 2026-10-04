@@ -1,8 +1,8 @@
 mod common;
 
 use armonik_transport::grpc::{
-    CallError, CallStartOptions, ChannelError, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
-    HeadOrigin, MetadataValue, ResponseHead, ResponseSink,
+    CallError, CallStartOptions, ChannelError, FramedRequest, GrpcChannelConfig, GrpcStatus,
+    GrpcStatusCode, HeadOrigin, MetadataValue, ResponseHead, ResponseSink,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use bytes::Bytes;
@@ -58,6 +58,54 @@ async fn a_sink_hears_the_head_then_the_message_then_the_end() {
         without_flushes,
         ["head Wire", "message hello", "end Ok, head None"],
         "{heard:?}"
+    );
+}
+
+/// A call that sends one request sends it framed as its whole body, and is answered as any other.
+#[tokio::test]
+async fn a_one_request_call_sends_its_framed_request() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (request, _control, driver) = channel
+        .prepare_one_request_call(CallStartOptions::new(ECHO))
+        .expect("an open channel");
+    assert!(
+        request.give(|| FramedRequest::copy_of(b"hello").expect("a message of five bytes")),
+        "the call takes its request"
+    );
+    let (sink, heard) = Recording::new();
+    driver.drive(sink).await;
+
+    let heard = heard.await.expect("the sink heard the end");
+    let without_flushes: Vec<&str> = heard
+        .iter()
+        .map(String::as_str)
+        .filter(|event| *event != "flush")
+        .collect();
+    assert_eq!(
+        without_flushes,
+        ["head Wire", "message hello", "end Ok, head None"],
+        "{heard:?}"
+    );
+}
+
+/// A call whose request never comes sends nothing, and ends cancelled with no response.
+#[tokio::test]
+async fn a_one_request_call_given_no_request_ends_cancelled() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (request, _control, driver) = channel
+        .prepare_one_request_call(CallStartOptions::new(ECHO))
+        .expect("an open channel");
+    drop(request);
+    let (sink, heard) = Recording::new();
+    driver.drive(sink).await;
+
+    assert_eq!(
+        heard.await.expect("the sink heard the end"),
+        ["end Cancelled, head Some(NoResponse)"]
     );
 }
 
@@ -205,6 +253,31 @@ async fn the_request_carries_the_headers_grpc_asks_for() {
     ] {
         assert!(seen.contains(expected), "{expected} missing from {seen}");
     }
+}
+
+/// A framed request's body has a known length, which hyper states; a stream's has none.
+#[tokio::test]
+async fn a_one_request_call_states_its_length_and_a_stream_does_not() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (request, _control, driver) = channel
+        .prepare_one_request_call(CallStartOptions::new("/raw/EchoHeaders"))
+        .expect("an open channel");
+    assert!(request.give(|| FramedRequest::copy_of(b"hello").expect("a message")));
+    let (sink, heard) = Recording::new();
+    driver.drive(sink).await;
+    let heard = heard.await.expect("the sink heard the end");
+    assert!(
+        heard
+            .iter()
+            .any(|event| event.contains("content-length=10")),
+        "the prefix and the five bytes: {heard:?}"
+    );
+
+    let (_, messages, _) = call_on("/raw/EchoHeaders", Bytes::from_static(b"hello")).await;
+    let seen = String::from_utf8(messages.concat().to_vec()).expect("the headers as text");
+    assert!(!seen.contains("content-length"), "{seen}");
 }
 
 #[tokio::test]
