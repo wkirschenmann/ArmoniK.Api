@@ -1,9 +1,6 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03 and 2026-10-04; steps 1 to 4 built, step 5 not. Until each of its
-steps lands, every other document of the specification wins over this one on what that step
-changes. `DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it
-describes the binding as it was before.
+**Status**: decided 2026-10-03 and 2026-10-04; built, steps 1 to 5.
 
 A gRPC method has one of four cardinalities, and each direction of a call carries either exactly
 one message or a stream of them. The ABI treats every call as a bidirectional stream: the host
@@ -267,9 +264,9 @@ stays, as a property of the model rather than of the callback.
 - A one-request send commits its buffer, which ends the sending: one wake of the channel's thread
   for the request, and no acquittal to wait for.
 
-`DotNetBinding.tla` describes the binding as built, so it follows. Writing its new steps is step
-5's work; what they must achieve is set here, with the traps that lie on the way, and this
-document does not choose their guards.
+`DotNetBinding.tla` describes the binding as built, so it follows. What its new steps were to
+achieve was set here before they were written, with the traps that lay on the way; step 5 says
+where the model departs from it.
 
 What the steps must achieve:
 
@@ -314,8 +311,7 @@ Traps:
 - The binding's `WriteDoneCompletes` conjoins `L1!WriteDoneReturns` today; left enabled on a
   one-request call, it would wait for a return the engine has already taken.
 
-The refinement is to prove again once those steps are written; level 1's own theorems are
-untouched.
+Level 1's own theorems are untouched.
 
 ## What else changes
 
@@ -426,9 +422,8 @@ Taken on 2026-10-04:
 
 Each step is measured, in alternating passes, before the next starts, and brings with it the
 documents it makes false - `architecture.md`, `formal-model.md`'s mapping table and the models'
-prose included - so that they never describe what is no longer built. The one exception is
-`DotNetBinding.tla`, whose new steps are proved, not reworded: step 5 brings it, as the status
-says.
+prose included - so that they never describe what is no longer built. `DotNetBinding.tla` was
+the one exception: its new steps are proved, not reworded, so it came last, at step 5.
 
 1. **One task per call**, with no ABI change: the driver, the writer and the reader become one
    task, joined rather than spawned. Done: the transport hands the caller what drives a call
@@ -491,5 +486,16 @@ says.
    us at the median, one callback per unary call where there were two, the round trip a paired
    median of 3.4 and 1.7 us shorter, the channel's thread being woken at the commit rather than at
    the start; 177.4 allocations per call and 53 KB, where a stream's call takes 193.9 and 59 KB.
-5. **Level 2**: `DotNetBinding.tla` following the binding with its refinement proved again, and
-   the TLC instantiability check.
+5. **Level 2**: `DotNetBinding.tla` following the binding with its refinement proved again, and the
+   TLC instantiability check. Done, as `formal-model.md` describes; the model departs from what
+   the steps were to achieve in four places. A call's shape is two constants, `OneRequestCalls`
+   and `OneResponseCalls`, not a choice at `StartCall`: a call identity is started at most once,
+   so fixing its shape beforehand loses no behaviour and adds no state. The one-response wake is
+   in the fairness, not in `BeginParseEvent`: the read's steps under it, `ReaderTakesHead` and
+   `ReaderParses`, go on past the wake within a pass, which a guard in `Next` would forbid. A
+   batch needs no state: the status is always a batch's last event, so the engine's returns
+   between events are `OnEventReturns` and the root's release stays at the batch's own return.
+   And `AwaitingWriteDoneHasOneComing` states that the writer awaiting an acquittal is a
+   stream's. The refinement and the seventeen liveness properties are proved again, 33437
+   obligations at level 2: `SealingPasses` carries the status's and the acquittal's fairness past
+   the seal, and `AsleepReaderIsWoken` the consumption on a one-response call.

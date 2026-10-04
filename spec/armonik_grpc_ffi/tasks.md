@@ -370,7 +370,7 @@ a server that did not honour the cardinality.  There is no second read path to k
 with the first, which is what lets the model's `reader_state` cover all four rather than one.
 What differs between the cardinalities is what they send, not how they read.  Superseded on
 2026-10-04 by `call-shapes.md`'s step 3: a call that answers once is read by a single-pass
-reader of the same ring, which `DotNetBinding.tla` follows at that document's step 5.
+reader of the same ring, which `DotNetBinding.tla` follows.
 
 **Deliberately left, and why:**
 

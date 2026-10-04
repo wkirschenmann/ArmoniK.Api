@@ -557,13 +557,19 @@ proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machi
 `DotNetBinding.tla` refines `FfiGrpc`: the state space, the actions, the fairness and
 the properties below are the specification as written, and they cover three mechanisms -
 the runtime's lifetime, the write machine, and the managed completions.  The modules are
-TLC-vetted: thirty-five of the thirty-six actions fire, the thirty-sixth being dead by
-design, below.
+TLC-vetted: thirty-eight of the thirty-nine actions fire, the thirty-ninth being dead by
+design, below.  No one configuration fires them all: a call's shape is fixed per
+configuration, so the stream's write steps and the one-request call's are covered by
+different runs.
 
 **Scope.** The model is the generic bidirectional-streaming call.  The five
 `CallInvoker` methods are refinements of it that fix the number of messages in each
-direction, not separate machines, so none is modelled - the unary shapes compose the
-same reader and the same terminal consumer.  The start/send command queue is level-1
+direction, not separate machines.  What a call declares of them is modelled, as a shape:
+two constants, `OneRequestCalls` and `OneResponseCalls` - a call identity is started once
+at most, so fixing its shape beforehand loses no behaviour and adds no state.  A
+one-request call's commit ends its sending and is acquitted by the engine; a one-response
+call's reader waits for the whole response, and composes the same reader and the same
+terminal consumer as any other.  The start/send command queue is level-1
 stutter.  The .NET async runtime is not modelled: completions signal and continuations
 run elsewhere - `RunContinuationsAsynchronously` on every TCS is an implementation rule
 verified by review and tests, not a theorem, and the model carries no counter pretending
@@ -616,10 +622,12 @@ Added variables - all discipline, no capacity:
   a call still `active`, so its lifetime IS the identity of the operation it belongs to -
   which holds only under the registration discipline stated above, and needs a read id if
   that discipline cannot be met
-- `writer_state`, `retry_len`: the write machine and the length its budget wait
-  remembers
+- `writer_state`, `retry_len`: the write machine - `sealing` is a one-request commit
+  between its send and its end of the sending - and the length its budget wait remembers
 - `headers_completion`, `status_completion`: the public objects that must never be left
   pending
+- `headers_asked`: a caller asked for the headers, which starts the task that answers
+  them
 - `call_dispose_state`: the call's own machine, driving the drain
 
 **The runtime and the channels.** `CreateRuntime(rt)` is `NativeRuntime.Create`: the
@@ -670,6 +678,14 @@ active - a dispose that linearized first wins the race, and the waiter then reso
 through `CancelWaiter`, never parsing a ring the drain already claimed.
 `FinishConsumePayload` conjoins `L1!HostConsumesEvent` when the parse completes, and it
 is where the status is resolved if the slot it just decoded was the terminal one.
+`ConsumeHeader` takes the head for the task a caller's request started (`AskHeaders`) or
+for a read in flight, the phase arbitrating, and nothing takes it while neither exists.
+A one-response call's read waits for the whole response - the terminal in the ring or
+the delivery window full, `ReaderWakes` - and the wait is in the fairness rather than in
+`Next`: `ReaderTakesHead` and `ReaderParses` are the read's steps under it, because within
+a pass the read goes on past its wake.  A batch needs no state of its own: the status is
+always a batch's last event, so `OnEventReturns` is also the engine's return between two
+events, and the root's release stays at the batch's own return.
 
 **The read's token, precisely - and who wins the race.** `MoveNext(ct)`'s cancellation
 is three distinct things, and keeping them apart is what makes the path correct.
@@ -725,31 +741,42 @@ ring and the dispose would wait forever on a status nobody can produce.
 **The writer, precisely.** `WriteLendSucceeds` enters `serializing`;
 `WriteRefusedBudget` enters the cancellable wait, `RetryLendSucceeds` leaves it,
 `CancelWriterWait` resolves it on cancellation or dispose; `WriteRefusedTooLarge` faults
-without waiting; `CommitWrite` sends and enters `awaiting_write_done`; `WriteAborted` is
-the disposable wrapper closing over a throwing marshaller or a refused commit;
-`WriteDoneCompletes` conjoins the level-1 callback return and completes the write.
+without waiting; `CommitWrite` sends and enters `awaiting_write_done`, or `sealing` on a
+one-request call; `WriteAborted` is the disposable wrapper closing over a throwing
+marshaller or a refused commit; `WriteDoneCompletes` conjoins the level-1 callback return
+and completes the write.  A one-request commit is one downcall in the engine and two steps
+here: `SealRequest` ends the sending and closes the writer, reading no binding guard, and
+while the writer seals the runtime steps that would close the end of the sending's guard
+wait - a status arriving, a message past the second threshold, and the acquittal, which
+would let a cancellation end the call between the two.  The engine then takes the
+acquittal and its return, `PassWriteDoneReturns`, with no callback, and `CloseWriter` and
+`WriteDoneCompletes` refuse such a call.
 There is no slot wait: with completion at WRITE_DONE and one writer per call, the next
 lend always finds the window open, which `ManagedWriterNeverObservesSlotBusy` states.
 
 **Fairness comes in three tiers, and the tiers are the point of the level.** No
-conjunct anywhere is stated over level 1's tuple: all thirty-nine are `WF_vars` on
+conjunct anywhere is stated over level 1's tuple: all forty-three are `WF_vars` on
 actions of this module, which is what makes level 1's twenty families *earned*
 rather than restated.
-- *Runtime-owed* (`RuntimeOwedFairness`), fourteen conjuncts: one named passthrough
+- *Runtime-owed* (`RuntimeOwedFairness`), fifteen conjuncts: one named passthrough
   per level-1 family the runtime and the FFI dispatch owe - `PassNetworkSend`,
   `PassDeliverStatus`, `PassEmitWriteDone`, `PassEmitBudgetWake` and the rest, each of
-  them the level-1 action beside a managed stutter.  The transfer is one for one: a projection lemma
-  says the level-2 step is the level-1 step, and PTL turns the pair into the level-1
-  weak fairness.  The binding restricts none of them.
-- *Binding-owed* (`BindingOwedFairness`), twenty-one conjuncts: the binding's own
+  them the level-1 action beside a managed stutter - and `PassWriteDoneReturns`, the
+  engine's return of a one-request call's acquittal.  The transfer is one for one: a
+  projection lemma says the level-2 step is the level-1 step, and PTL turns the pair into
+  the level-1 weak fairness.  Two wait while a one-request commit seals, the status's and
+  the acquittal's, so their transfer goes through `SealingPasses`: a call seals once at
+  most and the seal ends.
+- *Binding-owed* (`BindingOwedFairness`), twenty-four conjuncts: the binding's own
   machinery, and nothing else.  The four callback returns discharge level 1's four
   trampoline families - `DeliveryReturns` is a disjunction because the terminal one
   frees the call root as it goes, and the two split on `HasStatus` so the disjunction
   is enabled exactly when level 1's family is.  The rest is the level's own: the
-  waiter wakes or resolves, the hand-off happens, both dispose chains and the whole
-  teardown complete, the constructor answers.  Every conjunct here waits on the
-  binding's code, on the thread pool, or on a downcall that cannot block; none waits
-  on the application.
+  headers task takes the head once a caller asked, a woken read takes the head or
+  parses, a one-request commit ends its sending, the waiter resolves, the hand-off
+  happens, both dispose chains and the whole teardown complete, the constructor answers.
+  Every conjunct here waits on the binding's code, on the thread pool, or on a downcall
+  that cannot block; none waits on the application.
 - *Application-owed* (`ApplicationOwedFairness`), four conjuncts, and the whole of
   what a conforming program owes: read the stream (`BeginMoveNext`), and let the code
   it handed us come back - the parse returns (`FinishConsumePayload`), a cancelled
@@ -909,7 +936,7 @@ way out, and no termination is guaranteed past a failure.
   once a signal exists
 - **PendingWriteEventuallySettled**: a write that reached the buffer settles - it
   commits or aborts, and a committed one completes at its WRITE_DONE, which level 1
-  guarantees before the terminal
+  guarantees before the terminal, or on a one-request call at its end of the sending
 - **ChannelConstructionCompletes**: a constructor that began completes, one way or the
   other - the channel is exposed, or its configuration was refused and it ends in
   `rejected` holding nothing.  A rejection is a terminal outcome and a completion,
@@ -956,8 +983,9 @@ way out, and no termination is guaranteed past a failure.
   needs is that a readable stream is eventually read.  A physical system with an unbounded stream
   keeps the norm without the theorem
 - **HeadersEventuallyResolved / StatusEventuallyResolved**: the public completions are
-  never left pending - the prologue or the dispose resolves the headers, the terminal
-  consumer resolves the status
+  never left pending - the headers a caller asked for are answered whether or not it
+  reads, by the head's consumer or the dispose, and the terminal consumer resolves the
+  status
 
 #### Held by construction, not stated as invariants
 
@@ -1039,19 +1067,25 @@ budget refusal parks a length, and one is only ever pronounced on a length the w
 admits.  And the fairness transfer is the level's own content: `HostConsumesEvent` is
 the one family no passthrough carries, so it is earned through seven leads-to edges
 ending at the application's single obligation - the binding's machinery plus that one
-hypothesis implies level 1's family.
+hypothesis implies level 1's family.  On a one-response call one more edge is needed,
+because the read waits for the whole response: `AsleepReaderIsWoken` shows from the
+runtime's fairness alone, with no failure escape, that a read cannot stay asleep - that
+would be a status never received, a send never acquitted, the one message the engine may
+hold never delivered, or a terminal never delivered, each a weak fairness broken.  The
+window has room throughout, being the asleep read's own condition, so no consumption is
+needed for any of it.
 
 **The managed liveness is proved.**  All seventeen promises hold, and `ManagedLivenessTheorem`
 collects them.  What the argument cost is a second family of invariants, below.
 
 #### The derived invariants
 
-Twelve invariants carry the liveness argument and appear in no manifest, because none of
+Fifteen invariants carry the liveness argument and appear in no manifest, because none of
 them is a guarantee the library offers: each is a fact about the machine that the safety
 proof never needed and a leads-to edge cannot do without.  Five theorems carry them -
 `DerivedInvariantsHold`, `DrainInvariantsHold`, `ReaderGlueHolds`,
 `StatusResolutionHolds` and `ServedRootsHold` - each of the shape
-`Spec => []Inv`, and all twelve are defined in `DotNetBinding.tla` beside the published
+`Spec => []Inv`, and all fifteen are defined in `DotNetBinding.tla` beside the published
 ones.  The manifest checker cannot see them, since it binds this document to the
 manifests; `ci/check_derived_invariants.py` binds them to this table instead, by reading
 that shape rather than a list.  It exists because this list was written from one theorem
@@ -1063,7 +1097,7 @@ and named seven of them on the day it was added.
 | `FinishedReaderDrainedTheRing` | a finished reader has the status and an empty ring | the call dispose, the status |
 | `LiveCallHasLiveChannel` | a published, unsettled call has a channel, and that channel is active or disposing | seven of the seventeen, the payload release included |
 | `BusyWriterIsOnAStartedCall` | a writer that is not idle is on a call that exists | the hopeless budget wait |
-| `AwaitingWriteDoneHasOneComing` | a writer waiting on its acquittal has a send in flight or the callback on the stack | the pending write |
+| `AwaitingWriteDoneHasOneComing` | a writer waiting on its acquittal is a stream's, and has a send in flight or the callback on the stack | the pending write |
 | `SerializingWriterHoldsANamedBuffer` | a serializing writer holds a buffer that can be named | the pending write, through `SerializationHasAnExit` |
 | `PublishedCallHasStarted` | a call whose token is published exists at level 0 | seven of the seventeen, the call root's release included |
 | `DrainingCallIsCancelled` | a draining call exists and is either cancel-requested or already past active | the call dispose, both read resolutions, the cancelled drain |
@@ -1071,8 +1105,11 @@ and named seven of them on the day it was added.
 | `ConsumedTerminalFinishesTheReader` | an active call whose ring is drained past its first slot has a finished reader | the read resolutions, the settlement |
 | `StatusResolvedOnceTheRingIsDrained` | a drained ring past its first slot means the status is resolved | the status, the call dispose |
 | `LiveRootIsServed` | a live call root has its token published, and past the status a delivery callback is running | the call root's release |
+| `OneSendInFlight` | one send at most is in flight, none while the writer is idle, serializing or waiting, and a running WRITE_DONE acquits the last | the consumption on a one-response call, through the wake |
+| `SealingHoldsTheEndOfSending` | a sealing writer's call is started or sending, its sending open, no status pending, its handle held and its acquittal not yet emitted | the pending write, and the status's and the acquittal's fairness |
+| `MetadataLeads` | a call's first event is its initial metadata, past a failure too | the consumption on a one-response call, through the wake |
 
-Two of the twelve were forced by the send side and are worth naming for what they rule
+Two of the fifteen were forced by the send side and are worth naming for what they rule
 out.  `AwaitingWriteDoneHasOneComing` is what makes the wait end without any hypothesis on
 the application: one of the two disjuncts is always the enabled step.  And it is not enough
 on its own - `TrampolineStaysUntilItReturns` says the callback cannot slip off the stack
@@ -1080,7 +1117,7 @@ while the writer waits, without which a single callback is not the standing enab
 fairness asks for.
 
 The four proofs modules verify with the fingerprint cache disabled: 1809, 11421, 23 and
-29310 obligations, no failure.  That distinction matters here, because a green run over a
+33437 obligations, no failure.  That distinction matters here, because a green run over a
 warm cache says only that the obligations were once discharged by a text that may since
 have changed.
 
@@ -1093,7 +1130,11 @@ Refinement mapping, by direct reuse:
 - the call constructor ↔ `StartCall` - `GCHandle.Alloc`, `ak_call_start` and exposure in
   one step
 - `OnEvent` publishes a slot ↔ `OnEventReturns`; the terminal one is
-  `TerminalCallbackReturns`, which frees the call root and decodes nothing
+  `TerminalCallbackReturns`, which frees the call root and decodes nothing.  A batch's
+  returns before its last are the engine's own, `OnEventReturns` too, and
+  `ak_events_consumed` is one `FinishConsumePayload` - or `ConsumeHeader`, or
+  `DrainRelease` - per payload, in order
+- `ResponseHeadersAsync` ↔ `AskHeaders`, the first time
 - `MoveNext`, its suspension and its parse ↔ `BeginMoveNext`, `BeginParseEvent`,
   `FinishConsumePayload` - the last conjoining `L1!HostConsumesEvent` and resolving the
   status when the slot it decoded was the terminal
@@ -1108,7 +1149,9 @@ Refinement mapping, by direct reuse:
   resolves the status too. No `decode_failure` state is needed at this level, and adding one
   would record a value the level has no use for
 - `WriteAsync` ↔ `WriteLendSucceeds` or a refusal, `CommitWrite` or `WriteAborted`,
-  then `WriteDoneCompletes`; `CompleteAsync` ↔ `CloseWriter`
+  then `WriteDoneCompletes`; `CompleteAsync` ↔ `CloseWriter`.  On a one-request call the
+  commit is `CommitWrite` then `SealRequest`, one downcall, and the engine's
+  `PassWriteDoneReturns` follows
 - `Dispose` on a call ↔ `BeginDisposeCall`, `CancelWaiter` for a suspended read,
   `HandoffToDrain` behind any parse in flight, `DrainRelease` until drained, then
   `FinishDisposeCall`
@@ -1329,7 +1372,7 @@ the artefact rather than left to rot:
 | SANY, on the twenty-two SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted, `ReceivedLength` the length of each message received, and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding + BytesReceived` and `MemoryWithinHardCeiling` that the total never passes `HardCeiling`. Both are in `IndInv` and proved inductive. The category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld` on the send side, `BytesHostReceived` and `BytesRuntimeReceived` on the receive side - are sums over the pairs each state selects, and `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` are the snapshot identities the observers must report |
-| Level 2 | **Refined and proved, liveness included.** Twelve modules exist, SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in seven configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected` is exhaustive - 394277 states, depth 38. `DotNetBinding_MCcall` and `DotNetBinding_MC` are bounded and run as instantiability checks, 30 seconds each: the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Three configurations are witnesses rather than checks: their targets are stated negatively, so a violation trace is the result. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of the three branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fourteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved, and the four proofs modules verify with the fingerprint cache disabled - 1809, 11421, 23 and 29310 obligations, no failure.  The seventeen cost seven derived invariants, listed above; three of the seven were forced under a passthrough, which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them. |
+| Level 2 | **Refined and proved, liveness included.** Twelve modules exist, SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in seven configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected` is exhaustive - 628413 states, depth 39, its one call declaring both shapes. `DotNetBinding_MCcall`, whose call declares one request, and `DotNetBinding_MC`, whose calls are streams, are bounded and run as instantiability checks, 30 seconds each: the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Three configurations are witnesses rather than checks: their targets are stated negatively, so a violation trace is the result. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of the three branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fourteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved, and the four proofs modules verify with the fingerprint cache disabled - 1809, 11421, 23 and 33437 obligations, no failure.  The seventeen cost fifteen derived invariants, listed above. |
 | Deadlock detection at level 2 | `ci/tlc.sh` passes `-deadlock`, which switches TLC's deadlock check off, so the gate has never used it at any level - worth knowing before reading a clean run as evidence of progress. Invoked directly, `DotNetBinding_MC` reaches a deadlock: every channel refused and the runtime torn down, the finite `ChannelIds` set spent, a rejected channel being terminal. That is quiescence rather than a stall, and an artefact of the bound rather than a property of the system, which the configuration now states. `AbsentRuntimeOwesNothing` carries the content instead, and a genuine mid-flight stall still breaks the liveness configuration |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
