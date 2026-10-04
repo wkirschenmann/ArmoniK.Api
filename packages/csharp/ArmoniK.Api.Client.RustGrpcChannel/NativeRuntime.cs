@@ -537,7 +537,8 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   internal static unsafe void OnEvent(void*     runtimeCtx,
                                       void*     callCtx,
-                                      ak_event* @event)
+                                      ak_event* events,
+                                      nuint     count)
   {
     object? target;
     try
@@ -549,48 +550,82 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
     catch
     {
-      NativeMethods.ak_event_consumed(@event->payload);
+      for (nuint at = 0; at < count; at++)
+      {
+        NativeMethods.ak_event_consumed(events[at].payload);
+      }
+
       return;
     }
 
-    var call  = target as ICallSink;
-    var taken = false;
+    var call     = target as ICallSink;
+    var terminal = false;
+    var stored   = false;
+    for (nuint at = 0; at < count; at++)
+    {
+      var @event = &events[at];
+      var taken  = false;
+      try
+      {
+        if (call is not null)
+        {
+          taken = call.Publish(@event->kind,
+                               @event->payload,
+                               @event->status_code);
+        }
+
+        else if (target is NativeRuntime runtime)
+        {
+          // A runtime-level event carries no payload, only that the state is moving: the engine
+          // stores STOPPED once this callback has returned. So this is a wake-up, and the waiter
+          // reads the state for itself, again later if it still reads STOPPING.
+          runtime.announced_.Set();
+        }
+      }
+      catch
+      {
+        // Nothing may unwind into the engine: an exception crossing this callback is undefined
+        // on its side of the ABI.
+      }
+      finally
+      {
+        // Anything the ring did not take is given back here: a root that no longer names a sink,
+        // a publish that threw before storing, an event of the runtime itself. What is owed and
+        // never returned is what the shutdown then waits for, forever. A payload the ring did take
+        // is the reader's to return, and returning it twice would free it under the reader.
+        if (!taken)
+        {
+          NativeMethods.ak_event_consumed(@event->payload);
+        }
+
+        stored   |= taken;
+        terminal |= @event->kind == ak_event_kind.AK_EVENT_STATUS;
+      }
+    }
+
+    if (call is null)
+    {
+      return;
+    }
+
     try
     {
-      if (call is not null)
+      // Once for the whole callback, so the reader is woken once for what came together, and not
+      // at all for an acquittal, which the ring never sees.
+      if (stored)
       {
-        taken = call.Publish(@event->kind,
-                             @event->payload,
-                             @event->status_code);
-      }
-
-      else if (target is NativeRuntime runtime)
-      {
-        // A runtime-level event carries no payload, only that the state is moving: the engine
-        // stores STOPPED once this callback has returned. So this is a wake-up, and the waiter
-        // reads the state for itself, again later if it still reads STOPPING.
-        runtime.announced_.Set();
+        call.Arrived();
       }
     }
     catch
     {
-      // Nothing may unwind into the engine: an exception crossing this callback is undefined on
-      // its side of the ABI.
+      // As above: nothing may unwind into the engine.
     }
     finally
     {
-      // Anything the ring did not take is given back here: a root that no longer names a sink, a
-      // publish that threw before storing, an event of the runtime itself. What is owed and never
-      // returned is what the shutdown then waits for, forever. A payload the ring did take is the
-      // reader's to return, and returning it twice would free it under the reader.
-      if (!taken)
-      {
-        NativeMethods.ak_event_consumed(@event->payload);
-      }
-
       // The terminal is the call's last callback, so its root goes with it whatever the publish
       // did: kept, it would hold the call for the life of the process.
-      if (call is not null && @event->kind == ak_event_kind.AK_EVENT_STATUS)
+      if (terminal)
       {
         call.TerminalReturned();
       }

@@ -446,26 +446,22 @@ ak_get_call_buffer(handle, n, &buf) -> lends n bytes out of the call arena
 serialize into buf.ptr             // protobuf writes straight into native memory
 ak_call_send_message(handle, buf)  -> ownership of buf passes back to Rust
                                    ... network: Rust sends over HTTP/2 ...
-                          callback(runtime_ctx, gcHandle, &evt_w) <-
+                          callback(runtime_ctx, gcHandle, &evt_w, 1) <-
                             evt_w.kind = WRITE_DONE     [slot free]
 ak_call_end_send(handle)           -> signal end_send
                                    ... network ...
-                          callback(runtime_ctx, gcHandle, &evt1) <-
-                            evt1.kind = INITIAL_METADATA  [auto, before any message]
-                            evt1.payload = ak_bytes{ptr, len, owner}
-ak_event_consumed(evt1.payload)    // free + arm next
-                          callback(runtime_ctx, gcHandle, &evt2) <-
-                            evt2.kind = MESSAGE
-                            evt2.payload = ak_bytes{ptr, len, owner}
-// host can deserialize directly from evt2.payload.ptr (zero-copy recv)
-ak_event_consumed(evt2.payload)    // free + arm next
-                          callback(runtime_ctx, gcHandle, &evt3) <-
-                            evt3.kind = STATUS  [terminal, end of stream]
-                            evt3.payload = ak_bytes{ptr, len, owner}
-                            evt3.status_code = 0 (OK)
+                          callback(runtime_ctx, gcHandle, evts, 3) <-
+                            evts[0].kind = INITIAL_METADATA  [always first]
+                            evts[1].kind = MESSAGE
+                            evts[2].kind = STATUS  [terminal, end of stream]
+                            evts[i].payload = ak_bytes{ptr, len, owner}
+                            evts[2].status_code = 0 (OK)
+                            [what arrived together comes in one
+                             callback; a head sent early comes alone]
                             [this callback frees gcHandle after its
                              last access - it is the call's last]
-ak_event_consumed(evt3.payload)    // free (no next, this is the terminal)
+// host can deserialize directly from evts[1].payload.ptr (zero-copy recv)
+ak_events_consumed(payloads, 3)    // free all three (no next, the terminal is in)
                             [the actor sees the debt cleared and reclaims
                              the handle and the arena; the host does
                              nothing, and its handle is now stale]
@@ -480,8 +476,10 @@ FFI note:
   on error or cancellation. There is nothing to pin: the memory is Rust's from the start.
   See Zero-copy in architecture.md.
 - **Receive (demand via consumed)**: the `ak_bytes` payload is owned. The host consumes
-  (deserializes directly from the native pointer) then calls `ak_event_consumed`. This
-  call frees the memory AND arms reception of the next event. At most `DeliveryCredits`
+  (deserializes directly from the native pointer) then calls `ak_event_consumed`, or
+  `ak_events_consumed` for several in delivery order. This frees the memory AND arms
+  reception of the next event. One callback carries the data events of a call that were
+  ready together, and every other event alone. At most `DeliveryCredits`
   non-consumed payloads per call (default 4) — this is the backpressure mechanism.
 The terminal `AK_EVENT_STATUS` may arrive instead of a next MESSAGE (end of stream or error).
 

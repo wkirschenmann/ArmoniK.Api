@@ -37,6 +37,8 @@ pub struct Event {
     pub on_thread: Option<String>,
     /// The runtime's status, read from inside the callback of a runtime event.
     pub runtime_state_inside: Option<ak_runtime_state>,
+    /// Which callback carried it, counted from one: events with the same number came together.
+    pub callback: u64,
     owner: usize,
 }
 
@@ -46,15 +48,24 @@ pub struct Recorder {
     arrived: Condvar,
     holding: AtomicBool,
     runtime: AtomicU64,
+    callbacks: AtomicU64,
 }
 
 pub unsafe extern "C" fn on_event(
     runtime_ctx: *mut c_void,
     call_ctx: *mut c_void,
-    event: *const ak_event,
+    events: *const ak_event,
+    count: usize,
 ) {
-    let (recorder, event) = unsafe { (&*(runtime_ctx as *const Recorder), &*event) };
+    let recorder = unsafe { &*(runtime_ctx as *const Recorder) };
+    assert!(count > 0, "a callback carries at least one event");
+    let callback = recorder.callbacks.fetch_add(1, Ordering::AcqRel) + 1;
+    for event in unsafe { std::slice::from_raw_parts(events, count) } {
+        record_one(recorder, call_ctx, event, callback);
+    }
+}
 
+fn record_one(recorder: &Recorder, call_ctx: *mut c_void, event: &ak_event, callback: u64) {
     let owner = event.payload.owner;
     let payload = if event.payload.ptr.is_null() || event.payload.len == 0 {
         Vec::new()
@@ -75,6 +86,7 @@ pub unsafe extern "C" fn on_event(
         had_owner: !owner.is_null(),
         on_thread: std::thread::current().name().map(str::to_owned),
         runtime_state_inside,
+        callback,
         owner: if holding { owner as usize } else { 0 },
     });
 
@@ -203,6 +215,25 @@ impl Recorder {
         self.await_kind("a shutdown", ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE)
     }
 
+    /// Gives back every payload held in one downcall, an unowned one among them.
+    pub fn consume_all_together(&self) {
+        let mut seen = self.seen();
+        let mut payloads = vec![ak_bytes {
+            ptr: std::ptr::null(),
+            len: 0,
+            owner: std::ptr::null_mut(),
+        }];
+        for event in seen.iter_mut().filter(|event| event.owner != 0) {
+            payloads.push(ak_bytes {
+                ptr: std::ptr::null(),
+                len: 0,
+                owner: event.owner as *mut c_void,
+            });
+            event.owner = 0;
+        }
+        unsafe { ak_events_consumed(payloads.as_ptr(), payloads.len()) };
+    }
+
     pub fn consume_all(&self) {
         let mut seen = self.seen();
         for event in seen.iter_mut() {
@@ -268,6 +299,19 @@ impl Seen {
     /// The thread each event was delivered on, by name.
     pub fn threads(&self) -> Vec<Option<String>> {
         self.0.iter().map(|event| event.on_thread.clone()).collect()
+    }
+
+    /// How many callbacks carried the data events of the last call, from its head to its
+    /// terminal.
+    pub fn last_call_data_callbacks(&self) -> usize {
+        let data: Vec<&Event> = self.0.iter().filter(|event| is_data(event.kind)).collect();
+        let head = data
+            .iter()
+            .rposition(|event| event.kind == ak_event_kind::AK_EVENT_INITIAL_METADATA)
+            .expect("a call's data starts with its head");
+        let mut callbacks: Vec<u64> = data[head..].iter().map(|event| event.callback).collect();
+        callbacks.dedup();
+        callbacks.len()
     }
 
     pub fn data_kinds(&self) -> Vec<ak_event_kind> {

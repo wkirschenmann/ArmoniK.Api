@@ -42,7 +42,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        internal delegate void ak_runtime_create_callback_delegate(void* runtime_ctx, void* call_ctx, ak_event* @event);
+        internal delegate void ak_runtime_create_callback_delegate(void* runtime_ctx, void* call_ctx, ak_event* events, nuint count);
 
 
 
@@ -310,8 +310,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  1. frees the native memory;
         ///  2. arms reception of the next event for that call.
         ///
-        ///  At most one non-consumed payload per call by default: while the host owes it, the runtime
-        ///  withholds the next data callback. Only a terminal still goes out with the credit spent.
+        ///  At most DeliveryCredits non-consumed payloads per call, four by default: while the host owes
+        ///  them, the runtime withholds the next data event. Only a terminal still goes out with the credit spent.
         ///
         ///  The host MUST give a call's payloads back in delivery order: with several outstanding, the
         ///  oldest is the next one consumed. Another order is not refused - this library frees whichever
@@ -325,6 +325,19 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_event_consumed", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern void ak_event_consumed(ak_bytes payload);
+
+        /// <summary>
+        ///  Gives back several payloads in one downcall, in delivery order, each as ak_event_consumed gives
+        ///  back one: an unowned payload, owner NULL, is a no-op, and a zero-length payload with an owner is
+        ///  given back with its credit. `payloads` may be NULL when `count` is zero.
+        ///
+        ///  # Safety
+        ///
+        ///  `payloads` must point at `count` payloads this library delivered and the host has not
+        ///  consumed.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_events_consumed", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void ak_events_consumed(ak_bytes* payloads, nuint count);
 
         /// <summary>
         ///  Frees an ak_error's detail. A no-op when detail.owner is NULL, so a host may route every error

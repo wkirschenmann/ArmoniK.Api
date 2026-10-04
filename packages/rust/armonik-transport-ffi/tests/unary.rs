@@ -394,6 +394,50 @@ fn a_channel_the_shutdown_closed_is_the_hosts_until_it_releases_it() {
     );
 }
 
+/// What arrives together is delivered together: the test server answers a unary call in one
+/// write, so its head, its message and its status reach the host in one callback. Over several
+/// calls, so that a machine that splits one answer's reads does not decide the test.
+#[test]
+fn a_unary_answer_that_arrives_together_comes_in_one_callback() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    let batched = (1..=20).any(|calls| {
+        send_one(start_call(channel, ECHO, &[]), b"hello");
+        host.recorder
+            .await_terminals(calls)
+            .last_call_data_callbacks()
+            == 1
+    });
+    assert!(batched, "no answer of twenty came in one callback");
+    fixture.close();
+}
+
+/// Payloads given back together are given back as one at a time would be: the call settles.
+#[test]
+fn payloads_given_back_in_one_downcall_settle_the_call() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+    host.recorder.hold_payloads();
+
+    let call = start_call(channel, ECHO, &[]);
+    send_one(call, b"hello");
+    host.recorder.await_terminal();
+    assert_eq!(
+        debt_of(call).payloads_owed,
+        3,
+        "the head, the message and the status"
+    );
+
+    host.recorder.consume_all_together();
+    support::await_call_reclaimed(call);
+
+    // Nothing to give back: a no-op, as it is with a null array.
+    unsafe { ak_events_consumed(std::ptr::null(), 0) };
+    host.recorder.stop_holding();
+    fixture.close();
+}
+
 #[test]
 fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
     let fixture = Host::connected();

@@ -432,6 +432,7 @@ fn every_entry_point_has_the_signature_the_header_declares() {
 
     let _: extern "C" fn() -> i32 = ak_abi_version;
     let _: unsafe extern "C" fn(ak_bytes) = ak_event_consumed;
+    let _: unsafe extern "C" fn(*const ak_bytes, usize) = ak_events_consumed;
     let _: unsafe extern "C" fn(ak_bytes) = ak_error_release;
 }
 
@@ -463,6 +464,7 @@ fn every_entry_point_the_header_declares_is_exported() {
         ("ak_call_debt_of", ak_call_debt_of as *const ()),
         ("ak_abi_version", ak_abi_version as *const ()),
         ("ak_event_consumed", ak_event_consumed as *const ()),
+        ("ak_events_consumed", ak_events_consumed as *const ()),
         ("ak_error_release", ak_error_release as *const ()),
     ];
 
@@ -561,6 +563,7 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
         ),
         ("ak_abi_version", &[]),
         ("ak_event_consumed", &["ak_bytes"]),
+        ("ak_events_consumed", &["const ak_bytes *", "size_t"]),
         ("ak_error_release", &["ak_bytes"]),
     ];
 
@@ -569,6 +572,30 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
             .unwrap_or_else(|| panic!("the header declares no `{name}`"));
         assert_eq!(&read, parameters, "`{name}`");
     }
+}
+
+/// The callback as the header declares it: an array of events and its length, where a host built
+/// against a single event would read the first and leak the rest.
+#[test]
+fn the_callback_takes_an_array_of_events_and_its_length() {
+    unsafe extern "C" fn host(_: *mut c_void, _: ak_call_ctx, _: *const ak_event, _: usize) {}
+    let _: ak_callback = Some(host);
+
+    let text = without_comments(&header());
+    let typedef = "(*ak_callback)(";
+    let opened = text.find(typedef).expect("the header declares ak_callback") + typedef.len();
+    let closed = opened
+        + text[opened..]
+            .find(')')
+            .expect("the typedef's list is closed");
+    let read: Vec<String> = text[opened..closed]
+        .split(',')
+        .map(without_the_parameters_name)
+        .collect();
+    assert_eq!(
+        read,
+        ["void *", "ak_call_ctx", "const ak_event *", "size_t"]
+    );
 }
 
 /// The parameter types `name` is declared with, each stripped of the parameter's own name.

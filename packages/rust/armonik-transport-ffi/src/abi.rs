@@ -231,10 +231,16 @@ pub struct ak_event {
 /// The function pointer must stay valid for the runtime's lifetime, and runtime_ctx until the
 /// runtime's last event.
 ///
-/// Data callbacks (INITIAL_METADATA, MESSAGE, STATUS) are serialized per call and concurrent
-/// between calls. WRITE_DONE and BUDGET_WAKE may arrive in parallel with any of them, including
-/// for the same call: a per-call lock in the handler would hold the slot release hostage behind a
-/// slow message handler. Both come before the call's STATUS, which stays its last event.
+/// Each callback carries `count` events, at least one, of one call or of the runtime, in delivery
+/// order. The array and its events are valid for the callback's duration only; the payloads they
+/// own are the host's until given back. Several events come together only when they are data
+/// events (INITIAL_METADATA, MESSAGE, STATUS) of one call that were ready together; every other
+/// event comes alone.
+///
+/// Data callbacks are serialized per call and concurrent between calls. WRITE_DONE and
+/// BUDGET_WAKE may arrive in parallel with any of them, including for the same call: a per-call
+/// lock in the handler would hold the slot release hostage behind a slow message handler. Both
+/// come before the call's STATUS, which stays its last event.
 ///
 /// A callback runs on one of this library's own threads: a call's events on its channel's
 /// thread, which runs that channel's connection and every call on it; AK_EVENT_SHUTDOWN_COMPLETE
@@ -247,7 +253,12 @@ pub struct ak_event {
 /// stops what that thread runs - a channel, or the shutdown - and the guarantees above stop with
 /// it.
 pub type ak_callback = Option<
-    unsafe extern "C" fn(runtime_ctx: *mut c_void, call_ctx: ak_call_ctx, event: *const ak_event),
+    unsafe extern "C" fn(
+        runtime_ctx: *mut c_void,
+        call_ctx: ak_call_ctx,
+        events: *const ak_event,
+        count: usize,
+    ),
 >;
 
 #[repr(C)]

@@ -77,17 +77,21 @@ internal sealed class Receiver<TResponse>
   internal Task PrologueFinished
     => prologue_ ?? Task.CompletedTask;
 
-  /// <summary>Takes an event, and answers whether returning its payload is now this half's
-  /// obligation.</summary>
-  internal bool Publish(ak_event_kind kind,
-                        in ak_bytes payload,
-                        int statusCode)
+  /// <summary>Takes an event without waking the reader, which <see cref="Arrived" /> does once a
+  /// callback has stored all it carries, and answers whether returning its payload is now this
+  /// half's obligation.</summary>
+  internal bool Store(ak_event_kind kind,
+                      in ak_bytes payload,
+                      int statusCode)
   {
-    delivered_.Publish(kind,
-                       payload,
-                       statusCode);
+    delivered_.Store(kind,
+                     payload,
+                     statusCode);
     return true;
   }
+
+  internal void Arrived()
+    => delivered_.Arrived();
 
   private void FailHead(RpcException reason)
   {

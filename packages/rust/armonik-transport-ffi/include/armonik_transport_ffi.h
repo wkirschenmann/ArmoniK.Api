@@ -425,10 +425,16 @@ typedef struct {
  * The function pointer must stay valid for the runtime's lifetime, and runtime_ctx until the
  * runtime's last event.
  *
- * Data callbacks (INITIAL_METADATA, MESSAGE, STATUS) are serialized per call and concurrent
- * between calls. WRITE_DONE and BUDGET_WAKE may arrive in parallel with any of them, including
- * for the same call: a per-call lock in the handler would hold the slot release hostage behind a
- * slow message handler. Both come before the call's STATUS, which stays its last event.
+ * Each callback carries `count` events, at least one, of one call or of the runtime, in delivery
+ * order. The array and its events are valid for the callback's duration only; the payloads they
+ * own are the host's until given back. Several events come together only when they are data
+ * events (INITIAL_METADATA, MESSAGE, STATUS) of one call that were ready together; every other
+ * event comes alone.
+ *
+ * Data callbacks are serialized per call and concurrent between calls. WRITE_DONE and
+ * BUDGET_WAKE may arrive in parallel with any of them, including for the same call: a per-call
+ * lock in the handler would hold the slot release hostage behind a slow message handler. Both
+ * come before the call's STATUS, which stays its last event.
  *
  * A callback runs on one of this library's own threads: a call's events on its channel's
  * thread, which runs that channel's connection and every call on it; AK_EVENT_SHUTDOWN_COMPLETE
@@ -441,7 +447,10 @@ typedef struct {
  * stops what that thread runs - a channel, or the shutdown - and the guarantees above stop with
  * it.
  */
-typedef void (*ak_callback)(void *runtime_ctx, ak_call_ctx call_ctx, const ak_event *event);
+typedef void (*ak_callback)(void *runtime_ctx,
+                            ak_call_ctx call_ctx,
+                            const ak_event *events,
+                            size_t count);
 
 typedef uint64_t ak_handle;
 
@@ -815,8 +824,8 @@ int32_t ak_abi_version(void);
  * 1. frees the native memory;
  * 2. arms reception of the next event for that call.
  *
- * At most one non-consumed payload per call by default: while the host owes it, the runtime
- * withholds the next data callback. Only a terminal still goes out with the credit spent.
+ * At most DeliveryCredits non-consumed payloads per call, four by default: while the host owes
+ * them, the runtime withholds the next data event. Only a terminal still goes out with the credit spent.
  *
  * The host MUST give a call's payloads back in delivery order: with several outstanding, the
  * oldest is the next one consumed. Another order is not refused - this library frees whichever
@@ -829,6 +838,18 @@ int32_t ak_abi_version(void);
  * `payload` must be one this library delivered and the host has not consumed.
  */
 void ak_event_consumed(ak_bytes payload);
+
+/**
+ * Gives back several payloads in one downcall, in delivery order, each as ak_event_consumed gives
+ * back one: an unowned payload, owner NULL, is a no-op, and a zero-length payload with an owner is
+ * given back with its credit. `payloads` may be NULL when `count` is zero.
+ *
+ * # Safety
+ *
+ * `payloads` must point at `count` payloads this library delivered and the host has not
+ * consumed.
+ */
+void ak_events_consumed(const ak_bytes *payloads, size_t count);
 
 /**
  * Frees an ak_error's detail. A no-op when detail.owner is NULL, so a host may route every error

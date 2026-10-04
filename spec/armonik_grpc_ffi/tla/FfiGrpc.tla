@@ -1256,10 +1256,10 @@ DeliverCancelled(cId) ==
     /\ HasFreeDeliverySlotForTerminal(cId)
     /\ IsCancelRequested(cId)
     /\ HasNoSendInFlight(cId)
-    \* One event per callback.  An ak_callback carries one ak_event, so the
-    \* branch of L0!CallCancel that would deliver metadata and the terminal in
-    \* one step has no level-2 refinement: metadata goes out first, on its own
-    \* callback, and only then may the cancellation settle the call.
+    \* One event per step.  The branch of L0!CallCancel that would deliver
+    \* metadata and the terminal in one step has no level-2 refinement: metadata
+    \* goes out first, in a step of its own, and only then may the cancellation
+    \* settle the call.  The two steps may share a callback.
     /\ ~HasNoDeliveredEvents(cId)
     /\ L0!CallCancel(cId)
     /\ HandPayloadToHost(cId)

@@ -25,7 +25,7 @@ impl ReadTurn {
         }
     }
 
-    /// The message read last reached the host.
+    /// The message read last was delivered: staged for the host, with its credit.
     pub(crate) fn delivered(&self) {
         self.free.send_replace(true);
     }

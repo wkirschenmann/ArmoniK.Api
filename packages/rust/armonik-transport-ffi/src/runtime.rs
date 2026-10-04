@@ -375,7 +375,8 @@ mod tests {
     extern "C" fn never_called(
         _runtime_ctx: *mut std::ffi::c_void,
         _call_ctx: *mut std::ffi::c_void,
-        _event: *const crate::abi::ak_event,
+        _events: *const crate::abi::ak_event,
+        _count: usize,
     ) {
         unreachable!("a refused runtime emits nothing")
     }

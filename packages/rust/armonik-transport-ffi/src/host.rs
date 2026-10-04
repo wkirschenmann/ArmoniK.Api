@@ -15,8 +15,12 @@ impl HostPtr {
 }
 
 /// What `ak_callback` points at once `ak_runtime_create` has refused a null one.
-pub(crate) type Callback =
-    unsafe extern "C" fn(runtime_ctx: *mut c_void, call_ctx: ak_call_ctx, event: *const ak_event);
+pub(crate) type Callback = unsafe extern "C" fn(
+    runtime_ctx: *mut c_void,
+    call_ctx: ak_call_ctx,
+    events: *const ak_event,
+    count: usize,
+);
 
 pub(crate) struct Host {
     callback: Callback,
@@ -31,42 +35,45 @@ impl Host {
         }
     }
 
-    fn emit(&self, call_ctx: HostPtr, event: &ak_event) {
+    fn emit(&self, call_ctx: HostPtr, events: &[ak_event]) {
         crate::held::assert_none_held();
-        unsafe { (self.callback)(self.runtime_ctx.0, call_ctx.0, event) }
+        debug_assert!(!events.is_empty(), "a callback carries at least one event");
+        unsafe {
+            (self.callback)(
+                self.runtime_ctx.0,
+                call_ctx.0,
+                events.as_ptr(),
+                events.len(),
+            )
+        }
     }
 
-    pub(crate) fn deliver(
-        &self,
-        call_ctx: HostPtr,
-        kind: ak_event_kind,
-        payload: ak_bytes,
-        status_code: i32,
-    ) {
-        self.emit(
-            call_ctx,
-            &ak_event {
-                kind,
-                payload,
-                status_code,
-                host_debt: ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
-            },
-        );
+    /// One call's events, in delivery order, in one callback.
+    pub(crate) fn deliver(&self, call_ctx: HostPtr, events: &[ak_event]) {
+        self.emit(call_ctx, events);
     }
 
     pub(crate) fn signal(&self, call_ctx: HostPtr, kind: ak_event_kind) {
-        self.deliver(call_ctx, kind, ak_bytes::none(), 0);
+        self.emit(
+            call_ctx,
+            &[ak_event {
+                kind,
+                payload: ak_bytes::none(),
+                status_code: 0,
+                host_debt: ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
+            }],
+        );
     }
 
     pub(crate) fn signal_runtime(&self, kind: ak_event_kind, debt: ak_host_debt) {
         self.emit(
             HostPtr::null(),
-            &ak_event {
+            &[ak_event {
                 kind,
                 payload: ak_bytes::none(),
                 status_code: 0,
                 host_debt: debt,
-            },
+            }],
         );
     }
 }

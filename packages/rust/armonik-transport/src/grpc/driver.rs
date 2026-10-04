@@ -1,5 +1,7 @@
 use std::future::Future;
+use std::pin::pin;
 use std::sync::Arc;
+use std::task::Poll;
 
 use bytes::{Buf, BufMut, Bytes};
 use http::uri::PathAndQuery;
@@ -12,6 +14,7 @@ use tonic::Code;
 
 use super::call::{
     Answered, CallControl, HeadOrigin, OwnedMessage, ReadGate, RequestMessages, ResponseHead,
+    ResponseSink,
 };
 use super::channel::Inner;
 use super::contained::contained;
@@ -20,19 +23,16 @@ use super::retry::{jittered, AttemptMessages, Replay};
 use super::status::GrpcStatusCode;
 use super::status::{GrpcStatus, Unprocessed};
 
-pub(crate) struct Driving {
+pub(crate) struct Driving<S> {
     stop: Stop,
-    delivery: Delivery,
+    sink: S,
     control: CallControl,
 }
 
-impl Driving {
+impl Driving<()> {
     pub(crate) fn new(
         over: watch::Receiver<bool>,
         channel_closed: watch::Receiver<bool>,
-        head: oneshot::Sender<ResponseHead>,
-        messages: mpsc::Sender<OwnedMessage>,
-        terminal: oneshot::Sender<GrpcStatus>,
         control: CallControl,
     ) -> Self {
         Self {
@@ -40,15 +40,27 @@ impl Driving {
                 over,
                 channel_closed,
             },
-            delivery: Delivery {
-                head: Some(head),
-                answered: Answered::default(),
-                messages,
-                terminal: Some(terminal),
-            },
+            sink: (),
             control,
         }
     }
+
+    pub(crate) fn with_sink<S: ResponseSink>(self, sink: S) -> Driving<S> {
+        Driving {
+            stop: self.stop,
+            sink,
+            control: self.control,
+        }
+    }
+}
+
+/// The sink, and what the driver knows of the response it hands on.
+struct Responding<S> {
+    sink: S,
+    /// Marked by the last attempt's service once a response came, which decides the head when
+    /// none was given.
+    answered: Answered,
+    head_given: bool,
 }
 
 /// What a call sends: where, with what metadata, and the messages the caller will write - and
@@ -61,27 +73,52 @@ pub(crate) struct Outgoing {
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
 }
 
-pub(crate) async fn drive(inner: Arc<Inner>, outgoing: Outgoing, driving: Driving) {
+pub(crate) async fn drive<S: ResponseSink>(
+    inner: Arc<Inner>,
+    outgoing: Outgoing,
+    driving: Driving<S>,
+) {
     let Driving {
         mut stop,
-        mut delivery,
+        sink,
         control,
     } = driving;
+    let mut responding = Responding {
+        sink,
+        answered: Answered::default(),
+        head_given: false,
+    };
 
     // Held for the whole call, not released after the head. `Inner` owns the `closed` sender,
     // and a watch receiver whose senders are all gone answers like one that was told to close - so
     // a driver that let go of it would read a dropped channel handle as a cancellation.
     //
-    // Contained, because a panic unwinding past `delivery` would drop the terminal unsent, and the
+    // Contained, because a panic unwinding past the sink would drop the terminal unsent, and the
     // caller would read a driver gone with its runtime rather than a call that failed.
-    let status = contained(within_deadline(&inner, outgoing, &mut stop, &mut delivery))
-        .await
-        .unwrap_or_else(|| GrpcStatus::new(Code::Internal, "the task driving the call panicked"));
+    let status = contained(within_deadline(
+        &inner,
+        outgoing,
+        &mut stop,
+        &mut responding,
+    ))
+    .await
+    .unwrap_or_else(|| GrpcStatus::new(Code::Internal, "the task driving the call panicked"));
 
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.
     control.cancel();
-    delivery.end(status);
+
+    // A head never given goes out with the end, empty: `TrailersOnly` if a response came,
+    // `NoResponse` if none did.
+    let head = (!responding.head_given).then(|| ResponseHead {
+        metadata: Metadata::new(),
+        origin: if responding.answered.marked() {
+            HeadOrigin::TrailersOnly
+        } else {
+            HeadOrigin::NoResponse
+        },
+    });
+    responding.sink.end(status, head).await;
 }
 
 struct Stop {
@@ -111,47 +148,62 @@ async fn until_stopped<T>(stop: &mut Stop, work: impl Future<Output = T>) -> Opt
     }
 }
 
-/// The three things a call hands its reader, each on its own channel, and whether a response
-/// came, which decides the head when none was delivered.
+/// The three things a call hands a `RecvHalf`, each on its own channel.
 ///
 /// The terminal has one of its own because it is the only one that must arrive. Sharing the
 /// message queue would mean waiting for room in it, and that wait would need a bound: a channel
 /// closing while one message sits unread would take the terminal with it, and a call the peer
-/// answered OK would reach its reader as `Aborted` - through the FFI, a host reading `Cancelled`
-/// for a call it has the response to, and retrying what it must not repeat.
-struct Delivery {
+/// answered OK would reach its reader as `Aborted`.
+pub(crate) struct Delivery {
     head: Option<oneshot::Sender<ResponseHead>>,
-    answered: Answered,
     messages: mpsc::Sender<OwnedMessage>,
     terminal: Option<oneshot::Sender<GrpcStatus>>,
 }
 
 impl Delivery {
-    fn head(&mut self, metadata: Metadata, origin: HeadOrigin) {
-        if let Some(head) = self.head.take() {
-            let _ = head.send(ResponseHead { metadata, origin });
+    pub(crate) fn new(
+        head: oneshot::Sender<ResponseHead>,
+        messages: mpsc::Sender<OwnedMessage>,
+        terminal: oneshot::Sender<GrpcStatus>,
+    ) -> Self {
+        Self {
+            head: Some(head),
+            messages,
+            terminal: Some(terminal),
         }
     }
 
-    async fn message(&self, data: Bytes) -> bool {
-        self.messages.send(OwnedMessage { data }).await.is_ok()
+    fn give_head(&mut self, head: ResponseHead) {
+        if let Some(sender) = self.head.take() {
+            let _ = sender.send(head);
+        }
+    }
+}
+
+impl ResponseSink for Delivery {
+    async fn head(&mut self, head: ResponseHead) -> Result<(), GrpcStatus> {
+        self.give_head(head);
+        Ok(())
     }
 
+    async fn message(&mut self, data: Bytes) -> Result<(), GrpcStatus> {
+        self.messages
+            .send(OwnedMessage { data })
+            .await
+            .map_err(|_| GrpcStatus::cancelled())
+    }
+
+    fn flush(&mut self) {}
+
     /// Publishes the status and lets the message queue end.
-    ///
-    /// A head still owed goes out first, empty: `TrailersOnly` if a response came, `NoResponse`
-    /// if none did.
     ///
     /// Nothing to wait for: the reader takes what is queued, finds the sender gone, and reads the
     /// terminal here. `self` by value, so the queue closes when this returns even on the paths
     /// that never got a status out.
-    fn end(mut self, status: GrpcStatus) {
-        let origin = if self.answered.marked() {
-            HeadOrigin::TrailersOnly
-        } else {
-            HeadOrigin::NoResponse
-        };
-        self.head(Metadata::new(), origin);
+    async fn end(mut self, status: GrpcStatus, head: Option<ResponseHead>) {
+        if let Some(head) = head {
+            self.give_head(head);
+        }
         if let Some(terminal) = self.terminal.take() {
             let _ = terminal.send(status);
         }
@@ -166,19 +218,19 @@ const LARGEST_GRPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 ///
 /// A deadline already past sends nothing: the peer would be told a timeout of zero, and the
 /// answer is known without it.
-async fn within_deadline(
+async fn within_deadline<S: ResponseSink>(
     inner: &Arc<Inner>,
     outgoing: Outgoing,
     stop: &mut Stop,
-    delivery: &mut Delivery,
+    responding: &mut Responding<S>,
 ) -> GrpcStatus {
     let Some(deadline) = outgoing.deadline else {
-        return run(inner, outgoing, stop, delivery).await;
+        return run(inner, outgoing, stop, responding).await;
     };
     if deadline <= Instant::now() {
         return GrpcStatus::deadline_exceeded();
     }
-    tokio::time::timeout_at(deadline, run(inner, outgoing, stop, delivery))
+    tokio::time::timeout_at(deadline, run(inner, outgoing, stop, responding))
         .await
         .unwrap_or_else(|_| GrpcStatus::deadline_exceeded())
 }
@@ -218,11 +270,11 @@ impl Pushback {
 /// The call's attempts: the first, then as many more as its retry policy allows while each
 /// fails with a code it names and with what it sent still kept for the replay, which a head
 /// reaching the reader ends.
-async fn run(
+async fn run<S: ResponseSink>(
     inner: &Arc<Inner>,
     outgoing: Outgoing,
     stop: &mut Stop,
-    delivery: &mut Delivery,
+    responding: &mut Responding<S>,
 ) -> GrpcStatus {
     #[cfg(feature = "test-hooks")]
     crate::hooks::run_in_driver();
@@ -265,7 +317,7 @@ async fn run(
             read_gate.as_deref(),
             &replay,
             stop,
-            delivery,
+            responding,
         )
         .await;
         // gRFC A6's transparent retry: a request the peer's application never saw goes again at
@@ -348,7 +400,7 @@ impl Ended {
 
 /// One attempt, and what its server said of a retry when it failed before its head.
 #[allow(clippy::too_many_arguments)]
-async fn attempt(
+async fn attempt<S: ResponseSink>(
     inner: &Arc<Inner>,
     path: PathAndQuery,
     metadata: HeaderMap,
@@ -357,7 +409,7 @@ async fn attempt(
     read_gate: Option<&dyn ReadGate>,
     replay: &Replay,
     stop: &mut Stop,
-    delivery: &mut Delivery,
+    responding: &mut Responding<S>,
 ) -> Ended {
     let mut request = tonic::Request::new(messages);
     *request.metadata_mut() = MetadataMap::from_headers(metadata);
@@ -374,8 +426,8 @@ async fn attempt(
     }
 
     // Each attempt's own: whether a response came is the last attempt's to say.
-    delivery.answered = Answered::default();
-    let mut client = inner.client(delivery.answered.clone());
+    responding.answered = Answered::default();
+    let mut client = inner.client(responding.answered.clone());
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {
@@ -400,46 +452,74 @@ async fn attempt(
     }
     // The reader has a head: whatever follows, this call is not tried again.
     replay.commit();
-    delivery.head(Metadata::from_headers(&head), HeadOrigin::Wire);
-    Ended::with(
-        finish(stop, delivery, read_gate, &mut body).await,
-        Pushback::Unsaid,
-    )
+    responding.head_given = true;
+    let head = ResponseHead {
+        metadata: Metadata::from_headers(&head),
+        origin: HeadOrigin::Wire,
+    };
+    // Given whatever the stop says: once a call has a head, the caller hears it before the end.
+    let status = match responding.sink.head(head).await {
+        Err(status) => status,
+        Ok(()) => finish(stop, &mut responding.sink, read_gate, &mut body).await,
+    };
+    Ended::with(status, Pushback::Unsaid)
 }
 
-/// The response's messages and trailers, once its head is delivered.
-async fn finish(
+/// What the next read off the response found.
+enum Read {
+    Message(Bytes),
+    End(GrpcStatus),
+}
+
+/// The response's messages and trailers, once its head is given.
+///
+/// Each read is polled once first: what is already there is read at once, and only when nothing
+/// is does the sink hear that nothing more is ready, before the wait.
+async fn finish<S: ResponseSink>(
     stop: &mut Stop,
-    delivery: &mut Delivery,
+    sink: &mut S,
     read_gate: Option<&dyn ReadGate>,
     body: &mut tonic::Streaming<Bytes>,
 ) -> GrpcStatus {
     loop {
-        // Before the read, not after the message: a call the gate holds pulls nothing off the
-        // stream, so flow control holds its peer and nothing is decoded that the gate refused.
-        if let Some(gate) = read_gate {
-            if until_stopped(stop, gate.admitted()).await.is_none() {
-                return GrpcStatus::cancelled();
-            }
-        }
-        match until_stopped(stop, body.message()).await {
-            None => return GrpcStatus::cancelled(),
-            Some(Err(status)) => return GrpcStatus::from(past_the_limit(status)),
-            Some(Ok(None)) => break,
-            Some(Ok(Some(message))) => {
-                if until_stopped(stop, delivery.message(message)).await != Some(true) {
-                    return GrpcStatus::cancelled();
+        let read = {
+            let mut next = pin!(until_stopped(stop, read_next(read_gate, body)));
+            match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
+                Poll::Ready(read) => read,
+                Poll::Pending => {
+                    sink.flush();
+                    next.await
                 }
             }
+        };
+        let message = match read {
+            None => return GrpcStatus::cancelled(),
+            Some(Read::End(status)) => return status,
+            Some(Read::Message(message)) => message,
+        };
+        match until_stopped(stop, sink.message(message)).await {
+            None => return GrpcStatus::cancelled(),
+            Some(Err(status)) => return status,
+            Some(Ok(())) => {}
         }
     }
+}
 
-    match until_stopped(stop, body.trailers()).await {
-        None => GrpcStatus::cancelled(),
-        Some(Err(status)) => GrpcStatus::from(status),
-        Some(Ok(trailers)) => {
-            GrpcStatus::ok(&trailers.map(MetadataMap::into_headers).unwrap_or_default())
-        }
+async fn read_next(read_gate: Option<&dyn ReadGate>, body: &mut tonic::Streaming<Bytes>) -> Read {
+    // Before the read, not after the message: a call the gate holds pulls nothing off the stream,
+    // so flow control holds its peer and nothing is decoded that the gate refused.
+    if let Some(gate) = read_gate {
+        gate.admitted().await;
+    }
+    match body.message().await {
+        Err(status) => Read::End(GrpcStatus::from(past_the_limit(status))),
+        Ok(Some(message)) => Read::Message(message),
+        Ok(None) => Read::End(match body.trailers().await {
+            Err(status) => GrpcStatus::from(status),
+            Ok(trailers) => {
+                GrpcStatus::ok(&trailers.map(MetadataMap::into_headers).unwrap_or_default())
+            }
+        }),
     }
 }
 
@@ -531,14 +611,21 @@ mod tests {
         let (call, _messages, driving) = create(1, closed_rx);
         let (_send, mut recv, _control) = call.split();
 
-        let Driving { delivery, .. } = driving;
+        let Driving {
+            sink: mut delivery, ..
+        } = driving;
         assert!(
-            delivery.message(Bytes::from_static(b"queued")).await,
+            delivery
+                .message(Bytes::from_static(b"queued"))
+                .await
+                .is_ok(),
             "a window of one takes the first message"
         );
 
         closed.send_replace(true);
-        delivery.end(GrpcStatus::new(GrpcStatusCode::Ok, ""));
+        delivery
+            .end(GrpcStatus::new(GrpcStatusCode::Ok, ""), None)
+            .await;
 
         assert!(matches!(
             recv.next_message().await,

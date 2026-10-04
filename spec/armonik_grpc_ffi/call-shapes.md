@@ -1,7 +1,7 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03 and 2026-10-04; step 1 built, steps 2 to 5 not. Until each of its
-steps lands, every other document of the specification wins over this one on what that step
+**Status**: decided 2026-10-03 and 2026-10-04; steps 1 and 2 built, steps 3 to 5 not. Until each of
+its steps lands, every other document of the specification wins over this one on what that step
 changes. `DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it
 describes the binding as it was before.
 
@@ -203,8 +203,8 @@ represent it.
   back, which the binding's reader does only once the status is in. `ReadGate` gains that second
   entry, the turn alone. Level 1 receives every status ungated, so this read is within it.
 - On a call whose sends cross the ABI, a status found while a WRITE_DONE is owed waits for it, as
-  `DeliverStatus` needs every send acquitted: the batch ends before the status, the WRITE_DONE
-  comes alone, and the status follows.
+  `DeliverStatus` needs every send acquitted: the WRITE_DONE comes alone, and the status follows
+  with what is staged.
 - On a one-response call, the engine's own response body, below tonic, turns any byte of a second
   message into `INTERNAL` before tonic decodes it or the runtime is charged for it: tonic's
   `Streaming` decodes whatever DATA it reads, and the body already tracks the gRPC framing. The
@@ -441,10 +441,20 @@ says.
    the .NET 8 benchmark, alternated over six runs, the unary median and the server-streaming
    throughput move within their run-to-run spread.
 2. **Batched delivery**: the array callback and `ak_events_consumed`, with its row and its
-   arguments' in the mapping table, which `check_abi_coverage.py` requires of every function in
-   the header, and the rows of the delivery steps and `DeliveryCallbackReturns`, which a batch
-   moves; level 1's prose on one event per callback and on the delivery flag; the binding
-   copies, publishes and signals per batch.
+   arguments' in the mapping table, which `check_abi_coverage.py` requires of every function in the
+   header, and the rows of the delivery steps and `DeliveryCallbackReturns`, which a batch moves;
+   level 1's prose on one event per callback and on the delivery flag; the binding copies,
+   publishes and signals per batch. Done: the transport's driver hands the response to a sink the
+   engine gives it, polling each read once before it waits, and the engine's sink stages each event
+   with its credit and calls the host when nothing more is ready, the window is spent or the
+   terminal is in. The reader task goes. A unary call takes two callbacks, its WRITE_DONE and one
+   batch, where it took four: on the .NET benchmark, 7 364 of 11 000 unary answers came as one
+   batch of head, message and status, the others as the head alone and then the message with the
+   status, Kestrel having written the head first. Measured with the two engines in one process,
+   their unary calls interleaved, 10 000 pairs, twice: the round trip 10 us shorter at the median
+   of the paired differences (-11.5 and -9.3). On the .NET 8 benchmark, alternated over eight runs,
+   the unary median moves within its run-to-run spread (paired medians -12 us under load and -2
+   idle), and server streaming gains 2 and 9 %. Four allocations fewer per call.
 3. **One response**: `AK_CALL_ONE_RESPONSE`, which the binding sets on a call whose method returns
    one message; what follows the message looked at in the engine's response body; the binding's
    single-pass reader and on-demand headers; the test of a message that takes the runtime's count

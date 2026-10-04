@@ -253,3 +253,19 @@ public class ReceiverTests
       => ending_.Cancel();
   }
 }
+
+/// <summary>An event published as a callback of one event does: stored, then the reader woken.</summary>
+internal static class OneEventCallback
+{
+  internal static void Publish<TResponse>(this Receiver<TResponse> receiver,
+                                          ak_event_kind             kind,
+                                          in ak_bytes               payload,
+                                          int                       statusCode)
+    where TResponse : class
+  {
+    receiver.Store(kind,
+                   payload,
+                   statusCode);
+    receiver.Arrived();
+  }
+}

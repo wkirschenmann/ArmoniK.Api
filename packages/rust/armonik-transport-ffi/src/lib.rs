@@ -606,8 +606,8 @@ pub extern "C" fn ak_abi_version() -> i32 {
 /// 1. frees the native memory;
 /// 2. arms reception of the next event for that call.
 ///
-/// At most one non-consumed payload per call by default: while the host owes it, the runtime
-/// withholds the next data callback. Only a terminal still goes out with the credit spent.
+/// At most DeliveryCredits non-consumed payloads per call, four by default: while the host owes
+/// them, the runtime withholds the next data event. Only a terminal still goes out with the credit spent.
 ///
 /// The host MUST give a call's payloads back in delivery order: with several outstanding, the
 /// oldest is the next one consumed. Another order is not refused - this library frees whichever
@@ -622,6 +622,26 @@ pub extern "C" fn ak_abi_version() -> i32 {
 pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
     guard_void(|| {
         drop(unsafe { call::take_payload(payload.owner) });
+    });
+}
+
+/// Gives back several payloads in one downcall, in delivery order, each as ak_event_consumed gives
+/// back one: an unowned payload, owner NULL, is a no-op, and a zero-length payload with an owner is
+/// given back with its credit. `payloads` may be NULL when `count` is zero.
+///
+/// # Safety
+///
+/// `payloads` must point at `count` payloads this library delivered and the host has not
+/// consumed.
+#[no_mangle]
+pub unsafe extern "C" fn ak_events_consumed(payloads: *const ak_bytes, count: usize) {
+    guard_void(|| {
+        if payloads.is_null() || count == 0 {
+            return;
+        }
+        for payload in unsafe { std::slice::from_raw_parts(payloads, count) } {
+            drop(unsafe { call::take_payload(payload.owner) });
+        }
     });
 }
 

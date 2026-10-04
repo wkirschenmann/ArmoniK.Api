@@ -68,12 +68,13 @@ internal sealed class DeliveryRing
     mask_  = size - 1;
   }
 
-  /// <summary>Takes an event from the engine's callback thread.</summary>
+  /// <summary>Takes an event from the engine's callback thread, waking nobody.</summary>
   /// <remarks>From the volatile write the slot is the consumer's, and so is giving the payload
-  /// back.</remarks>
-  internal void Publish(ak_event_kind kind,
-                        in ak_bytes payload,
-                        int statusCode)
+  /// back. A callback stores every event it carries and then calls <see cref="Arrived" /> once,
+  /// so a consumer woken by the first does not wake again for the next.</remarks>
+  internal void Store(ak_event_kind kind,
+                      in ak_bytes payload,
+                      int statusCode)
   {
     var at = (int)(head_ & mask_);
     slots_[at].Payload = payload;
@@ -82,8 +83,11 @@ internal sealed class DeliveryRing
 
     Volatile.Write(ref head_,
                    head_ + 1);
-    arrived_.Set();
   }
+
+  /// <summary>Wakes whoever waits for what was stored.</summary>
+  internal void Arrived()
+    => arrived_.Set();
 
   /// <summary>Whether the queue holds nothing the consumer has not seen.</summary>
   internal bool IsEmpty

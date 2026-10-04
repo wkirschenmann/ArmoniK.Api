@@ -19,7 +19,9 @@ use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
-use super::call::{self, Answered, CallStartOptions, Deadline, GrpcCall};
+use super::call::{
+    self, Answered, CallControl, CallStartOptions, Deadline, GrpcCall, ResponseSink, SendHalf,
+};
 use super::contained::contained;
 use super::driver::{self, Outgoing};
 use super::error::ChannelError;
@@ -137,18 +139,60 @@ impl GrpcChannel {
     }
 
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError> {
-        let (call, driver) = self.prepare_call(options)?;
-        self.inner.spawner.spawn(driver.drive());
-        Ok(call)
+        let (path, metadata, deadline) = self.addressed(&options)?;
+        let (grpc_call, messages, driving) = call::create(
+            self.inner.max_sends_in_flight,
+            self.inner.closed.subscribe(),
+        );
+        let outgoing = Outgoing {
+            path,
+            metadata,
+            messages,
+            deadline,
+            read_gate: options.read_gate,
+        };
+        self.inner
+            .spawner
+            .spawn(driver::drive(self.inner.clone(), outgoing, driving));
+        Ok(grpc_call)
     }
 
-    /// The call, and what drives it, which the caller runs on the channel's runtime, joined with
-    /// its own work on the call rather than as a task of its own. Nothing is sent until it is
-    /// driven; dropped, it leaves the call aborted.
+    /// A call's send half and control, and what drives it, which the caller runs on the channel's
+    /// runtime, joined with its own work on the call rather than as a task of its own. Nothing is
+    /// sent until it is driven.
     pub fn prepare_call(
         &self,
         options: CallStartOptions,
-    ) -> Result<(GrpcCall, CallDriver), ChannelError> {
+    ) -> Result<(SendHalf, CallControl, CallDriver), ChannelError> {
+        let (path, metadata, deadline) = self.addressed(&options)?;
+        let (send, control, messages, driving) = call::create_with(
+            self.inner.max_sends_in_flight,
+            self.inner.closed.subscribe(),
+        );
+        let outgoing = Outgoing {
+            path,
+            metadata,
+            messages,
+            deadline,
+            read_gate: options.read_gate,
+        };
+        Ok((
+            send,
+            control,
+            CallDriver {
+                inner: self.inner.clone(),
+                outgoing,
+                driving,
+            },
+        ))
+    }
+
+    /// Where a call goes, with what, and until when; refused on a closed channel.
+    #[allow(clippy::type_complexity)]
+    fn addressed(
+        &self,
+        options: &CallStartOptions,
+    ) -> Result<(PathAndQuery, HeaderMap, Option<tokio::time::Instant>), ChannelError> {
         if *self.inner.closed.borrow() {
             return Err(ChannelError::Closed);
         }
@@ -170,27 +214,7 @@ impl GrpcChannel {
             .metadata
             .write_into(&mut metadata)
             .map_err(|source| ChannelError::InvalidMetadata { source })?;
-
-        let (grpc_call, messages, driving) = call::create(
-            self.inner.max_sends_in_flight,
-            self.inner.closed.subscribe(),
-        );
-
-        let outgoing = Outgoing {
-            path,
-            metadata,
-            messages,
-            deadline,
-            read_gate: options.read_gate,
-        };
-        Ok((
-            grpc_call,
-            CallDriver {
-                inner: self.inner.clone(),
-                outgoing,
-                driving,
-            },
-        ))
+        Ok((path, metadata, deadline))
     }
 
     pub fn close(&self) {
@@ -211,13 +235,13 @@ impl GrpcChannel {
 pub struct CallDriver {
     inner: Arc<Inner>,
     outgoing: Outgoing,
-    driving: driver::Driving,
+    driving: driver::Driving<()>,
 }
 
 impl CallDriver {
-    /// The call, driven to its terminal.
-    pub fn drive(self) -> impl Future<Output = ()> + Send + 'static {
-        driver::drive(self.inner, self.outgoing, self.driving)
+    /// The call, driven to its terminal, its response going to `sink`.
+    pub fn drive<S: ResponseSink>(self, sink: S) -> impl Future<Output = ()> + Send + 'static {
+        driver::drive(self.inner, self.outgoing, self.driving.with_sink(sink))
     }
 }
 
@@ -788,8 +812,8 @@ fn method_path(method: &str) -> Result<PathAndQuery, ChannelError> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::driver::Delivery;
     use super::*;
-    use crate::grpc::CallError;
 
     /// Both edges of the window, at the door that takes a number.
     ///
@@ -820,9 +844,9 @@ mod tests {
         );
     }
 
-    /// Nothing is dialed: the driver is dropped before anything polls it.
+    /// Nothing is dialed: the driver is dropped before anything polls it, and the sink with it.
     #[tokio::test]
-    async fn a_call_whose_driver_is_dropped_unpolled_is_aborted() {
+    async fn a_call_whose_driver_is_dropped_unpolled_never_ends() {
         let channel = GrpcChannel::new(
             GrpcChannelConfig::new(TransportConfig::new(Uri::from_static(
                 "http://127.0.0.1:1234",
@@ -830,14 +854,16 @@ mod tests {
             tokio::runtime::Handle::current(),
         )
         .expect("a valid configuration");
-        let (call, driver) = channel
+        let (head, head_rx) = tokio::sync::oneshot::channel();
+        let (messages, _messages_rx) = tokio::sync::mpsc::channel(1);
+        let (terminal, terminal_rx) = tokio::sync::oneshot::channel();
+        let (_send, _control, driver) = channel
             .prepare_call(CallStartOptions::new("/echo.Echo/Say"))
             .expect("an open channel");
-        drop(driver);
+        drop(driver.drive(Delivery::new(head, messages, terminal)));
 
-        let (_send, mut recv, _control) = call.split();
-        assert!(matches!(recv.recv_head().await, Err(CallError::Aborted)));
-        assert_eq!(recv.next_message().await, Err(CallError::Aborted));
+        assert!(head_rx.await.is_err(), "no head was given");
+        assert!(terminal_rx.await.is_err(), "and no end");
     }
 
     #[test]

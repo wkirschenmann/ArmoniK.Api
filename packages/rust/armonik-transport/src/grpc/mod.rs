@@ -10,7 +10,7 @@ mod status;
 
 pub use call::{
     CallControl, CallStartOptions, Deadline, GrpcCall, HeadOrigin, OwnedMessage, ReadGate,
-    RecvHalf, RecvResult, ResponseHead, SendHalf,
+    RecvHalf, RecvResult, ResponseHead, ResponseSink, SendHalf,
 };
 pub use channel::{CallDriver, GrpcChannel, GrpcChannelConfig};
 pub use error::{CallError, ChannelError, GrpcChannelConfigError};

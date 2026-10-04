@@ -170,7 +170,9 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
   identified by the index of its message in the level-0 `submitted` sequence; WRITE_DONE
   acquits in send order, so this one counter says exactly which sends are acquitted
 - `write_done_callback_running`: per call, a WRITE_DONE callback is on the host stack
-- `delivery_callback_running`: per call, a delivery callback is on the host stack
+- `delivery_callback_running`: per call, a delivery callback is on the host stack. The
+  engine keeps it conservative: TRUE also while it gathers the events of one callback, from
+  the first one's delivery step until the callback returns
 - `payloads_consumed_by_host`: per call, the monotone count of payloads released. A
   payload is identified by the index of its event in `events_delivered`; release follows
   delivery order, so this one counter says exactly which payloads the host still owes -
@@ -288,13 +290,14 @@ has to induce them cannot tell a predicate from a step:
   That is why WRITE_DONE, SHUTDOWN_COMPLETE and RESOURCES_RELEASED are emitted and the
   four data events are delivered. Note that `DeliverStatus` and `DeliverCancelled` both
   produce `AK_EVENT_STATUS`: two model actions for one event kind, distinguished by the
-  status the payload carries. Every delivery action adds exactly one owned event and arms
-  exactly one callback - an `ak_callback` carries one `ak_event`, and the model counts the
-  host's debt off `events_delivered`, so an action that appended two events under one
-  callback would owe the host a payload no callback carries. `DeliverCancelled` therefore
-  requires the initial metadata to be out already: a call cancelled before anything was
-  delivered gets two serialized callbacks, INITIAL_METADATA first - `DeliverInitialMetadata`
-  fires on its own weak fairness - and the cancellation second.
+  status the payload carries. Every delivery action adds exactly one owned event, and the
+  model counts the host's debt off `events_delivered`. A callback that carries several
+  events is the sequence of their delivery actions, each but the last returning before the
+  next is taken (the mapping table below), so no action appends two. `DeliverCancelled`
+  therefore requires the initial metadata to be out already: a call cancelled before
+  anything was delivered takes two steps, INITIAL_METADATA first - `DeliverInitialMetadata`
+  fires on its own weak fairness - and the cancellation second, which may share a
+  callback.
 
 Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
 - **SubmittedOccurrencesGloballyUnique**: an occurrence token is committed at most once,
@@ -1418,9 +1421,9 @@ refinement.
 | `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue |
 | `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE` |
 | `WriteDoneReturns` | that callback returns to the actor |
-| `DeliverInitialMetadata` / `DeliverMessage` / `DeliverStatus` / `DeliverCancelled` | the actor invokes the data callback, having taken a credit |
-| `DeliveryCallbackReturns` | that callback returns to the actor |
-| `HostConsumesEvent(c)` | `ak_event_consumed` frees the oldest outstanding payload, identified by its `owner` |
+| `DeliverInitialMetadata` / `DeliverMessage` / `DeliverStatus` / `DeliverCancelled` | the actor stages the event for the data callback once it has it in hand, having taken a credit; the callback carries every event staged before it calls the host |
+| `DeliveryCallbackReturns` | that callback returns to the actor; for an event another of the same callback follows, the actor takes it just before it stages that one, the host not having been called |
+| `HostConsumesEvent(c)` | `ak_event_consumed` frees the oldest outstanding payload, identified by its `owner`; `ak_events_consumed` of `n` payloads is `n` of these, in order |
 | `RequestCallCancellation` | `ak_call_cancel`: the actor observes the flag, not the downcall's return |
 | `ReleaseCallHandle` | the actor observes the last debt cleared on a terminal call: no payload owed, no buffer out, its own callbacks returned. Not a downcall |
 | `RuntimeBeginShutdown` | `ak_runtime_begin_shutdown` closes the start gate |
@@ -1450,6 +1453,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_get_call_buffer`'s `*out` | `b` in `LendSendBuffer(cId, b)` - the allocation lent |
 | `ak_call_send_message`'s `buffer` | `b` in `SendMessage(cId, msg, b)`. An argument, not a choice made inside the action: the host names the allocation it commits, and letting the model pick would make `buffer_send` a record of nondeterminism rather than of what the caller passed |
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
+| `ak_events_consumed`'s `payloads` and `count` | **not modelled**, as `ak_event_consumed`'s `payload`: `count` is how many `HostConsumesEvent` steps the downcall is |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
 | `ak_get_call_buffer`'s `len` | The model takes the length directly: `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned. The lend sees only a length, exactly as the C function does; the message identity is born at the commit, where `SendMessage` requires `MessageLength[msg] = buffer_length` for the buffer it sends. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two. A length of zero is refused as an invalid argument: an empty message needs no buffer, and `ak_call_send_message` sends it with none, a send the model does not represent since it takes no memory. Level 0 carries no sizes: its send window counts allocations |
 | `ak_channel_create`'s `endpoint` | **not modelled.** The model's channels are identifiers, and what one connects to changes nothing it guarantees. An argument rather than an option because it is the one value a channel cannot be created without, which is also why `TransportOptions` does not carry it |

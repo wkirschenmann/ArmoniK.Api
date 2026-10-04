@@ -2,7 +2,7 @@ mod common;
 
 use armonik_transport::grpc::{
     CallError, CallStartOptions, ChannelError, GrpcChannelConfig, GrpcStatus, GrpcStatusCode,
-    HeadOrigin, MetadataValue,
+    HeadOrigin, MetadataValue, ResponseHead, ResponseSink,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use bytes::Bytes;
@@ -29,6 +29,100 @@ async fn a_unary_call_reaches_a_grpc_server_and_comes_back() {
         Some(&MetadataValue::Ascii("ping".to_owned())),
         "the request metadata reached the server and its answer came back"
     );
+}
+
+/// A caller that takes the response from the driver hears the head, the message and the end, in
+/// that order, and the end brings no head once one was given; between them, only flushes.
+#[tokio::test]
+async fn a_sink_hears_the_head_then_the_message_then_the_end() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (mut send, _control, driver) = channel
+        .prepare_call(CallStartOptions::new(ECHO))
+        .expect("an open channel");
+    send.send_message(Bytes::from_static(b"hello"))
+        .await
+        .expect("the call is open");
+    drop(send);
+    let (sink, heard) = Recording::new();
+    driver.drive(sink).await;
+
+    let heard = heard.await.expect("the sink heard the end");
+    let without_flushes: Vec<&str> = heard
+        .iter()
+        .map(String::as_str)
+        .filter(|event| *event != "flush")
+        .collect();
+    assert_eq!(
+        without_flushes,
+        ["head Wire", "message hello", "end Ok, head None"],
+        "{heard:?}"
+    );
+}
+
+/// An answer with no head gives the sink none: the end brings it, saying where it came from.
+#[tokio::test]
+async fn a_sink_given_no_head_hears_it_with_the_end() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (send, _control, driver) = channel
+        .prepare_call(CallStartOptions::new("/echo.Echo/Missing"))
+        .expect("an open channel");
+    drop(send);
+    let (sink, heard) = Recording::new();
+    driver.drive(sink).await;
+
+    assert_eq!(
+        heard.await.expect("the sink heard the end"),
+        ["end Unimplemented, head Some(TrailersOnly)"]
+    );
+}
+
+/// Every call a sink hears, as text.
+struct Recording {
+    heard: Vec<String>,
+    done: Option<tokio::sync::oneshot::Sender<Vec<String>>>,
+}
+
+impl Recording {
+    fn new() -> (Self, tokio::sync::oneshot::Receiver<Vec<String>>) {
+        let (done, heard) = tokio::sync::oneshot::channel();
+        let sink = Self {
+            heard: Vec::new(),
+            done: Some(done),
+        };
+        (sink, heard)
+    }
+}
+
+impl ResponseSink for Recording {
+    async fn head(&mut self, head: ResponseHead) -> Result<(), GrpcStatus> {
+        self.heard.push(format!("head {:?}", head.origin));
+        Ok(())
+    }
+
+    async fn message(&mut self, data: Bytes) -> Result<(), GrpcStatus> {
+        self.heard
+            .push(format!("message {}", String::from_utf8_lossy(&data)));
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        self.heard.push("flush".to_owned());
+    }
+
+    async fn end(mut self, status: GrpcStatus, head: Option<ResponseHead>) {
+        self.heard.push(format!(
+            "end {:?}, head {:?}",
+            status.code,
+            head.map(|head| head.origin)
+        ));
+        if let Some(done) = self.done.take() {
+            let _ = done.send(std::mem::take(&mut self.heard));
+        }
+    }
 }
 
 #[tokio::test]

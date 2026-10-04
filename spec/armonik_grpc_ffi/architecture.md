@@ -242,7 +242,7 @@ there unloading the library, destroying the runtime and starting a new one are a
 
 **A thread per channel.** Each channel runs on a thread of its own, a current-thread tokio
 runtime that carries the channel's connection and one task for each of its calls, joining its
-driver, writer and reader, so that a call never moves between threads (`decisions.md` gives
+driver, which delivers the response, and its writer, so that a call never moves between threads (`decisions.md` gives
 what that was measured against). The calls of one channel share that thread for all their work -
 framing, encoding and decoding, the host's callbacks - and channels run in parallel. The
 runtime keeps one worker of its own, which delivers AK_EVENT_SHUTDOWN_COMPLETE. A channel's
@@ -597,32 +597,57 @@ extension is the channel's asynchronous one.
 
 ```csharp
 // Rooted for the runtime's lifetime as a static delegate: netstandard2.0 has no
-// UnmanagedCallersOnly. Runs on a Tokio thread, hands the event to whoever it
-// names, and returns. No user code, and no binding-managed payload allocation on
+// UnmanagedCallersOnly. Runs on a Tokio thread, hands the events to whoever they
+// name, and returns. No user code, and no binding-managed payload allocation on
 // the measured fast path.
 private static readonly unsafe NativeMethods.ak_runtime_create_callback_delegate Trampoline = OnEvent;
 
-internal static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* evt)
+internal static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* events, nuint count)
 {
     // A call's events carry its call_ctx; the runtime's two carry runtime_ctx alone.
-    // A root that resolves to nothing is an event nobody can take.
+    // A root that resolves to nothing is events nobody can take.
     object? target;
     try { target = GCHandle.FromIntPtr((IntPtr)(callCtx != null ? callCtx : runtimeCtx)).Target; }
-    catch { NativeMethods.ak_event_consumed(evt->payload); return; }
+    catch { for (nuint at = 0; at < count; at++) NativeMethods.ak_event_consumed(events[at].payload); return; }
 
-    var call  = target as ICallSink;
-    var taken = false;
+    var call     = target as ICallSink;
+    var terminal = false;
+    for (nuint at = 0; at < count; at++)
+    {
+        var evt   = &events[at];
+        var taken = false;
+        try
+        {
+            if (call is not null)
+                // Metadata, message, terminal: the next ring slot, published with a
+                // release store on the head and no wake-up yet. WRITE_DONE: the armed
+                // write's acquittal, which takes no slot and must not queue behind a
+                // data callback.
+                taken = call.Publish(evt->kind, evt->payload, evt->status_code);
+            else if (target is NativeRuntime runtime)
+                // SHUTDOWN_COMPLETE or RESOURCES_RELEASED: a wake-up, and the waiter
+                // reads the state again. Neither frees the runtime's root.
+                runtime.announced_.Set();
+        }
+        catch
+        {
+            // Nothing may unwind into the engine.
+        }
+        finally
+        {
+            // What the ring did not take is given back here, and only here.
+            if (!taken)
+                NativeMethods.ak_event_consumed(evt->payload);
+            terminal |= evt->kind == ak_event_kind.AK_EVENT_STATUS;
+        }
+    }
+
+    if (call is null)
+        return;
     try
     {
-        if (call is not null)
-            // Metadata, message, terminal: the next ring slot, published with a
-            // release store on the head. WRITE_DONE: the armed write's acquittal,
-            // which takes no slot and must not queue behind a data callback.
-            taken = call.Publish(evt->kind, evt->payload, evt->status_code);
-        else if (target is NativeRuntime runtime)
-            // SHUTDOWN_COMPLETE or RESOURCES_RELEASED: a wake-up, and the waiter
-            // reads the state again. Neither frees the runtime's root.
-            runtime.announced_.Set();
+        // Once for the whole callback: the reader wakes once for what came together.
+        call.Arrived();
     }
     catch
     {
@@ -630,14 +655,10 @@ internal static unsafe void OnEvent(void* runtimeCtx, void* callCtx, ak_event* e
     }
     finally
     {
-        // What the ring did not take is given back here, and only here.
-        if (!taken)
-            NativeMethods.ak_event_consumed(evt->payload);
-
         // The call's last callback: its root goes, whatever the publish did.
         // Managed references keep the object alive, so this collects nothing -
         // it stops the ABI from resolving a call_ctx that no longer names anything.
-        if (call is not null && evt->kind == ak_event_kind.AK_EVENT_STATUS)
+        if (terminal)
             call.TerminalReturned();
     }
 }

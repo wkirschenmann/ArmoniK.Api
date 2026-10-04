@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use armonik_transport::grpc::{
-    CallControl, CallDriver, CallError, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf, RecvResult,
+    CallControl, CallDriver, CallError, GrpcStatus, GrpcStatusCode, ResponseHead, ResponseSink,
     SendHalf,
 };
 use bytes::Bytes;
@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use super::lent::lend_payload;
 use super::{CallServices, CallState, Command, Debt, ReadTurn};
-use crate::abi::{ak_event_kind, ak_handle, ak_head_origin};
+use crate::abi::{ak_event, ak_event_kind, ak_handle, ak_head_origin, ak_host_debt};
 use crate::blob;
 use crate::channel::AkChannel;
 use crate::host::HostPtr;
@@ -47,13 +47,13 @@ pub(super) fn create(
     (state, rx)
 }
 
-/// The call's one task: the transport's driver, the writer and the reader, joined. One spawn wakes
-/// the channel's thread once for the three, and they share its task cell.
+/// The call's one task: the transport's driver, which delivers the response itself, and the
+/// writer, joined. One spawn wakes the channel's thread once for both, and they share its task
+/// cell.
 pub(super) fn start(
     state: &Arc<CallState>,
     driver: CallDriver,
     send: SendHalf,
-    recv: RecvHalf,
     commands: mpsc::Receiver<Command>,
     spawner: &tokio::runtime::Handle,
 ) {
@@ -61,13 +61,12 @@ pub(super) fn start(
     let state = Arc::clone(state);
 
     // The futures are made inside, where they are polled, so the task is laid out with each once.
-    // In this order on every poll: the reader takes what the driver has just read, and the writer
-    // sees at once that the reader has ended the call.
+    // The writer after the driver on every poll, so it sees at once that the driver has ended the
+    // call.
     spawner.spawn(async move {
         tokio::join!(
             biased;
-            driver.drive(),
-            reader(Arc::clone(&state), recv, writer_is_done),
+            driver.drive(Delivering::new(Arc::clone(&state), writer_is_done)),
             writer(state, send, commands, writer_done),
         );
     });
@@ -79,9 +78,9 @@ async fn writer(
     commands: mpsc::Receiver<Command>,
     done: oneshot::Sender<()>,
 ) {
-    // Guarded for the acquittal below rather than for the loop's sake: the reader waits on it
-    // before the terminal, and a panic that skipped it would leave that wait to the oneshot's
-    // drop - the same outcome by accident instead of on purpose. What is not recovered is what
+    // Guarded for the acquittal below rather than for the loop's sake: the end waits on it before
+    // the terminal, and a panic that skipped it would leave that wait to the oneshot's drop - the
+    // same outcome by accident instead of on purpose. What is not recovered is what
     // the panicking send owed: its window permit and its charge against the ledger, so a runtime
     // that meets this may not empty its ledger again.
     let _ = crate::guarded(write_until_closed(&state, send, commands)).await;
@@ -109,7 +108,7 @@ async fn write_until_closed(
                     draining = true;
                     continue;
                 }
-                // Raised here, on the task the reader waits for before the terminal, so the
+                // Raised here, by the writer the end waits for before the terminal, so the
                 // terminal stays the call's last callback.
                 () = state.waiter.notified() => {
                     if state.waiter.take_owed() && state.accepts_work() {
@@ -168,27 +167,143 @@ async fn write_until_closed(
     }
 }
 
-async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::Receiver<()>) {
-    let status = crate::guarded(read_until_end(&state, recv))
-        .await
-        .unwrap_or_else(|| {
-            // The read side panicked, which is a bug here and not the peer's doing. The terminal
-            // goes out all the same: a host waiting for one it will never get is the hang
-            // requirement 14.8 exists to forbid.
-            GrpcStatus::new(
-                GrpcStatusCode::Internal,
-                "the transport failed while reading the response",
-            )
+/// The call's response, as the driver reads it: each event is staged once it is in hand, which is
+/// its delivery step, and what is staged goes to the host in one callback when the driver has
+/// nothing more ready, when the delivery window is spent, or with the terminal.
+struct Delivering {
+    state: Arc<CallState>,
+    staged: Staged,
+    writer_is_done: oneshot::Receiver<()>,
+}
+
+/// Events staged for the host.
+struct Staged(Vec<ak_event>);
+
+// SAFETY: a staged event's pointers are into a payload this library owns, which is `Send`, and
+// nothing reads through them until the callback hands them to the host.
+unsafe impl Send for Staged {}
+
+impl Delivering {
+    fn new(state: Arc<CallState>, writer_is_done: oneshot::Receiver<()>) -> Self {
+        // A unary answer's head, message and status; a larger batch grows it.
+        let staged = Staged(Vec::with_capacity(3));
+        Self {
+            state,
+            staged,
+            writer_is_done,
+        }
+    }
+
+    /// Takes a credit for the event and stages it. With none free, what is staged goes first: the
+    /// host gives credits back by consuming, and it cannot consume what it has not been given.
+    async fn stage(
+        &mut self,
+        kind: ak_event_kind,
+        data: Bytes,
+        code: i32,
+        charge: Option<Received>,
+    ) -> Result<(), GrpcStatus> {
+        // Forgotten like the send window's: the credit is spent until the host consumes the
+        // payload, and `ak_event_consumed` is what gives it back.
+        if !self.took_credit() {
+            self.flush();
+            let state = &self.state;
+            let permit = tokio::select! {
+                biased;
+                permit = state.credits.acquire() => permit,
+                () = wait_for_cancel(state) => return Err(GrpcStatus::cancelled()),
+            };
+            match permit {
+                Ok(permit) => permit.forget(),
+                Err(_) => return Err(GrpcStatus::cancelled()),
+            }
+        }
+        self.push(kind, lend_payload(&self.state, data, true, charge), code);
+        Ok(())
+    }
+
+    fn took_credit(&self) -> bool {
+        self.state
+            .credits
+            .try_acquire()
+            .map(|permit| permit.forget())
+            .is_ok()
+    }
+
+    fn push(&mut self, kind: ak_event_kind, payload: crate::abi::ak_bytes, code: i32) {
+        self.staged.0.push(ak_event {
+            kind,
+            payload,
+            status_code: code,
+            host_debt: ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
         });
+    }
 
-    state.over.send_replace(true);
-    let _ = writer_is_done.await;
-    // The call is over, so its send waits on nothing more.
-    state.ledger.stop_waiting(&state.waiter);
+    fn head_event(head: &ResponseHead) -> (Bytes, i32) {
+        (
+            Bytes::from(blob::encode_metadata(&head.metadata)),
+            ak_head_origin::from(head.origin) as i32,
+        )
+    }
+}
 
-    {
+impl ResponseSink for Delivering {
+    async fn head(&mut self, head: ResponseHead) -> Result<(), GrpcStatus> {
+        let (data, origin) = Self::head_event(&head);
+        self.stage(ak_event_kind::AK_EVENT_INITIAL_METADATA, data, origin, None)
+            .await
+    }
+
+    async fn message(&mut self, data: Bytes) -> Result<(), GrpcStatus> {
+        if self.state.cancelled.load(Ordering::Acquire) {
+            return Err(GrpcStatus::cancelled());
+        }
+        // The engine waits on the call's turn before it reads the message off the stream; the
+        // message is charged here, once it arrives decoded.
+        let Some(charge) = self.state.ledger.hold_received(data.len()) else {
+            // Freed at once, and the peer told: past the second threshold the process would run
+            // out of memory before the host gave anything back.
+            self.state.control.cancel();
+            return Err(GrpcStatus::new(
+                GrpcStatusCode::ResourceExhausted,
+                "the runtime's ceiling on received messages is reached",
+            ));
+        };
+        self.stage(ak_event_kind::AK_EVENT_MESSAGE, data, 0, Some(charge))
+            .await?;
+        // Delivered once staged: the next read may come before the host has this one.
+        self.state.turn.delivered();
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        if self.staged.0.is_empty() {
+            return;
+        }
+        let Self { state, staged, .. } = self;
+        state.in_callback(|| state.host.deliver(state.ctx, &staged.0));
+        staged.0.clear();
+    }
+
+    async fn end(mut self, status: GrpcStatus, head: Option<ResponseHead>) {
+        // A head never given has every credit free to take: nothing before it took one.
+        if let Some(head) = head {
+            if self.took_credit() {
+                let (data, origin) = Self::head_event(&head);
+                let payload = lend_payload(&self.state, data, true, None);
+                self.push(ak_event_kind::AK_EVENT_INITIAL_METADATA, payload, origin);
+            }
+        }
+
+        // The status waits for every acquittal owed: the writer, polled after the driver, sees at
+        // once that the call is over, acquits what it holds and ends.
+        self.state.over.send_replace(true);
+        let _ = (&mut self.writer_is_done).await;
+        // The call is over, so its send waits on nothing more.
+        self.state.ledger.stop_waiting(&self.state.waiter);
+
         let payload = lend_payload(
-            &state,
+            &self.state,
             Bytes::from(blob::status_payload(
                 &status.message,
                 &status.trailing_metadata,
@@ -197,13 +312,11 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
             false,
             None,
         );
+        self.push(ak_event_kind::AK_EVENT_STATUS, payload, status.code as i32);
+
+        let Self { state, staged, .. } = &mut self;
         state.in_callback(|| {
-            state.host.deliver(
-                state.ctx,
-                ak_event_kind::AK_EVENT_STATUS,
-                payload,
-                status.code as i32,
-            );
+            state.host.deliver(state.ctx, &staged.0);
             // Sequentially consistent, not Release: `lend` claims a buffer and then reads this,
             // `settled` reads this and then the claim, and the argument that one of the two sees
             // the other's write holds only if every one of those is in the single total order.
@@ -215,71 +328,9 @@ async fn reader(state: Arc<CallState>, recv: RecvHalf, writer_is_done: oneshot::
             // runtime is quiescent.
             state.channel.leave(Some(state.handle));
         });
-    }
+        staged.0.clear();
 
-    reclaim(&state).await;
-}
-
-/// Everything the read side does before the terminal: the head, then a message at a time.
-async fn read_until_end(state: &Arc<CallState>, mut recv: RecvHalf) -> GrpcStatus {
-    let (head, origin) = match recv.recv_head().await {
-        Ok(head) => (
-            blob::encode_metadata(&head.metadata),
-            ak_head_origin::from(head.origin),
-        ),
-        // The driver was dropped before it handed over a head, so none reached the call.
-        Err(_) => (
-            blob::encode_metadata(&Metadata::new()),
-            ak_head_origin::AK_HEAD_NO_RESPONSE,
-        ),
-    };
-    let delivered_head = deliver(
-        state,
-        ak_event_kind::AK_EVENT_INITIAL_METADATA,
-        Bytes::from(head),
-        origin as i32,
-        None,
-    )
-    .await;
-
-    if !delivered_head {
-        return GrpcStatus::cancelled();
-    }
-
-    loop {
-        if state.cancelled.load(Ordering::Acquire) {
-            break GrpcStatus::cancelled();
-        }
-
-        // The engine waits on the call's turn before it reads the message off the stream; the
-        // message is charged here, once it arrives decoded.
-        match recv.next_message().await {
-            Ok(RecvResult::Message(message)) => {
-                let Some(charge) = state.ledger.hold_received(message.data.len()) else {
-                    // Freed at once, and the peer told: past the second threshold the process
-                    // would run out of memory before the host gave anything back.
-                    state.control.cancel();
-                    break GrpcStatus::new(
-                        GrpcStatusCode::ResourceExhausted,
-                        "the runtime's ceiling on received messages is reached",
-                    );
-                };
-                if !deliver(
-                    state,
-                    ak_event_kind::AK_EVENT_MESSAGE,
-                    message.data,
-                    0,
-                    Some(charge),
-                )
-                .await
-                {
-                    break GrpcStatus::cancelled();
-                }
-                state.turn.delivered();
-            }
-            Ok(RecvResult::End(status)) => break status,
-            Err(_) => break GrpcStatus::cancelled(),
-        }
+        reclaim(state).await;
     }
 }
 
@@ -287,30 +338,6 @@ async fn reclaim(state: &Arc<CallState>) {
     let mut progress = state.progress.subscribe();
     let _ = progress.wait_for(|_| state.debt.settled()).await;
     crate::lifecycle::call_settled(state.handle);
-}
-
-async fn deliver(
-    state: &Arc<CallState>,
-    kind: ak_event_kind,
-    data: Bytes,
-    code: i32,
-    charge: Option<Received>,
-) -> bool {
-    let permit = tokio::select! {
-        biased;
-        permit = state.credits.acquire() => permit,
-        () = wait_for_cancel(state) => return false,
-    };
-    // Forgotten like the send window's: the credit is spent until the host consumes the payload,
-    // and `ak_event_consumed` is what gives it back.
-    match permit {
-        Ok(permit) => permit.forget(),
-        Err(_) => return false,
-    }
-
-    let payload = lend_payload(state, data, true, charge);
-    state.in_callback(|| state.host.deliver(state.ctx, kind, payload, code));
-    true
 }
 
 async fn wait_for_cancel(state: &CallState) {

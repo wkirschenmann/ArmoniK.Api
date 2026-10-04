@@ -16,6 +16,7 @@
 
 
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 using NUnit.Framework;
@@ -47,10 +48,87 @@ public class TrampolineTests
 
       NativeRuntime.OnEvent(null,
                             (void*)GCHandle.ToIntPtr(root),
-                            (ak_event*)raised);
+                            (ak_event*)raised,
+                            1);
 
       Assert.That(sink.Returned,
                   Is.True);
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(raised);
+      root.Free();
+    }
+  }
+
+  /// <summary>The events of one callback are published in order, and the reader woken once.</summary>
+  [Test]
+  public unsafe void ACallbacksEventsArePublishedInOrderAndSignalledOnce()
+  {
+    var sink   = new CountingSink();
+    var root   = GCHandle.Alloc(sink);
+    var size   = Marshal.SizeOf<ak_event>();
+    var raised = Marshal.AllocHGlobal(3 * size);
+    try
+    {
+      var kinds = new[]
+                  {
+                    ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                    ak_event_kind.AK_EVENT_MESSAGE,
+                    ak_event_kind.AK_EVENT_STATUS,
+                  };
+      for (var at = 0; at < kinds.Length; at++)
+      {
+        Marshal.StructureToPtr(new ak_event
+                               {
+                                 kind = kinds[at],
+                               },
+                               raised + at * size,
+                               false);
+      }
+
+      NativeRuntime.OnEvent(null,
+                            (void*)GCHandle.ToIntPtr(root),
+                            (ak_event*)raised,
+                            3);
+
+      Assert.That(sink.Published,
+                  Is.EqualTo(kinds));
+      Assert.That(sink.Arrivals,
+                  Is.EqualTo(1));
+      Assert.That(sink.Returned,
+                  Is.True);
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(raised);
+      root.Free();
+    }
+  }
+
+  /// <summary>An acquittal wakes no reader: the ring never sees it.</summary>
+  [Test]
+  public unsafe void AnAcquittalWakesNoReader()
+  {
+    var sink   = new CountingSink();
+    var root   = GCHandle.Alloc(sink);
+    var raised = Marshal.AllocHGlobal(Marshal.SizeOf<ak_event>());
+    try
+    {
+      Marshal.StructureToPtr(new ak_event
+                             {
+                               kind = ak_event_kind.AK_EVENT_WRITE_DONE,
+                             },
+                             raised,
+                             false);
+
+      NativeRuntime.OnEvent(null,
+                            (void*)GCHandle.ToIntPtr(root),
+                            (ak_event*)raised,
+                            1);
+
+      Assert.That(sink.Arrivals,
+                  Is.EqualTo(0));
     }
     finally
     {
@@ -74,5 +152,37 @@ public class TrampolineTests
                         in ak_bytes   payload,
                         int           statusCode)
       => throw new InvalidOperationException("a publish that fails");
+
+    public void Arrived()
+    {
+    }
+  }
+
+  private sealed class CountingSink : ICallSink
+  {
+    public List<ak_event_kind> Published { get; } = new();
+
+    public int Arrivals { get; private set; }
+
+    public bool Returned { get; private set; }
+
+    public void TerminalReturned()
+      => Returned = true;
+
+    public void Cancel()
+    {
+    }
+
+    // Taken as the ring takes a data event, and nothing else.
+    public bool Publish(ak_event_kind kind,
+                        in ak_bytes   payload,
+                        int           statusCode)
+    {
+      Published.Add(kind);
+      return kind is not (ak_event_kind.AK_EVENT_WRITE_DONE or ak_event_kind.AK_EVENT_BUDGET_WAKE);
+    }
+
+    public void Arrived()
+      => Arrivals++;
   }
 }

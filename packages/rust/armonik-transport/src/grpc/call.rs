@@ -9,7 +9,7 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch};
 use tonic::codegen::tokio_stream::Stream;
 
-use super::driver::Driving;
+use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
 use super::status::GrpcStatus;
@@ -92,6 +92,28 @@ impl CallStartOptions {
             read_gate: None,
         }
     }
+}
+
+/// Where a call's response goes when its caller takes it as the driver reads it, rather than
+/// through a [`RecvHalf`].
+///
+/// The driver calls it from the task that polls it, in order: the head, the messages, then the
+/// end. Between the head and the end it calls [`ResponseSink::flush`] whenever it has nothing more
+/// ready to read, so a sink may hold what it was given and hand it on together.
+pub trait ResponseSink: Send + 'static {
+    /// The peer's response head. An error ends the call with that status.
+    fn head(&mut self, head: ResponseHead) -> impl Future<Output = Result<(), GrpcStatus>> + Send;
+
+    /// A message read off the stream. An error ends the call with that status.
+    fn message(&mut self, data: Bytes) -> impl Future<Output = Result<(), GrpcStatus>> + Send;
+
+    /// Nothing more is ready to be read.
+    fn flush(&mut self);
+
+    /// The call's end: its status, and the head it was never given when `head` was not called,
+    /// which says whether a response came.
+    fn end(self, status: GrpcStatus, head: Option<ResponseHead>)
+        -> impl Future<Output = ()> + Send;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -277,16 +299,13 @@ impl Stream for RequestMessages {
     }
 }
 
-pub(crate) fn create(
+/// A call's send half, its control, the messages it sends, and what its driver needs but the sink
+/// its response goes to.
+pub(crate) fn create_with(
     send_window: usize,
     channel_closed: watch::Receiver<bool>,
-) -> (GrpcCall, RequestMessages, Driving) {
+) -> (SendHalf, CallControl, RequestMessages, Driving<()>) {
     let (message_tx, message_rx) = mpsc::channel(send_window);
-    let (head_tx, head_rx) = oneshot::channel();
-    // One, because the reader is what paces the peer: anything deeper reads ahead of a consumer
-    // that has not asked, and the message sits in memory this side has not accounted for.
-    let (recv_tx, recv_rx) = mpsc::channel(1);
-    let (terminal_tx, terminal_rx) = oneshot::channel();
     let (over_tx, over_rx) = watch::channel(false);
     let (body_over_tx, body_over_rx) = oneshot::channel();
 
@@ -294,31 +313,15 @@ pub(crate) fn create(
         over: Arc::new(over_tx),
         body_over: Arc::new(Mutex::new(Some(body_over_tx))),
     };
-    let call = GrpcCall {
-        send: SendHalf {
-            messages: message_tx,
-            over: over_rx.clone(),
-        },
-        recv: RecvHalf {
-            head: Head::Pending(head_rx),
-            messages: recv_rx,
-            terminal: terminal_rx,
-            control: control.clone(),
-            ended: None,
-        },
-        control: control.clone(),
+    let send = SendHalf {
+        messages: message_tx,
+        over: over_rx.clone(),
     };
-    let driving = Driving::new(
-        over_rx,
-        channel_closed,
-        head_tx,
-        recv_tx,
-        terminal_tx,
-        control,
-    );
+    let driving = Driving::new(over_rx, channel_closed, control.clone());
 
     (
-        call,
+        send,
+        control,
         RequestMessages {
             messages: message_rx,
             over: body_over_rx,
@@ -326,6 +329,33 @@ pub(crate) fn create(
         },
         driving,
     )
+}
+
+pub(crate) fn create(
+    send_window: usize,
+    channel_closed: watch::Receiver<bool>,
+) -> (GrpcCall, RequestMessages, Driving<Delivery>) {
+    let (head_tx, head_rx) = oneshot::channel();
+    // One, because the reader is what paces the peer: anything deeper reads ahead of a consumer
+    // that has not asked, and the message sits in memory this side has not accounted for.
+    let (recv_tx, recv_rx) = mpsc::channel(1);
+    let (terminal_tx, terminal_rx) = oneshot::channel();
+
+    let (send, control, messages, driving) = create_with(send_window, channel_closed);
+    let driving = driving.with_sink(Delivery::new(head_tx, recv_tx, terminal_tx));
+    let call = GrpcCall {
+        send,
+        recv: RecvHalf {
+            head: Head::Pending(head_rx),
+            messages: recv_rx,
+            terminal: terminal_rx,
+            control: control.clone(),
+            ended: None,
+        },
+        control,
+    };
+
+    (call, messages, driving)
 }
 
 #[cfg(test)]

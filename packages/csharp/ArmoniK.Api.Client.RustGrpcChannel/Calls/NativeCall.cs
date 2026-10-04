@@ -34,10 +34,14 @@ internal interface ICallSink
 
   void Cancel();
 
-  /// <summary>Answers whether returning the payload is now the consumer's obligation.</summary>
+  /// <summary>Takes one event of a callback, and answers whether returning its payload is now the
+  /// consumer's obligation.</summary>
   bool Publish(ak_event_kind kind,
                in ak_bytes payload,
                int statusCode);
+
+  /// <summary>The callback has published every event it carries.</summary>
+  void Arrived();
 }
 
 internal sealed class NativeCall<TResponse> : ICallSink, ICallState
@@ -221,10 +225,13 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
       return false;
     }
 
-    return receiving_.Publish(kind,
-                             payload,
-                             statusCode);
+    return receiving_.Store(kind,
+                           payload,
+                           statusCode);
   }
+
+  public void Arrived()
+    => receiving_.Arrived();
 
   public void TerminalReturned()
   {
