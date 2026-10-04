@@ -470,8 +470,9 @@ ak_call_end_send(handle)           -> signal end_send
                             evts[2].kind = STATUS  [terminal, end of stream]
                             evts[i].payload = ak_bytes{ptr, len, owner}
                             evts[2].status_code = 0 (OK)
-                            [what arrived together comes in one
-                             callback; a head sent early comes alone]
+                            [what is read a round of the runtime
+                             apart comes in one callback; a head
+                             sent ahead of its message comes alone]
                             [this callback frees gcHandle after its
                              last access - it is the call's last]
 // host can deserialize directly from evts[1].payload.ptr (zero-copy recv)
@@ -494,7 +495,8 @@ FFI note:
   (deserializes directly from the native pointer) then calls `ak_event_consumed`, or
   `ak_events_consumed` for several in delivery order. This frees the memory AND arms
   reception of the next event. One callback carries the data events of a call that were
-  ready together, and every other event alone. At most `DeliveryCredits`
+  ready together or that its delivery waited to gather, up to `DeliveryCoalescingBytes`, and
+  every other event alone. At most `DeliveryCredits`
   non-consumed payloads per call (default 4) — this is the backpressure mechanism.
 The terminal `AK_EVENT_STATUS` may arrive instead of a next MESSAGE (end of stream or error).
 

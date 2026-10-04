@@ -90,6 +90,7 @@ public class OptionVocabularyTests
                                                                      {
                                                                        ["ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
                                                                        ["DeliveryCredits"] = "the delivery window, which only this ABI has",
+                                                                       ["DeliveryCoalescingBytes"] = "the delivery to the host, which only this ABI has",
                                                                        ["Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
                                                                        ["Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
                                                                        ["MaxSendsInFlight"] = "the send window, which only this ABI has",

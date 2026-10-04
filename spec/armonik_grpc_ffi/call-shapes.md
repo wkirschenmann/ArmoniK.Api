@@ -184,13 +184,16 @@ represent it.
 
 - The call's one task reads the response and delivers it itself: no reader task, no queue between
   the driver and the actor, no hand-off of the read admission between them.
-- When a data event is ready, the task looks once more, without waiting, at what is already there
-  - a message in hand, trailers received - and delivers all of it in one callback. A head that
-  arrives alone, from a server that sends its headers early, goes alone and at once.
+- When a data event is ready, the task looks once more at what is already there - a message in
+  hand, trailers received - and delivers all of it in one callback. What is not there yet is
+  waited for one round of the channel's thread while the batch holds less than
+  `DeliveryCoalescingBytes`: the connection shares that thread, and decodes on its next turn what
+  the same read of the socket brought. A head goes alone only when nothing follows it within
+  that round, as from a server that sends its headers early.
 - Every read of that look, the status's included but for the one below, goes through `ReadGate` as
   today: the gate's turn, then the ledger's admission against the runtime's threshold. The look
-  polls them and never waits: a read not admitted, or admitted with nothing to read yet, ends the
-  batch and goes on after the callback. A batch is also bounded by the delivery window. The turn
+  waits no longer than that round: a read not admitted, or admitted with nothing to read after
+  it, ends the batch and goes on after the callback. A batch is also bounded by the delivery window. The turn
   opens at the previous message's delivery step, taken as soon as the message is in hand (level 1
   below), so `ReadTurn::delivered()` moves there from after the callback.
 - On a one-response call, the read after the message takes the gate's turn, which the message's

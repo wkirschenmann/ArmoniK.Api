@@ -54,6 +54,10 @@ required-features = ["test-hooks"]
 name = "writes"
 required-features = ["test-hooks"]
 
+[[test]]
+name = "deliveries"
+required-features = ["test-hooks"]
+
 [dev-dependencies]
 # The same crate again, with the schema turned on: one test reads the bounds the schema states
 # and drives `config::parse` at each of them, which is what keeps the reader's copy honest.

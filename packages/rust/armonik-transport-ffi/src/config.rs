@@ -59,6 +59,9 @@ impl ChannelSettings {
         if let Some(max) = self.options.max_receive_message_size {
             config.max_recv_message_size = max as usize;
         }
+        if let Some(bytes) = self.options.delivery_coalescing_bytes {
+            config.delivery_coalescing = bytes as usize;
+        }
         config.default_deadline = self.default_deadline;
         config.retry = Some(self.retry);
         config
@@ -75,6 +78,8 @@ pub(crate) enum ConfigRefusal {
     Window { key: &'static str, value: i32 },
     /// A receive limit that admits no message at all.
     NoMessage { value: i32 },
+    /// A count of bytes below zero.
+    Bytes { key: &'static str, value: i32 },
     /// An empty user agent.
     EmptyUserAgent,
     /// A duration no `Duration` holds, or one below what it holds.
@@ -104,6 +109,7 @@ impl fmt::Display for ConfigRefusal {
                 "MaxReceiveMessageSize is {value}, and has to be at least 1 - a channel that \
                  receives no message at all"
             ),
+            Self::Bytes { key, value } => write!(f, "{key} is {value}, and has to be at least 0"),
             Self::EmptyUserAgent => f.write_str("UserAgent is empty, and has to name something"),
             Self::Seconds { key, seconds } => write!(
                 f,
@@ -146,6 +152,13 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
     // Zero is refused: it is a channel that can receive no message at all.
     if let Some(value) = options.max_receive_message_size.filter(|max| *max < 1) {
         return Err(ConfigRefusal::NoMessage { value });
+    }
+
+    if let Some(value) = options.delivery_coalescing_bytes.filter(|bytes| *bytes < 0) {
+        return Err(ConfigRefusal::Bytes {
+            key: "DeliveryCoalescingBytes",
+            value,
+        });
     }
 
     if options.user_agent.as_deref().is_some_and(str::is_empty) {
@@ -260,6 +273,10 @@ mod tests {
             config.max_recv_message_size as f64
         );
         assert_eq!(
+            stated("/properties/DeliveryCoalescingBytes/description"),
+            config.delivery_coalescing as f64
+        );
+        assert_eq!(
             stated("/$defs/TransportOptions/properties/ConnectTimeoutSeconds/description"),
             config.transport.connect_timeout.as_secs_f64()
         );
@@ -316,6 +333,7 @@ mod tests {
             "DeliveryCredits",
             "MaxSendsInFlight",
             "MaxReceiveMessageSize",
+            "DeliveryCoalescingBytes",
         ] {
             let minimum = stated(&format!("/properties/{option}/minimum"))
                 .unwrap_or_else(|| panic!("{option} states no minimum"));
@@ -667,6 +685,10 @@ mod tests {
             (
                 &br#"{"MaxReceiveMessageSize":0}"#[..],
                 "MaxReceiveMessageSize",
+            ),
+            (
+                &br#"{"DeliveryCoalescingBytes":-1}"#[..],
+                "DeliveryCoalescingBytes",
             ),
             (&br#"{"UserAgent":""}"#[..], "UserAgent"),
             (

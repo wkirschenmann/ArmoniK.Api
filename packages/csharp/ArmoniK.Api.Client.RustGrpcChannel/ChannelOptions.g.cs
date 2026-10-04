@@ -55,6 +55,7 @@ public sealed class ChannelOptions
 
     ConnectEagerly = other.ConnectEagerly;
     DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
+    DeliveryCoalescingBytes = other.DeliveryCoalescingBytes;
     DeliveryCredits = other.DeliveryCredits;
     Http2 = other.Http2 is null
               ? null
@@ -93,6 +94,15 @@ public sealed class ChannelOptions
   [JsonPropertyName("DefaultDeadlineSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? DefaultDeadlineSeconds { get; set; }
+
+  /// <summary>
+  ///   How many bytes of a response a delivery to the host may wait to gather, so that a unary
+  ///   answer's head, message and status reach it in one callback. 0 delivers each read at once.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
+  [JsonPropertyName("DeliveryCoalescingBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? DeliveryCoalescingBytes { get; set; }
 
   /// <summary>
   ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
@@ -156,6 +166,13 @@ public sealed class ChannelOptions
       throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
                                             defaultDeadlineSeconds,
                                             "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (DeliveryCoalescingBytes is int deliveryCoalescingBytes && deliveryCoalescingBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(DeliveryCoalescingBytes),
+                                            deliveryCoalescingBytes,
+                                            "DeliveryCoalescingBytes has to be at least 0.");
     }
 
     if (DeliveryCredits is int deliveryCredits && (deliveryCredits < 1 || deliveryCredits > 536870910))

@@ -38,6 +38,7 @@ const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_V
 const ACCEPTED_ENCODING: &str = "identity";
 
 const DEFAULT_MAX_RECV_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+const DEFAULT_DELIVERY_COALESCING: usize = 16 * 1024;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -46,6 +47,9 @@ pub struct GrpcChannelConfig {
     pub user_agent: Option<String>,
     pub max_sends_in_flight: usize,
     pub max_recv_message_size: usize,
+    /// How many bytes of a response's messages a delivery to a sink that gathers may wait to
+    /// gather. 0 delivers each read at once.
+    pub delivery_coalescing: usize,
     /// The deadline of a call that states none, counted from its start.
     pub default_deadline: Option<Duration>,
     /// When a failed call is sent again. With none, a call keeps no copy, so only one its peer
@@ -60,6 +64,7 @@ impl GrpcChannelConfig {
             user_agent: None,
             max_sends_in_flight: 1,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
+            delivery_coalescing: DEFAULT_DELIVERY_COALESCING,
             default_deadline: None,
             retry: None,
         }
@@ -124,6 +129,7 @@ impl GrpcChannel {
                 user_agent,
                 max_sends_in_flight: config.max_sends_in_flight,
                 max_recv_message_size: config.max_recv_message_size,
+                delivery_coalescing: config.delivery_coalescing,
                 default_deadline: config.default_deadline,
                 retry: config.retry,
                 replay,
@@ -309,6 +315,7 @@ pub(crate) struct Inner {
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
     max_recv_message_size: usize,
+    pub(crate) delivery_coalescing: usize,
     default_deadline: Option<Duration>,
     pub(crate) retry: Option<RetryConfig>,
     /// The replay bytes the channel's calls hold together.

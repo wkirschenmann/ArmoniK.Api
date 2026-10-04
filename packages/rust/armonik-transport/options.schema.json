@@ -13,6 +13,12 @@
       "$ref": "#/$defs/Seconds",
       "minimum": 1e-9
     },
+    "DeliveryCoalescingBytes": {
+      "description": "How many bytes of a response a delivery to the host may wait to gather, so that a unary\nanswer's head, message and status reach it in one callback. 0 delivers each read at once.\n\nDefaults to 16384, 16 KiB.",
+      "type": "integer",
+      "format": "int32",
+      "minimum": 0
+    },
     "DeliveryCredits": {
       "description": "How many of a call's payloads the host may hold at once, delivered and not yet given back.\nThe terminal status takes none, so a host holds at most one more.\n\nDefaults to 4.",
       "type": "integer",

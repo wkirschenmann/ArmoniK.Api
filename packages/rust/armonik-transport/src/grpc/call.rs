@@ -126,6 +126,10 @@ pub trait ResponseSink: Send + 'static {
     /// Nothing more is ready to be read.
     fn flush(&mut self);
 
+    /// Whether `flush` is what hands on what the calls before it gave, so that the driver gathers
+    /// more before it. A sink that hands each part on as it is given says no.
+    const GATHERS: bool = true;
+
     /// The call's end: its status, and the head it was never given when `head` was not called,
     /// which says whether a response came.
     fn end(self, status: GrpcStatus, head: Option<ResponseHead>)

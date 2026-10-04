@@ -448,8 +448,8 @@ typedef struct {
  * Each callback carries `count` events, at least one, of one call or of the runtime, in delivery
  * order. The array and its events are valid for the callback's duration only; the payloads they
  * own are the host's until given back. Several events come together only when they are data
- * events (INITIAL_METADATA, MESSAGE, STATUS) of one call that were ready together; every other
- * event comes alone.
+ * events (INITIAL_METADATA, MESSAGE, STATUS) of one call that were ready together, or that its
+ * delivery waited to gather (DeliveryCoalescingBytes); every other event comes alone.
  *
  * Data callbacks are serialized per call and concurrent between calls. WRITE_DONE and
  * BUDGET_WAKE may arrive in parallel with any of them, including for the same call: a per-call

@@ -258,6 +258,12 @@ channel's thread adds nothing to what it has to write, or once that reaches
 `Http2.WriteCoalescingBytes`: a request's message, handed over from the host's thread while
 its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
 
+**Deliveries gather what is ready.** A response's delivery to the host waits while the work
+already ready on the channel's thread reads more of it, up to `DeliveryCoalescingBytes`: the
+connection shares that thread, so the message a head precedes, and the trailers a message
+precedes, are decoded on its next turn, and a unary answer whose server wrote it in parts still
+reaches the host in one callback rather than two or three.
+
 Both STOPPED and QUIESCENT refine one level-0 state. Freeing a handle is not a gRPC
 concept, so level 0 has nothing to say about the difference, and level 1 carries it
 entirely in its own variables - the only shape the refinement rule allows.

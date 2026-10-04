@@ -203,6 +203,8 @@ impl ResponseSink for Delivery {
 
     fn flush(&mut self) {}
 
+    const GATHERS: bool = false;
+
     /// Publishes the status and lets the message queue end.
     ///
     /// Nothing to wait for: the reader takes what is queued, finds the sender gone, and reads the
@@ -490,6 +492,7 @@ async fn attempt<S: ResponseSink>(
                 &mut responding.sink,
                 read_gate,
                 one_response,
+                inner.delivery_coalescing,
                 &mut body,
             )
             .await
@@ -506,24 +509,42 @@ enum Read {
 
 /// The response's messages and trailers, once its head is given.
 ///
-/// Each read is polled once first: what is already there is read at once, and only when nothing
-/// is does the sink hear that nothing more is ready, before the wait.
+/// Each read is polled once first: what is already there is read at once. What is not there yet
+/// is waited for one round of the runtime while the delivery holds less than `coalescing` bytes,
+/// as the connection's writes are held: the connection shares this thread, so what it decodes on
+/// its next turn - a head's message, a message's trailers - joins what the sink holds rather than
+/// following it in a callback of its own. A round that brings the read earns the next one; only
+/// one that brings nothing tells the sink that nothing more is ready, before the wait.
 async fn finish<S: ResponseSink>(
     stop: &mut Stop,
     sink: &mut S,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
+    coalescing: usize,
     body: &mut tonic::Streaming<Bytes>,
 ) -> GrpcStatus {
+    let coalescing = if S::GATHERS { coalescing } else { 0 };
     let mut message_read = false;
+    // The bytes of the messages read since the sink was last told to deliver, or none once it
+    // was: the head comes first, held with no message. More than the sink holds once a full
+    // delivery window has made it deliver on its own.
+    let mut held = Some(0);
     loop {
         let turn_only = one_response && message_read;
         let read = {
             let mut next = pin!(until_stopped(stop, read_next(read_gate, turn_only, body)));
-            match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
+            let mut polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
+            if polled.is_pending() && held.is_some_and(|bytes| bytes < coalescing) {
+                #[cfg(feature = "test-hooks")]
+                crate::hooks::count_delivery_round();
+                tokio::task::yield_now().await;
+                polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
+            }
+            match polled {
                 Poll::Ready(read) => read,
                 Poll::Pending => {
                     sink.flush();
+                    held = None;
                     next.await
                 }
             }
@@ -534,10 +555,11 @@ async fn finish<S: ResponseSink>(
             Some(Read::Message(message)) => message,
         };
         message_read = true;
+        let bytes = message.len();
         match until_stopped(stop, sink.message(message)).await {
             None => return GrpcStatus::cancelled(),
             Some(Err(status)) => return status,
-            Some(Ok(())) => {}
+            Some(Ok(())) => held = Some(held.unwrap_or(0) + bytes),
         }
     }
 }

@@ -438,6 +438,8 @@ async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> 
         .body(TonicBody::new(Canned {
             frames: frames.into_iter(),
             then_fails: false,
+            paced: false,
+            gave_way: false,
         }))
         .expect("a well-formed flaky response")
 }
@@ -468,6 +470,12 @@ pub struct Canned {
     /// It is how hyper's server is made to send a RST_STREAM: a body that errors resets the
     /// stream with INTERNAL_ERROR, where a body that ends finishes the response.
     then_fails: bool,
+    /// Gives way once before each frame, so hyper writes what it holds first: the head and each
+    /// frame then go out in writes of their own, as a server that flushes as it answers sends
+    /// them.
+    paced: bool,
+    /// Whether the next frame has given way already.
+    gave_way: bool,
 }
 
 impl Body for Canned {
@@ -476,8 +484,13 @@ impl Body for Canned {
 
     fn poll_frame(
         mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        if self.paced && !std::mem::replace(&mut self.gave_way, true) {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        self.gave_way = false;
         if let Some(frame) = self.frames.next() {
             return Poll::Ready(Some(Ok(frame)));
         }
@@ -594,6 +607,14 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             ],
         ),
         "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
+        // A unary answer whose head, message and trailers go out in three writes.
+        "Paced" => (
+            grpc_head(),
+            vec![
+                Frame::data(grpc_message(0, b"paced")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
         // A message announced longer than what arrives before the trailers.
         "EndsMidMessage" => (
             grpc_head(),
@@ -660,6 +681,8 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
         .body(TonicBody::new(Canned {
             frames: frames.into_iter(),
             then_fails: case == "ResetsMidBody",
+            paced: case == "Paced",
+            gave_way: false,
         }))
         .expect("a well-formed canned response")
 }

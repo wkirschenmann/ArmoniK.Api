@@ -1429,6 +1429,17 @@ pub struct ChannelOptions {
     )]
     pub delivery_credits: Option<i32>,
 
+    /// How many bytes of a response a delivery to the host may wait to gather, so that a unary
+    /// answer's head, message and status reach it in one callback. 0 delivers each read at once.
+    ///
+    /// Defaults to 16384, 16 KiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub delivery_coalescing_bytes: Option<i32>,
+
     /// The HTTP/2 session the channel's calls share.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
