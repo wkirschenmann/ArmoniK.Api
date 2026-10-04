@@ -413,6 +413,32 @@ fn a_unary_answer_that_arrives_together_comes_in_one_callback() {
     fixture.close();
 }
 
+/// The flag reaches the engine: a server that answers a call declared one-response with two
+/// messages ends it INTERNAL, the first delivered and the second never.
+#[test]
+fn a_one_response_call_answered_twice_ends_internal() {
+    const INTERNAL: i32 = 13;
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    start_call_flagged(
+        channel,
+        "/raw/Sized",
+        &blob(&[(b"x-sizes", b"3,3")]),
+        AK_CALL_ONE_RESPONSE,
+    );
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(
+        seen.status_code(),
+        Some(INTERNAL),
+        "{}",
+        seen.status_message()
+    );
+    assert_eq!(seen.message_payloads().len(), 1, "{seen:?}");
+    fixture.close();
+}
+
 /// Payloads given back together are given back as one at a time would be: the call settles.
 #[test]
 fn payloads_given_back_in_one_downcall_settle_the_call() {
@@ -1043,7 +1069,7 @@ fn a_record_that_sets_a_version_a_flag_or_a_reserved_field_is_refused() {
         (
             "flags",
             ak_call_start_options {
-                flags: AK_CALL_HAS_DEADLINE << 1,
+                flags: 1 << 31,
                 ..start_options(ECHO)
             },
         ),

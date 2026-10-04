@@ -21,6 +21,7 @@ use common::echo::*;
 struct Gate {
     shut: bool,
     asked: AtomicUsize,
+    turns: AtomicUsize,
 }
 
 impl ReadGate for Gate {
@@ -31,6 +32,11 @@ impl ReadGate for Gate {
                 std::future::pending::<()>().await;
             }
         })
+    }
+
+    fn turn(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        self.turns.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async {})
     }
 }
 
@@ -93,6 +99,34 @@ async fn the_gate_is_asked_before_each_read_the_status_included() {
         4,
         "three messages, and the read that found the trailers"
     );
+}
+
+/// On a call that declared one response, the read after the message asks for the turn alone: only
+/// the status can follow, and it is not what the gate's admission holds back.
+#[tokio::test]
+async fn a_one_response_call_asks_only_the_turn_for_its_status() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+    let gate = Arc::new(Gate::default());
+
+    let mut options = CallStartOptions::new("/raw/Sized");
+    options
+        .metadata
+        .append_ascii("x-sizes", "10")
+        .expect("valid metadata");
+    options.read_gate = Some(Arc::clone(&gate) as _);
+    options.one_response = true;
+    let (send, mut recv, _control) = channel
+        .start_call(options)
+        .expect("the call starts")
+        .split();
+    send.end_send().await.expect("the half-close");
+
+    let (messages, status) = to_the_end(&mut recv).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(gate.asked.load(Ordering::SeqCst), 1, "the message's read");
+    assert_eq!(gate.turns.load(Ordering::SeqCst), 1, "the status's");
 }
 
 #[tokio::test]

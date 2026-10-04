@@ -31,13 +31,25 @@ impl ReadTurn {
     }
 }
 
+impl ReadTurn {
+    async fn taken(&self, admitted: bool) {
+        let _ = self.free.subscribe().wait_for(|free| *free).await;
+        if admitted {
+            self.ledger.read_admitted().await;
+        }
+        self.free.send_replace(false);
+    }
+}
+
 impl ReadGate for ReadTurn {
     fn admitted(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            let _ = self.free.subscribe().wait_for(|free| *free).await;
-            self.ledger.read_admitted().await;
-            self.free.send_replace(false);
-        })
+        Box::pin(self.taken(true))
+    }
+
+    /// Without the ledger's admission: behind it, a status would wait for its message to be given
+    /// back, and a host that gives a one-response call's message back with its status never would.
+    fn turn(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(self.taken(false))
     }
 }
 

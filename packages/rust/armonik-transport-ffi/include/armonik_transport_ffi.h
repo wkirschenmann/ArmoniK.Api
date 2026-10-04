@@ -62,6 +62,15 @@
  */
 #define AK_CALL_HAS_DEADLINE 1
 
+/**
+ * In ak_call_start_options.flags: the response is at most one message, as on a unary or a
+ * client-streaming method. A server that sends a second one ends the call with the gRPC status
+ * INTERNAL, and the second is neither delivered nor charged to the runtime's memory. The status
+ * that follows the message is read whatever the runtime's first memory threshold says, so a host
+ * may hold the message until the status is in.
+ */
+#define AK_CALL_ONE_RESPONSE 2
+
 #define AK_ABI_VERSION 1
 
 /**
@@ -499,7 +508,8 @@ typedef struct {
      */
     uint32_t version;
     /**
-     * AK_CALL_HAS_DEADLINE, or zero. Any other flag is refused rather than ignored.
+     * AK_CALL_HAS_DEADLINE and AK_CALL_ONE_RESPONSE, either, both or neither. Any other flag is
+     * refused rather than ignored.
      */
     uint32_t flags;
     /**

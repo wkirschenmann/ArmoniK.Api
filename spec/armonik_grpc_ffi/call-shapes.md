@@ -1,6 +1,6 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03 and 2026-10-04; steps 1 and 2 built, steps 3 to 5 not. Until each of
+**Status**: decided 2026-10-03 and 2026-10-04; steps 1 to 3 built, steps 4 and 5 not. Until each of
 its steps lands, every other document of the specification wins over this one on what that step
 changes. `DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it
 describes the binding as it was before.
@@ -459,7 +459,18 @@ says.
    one message; what follows the message looked at in the engine's response body; the binding's
    single-pass reader and on-demand headers; the test of a message that takes the runtime's count
    to its limit; the gate's turn alone, for a one-response call's status, with the documents and
-   the test of the rule decision 12 reverses.
+   the test of the rule decision 12 reverses. Done: `AK_CALL_ONE_RESPONSE`, which the binding sets
+   on unary and client-streaming calls; the response body refusing the first byte of a second
+   message, the frame that holds it cut where the first ends; `ReadGate::turn`, asked for the read
+   after the message; the binding's single-pass reader and its headers task started when a caller
+   asks. On the engine, the flag measured neutral: the two engines in one process, their calls
+   interleaved, 10 000 pairs twice, paired medians of 1.7 and 4.1 us. On the .NET 8 benchmark,
+   alternated and pinned to the performance cores - unpinned, the spread between runs on this
+   hybrid processor hid any difference under 100 us - the unary median moves within its spread (340
+   and 348 us idle, paired median +3.5 us; 378 and 376 under load), as does server streaming. Step
+   2's one wake-up per callback had already brought a unary answer's pool wake-ups to one, the
+   reader going on inline from the prologue's end on the same thread, so this step had none left to
+   save.
 4. **One request**: `AK_CALL_ONE_REQUEST`, which the binding sets on a call whose method takes one
    message; the commit that ends the sending and spawns the task, the one-shot slot for a call
    spawned early, the framed body swapped below tonic, the replay of the same buffer, no WRITE_DONE

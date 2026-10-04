@@ -36,6 +36,7 @@ pub(crate) fn start_on(
     method: &str,
     metadata: Metadata,
     deadline: Option<Deadline>,
+    one_response: bool,
     ctx: HostPtr,
 ) -> Result<ak_handle, Refusal> {
     channel.join()?;
@@ -46,6 +47,7 @@ pub(crate) fn start_on(
     options.metadata = metadata;
     options.deadline = deadline;
     options.read_gate = Some(Arc::clone(&turn) as _);
+    options.one_response = one_response;
 
     let (send, control, driver) = match channel.grpc.prepare_call(options) {
         Ok(prepared) => prepared,

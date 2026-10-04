@@ -368,7 +368,9 @@ change to the binding, which is the evidence that the halves are independent.
 is the streaming reader reduced to a single: one message, then a terminal, and anything else is
 a server that did not honour the cardinality.  There is no second read path to keep consistent
 with the first, which is what lets the model's `reader_state` cover all four rather than one.
-What differs between the cardinalities is what they send, not how they read.
+What differs between the cardinalities is what they send, not how they read.  Superseded on
+2026-10-04 by `call-shapes.md`'s step 3: a call that answers once is read by a single-pass
+reader of the same ring, which `DotNetBinding.tla` follows at that document's step 5.
 
 **Deliberately left, and why:**
 
@@ -1373,7 +1375,9 @@ channel's. Four items read differently from the plan:
   which the engine ends any wait with.
 - **A status the peer sends waits behind the gate too**, after the messages before it, as grpc-java
   and grpc-dotnet deliver it. Level 1 receives a status ungated; the engine is the stricter of the
-  two, decided on 2026-10-03, and tightening level 1 to match is left for later.
+  two, decided on 2026-10-03, and tightening level 1 to match is left for later. On a call that
+  declared one response, the status after the message takes the gate's turn and not the ceiling's
+  admission, decided on 2026-10-04 (`call-shapes.md`, decision 12).
 - **No lend is of zero bytes.** `ak_get_call_buffer` refuses a length of zero, and an empty message
   is sent by `ak_call_send_message` with no buffer.
 - **`memory_hard_ceiling` is checked against the threshold in force**, `memory_ceiling` or this

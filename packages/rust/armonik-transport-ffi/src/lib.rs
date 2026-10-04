@@ -378,6 +378,7 @@ pub unsafe extern "C" fn ak_call_start(
                 options.timeout_ns,
             ))
         });
+        let one_response = options.flags & AK_CALL_ONE_RESPONSE != 0;
 
         unsafe {
             hand_over(
@@ -388,6 +389,7 @@ pub unsafe extern "C" fn ak_call_start(
                     method,
                     metadata,
                     deadline,
+                    one_response,
                     HostPtr(call_ctx),
                 ),
             )

@@ -151,6 +151,162 @@ public class ReceiverTests
     }
   }
 
+  private static Receiver<EchoReply> Replies(int deliveryCredits)
+    => new(new EndingCall(),
+           deliveryCredits,
+           Marshallers.Create<EchoReply>(reply => reply.ToByteArray(),
+                                         EchoReply.Parser.ParseFrom));
+
+  /// <summary>An answer whose head, message and status come in one callback is read in one pass.</summary>
+  [Test]
+  public async Task ASingleResponseFromOneCallbackIsReadInOnePass()
+  {
+    var receiver = Replies(4);
+    var bytes    = new EchoReply
+                   {
+                     Text = "hi",
+                   }.ToByteArray();
+    var memory = Marshal.AllocHGlobal(bytes.Length);
+    try
+    {
+      Marshal.Copy(bytes,
+                   0,
+                   memory,
+                   bytes.Length);
+      var reading = receiver.SingleAsync();
+
+      receiver.Store(ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                     default,
+                     (int)ak_head_origin.AK_HEAD_RECEIVED);
+      receiver.Store(ak_event_kind.AK_EVENT_MESSAGE,
+                     Payload(memory,
+                             bytes.Length),
+                     0);
+      receiver.Store(ak_event_kind.AK_EVENT_STATUS,
+                     default,
+                     (int)StatusCode.OK);
+      receiver.Arrived();
+
+      Assert.That((await reading.ConfigureAwait(false)).Text,
+                  Is.EqualTo("hi"));
+      await receiver.Settled.ConfigureAwait(false);
+      Assert.That(await receiver.TerminalAsync.ConfigureAwait(false),
+                  Has.Property(nameof(Status.StatusCode))
+                     .EqualTo(StatusCode.OK));
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(memory);
+    }
+  }
+
+  /// <summary>Headers asked for while a single read waits for the terminal are answered by a head
+  /// that arrives alone, before the rest of the answer.</summary>
+  [Test]
+  public async Task HeadersAskedWhileASingleReadWaitsAreAnsweredByAHeadThatArrivesAlone()
+  {
+    var receiver = Replies(4);
+    var bytes    = new EchoReply
+                   {
+                     Text = "hi",
+                   }.ToByteArray();
+    var memory = Marshal.AllocHGlobal(bytes.Length);
+    try
+    {
+      Marshal.Copy(bytes,
+                   0,
+                   memory,
+                   bytes.Length);
+      var reading = receiver.SingleAsync();
+      var headers = receiver.ResponseHeadersAsync;
+
+      receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                       default,
+                       (int)ak_head_origin.AK_HEAD_RECEIVED);
+      Assert.That(await Task.WhenAny(headers,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false),
+                  Is.SameAs(headers),
+                  "the head answered the headers");
+      Assert.That(reading.IsCompleted,
+                  Is.False,
+                  "the read waits for the terminal");
+
+      receiver.Publish(ak_event_kind.AK_EVENT_MESSAGE,
+                       Payload(memory,
+                               bytes.Length),
+                       0);
+      receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
+                       default,
+                       (int)StatusCode.OK);
+      Assert.That((await reading.ConfigureAwait(false)).Text,
+                  Is.EqualTo("hi"));
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(memory);
+    }
+  }
+
+  /// <summary>With a window of one, the head fills it: the single read takes it, which lets the
+  /// engine send the message, and so on to the terminal.</summary>
+  [Test]
+  public async Task ASingleReadTakesWhatFillsTheWindowWithoutWaitingForTheTerminal()
+  {
+    var receiver = Replies(1);
+    var bytes    = new EchoReply
+                   {
+                     Text = "hi",
+                   }.ToByteArray();
+    var memory = Marshal.AllocHGlobal(bytes.Length);
+    try
+    {
+      Marshal.Copy(bytes,
+                   0,
+                   memory,
+                   bytes.Length);
+      var reading = receiver.SingleAsync();
+
+      foreach (var (kind, payload) in new[]
+                                      {
+                                        (ak_event_kind.AK_EVENT_INITIAL_METADATA, default(ak_bytes)),
+                                        (ak_event_kind.AK_EVENT_MESSAGE, Payload(memory,
+                                                                                 bytes.Length)),
+                                      })
+      {
+        receiver.Publish(kind,
+                         payload,
+                         0);
+        await WhenEmpty(receiver)
+          .ConfigureAwait(false);
+      }
+
+      receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
+                       default,
+                       (int)StatusCode.OK);
+      Assert.That((await reading.ConfigureAwait(false)).Text,
+                  Is.EqualTo("hi"));
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(memory);
+    }
+  }
+
+  /// <summary>Until the reader has given back what the ring held, as the engine waits for it to.</summary>
+  private static async Task WhenEmpty(Receiver<EchoReply> receiver)
+  {
+    var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+    while (!receiver.AllGivenBack)
+    {
+      Assert.That(DateTime.UtcNow,
+                  Is.LessThan(until),
+                  "the reader took what filled the window");
+      await Task.Delay(5)
+                .ConfigureAwait(false);
+    }
+  }
+
 #if DEBUG
   /// <remarks>
   ///   The interleaving held open: a read finds the ring empty, and before it waits a cancel ends

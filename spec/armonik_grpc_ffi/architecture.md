@@ -436,9 +436,12 @@ the ceiling admits a read - level 1's two conditions for `AdmitRead`. Waiting th
 still ended by what ends any of its waits - its deadline, its cancellation, its channel closing -
 as grpc-java and grpc-dotnet end a call whose reader is not reading. A status the peer sends is
 read where its messages are, behind the gate, as both deliver a status only after the messages
-before it: a held-back call learns how its peer ended it once there is room. Level 1 receives a
-status ungated; a call that waits there is the back-pressure the budget exists to apply, and the
-host ends it by giving back what it holds or by cancelling.
+before it: a held-back call learns how its peer ended it once there is room. On a call that
+declared one response, the status after the message takes the gate's turn alone, not the
+ceiling's admission: nothing but the status can follow, it takes no memory, and behind the
+admission it would wait for a message the host gives back only once the status is in. Level 1
+receives a status ungated; a call that waits there is the back-pressure the budget exists to
+apply, and the host ends it by giving back what it holds or by cancelling.
 
 **What a buffer charges against the budget** is the capacity of the allocation that backs it,
 not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
@@ -813,7 +816,8 @@ terminal.
 **Managed completions.** Three public objects must never be left pending: the headers
 (`ResponseHeadersAsync`), the status (`StatusTcs`), and the pending write above.
 
-The headers resolve when the prologue consumes slot 0; a dispose before the metadata
+The headers resolve when the head in slot 0 is consumed - by the prologue, which starts when a
+caller asks for the headers, or by the reader that takes it first; a dispose before the metadata
 faults them with an `RpcException` carrying `StatusCode.Cancelled`, the one exception
 type this binding uses for every cancelled path - see "What no level of the specification
 covers" in formal-model.md, where that decision is stated.
@@ -831,8 +835,9 @@ own discipline: a streaming call's status is settled once the response stream an
 trailers have been read, not when the response head arrives.
 
 The unary shapes are compositions of the same machine rather than a fourth object: the
-one-shot reads its single message through the reader and then its status through the
-terminal consumer above, so `Task<TResponse>` succeeds exactly when both did. A
+single-pass reader takes the message and the terminal in one turn of the ring and resolves
+the status as the terminal consumer above does, so `Task<TResponse>` succeeds exactly when
+both did. A
 settled call leaves no managed waiter - reader, writer, headers, status - and level 2
 states it (`DisposeLeavesNoManagedWaiter`).
 
@@ -1155,12 +1160,14 @@ deserializer that calls `PayloadAsNewBuffer()`, cannot: the binding copies once,
 managed direction, and everything else - the credits, the release order, the send window -
 is unchanged. Both paths must exist and be tested; only the first is zero-copy.
 
-Unary is not a special case. Its single response travels the same ring, and the
-`Task<TResponse>` is completed by a one-shot reader that parses and releases exactly as
-`MoveNext` does. Parsing the lone response on a side path would put a second consumer on
-the ring for one call shape out of five, which is the one thing the release order cannot
-survive. One path, one consumer, and the obligations below hold for every shape rather
-than for most of them.
+Unary is not a special case on the ring. Its single response travels the same ring, and the
+`Task<TResponse>` is completed by a single-pass reader: woken once the terminal is in the
+ring, the delivery window is full or the call is cancelled, it takes head, message and status
+in order, parses the message as `MoveNext` would, and gives every payload back with one
+`ak_events_consumed`. It is the call's one consumer, as `MoveNext` is a stream's; parsing the
+lone response on a side path would put a second consumer on the ring, which is the one thing
+the release order cannot survive. One path per call, one consumer, and the obligations below
+hold for every shape rather than for most of them.
 
 This is also what keeps `DeliveryCredits` meaningful. Because a payload is released only
 when the application has parsed it, the native side genuinely withholds the next message
@@ -1175,10 +1182,11 @@ rules make that hold, and they are the level-2 proof obligations:
 - **The ring index is the order.** `Tail` advances by one per release, and the slot it
   names is the payload the native counter is about to free. There is nothing to arrange:
   the order is the data structure, not a property of whoever drains it.
-- **One consumer at a time**, in three phases: the header prologue owns slot 0, then the
-  application while the call is live - the one-shot reader for the unary shapes - then
-  the drain after `Dispose`. Each hands over on completion, never concurrently; two
-  consumers would interleave releases and break the order with no way to detect it.
+- **One consumer at a time**, in three phases: the header prologue owns slot 0 when a
+  caller asks for the headers, then the application while the call is live - the
+  single-pass reader for the shapes that answer once - then the drain after `Dispose`.
+  Each hands over on completion, never concurrently; two consumers would interleave
+  releases and break the order with no way to detect it.
 - **`Dispose` drains in order, and that is all it does.** Disposing the call requests
   cancellation and hands the ring to the drain, which releases what is left from `tail`
   up. `CancellationCompletes` proves the terminal arrives without any further host
@@ -1204,8 +1212,8 @@ The 5 `CallInvoker` methods translate as follows:
 
 | CallInvoker method | Implementation |
 |--------------------|----------------|
-| `BlockingUnaryCall` | start + send + end_send + await the one-shot reader (blocks the thread) |
-| `AsyncUnaryCall` | start + send + end_send + return the one-shot reader's Task |
+| `BlockingUnaryCall` | start + send + end_send + await the single-pass reader (blocks the thread) |
+| `AsyncUnaryCall` | start + send + end_send + return the single-pass reader's Task |
 | `AsyncClientStreamingCall` | start + expose write stream + return Task<response> |
 | `AsyncServerStreamingCall` | start + send + end_send + expose read stream |
 | `AsyncDuplexStreamingCall` | start + expose write stream + expose read stream |

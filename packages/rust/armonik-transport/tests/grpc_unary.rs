@@ -125,6 +125,32 @@ impl ResponseSink for Recording {
     }
 }
 
+/// A call that declared one response ends INTERNAL at a second message, and the first is still
+/// delivered: the second never reaches the decoder, wherever the frames cut the two.
+#[tokio::test]
+async fn a_second_message_on_a_call_that_declared_one_ends_it_internal() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    for (sizes, expected) in [
+        ("3", GrpcStatusCode::Ok),
+        ("3,3", GrpcStatusCode::Internal),
+        ("0,0", GrpcStatusCode::Internal),
+    ] {
+        let mut options = CallStartOptions::new("/raw/Sized");
+        options
+            .metadata
+            .append_ascii("x-sizes", sizes)
+            .expect("valid metadata");
+        options.one_response = true;
+
+        let (_, messages, status) = unary(&channel, options, Bytes::from_static(b"x")).await;
+
+        assert_eq!(status.code, expected, "{sizes}: {status}");
+        assert_eq!(messages.len(), 1, "{sizes}: the first is delivered");
+    }
+}
+
 #[tokio::test]
 async fn an_empty_message_is_a_message_and_not_an_absence() {
     let (_, messages, status) = call_on(ECHO, Bytes::new()).await;

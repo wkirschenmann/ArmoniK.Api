@@ -63,12 +63,20 @@ pub enum Deadline {
 /// The engine waits on it before each message it reads, so a call it holds reads nothing and
 /// HTTP/2 flow control stops its peer, while the call's deadline, its cancellation and its
 /// channel closing still end it as they end any other wait. A status the peer sends after its
-/// messages is read in the same place, so it too waits for the gate.
+/// messages is read in the same place, so it too waits for the gate - for its turn alone on a
+/// call that declared one response, where nothing but the status can follow the message.
 pub trait ReadGate: std::fmt::Debug + Send + Sync {
     /// Completes once the call may read its next message. Asked once per read, from the first
     /// one after the response head, which is not gated; the future is dropped unfinished when the
     /// call ends first.
     fn admitted(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+
+    /// Completes once a call that declared one response may read what follows its message, which
+    /// can only be its status and so takes nothing the gate's admission accounts for. Asked
+    /// instead of `admitted` for that one read; a gate with no turn of its own admits it.
+    fn turn(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        self.admitted()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +89,10 @@ pub struct CallStartOptions {
     /// None reads as far ahead as the reader's queue lets it: a message off the stream while the
     /// one before waits there to be taken.
     pub read_gate: Option<Arc<dyn ReadGate>>,
+    /// The response is at most one message: a byte of a second one ends the call `INTERNAL`
+    /// before anything decodes it, and the read after the message asks the gate for its turn
+    /// alone.
+    pub one_response: bool,
 }
 
 impl CallStartOptions {
@@ -90,6 +102,7 @@ impl CallStartOptions {
             metadata: Metadata::new(),
             deadline: None,
             read_gate: None,
+            one_response: false,
         }
     }
 }
@@ -101,7 +114,9 @@ impl CallStartOptions {
 /// end. Between the head and the end it calls [`ResponseSink::flush`] whenever it has nothing more
 /// ready to read, so a sink may hold what it was given and hand it on together.
 pub trait ResponseSink: Send + 'static {
-    /// The peer's response head. An error ends the call with that status.
+    /// The peer's response head. An error ends the call with that status. The driver gives it
+    /// whatever the call's end says, so that a call with a head hands it on before its end; a sink
+    /// answers at once rather than wait.
     fn head(&mut self, head: ResponseHead) -> impl Future<Output = Result<(), GrpcStatus>> + Send;
 
     /// A message read off the stream. An error ends the call with that status.

@@ -102,7 +102,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                               string method,
                                               Metadata? metadata,
                                               Marshaller<TResponse> marshaller,
-                                              DateTime? deadline)
+                                              DateTime? deadline,
+                                              bool oneResponse)
   {
     // Encoded before the call exists: the encoding refuses a reserved key by throwing, and a call
     // built first would already hold the handle that roots it, with no terminal to free it.
@@ -110,6 +111,11 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                            static name => Encoding.UTF8.GetBytes(name));
     var metadataBytes = RawMetadata.Encode(metadata);
     var (flags, timeoutNs) = TimeoutOf(deadline);
+    if (oneResponse)
+    {
+      flags |= NativeMethods.AK_CALL_ONE_RESPONSE;
+    }
+
     var call = new NativeCall<TResponse>(deliveryCredits,
                                          marshaller);
 
@@ -165,9 +171,6 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     }
 
     call.ending_.Token.Register(call.EndNative);
-
-    // Not on the first read: what it resolves is what a caller may await instead of reading.
-    call.receiving_.StartPrologue();
     call.settling_ = call.SettlingAsync();
 
     return call;
@@ -275,15 +278,14 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   ///   of the RPC - a caller has nothing to handle, and one has something to fix.
   /// </exception>
   /// <remarks>
-  ///   There is no second read path: unary, client streaming and any other cardinality that
-  ///   answers once take the same reader as a server stream and reduce it to a single - one
-  ///   message, then a terminal, and anything else is a server that did not honour the
-  ///   cardinality. What differs between them is what they send, not how they read.
+  ///   Unary, client streaming and any other cardinality that answers once are read by the
+  ///   receiver's single-pass reader: one message, then a terminal, which the engine holds the
+  ///   server to. A stream is read by <c>MoveNext</c>, on the same ring.
   ///   <para>
-  ///     Whoever wants one message asks for it, because the reader is one and only the caller
-  ///     knows which shape it asked the server for. Two readers on one ring would race, so
-  ///     exactly one call to this is what a cardinality answering once owes; a stream owes none,
-  ///     and its holder reads the ring itself.
+  ///     Whoever wants one message asks for it, because only the caller knows which shape it
+  ///     asked the server for. Two readers on one ring would race, so exactly one call to this is
+  ///     what a cardinality answering once owes; a stream owes none, and its holder reads the ring
+  ///     itself.
   ///   </para>
   /// </remarks>
   internal Task<TResponse> SingleAsync()
@@ -308,31 +310,13 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     TResponse response;
     try
     {
-      // MoveNext rethrows a decode failure as it stands, because that is what a stream reader
-      // owes its caller. This surface owes the binding's one public rule instead: whatever went
-      // wrong, a caller of a single-response cardinality reads it as an RpcException.
+      // The reader rethrows a decode failure as it stands. This surface owes the binding's one
+      // public rule instead: whatever went wrong, a caller of a single-response cardinality reads
+      // it as an RpcException.
       try
       {
-      if (!await receiving_.MoveNext(CancellationToken.None)
-             .ConfigureAwait(false))
-      {
-        throw new RpcException(new Status(StatusCode.Internal,
-                                          "a unary call answered with no message"),
-                               receiving_.Trailers);
-      }
-
-      response = receiving_.Current;
-
-      if (await receiving_.MoveNext(CancellationToken.None)
-            .ConfigureAwait(false))
-      {
-        // The terminal is still unconsumed, so somebody has to collect it or the call never
-        // settles and the channel's drain waits on it for good.
-        receiving_.CancelAndDrain();
-        throw new RpcException(new Status(StatusCode.Internal,
-                                          "a unary call answered with more than one message"),
-                               receiving_.Trailers);
-      }
+        response = await receiving_.SingleAsync()
+                                   .ConfigureAwait(false);
       }
       catch (Exception thrown) when (thrown is not RpcException)
       {

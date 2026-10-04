@@ -150,6 +150,7 @@ impl GrpcChannel {
             messages,
             deadline,
             read_gate: options.read_gate,
+            one_response: options.one_response,
         };
         self.inner
             .spawner
@@ -175,6 +176,7 @@ impl GrpcChannel {
             messages,
             deadline,
             read_gate: options.read_gate,
+            one_response: options.one_response,
         };
         Ok((
             send,
@@ -406,11 +408,16 @@ impl Inner {
     /// A tonic client over this channel's session. One per call, and cheap: it holds the
     /// session's handle and its configuration, not a connection of its own - and the call's
     /// marker, which it sets once the peer's response is in.
-    pub(crate) fn client(self: &Arc<Self>, answered: Answered) -> tonic::client::Grpc<Http2> {
+    pub(crate) fn client(
+        self: &Arc<Self>,
+        answered: Answered,
+        one_response: bool,
+    ) -> tonic::client::Grpc<Http2> {
         tonic::client::Grpc::with_origin(
             Http2 {
                 inner: Arc::clone(self),
                 answered,
+                one_response,
             },
             self.endpoint.clone(),
         )
@@ -532,6 +539,7 @@ impl Inner {
 pub(crate) struct Http2 {
     inner: Arc<Inner>,
     answered: Answered,
+    one_response: bool,
 }
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
@@ -561,6 +569,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
     fn call(&mut self, mut request: http::Request<tonic::body::Body>) -> Self::Future {
         let inner = Arc::clone(&self.inner);
         let answered = self.answered.clone();
+        let one_response = self.one_response;
         let hold = Hold::new(&inner);
         Box::pin(async move {
             request
@@ -588,7 +597,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             refuse_what_is_not_grpc(&response)?;
             let response = refuse_a_message_behind_a_stated_status(response).await?;
 
-            Ok(response.map(|body| ResponseBody::new(body, hold)))
+            Ok(response.map(|body| ResponseBody::new(body, hold, one_response)))
         })
     }
 }
@@ -606,25 +615,36 @@ fn broke(error: hyper::Error) -> tonic::Status {
     worded(GrpcStatus::stream_broke(&error))
 }
 
-/// The response body as tonic's decoder reads it, with the one check tonic does not make.
+/// The response body as tonic's decoder reads it, with the checks tonic does not make.
 ///
 /// tonic takes trailers that arrive in the middle of a message for the end of the call and reports
 /// their status, so a message the peer cut short is dropped under an OK. This follows the length
 /// prefixes - each message's five-byte header, and how much of its body is still owed - without
-/// holding any of the bytes, and answers such trailers with INTERNAL.
+/// holding any of the bytes, and answers such trailers with INTERNAL. On a call that declared one
+/// response, it also passes up no byte of a second message: the frame that holds one is cut where
+/// the first ends, and INTERNAL follows, before tonic decodes the second or anything charges it.
 pub(crate) struct ResponseBody {
     inner: Incoming,
     framing: Framing,
+    one_response: bool,
+    /// The refusal of a second message, owed once the first's last bytes have gone up.
+    refused: Option<tonic::Status>,
     _hold: Hold,
 }
 
 impl ResponseBody {
-    fn new(inner: Incoming, hold: Hold) -> Self {
+    fn new(inner: Incoming, hold: Hold, one_response: bool) -> Self {
         Self {
             inner,
             framing: Framing::default(),
+            one_response,
+            refused: None,
             _hold: hold,
         }
+    }
+
+    fn second_message() -> tonic::Status {
+        tonic::Status::internal("the server sent more than one message on a call that answers once")
     }
 }
 
@@ -634,28 +654,48 @@ struct Framing {
     header: [u8; 5],
     header_read: usize,
     owed: usize,
+    /// Whole messages gone by.
+    messages: usize,
 }
 
 impl Framing {
-    fn follow(&mut self, mut data: &[u8]) {
-        while !data.is_empty() {
+    fn follow(&mut self, data: &[u8]) {
+        self.follow_up_to(data, usize::MAX);
+    }
+
+    /// Follows `data` until `limit` whole messages have gone by, and answers how many of its
+    /// bytes it took: fewer than all only when a byte of the next message follows.
+    fn follow_up_to(&mut self, data: &[u8], limit: usize) -> usize {
+        let mut at = 0;
+        while at < data.len() {
             if self.owed > 0 {
-                let taken = self.owed.min(data.len());
+                let taken = self.owed.min(data.len() - at);
                 self.owed -= taken;
-                data = &data[taken..];
+                at += taken;
+                if self.owed == 0 {
+                    self.messages += 1;
+                }
                 continue;
             }
+            if self.header_read == 0 && self.messages >= limit {
+                return at;
+            }
 
-            let taken = (self.header.len() - self.header_read).min(data.len());
-            self.header[self.header_read..self.header_read + taken].copy_from_slice(&data[..taken]);
+            let taken = (self.header.len() - self.header_read).min(data.len() - at);
+            self.header[self.header_read..self.header_read + taken]
+                .copy_from_slice(&data[at..at + taken]);
             self.header_read += taken;
-            data = &data[taken..];
+            at += taken;
             if self.header_read == self.header.len() {
                 let [_, length @ ..] = self.header;
                 self.owed = u32::from_be_bytes(length) as usize;
                 self.header_read = 0;
+                if self.owed == 0 {
+                    self.messages += 1;
+                }
             }
         }
+        at
     }
 
     fn between_messages(&self) -> bool {
@@ -672,6 +712,9 @@ impl Body for ResponseBody {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let this = self.get_mut();
+        if let Some(refused) = this.refused.take() {
+            return Poll::Ready(Some(Err(refused)));
+        }
         let frame = match ready!(Pin::new(&mut this.inner).poll_frame(cx)) {
             None => return Poll::Ready(None),
             Some(Err(error)) => return Poll::Ready(Some(Err(broke(error)))),
@@ -680,11 +723,27 @@ impl Body for ResponseBody {
 
         let mut trailers = match frame.into_trailers() {
             Ok(trailers) => trailers,
-            Err(frame) => {
+            Err(frame) if !this.one_response => {
                 if let Some(data) = frame.data_ref() {
                     this.framing.follow(data);
                 }
                 return Poll::Ready(Some(Ok(frame)));
+            }
+            Err(frame) => {
+                let mut data = match frame.into_data() {
+                    Ok(data) => data,
+                    Err(frame) => return Poll::Ready(Some(Ok(frame))),
+                };
+                let taken = this.framing.follow_up_to(&data, 1);
+                if taken == data.len() {
+                    return Poll::Ready(Some(Ok(Frame::data(data))));
+                }
+                if taken == 0 {
+                    return Poll::Ready(Some(Err(Self::second_message())));
+                }
+                data.truncate(taken);
+                this.refused = Some(Self::second_message());
+                return Poll::Ready(Some(Ok(Frame::data(data))));
             }
         };
 
@@ -923,6 +982,27 @@ mod tests {
 
         framing.follow(&[0, 0, 0, 0, 4, b'y']);
         assert!(!framing.between_messages(), "three bytes owed");
+    }
+
+    /// One message allowed: the bytes up to its end are taken, the next header's first byte is not,
+    /// wherever the frames cut them.
+    #[test]
+    fn framing_stops_where_the_one_message_allowed_ends() {
+        let mut framing = Framing::default();
+        assert_eq!(framing.follow_up_to(&[0, 0, 0, 0, 2, b'a'], 1), 6);
+        assert_eq!(
+            framing.follow_up_to(&[b'b', 0, 0], 1),
+            1,
+            "the second's header"
+        );
+        assert_eq!(framing.follow_up_to(&[0], 1), 0, "nothing more is taken");
+
+        let mut empty = Framing::default();
+        assert_eq!(
+            empty.follow_up_to(&[0, 0, 0, 0, 0, 0], 1),
+            5,
+            "an empty message is whole at its header"
+        );
     }
 
     #[test]

@@ -296,20 +296,43 @@ pub fn try_start_call(channel: ak_handle, method: &str, metadata: &[u8]) -> (ak_
     try_start_call_within(channel, method, metadata, None)
 }
 
+/// A call started with `flags` and no deadline.
+pub fn start_call_flagged(
+    channel: ak_handle,
+    method: &str,
+    metadata: &[u8],
+    flags: u32,
+) -> ak_handle {
+    let (status, call) = try_start_call_with(channel, method, metadata, None, flags);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    call
+}
+
 fn try_start_call_within(
     channel: ak_handle,
     method: &str,
     metadata: &[u8],
     timeout: Option<Duration>,
 ) -> (ak_status, ak_handle) {
+    try_start_call_with(channel, method, metadata, timeout, 0)
+}
+
+fn try_start_call_with(
+    channel: ak_handle,
+    method: &str,
+    metadata: &[u8],
+    timeout: Option<Duration>,
+    flags: u32,
+) -> (ak_status, ak_handle) {
     let options = ak_call_start_options {
         struct_size: std::mem::size_of::<ak_call_start_options>() as u32,
         version: 0,
-        flags: if timeout.is_some() {
-            AK_CALL_HAS_DEADLINE
-        } else {
-            0
-        },
+        flags: flags
+            | if timeout.is_some() {
+                AK_CALL_HAS_DEADLINE
+            } else {
+                0
+            },
         reserved: 0,
         method: ak_bytes_in {
             ptr: method.as_ptr(),

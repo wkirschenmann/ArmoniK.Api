@@ -71,6 +71,7 @@ pub(crate) struct Outgoing {
     pub(crate) messages: RequestMessages,
     pub(crate) deadline: Option<Instant>,
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
+    pub(crate) one_response: bool,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
@@ -285,6 +286,7 @@ async fn run<S: ResponseSink>(
         messages,
         deadline,
         read_gate,
+        one_response,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -315,6 +317,7 @@ async fn run<S: ResponseSink>(
             replay.attempt(),
             deadline,
             read_gate.as_deref(),
+            one_response,
             &replay,
             stop,
             responding,
@@ -407,6 +410,7 @@ async fn attempt<S: ResponseSink>(
     messages: AttemptMessages,
     deadline: Option<Instant>,
     read_gate: Option<&dyn ReadGate>,
+    one_response: bool,
     replay: &Replay,
     stop: &mut Stop,
     responding: &mut Responding<S>,
@@ -427,7 +431,7 @@ async fn attempt<S: ResponseSink>(
 
     // Each attempt's own: whether a response came is the last attempt's to say.
     responding.answered = Answered::default();
-    let mut client = inner.client(responding.answered.clone());
+    let mut client = inner.client(responding.answered.clone(), one_response);
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {
@@ -460,7 +464,16 @@ async fn attempt<S: ResponseSink>(
     // Given whatever the stop says: once a call has a head, the caller hears it before the end.
     let status = match responding.sink.head(head).await {
         Err(status) => status,
-        Ok(()) => finish(stop, &mut responding.sink, read_gate, &mut body).await,
+        Ok(()) => {
+            finish(
+                stop,
+                &mut responding.sink,
+                read_gate,
+                one_response,
+                &mut body,
+            )
+            .await
+        }
     };
     Ended::with(status, Pushback::Unsaid)
 }
@@ -479,11 +492,14 @@ async fn finish<S: ResponseSink>(
     stop: &mut Stop,
     sink: &mut S,
     read_gate: Option<&dyn ReadGate>,
+    one_response: bool,
     body: &mut tonic::Streaming<Bytes>,
 ) -> GrpcStatus {
+    let mut message_read = false;
     loop {
+        let turn_only = one_response && message_read;
         let read = {
-            let mut next = pin!(until_stopped(stop, read_next(read_gate, body)));
+            let mut next = pin!(until_stopped(stop, read_next(read_gate, turn_only, body)));
             match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
                 Poll::Ready(read) => read,
                 Poll::Pending => {
@@ -497,6 +513,7 @@ async fn finish<S: ResponseSink>(
             Some(Read::End(status)) => return status,
             Some(Read::Message(message)) => message,
         };
+        message_read = true;
         match until_stopped(stop, sink.message(message)).await {
             None => return GrpcStatus::cancelled(),
             Some(Err(status)) => return status,
@@ -505,11 +522,19 @@ async fn finish<S: ResponseSink>(
     }
 }
 
-async fn read_next(read_gate: Option<&dyn ReadGate>, body: &mut tonic::Streaming<Bytes>) -> Read {
+async fn read_next(
+    read_gate: Option<&dyn ReadGate>,
+    turn_only: bool,
+    body: &mut tonic::Streaming<Bytes>,
+) -> Read {
     // Before the read, not after the message: a call the gate holds pulls nothing off the stream,
     // so flow control holds its peer and nothing is decoded that the gate refused.
     if let Some(gate) = read_gate {
-        gate.admitted().await;
+        if turn_only {
+            gate.turn().await;
+        } else {
+            gate.admitted().await;
+        }
     }
     match body.message().await {
         Err(status) => Read::End(GrpcStatus::from(past_the_limit(status))),

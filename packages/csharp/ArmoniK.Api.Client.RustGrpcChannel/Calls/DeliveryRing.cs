@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -93,6 +94,25 @@ internal sealed class DeliveryRing
   internal bool IsEmpty
     => Volatile.Read(ref head_) == tail_;
 
+  /// <summary>How many events the consumer has not given back.</summary>
+  internal int Count
+    => (int)(Volatile.Read(ref head_) - tail_);
+
+  /// <summary>Whether the call's terminal is in the queue, which is then its last event.</summary>
+  internal bool HoldsTerminal
+  {
+    get
+    {
+      var head = Volatile.Read(ref head_);
+      return head != tail_ && slots_[(int)((head - 1) & mask_)].Kind == ak_event_kind.AK_EVENT_STATUS;
+    }
+  }
+
+  /// <summary>The slot <paramref name="index" /> places behind the tail, which stays the
+  /// consumer's until <see cref="ReleaseMany" />.</summary>
+  internal Slot PeekAt(int index)
+    => slots_[(int)((tail_ + index) & mask_)];
+
   /// <summary>The slot the consumer owns next, which stays here until <see cref="Release" />.</summary>
   internal bool TryPeek(out Slot slot)
   {
@@ -120,8 +140,9 @@ internal sealed class DeliveryRing
   }
 
   /// <summary>Gives the peeked payload back to the engine and moves past it.</summary>
-  /// <remarks>Where every payload the queue accepted is returned, and the only place: the release
-  /// is FIFO by ABI rule, so the tail is what says which one is owed. The trampoline returns the
+  /// <remarks>This and <see cref="ReleaseMany" /> are where every payload the queue accepted is
+  /// returned, and the only places: the release is FIFO by ABI rule, so the tail is what says which
+  /// one is owed. The trampoline returns the
   /// ones no queue took, and that is the other half of the same rule. The tail is not volatile -
   /// one consumer advances it, and what orders it against a reader observing a new phase is the
   /// phase's own publication.</remarks>
@@ -129,6 +150,28 @@ internal sealed class DeliveryRing
   {
     NativeMethods.ak_event_consumed(slots_[(int)(tail_ & mask_)].Payload);
     tail_++;
+  }
+
+  /// <summary>Gives back the <paramref name="count" /> payloads at the tail, oldest first, in as
+  /// few downcalls as fit on the stack, and moves past them.</summary>
+  internal unsafe void ReleaseMany(int count)
+  {
+    const int atOnce = 16;
+    var payloads = stackalloc ak_bytes[atOnce];
+    while (count > 0)
+    {
+      var batch = Math.Min(count,
+                           atOnce);
+      for (var at = 0; at < batch; at++)
+      {
+        payloads[at] = slots_[(int)((tail_ + at) & mask_)].Payload;
+      }
+
+      NativeMethods.ak_events_consumed(payloads,
+                                       (nuint)batch);
+      tail_ += batch;
+      count -= batch;
+    }
   }
 
   /// <summary>A wait for the next arrival, taken before looking at the queue.</summary>

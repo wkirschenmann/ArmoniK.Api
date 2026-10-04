@@ -335,6 +335,7 @@ pub struct CallStartOptions {
     pub method: String,             // e.g.: "/armonik.api.grpc.v1.Sessions/CreateSession"
     pub metadata: Metadata,         // request metadata -> HTTP/2 headers
     pub deadline: Option<Deadline>, // replaces the channel default; sent as grpc-timeout
+    pub one_response: bool,         // the response is at most one message
     /// Reserved post-V1: override of the retry policy for this call.
     /// In V1, must be None - the channel default applies.
     pub reserved_retry: Option<RetryConfig>,
@@ -347,10 +348,11 @@ pub enum Deadline {
 }
 ```
 
-Note: the cardinality is not declared at start. It is implicit in the call usage (a unary does
-send_message + end_send + next_message + status; a server streaming does send_message +
-end_send + next_message in a loop). The channel does not need to know it to drive the HTTP/2
-connection.
+Note: a call may declare at start that its response is at most one message, and the engine
+then refuses a second and reads the status past the runtime's first threshold. Otherwise the
+cardinality is implicit in the call usage (a unary does send_message + end_send + next_message +
+status; a server streaming does send_message + end_send + next_message in a loop). The channel
+does not need to know it to drive the HTTP/2 connection.
 
 ### Retry — commitment point
 

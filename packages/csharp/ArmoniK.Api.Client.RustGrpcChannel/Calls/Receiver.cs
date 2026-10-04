@@ -36,6 +36,7 @@ internal sealed class Receiver<TResponse>
   private readonly ICallState call_;
   private readonly DeliveryRing delivered_;
   private readonly Marshaller<TResponse> marshaller_;
+  private readonly int credits_;
 
   private readonly TaskCompletionSource<Metadata> headers_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -55,11 +56,19 @@ internal sealed class Receiver<TResponse>
   {
     call_       = call;
     marshaller_ = marshaller;
+    credits_    = deliveryCredits;
     delivered_  = new DeliveryRing(deliveryCredits);
   }
 
+  /// <summary>The response headers, which starts the task that answers them.</summary>
   internal Task<Metadata> ResponseHeadersAsync
-    => headers_.Task;
+  {
+    get
+    {
+      StartPrologue();
+      return headers_.Task;
+    }
+  }
 
   internal Task<Status> TerminalAsync
     => terminal_.Task;
@@ -67,15 +76,53 @@ internal sealed class Receiver<TResponse>
   internal Metadata Trailers
     => trailers_;
 
-  /// <summary>Starts consuming the initial metadata, on no read's behalf.</summary>
+  /// <summary>Starts consuming the initial metadata, on no read's behalf, once: when a caller
+  /// asks for the headers and nothing has taken the head yet.</summary>
+  /// <remarks>Only from <c>Idle</c>, which is the phase a reader waiting for a single response
+  /// leaves the ring in, so a head that arrives alone answers the headers at once. With a read in
+  /// flight, the read takes the head, and with the head taken, the headers are answered.</remarks>
   internal void StartPrologue()
-    => prologue_ = PrologueAsync();
+  {
+    if (Interlocked.Exchange(ref prologueAsked_,
+                             1) != 0)
+    {
+      return;
+    }
 
-  /// <summary>The prologue, once it has let go of the queue.</summary>
-  /// <remarks>Completed rather than null when there is none, so a settlement has one thing to
-  /// await instead of a test to make.</remarks>
+    // Before the phase: a reader that sees `Prologue` then waits on the task that ends it.
+    Volatile.Write(ref prologueStarted_,
+                   true);
+    var seen = Volatile.Read(ref reading_);
+    if (seen.Phase != Phase.Idle || Volatile.Read(ref headTaken_) != 0 || Interlocked.CompareExchange(ref reading_,
+                                                                                                      new Reading(Phase.Prologue,
+                                                                                                                  null),
+                                                                                                      seen) != seen)
+    {
+      prologueEnded_.TrySetResult(true);
+      return;
+    }
+
+    _ = RunPrologueAsync();
+  }
+
+  private async Task RunPrologueAsync()
+  {
+    try
+    {
+      await PrologueAsync()
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      prologueEnded_.TrySetResult(true);
+    }
+  }
+
+  /// <summary>The prologue, once it has let go of the queue; completed when there is none.</summary>
   internal Task PrologueFinished
-    => prologue_ ?? Task.CompletedTask;
+    => Volatile.Read(ref prologueStarted_)
+         ? prologueEnded_.Task
+         : Task.CompletedTask;
 
   /// <summary>Takes an event without waking the reader, which <see cref="Arrived" /> does once a
   /// callback has stored all it carries, and answers whether returning its payload is now this
@@ -92,6 +139,11 @@ internal sealed class Receiver<TResponse>
 
   internal void Arrived()
     => delivered_.Arrived();
+
+  /// <summary>Whether every event stored has been given back: what the engine's delivery window
+  /// waits for, read by the tests that play the engine.</summary>
+  internal bool AllGivenBack
+    => delivered_.IsEmpty;
 
   private void FailHead(RpcException reason)
   {
@@ -144,7 +196,7 @@ internal sealed class Receiver<TResponse>
     internal ReadOp? Op { get; }
   }
 
-  private Reading reading_ = new(Phase.Prologue,
+  private Reading reading_ = new(Phase.Idle,
                                  null);
 
   /// <summary>A drain is owed, and takes the ring as soon as no read holds a slot.</summary>
@@ -153,8 +205,14 @@ internal sealed class Receiver<TResponse>
   private readonly TaskCompletionSource<bool> settled_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-  /// <summary>The prologue, kept so its completion is owned rather than dropped.</summary>
-  private Task? prologue_;
+  private int prologueAsked_;
+  private bool prologueStarted_;
+
+  private readonly TaskCompletionSource<bool> prologueEnded_ =
+    new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+  /// <summary>1 once a consumer of the ring has taken the head.</summary>
+  private int headTaken_;
 
   /// <summary>What a read finds when it reaches for the tail.</summary>
   /// <remarks>An empty ring is not a lost race, and a bool cannot say so: nothing published yet
@@ -438,6 +496,134 @@ internal sealed class Receiver<TResponse>
     return true;
   }
 
+  /// <summary>The one response of a call that declared it, read in as few passes as the events
+  /// allow: once the terminal is in, or once the delivery window is full and the engine waits for
+  /// the host, the reader takes every event the ring holds and gives their payloads back in one
+  /// downcall.</summary>
+  /// <remarks>
+  ///   It waits outside the reader's phases, so a caller asking for the headers meanwhile starts
+  ///   the prologue and is answered by a head that arrives alone; a cancellation hands the ring
+  ///   to the drain and wakes it, and it ends with the call's cancellation. Unary and client
+  ///   streaming are read this way; a stream is read by <see cref="MoveNext" />.
+  /// </remarks>
+  internal async Task<TResponse> SingleAsync()
+  {
+    TResponse? message  = null;
+    var        messages = 0;
+    Exception? failure  = null;
+    while (true)
+    {
+      var arrival = delivered_.NextArrival();
+      var seen    = Volatile.Read(ref reading_);
+      switch (seen.Phase)
+      {
+        case Phase.Finished:
+          // Only the drain finishes a call this reader has not read: what it ended with is the
+          // answer, and an OK one came without the message the drain discarded.
+          Answered();
+          throw Cancelled();
+        case Phase.Draining:
+          throw Cancelled();
+        case Phase.Waiting:
+        case Phase.Parsing:
+          throw new InvalidOperationException("a read is already in flight on this call");
+        case Phase.Prologue:
+          await PrologueEndsOr(CancellationToken.None)
+            .ConfigureAwait(false);
+          continue;
+      }
+
+      if (!delivered_.HoldsTerminal && delivered_.Count < credits_)
+      {
+        await arrival.ConfigureAwait(false);
+        continue;
+      }
+
+      if (Interlocked.CompareExchange(ref reading_,
+                                      new Reading(Phase.Parsing,
+                                                  new ReadOp(this)),
+                                      seen) != seen)
+      {
+        continue;
+      }
+
+      // TLA: BeginParseEvent, then one FinishConsumePayload per event taken
+      var     count = delivered_.Count;
+      Status? end   = null;
+      try
+      {
+        for (var at = 0; at < count; at++)
+        {
+          var slot = delivered_.PeekAt(at);
+          switch (slot.Kind)
+          {
+            case ak_event_kind.AK_EVENT_STATUS:
+              end = StatusOrUnreadable(slot);
+              break;
+            case ak_event_kind.AK_EVENT_INITIAL_METADATA:
+              TakeHeadOrFailHeaders(slot);
+              break;
+            default:
+              messages++;
+              if (messages == 1)
+              {
+                try
+                {
+                  message = marshaller_.ContextualDeserializer(new ReceivedMessage(slot.Payload));
+                }
+                catch (Exception thrown)
+                {
+                  failure = thrown;
+                }
+              }
+
+              break;
+          }
+        }
+      }
+      finally
+      {
+        if (end is not null)
+        {
+          Resolve(end.Value);
+        }
+
+        delivered_.ReleaseMany(count);
+        PublishIdleOrFinished(end is not null);
+      }
+
+      if (end is null)
+      {
+        continue;
+      }
+
+      if (end.Value.StatusCode != StatusCode.OK)
+      {
+        throw new RpcException(end.Value,
+                               trailers_);
+      }
+
+      if (failure is not null)
+      {
+        ExceptionDispatchInfo.Capture(failure)
+                             .Throw();
+      }
+
+      return messages switch
+             {
+               0 => throw new RpcException(new Status(StatusCode.Internal,
+                                                      "a unary call answered with no message"),
+                                           trailers_),
+               1 => message!,
+               // The engine ends such a call INTERNAL at the second message's first byte; a
+               // second one here would be an engine that did not.
+               _ => throw new RpcException(new Status(StatusCode.Internal,
+                                                      "a unary call answered with more than one message"),
+                                           trailers_),
+             };
+    }
+  }
+
   /// <summary>Moves the reader from waiting to parsing, which is what takes the slot.</summary>
   private Claim TryBeginParse(ReadOp op,
                               out DeliveryRing.Slot slot)
@@ -651,6 +837,38 @@ internal sealed class Receiver<TResponse>
     }
   }
 
+  /// <summary>The terminal's status, or the one an undecodable terminal reports, which fails the
+  /// headers it would have answered.</summary>
+  private Status StatusOrUnreadable(in DeliveryRing.Slot slot)
+  {
+    try
+    {
+      return DecodedStatus(slot);
+    }
+    catch (Exception thrown)
+    {
+      var unreadable = Unreadable(thrown);
+      FailHead(new RpcException(unreadable));
+      return unreadable;
+    }
+  }
+
+  /// <summary>Takes the head, or fails the headers with why it could not be read: the rest of the
+  /// response is still the reader's.</summary>
+  private void TakeHeadOrFailHeaders(in DeliveryRing.Slot slot)
+  {
+    try
+    {
+      TakeHead(slot);
+    }
+    catch (Exception thrown)
+    {
+      FailHead(new RpcException(new Status(StatusCode.Internal,
+                                           "the response metadata could not be read",
+                                           thrown)));
+    }
+  }
+
   /// <summary>The status a terminal nobody could decode reports, wherever it was consumed.</summary>
   /// <remarks>A terminal always yields one: after the slot is released the trailers are gone, so
   /// a call left without a status would keep every later read, the drain and the settlement
@@ -681,6 +899,8 @@ internal sealed class Receiver<TResponse>
   /// promises a host that ignores the field.</remarks>
   private void TakeHead(in DeliveryRing.Slot head)
   {
+    Volatile.Write(ref headTaken_,
+                   1);
     var origin = (ak_head_origin)head.Status;
     headOrigin_ = origin is ak_head_origin.AK_HEAD_TRAILERS_ONLY or ak_head_origin.AK_HEAD_NO_RESPONSE
                     ? origin
@@ -812,18 +1032,9 @@ internal sealed class Receiver<TResponse>
         return;
       }
 
-      try
-      {
-        TakeHead(slot);
-      }
-      catch (Exception thrown)
-      {
-        // The caller hears it from the headers, and the reader still gets the rest of the
-        // response.
-        FailHead(new RpcException(new Status(StatusCode.Internal,
-                                             "the response metadata could not be read",
-                                             thrown)));
-      }
+      // The caller hears a head that will not decode from the headers, and the reader still
+      // gets the rest of the response.
+      TakeHeadOrFailHeaders(slot);
 
       if (headOrigin_ != ak_head_origin.AK_HEAD_RECEIVED)
       {

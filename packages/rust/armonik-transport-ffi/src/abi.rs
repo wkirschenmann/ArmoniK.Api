@@ -319,7 +319,8 @@ pub struct ak_call_start_options {
     pub struct_size: u32,
     /// Zero, the one revision of this record there is.
     pub version: u32,
-    /// AK_CALL_HAS_DEADLINE, or zero. Any other flag is refused rather than ignored.
+    /// AK_CALL_HAS_DEADLINE and AK_CALL_ONE_RESPONSE, either, both or neither. Any other flag is
+    /// refused rather than ignored.
     pub flags: u32,
     /// Zero.
     pub reserved: u32,
@@ -337,6 +338,13 @@ pub struct ak_call_start_options {
 
 /// In ak_call_start_options.flags: timeout_ns states the call's deadline.
 pub const AK_CALL_HAS_DEADLINE: u32 = 1;
+
+/// In ak_call_start_options.flags: the response is at most one message, as on a unary or a
+/// client-streaming method. A server that sends a second one ends the call with the gRPC status
+/// INTERNAL, and the second is neither delivered nor charged to the runtime's memory. The status
+/// that follows the message is read whatever the runtime's first memory threshold says, so a host
+/// may hold the message until the status is in.
+pub const AK_CALL_ONE_RESPONSE: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -421,7 +429,7 @@ unsafe impl Record for ak_runtime_config {
 // SAFETY: integers, and views whose null pointer and zero length are an empty slice.
 unsafe impl Record for ak_call_start_options {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, timeout_ns);
-    const FLAGS: u32 = AK_CALL_HAS_DEADLINE;
+    const FLAGS: u32 = AK_CALL_HAS_DEADLINE | AK_CALL_ONE_RESPONSE;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[(
         AK_CALL_HAS_DEADLINE,
         std::mem::offset_of!(Self, timeout_ns) + std::mem::size_of::<u64>(),

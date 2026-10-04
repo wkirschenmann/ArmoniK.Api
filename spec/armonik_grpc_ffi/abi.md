@@ -155,6 +155,12 @@ default applies. The field is relative - the nanoseconds from `ak_call_start` - 
 of the host's clock means nothing in the library's, and zero is a deadline already passed rather
 than none, which is what the flag is for.
 
+`AK_CALL_ONE_RESPONSE` declares that the response is at most one message, as on a unary or a
+client-streaming method. A second one ends the call `INTERNAL` before anything decodes it or the
+runtime is charged for it, and the status after the message is read past the runtime's first
+memory threshold: a host may hold the message until the status is in, as the .NET binding's reader
+does.
+
 A record this library fills, `ak_error` among them, has a fixed layout instead: `ak_abi_version()`
 is the agreement, and the two sides agree at load time or they do not run.
 

@@ -8,7 +8,7 @@ mod support;
 use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
-use support::host::{lend, memory_usage, start_call, start_call_within, Host};
+use support::host::{lend, memory_usage, start_call, start_call_flagged, start_call_within, Host};
 use support::{blob, empty_buffer, TestServer, ECHO, SLOW};
 
 /// Answers with the messages `x-sizes` lists, so a response can outweigh its request.
@@ -65,6 +65,32 @@ fn a_received_message_counts_against_the_ceiling_until_it_is_consumed() {
     host.recorder.consume_all();
     assert_eq!(memory_usage(host.runtime).bytes_used, 0);
 
+    ak_channel_release(channel);
+    host.stop();
+}
+
+/// A one-response call whose message takes the count to the first threshold still gets its status
+/// while the host holds the message: its status is read without the admission, which would wait
+/// for the message to come back - and a host that gives it back with the status never would.
+#[test]
+fn a_one_response_message_at_the_threshold_still_gets_its_status() {
+    let server = TestServer::start();
+    let host = Host::with_ceiling(64);
+    host.recorder.hold_payloads();
+    let channel = host.channel_with(&server.endpoint, CREDITS);
+
+    start_call_flagged(channel, SIZED, &sized("64"), AK_CALL_ONE_RESPONSE);
+    let seen = host.recorder.await_terminal();
+
+    assert_eq!(seen.status_code(), Some(0), "{}", seen.status_message());
+    assert_eq!(seen.message_payloads().len(), 1);
+    assert_eq!(
+        memory_usage(host.runtime).bytes_used,
+        64,
+        "the message the host holds"
+    );
+
+    host.recorder.consume_all();
     ak_channel_release(channel);
     host.stop();
 }

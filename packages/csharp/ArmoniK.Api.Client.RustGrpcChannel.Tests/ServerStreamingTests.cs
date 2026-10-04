@@ -102,6 +102,8 @@ public class ServerStreamingTests : EchoServerFixture
              {
                Text = "one,two",
              });
+      // The prologue runs once the headers are asked for.
+      var headers = call.ResponseHeadersAsync;
 
       Assert.That(await reached.WaitAsync(TimeSpan.FromSeconds(10))
                                .ConfigureAwait(false),
@@ -124,6 +126,8 @@ public class ServerStreamingTests : EchoServerFixture
                   "the read and the prologue each wait for the other");
       Assert.That(await reading.ConfigureAwait(false),
                   Is.True);
+      Assert.That(await headers.ConfigureAwait(false),
+                  Is.Not.Null);
     }
     finally
     {
