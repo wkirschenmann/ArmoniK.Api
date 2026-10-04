@@ -23,8 +23,12 @@
 #nullable enable
 
 using System;
+using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+
+using Microsoft.Extensions.Configuration;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
@@ -208,6 +212,76 @@ public sealed class ChannelOptions
     Transport?.Validate();
   }
 
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static ChannelOptions Bind(IConfigurationSection section)
+  {
+    var bound = new ChannelOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "ConnectEagerly"))
+      {
+        bound.ConnectEagerly = ChannelOptionsConfiguration.Boolean(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DefaultDeadlineSeconds"))
+      {
+        bound.DefaultDeadlineSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DeliveryCoalescingBytes"))
+      {
+        bound.DeliveryCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DeliveryCredits"))
+      {
+        bound.DeliveryCredits = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Http2"))
+      {
+        bound.Http2 = ChannelOptionsConfiguration.Holds(entry) ? Http2Options.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxReceiveMessageSize"))
+      {
+        bound.MaxReceiveMessageSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxSendsInFlight"))
+      {
+        bound.MaxSendsInFlight = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Retry"))
+      {
+        bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Transport"))
+      {
+        bound.Transport = ChannelOptionsConfiguration.Holds(entry) ? TransportOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "UserAgent"))
+      {
+        bound.UserAgent = ChannelOptionsConfiguration.Text(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "ChannelOptions");
+      }
+    }
+
+    return bound;
+  }
+
   /// <summary>The document the engine reads, as UTF-8.</summary>
   /// <returns>The options as JSON, without the ones left unset.</returns>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its bounds.</exception>
@@ -353,6 +427,61 @@ public sealed class Http2Options
                                             "WriteCoalescingBytes has to be at least 0.");
     }
   }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static Http2Options Bind(IConfigurationSection section)
+  {
+    var bound = new Http2Options();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "ConnectionWindowSize"))
+      {
+        bound.ConnectionWindowSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "IdleTimeoutSeconds"))
+      {
+        bound.IdleTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "KeepAliveIntervalSeconds"))
+      {
+        bound.KeepAliveIntervalSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "KeepAliveTimeoutSeconds"))
+      {
+        bound.KeepAliveTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "KeepAliveWhileIdle"))
+      {
+        bound.KeepAliveWhileIdle = ChannelOptionsConfiguration.Boolean(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "StreamWindowSize"))
+      {
+        bound.StreamWindowSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "WriteCoalescingBytes"))
+      {
+        bound.WriteCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "Http2Options");
+      }
+    }
+
+    return bound;
+  }
 }
 
 /// <summary>
@@ -474,6 +603,56 @@ public sealed class RetryOptions
                                             "MaxBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
   }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static RetryOptions Bind(IConfigurationSection section)
+  {
+    var bound = new RetryOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "BackoffMultiplier"))
+      {
+        bound.BackoffMultiplier = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CallReplayBytes"))
+      {
+        bound.CallReplayBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "ChannelReplayBytes"))
+      {
+        bound.ChannelReplayBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "InitialBackoffSeconds"))
+      {
+        bound.InitialBackoffSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxAttempts"))
+      {
+        bound.MaxAttempts = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxBackoffSeconds"))
+      {
+        bound.MaxBackoffSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "RetryOptions");
+      }
+    }
+
+    return bound;
+  }
 }
 
 /// <summary>What the transport does, beyond reaching the endpoint it was given.</summary>
@@ -555,6 +734,46 @@ public sealed class TransportOptions
     Proxy?.Validate();
     TcpKeepalive?.Validate();
     Tls?.Validate();
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static TransportOptions Bind(IConfigurationSection section)
+  {
+    var bound = new TransportOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "ConnectTimeoutSeconds"))
+      {
+        bound.ConnectTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Proxy"))
+      {
+        bound.Proxy = ChannelOptionsConfiguration.Holds(entry) ? ProxyOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "TcpKeepalive"))
+      {
+        bound.TcpKeepalive = ChannelOptionsConfiguration.Holds(entry) ? TcpKeepaliveOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Tls"))
+      {
+        bound.Tls = ChannelOptionsConfiguration.Holds(entry) ? TlsOptions.Bind(entry) : null;
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "TransportOptions");
+      }
+    }
+
+    return bound;
   }
 }
 
@@ -640,6 +859,41 @@ public sealed class ProxyOptions
                                             "Address has to be at least 1 character long.");
     }
   }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static ProxyOptions Bind(IConfigurationSection section)
+  {
+    var bound = new ProxyOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "Address"))
+      {
+        bound.Address = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Password"))
+      {
+        bound.Password = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Username"))
+      {
+        bound.Username = ChannelOptionsConfiguration.Text(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "ProxyOptions");
+      }
+    }
+
+    return bound;
+  }
 }
 
 /// <summary>The socket's keepalive, off unless <c>IdleSeconds</c> is set.</summary>
@@ -713,6 +967,41 @@ public sealed class TcpKeepaliveOptions
                                             retries,
                                             "Retries has to be at least 1 and at most 127.");
     }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static TcpKeepaliveOptions Bind(IConfigurationSection section)
+  {
+    var bound = new TcpKeepaliveOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "IdleSeconds"))
+      {
+        bound.IdleSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "IntervalSeconds"))
+      {
+        bound.IntervalSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Retries"))
+      {
+        bound.Retries = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "TcpKeepaliveOptions");
+      }
+    }
+
+    return bound;
   }
 }
 
@@ -860,6 +1149,71 @@ public sealed class TlsOptions
     CaStore?.Validate();
     CertStore?.Validate();
   }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static TlsOptions Bind(IConfigurationSection section)
+  {
+    var bound = new TlsOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "AllowUnsafeConnection"))
+      {
+        bound.AllowUnsafeConnection = ChannelOptionsConfiguration.Boolean(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CaCertPath"))
+      {
+        bound.CaCertPath = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CaStore"))
+      {
+        bound.CaStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertP12"))
+      {
+        bound.CertP12 = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertP12Password"))
+      {
+        bound.CertP12Password = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertPem"))
+      {
+        bound.CertPem = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertStore"))
+      {
+        bound.CertStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "KeyPem"))
+      {
+        bound.KeyPem = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "OverrideTargetName"))
+      {
+        bound.OverrideTargetName = ChannelOptionsConfiguration.Text(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "TlsOptions");
+      }
+    }
+
+    return bound;
+  }
 }
 
 /// <summary>
@@ -961,4 +1315,135 @@ public sealed class StoreCertificate
                                             "Thumbprint has to be at least 1 character long.");
     }
   }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static StoreCertificate Bind(IConfigurationSection section)
+  {
+    var bound = new StoreCertificate();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "FriendlyName"))
+      {
+        bound.FriendlyName = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Location"))
+      {
+        bound.Location = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Name"))
+      {
+        bound.Name = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "SubjectName"))
+      {
+        bound.SubjectName = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Thumbprint"))
+      {
+        bound.Thumbprint = ChannelOptionsConfiguration.Text(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "StoreCertificate");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>How the text of a configuration becomes the options above, and why it may not.</summary>
+internal static class ChannelOptionsConfiguration
+{
+  /// <summary>Whether <paramref name="section" /> is the key <paramref name="name" />, without case.</summary>
+  internal static bool Is(IConfigurationSection section,
+                          string                name)
+    => string.Equals(section.Key,
+                     name,
+                     StringComparison.OrdinalIgnoreCase);
+
+  /// <summary>The keys of a section that holds options, a key set to null left out as unset.</summary>
+  /// <exception cref="InvalidOperationException">It holds a value instead.</exception>
+  internal static IConfigurationSection[] Entries(IConfigurationSection section)
+    => string.IsNullOrEmpty(section.Value)
+         ? section.GetChildren()
+                  .Where(entry => entry.Value is not null || entry.GetChildren()
+                                                                  .Any())
+                  .ToArray()
+         : throw new InvalidOperationException($"{section.Path} holds a value, and it names options.");
+
+  /// <summary>Whether a key names anything, an empty one leaving its group or choice unset.</summary>
+  internal static bool Holds(IConfigurationSection section)
+    => !string.IsNullOrEmpty(section.Value) || section.GetChildren()
+                                                      .Any();
+
+  /// <summary>The text of a key that holds a value.</summary>
+  /// <exception cref="InvalidOperationException">It holds options instead.</exception>
+  internal static string Text(IConfigurationSection section)
+    => section.Value ?? throw new InvalidOperationException($"{section.Path} holds options, and it names a value.");
+
+  /// <summary>An integer, or none where the text is empty.</summary>
+  internal static int? Int32(IConfigurationSection section)
+  {
+    var text = Text(section);
+
+    return text.Length == 0
+             ? null
+             : int.TryParse(text,
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out var value)
+               ? value
+               : throw Unreadable(section,
+                                  "an integer");
+  }
+
+  /// <summary>A number, or none where the text is empty.</summary>
+  internal static double? Double(IConfigurationSection section)
+  {
+    var text = Text(section);
+
+    return text.Length == 0
+             ? null
+             : double.TryParse(text,
+                               NumberStyles.Float,
+                               CultureInfo.InvariantCulture,
+                               out var value)
+               ? value
+               : throw Unreadable(section,
+                                  "a number");
+  }
+
+  /// <summary>A flag, or none where the text is empty.</summary>
+  internal static bool? Boolean(IConfigurationSection section)
+  {
+    var text = Text(section);
+
+    return text.Length == 0
+             ? null
+             : bool.TryParse(text,
+                             out var value)
+               ? value
+               : throw Unreadable(section,
+                                  "true or false");
+  }
+
+  /// <summary>A key nothing declares, refused by its path.</summary>
+  internal static InvalidOperationException Unknown(IConfigurationSection section,
+                                                    string                owner)
+    => new($"{section.Path} names nothing {owner} declares.");
+
+  private static InvalidOperationException Unreadable(IConfigurationSection section,
+                                                      string                what)
+    => new($"{section.Path} has to be {what}.");
 }

@@ -199,10 +199,12 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new ArgumentNullException(nameof(configuration));
     }
 
-    var options = configuration.GetRequiredSection(key)
-                               .Get<RuntimeOptions>(binder => binder.ErrorOnUnknownConfiguration = true);
+    var section = configuration.GetRequiredSection(key);
 
-    return options ?? throw new InvalidOperationException($"{key} carries no options");
+    return section.GetChildren()
+                  .Any()
+             ? RuntimeOptions.Bind(section)
+             : throw new InvalidOperationException($"{key} carries no options");
   }
 
   /// <summary>Starts the engine with the options given, each one left out taking its default.</summary>
@@ -270,10 +272,12 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new ArgumentNullException(nameof(configuration));
     }
 
-    var options = configuration.GetRequiredSection(key)
-                               .Get<ChannelOptions>(binder => binder.ErrorOnUnknownConfiguration = true);
+    var section = configuration.GetRequiredSection(key);
 
-    return options ?? throw new InvalidOperationException($"{key} carries no options");
+    return section.GetChildren()
+                  .Any()
+             ? ChannelOptions.Bind(section)
+             : throw new InvalidOperationException($"{key} carries no options");
   }
 
   /// <summary>Opens a channel with a delivery window, and the engine's defaults elsewhere.</summary>

@@ -23,7 +23,11 @@
 #nullable enable
 
 using System;
+using System.Globalization;
+using System.Linq;
 using System.Text.Json.Serialization;
+
+using Microsoft.Extensions.Configuration;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
@@ -91,4 +95,85 @@ public sealed class RuntimeOptions
                                             "MemoryHardCeiling has to be at least 1.");
     }
   }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static RuntimeOptions Bind(IConfigurationSection section)
+  {
+    var bound = new RuntimeOptions();
+
+    foreach (var entry in RuntimeOptionsConfiguration.Entries(section))
+    {
+      if (RuntimeOptionsConfiguration.Is(entry,
+                                         "MemoryCeiling"))
+      {
+        bound.MemoryCeiling = RuntimeOptionsConfiguration.Int64(entry);
+      }
+      else if (RuntimeOptionsConfiguration.Is(entry,
+                                              "MemoryHardCeiling"))
+      {
+        bound.MemoryHardCeiling = RuntimeOptionsConfiguration.Int64(entry);
+      }
+      else
+      {
+        throw RuntimeOptionsConfiguration.Unknown(entry,
+                                                  "RuntimeOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>How the text of a configuration becomes the options above, and why it may not.</summary>
+internal static class RuntimeOptionsConfiguration
+{
+  /// <summary>Whether <paramref name="section" /> is the key <paramref name="name" />, without case.</summary>
+  internal static bool Is(IConfigurationSection section,
+                          string                name)
+    => string.Equals(section.Key,
+                     name,
+                     StringComparison.OrdinalIgnoreCase);
+
+  /// <summary>The keys of a section that holds options, a key set to null left out as unset.</summary>
+  /// <exception cref="InvalidOperationException">It holds a value instead.</exception>
+  internal static IConfigurationSection[] Entries(IConfigurationSection section)
+    => string.IsNullOrEmpty(section.Value)
+         ? section.GetChildren()
+                  .Where(entry => entry.Value is not null || entry.GetChildren()
+                                                                  .Any())
+                  .ToArray()
+         : throw new InvalidOperationException($"{section.Path} holds a value, and it names options.");
+
+  /// <summary>The text of a key that holds a value.</summary>
+  /// <exception cref="InvalidOperationException">It holds options instead.</exception>
+  internal static string Text(IConfigurationSection section)
+    => section.Value ?? throw new InvalidOperationException($"{section.Path} holds options, and it names a value.");
+
+  /// <summary>An integer, or none where the text is empty.</summary>
+  internal static long? Int64(IConfigurationSection section)
+  {
+    var text = Text(section);
+
+    return text.Length == 0
+             ? null
+             : long.TryParse(text,
+                             NumberStyles.Integer,
+                             CultureInfo.InvariantCulture,
+                             out var value)
+               ? value
+               : throw Unreadable(section,
+                                  "an integer");
+  }
+
+  /// <summary>A key nothing declares, refused by its path.</summary>
+  internal static InvalidOperationException Unknown(IConfigurationSection section,
+                                                    string                owner)
+    => new($"{section.Path} names nothing {owner} declares.");
+
+  private static InvalidOperationException Unreadable(IConfigurationSection section,
+                                                      string                what)
+    => new($"{section.Path} has to be {what}.");
 }

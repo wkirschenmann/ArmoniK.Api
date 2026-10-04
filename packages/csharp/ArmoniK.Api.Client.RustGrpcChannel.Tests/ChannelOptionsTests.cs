@@ -251,6 +251,51 @@ public class ChannelOptionsTests
     }
   }
 
+  /// <summary>A key set to null is unset, as it is to .NET's binder.</summary>
+  /// <remarks>A JSON file's `null` arrives as one.</remarks>
+  [Test]
+  public void AKeySetToNullIsUnset()
+  {
+    var options = NativeRuntime.OptionsFrom(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                                             {
+                                                                                               ["Section:UserAgent"]       = null,
+                                                                                               ["Section:DeliveryCredits"] = "4",
+                                                                                             })
+                                                                      .Build(),
+                                            "Section");
+
+    Assert.That(Encoded(options),
+                Is.EqualTo(@"{""DeliveryCredits"":4}"));
+  }
+
+  /// <summary>A group left empty is unset, as it is to .NET's binder.</summary>
+  [Test]
+  public void AGroupLeftEmptyIsUnset()
+  {
+    var options = NativeRuntime.OptionsFrom(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                                             {
+                                                                                               ["Section:Transport"]       = string.Empty,
+                                                                                               ["Section:DeliveryCredits"] = "4",
+                                                                                             })
+                                                                      .Build(),
+                                            "Section");
+
+    Assert.That(options.Transport,
+                Is.Null);
+  }
+
+  /// <summary>A section holding no key configures nothing, and is refused as a missing one is.</summary>
+  [Test]
+  public void ASectionHoldingNoKeyIsRefused()
+    => Assert.That(() => NativeRuntime.OptionsFrom(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                                                    {
+                                                                                                      ["Section"] = string.Empty,
+                                                                                                    })
+                                                                             .Build(),
+                                                   "Section"),
+                   Throws.TypeOf<InvalidOperationException>()
+                         .With.Message.Contains("carries no options"));
+
   /// <summary>A configuration key no option matches is dropped by .NET's binder.</summary>
   /// <remarks>
   ///   Bound as it comes, which is what the factory's door may not do: a misspelling reaches the

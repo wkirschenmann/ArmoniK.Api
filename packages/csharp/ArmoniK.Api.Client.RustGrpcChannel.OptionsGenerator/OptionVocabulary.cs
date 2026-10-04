@@ -27,6 +27,22 @@ using Corvus.Json.CodeGeneration.DocumentResolvers;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 {
+  /// <summary>What an option holds, which decides how it is copied, checked, bound and written.</summary>
+  internal enum OptionKind
+  {
+    /// <summary>A number, a text or a flag.</summary>
+    Value,
+
+    /// <summary>One of the generated classes.</summary>
+    Group,
+
+    /// <summary>One of the generated closed hierarchies of records.</summary>
+    Choice,
+
+    /// <summary>One of the generated enums.</summary>
+    Enumeration,
+  }
+
   /// <summary>What the schema says an option is, once its references are resolved.</summary>
   internal sealed class Option
   {
@@ -39,8 +55,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     /// <summary>The C# type of the property, nullable form excluded.</summary>
     public string Type { get; init; } = string.Empty;
 
-    /// <summary>Whether <see cref="Type" /> is one of the generated classes.</summary>
-    public bool IsGroup { get; init; }
+    /// <summary>What <see cref="Type" /> is.</summary>
+    public OptionKind Kind { get; init; }
+
+    /// <summary>Whether the schema requires it, which only a field of an alternative may be.</summary>
+    public bool Required { get; init; }
+
+    /// <summary>Whether the schema marks it `writeOnly`: a secret, which nothing renders prints.</summary>
+    public bool Secret { get; init; }
 
     /// <summary>The keywords that bound the value, empty where the schema bounds nothing.</summary>
     public IReadOnlyList<Bound> Bounds { get; init; } = Array.Empty<Bound>();
@@ -52,21 +74,77 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
   internal readonly record struct Bound(string Keyword,
                                         string Literal);
 
-  /// <summary>A group of options, which is one generated class.</summary>
-  internal sealed class OptionGroup
+  /// <summary>A type the vocabulary declares, which is rendered once, under its name.</summary>
+  internal abstract class OptionType
   {
-    /// <summary>The class name: the schema's `title`, or the `$defs` entry's own name.</summary>
+    /// <summary>The type name: the schema's `title`, or the `$defs` entry's own name.</summary>
     public string Name { get; init; } = string.Empty;
 
-    /// <summary>The `description` of the group, which the schema has to state.</summary>
+    /// <summary>The `description` of the type, which the schema has to state.</summary>
     public string Description { get; init; } = string.Empty;
+  }
 
-    /// <summary>The options of the group, in the order Corvus returns them.</summary>
+  /// <summary>A group of options, which is one generated class.</summary>
+  internal sealed class OptionGroup : OptionType
+  {
+    /// <summary>The options of the group, in the order the schema states them.</summary>
     public IReadOnlyList<Option> Options { get; init; } = Array.Empty<Option>();
   }
 
   /// <summary>
-  ///   The option vocabulary a schema describes: every group, the root one first.
+  ///   Alternatives that exclude one another, which are one generated closed hierarchy of records:
+  ///   a value is exactly one of them, as a Rust enum is.
+  /// </summary>
+  internal sealed class OptionChoice : OptionType
+  {
+    /// <summary>The alternatives, in the order the schema states them.</summary>
+    public IReadOnlyList<Alternative> Alternatives { get; init; } = Array.Empty<Alternative>();
+  }
+
+  /// <summary>What the key naming an alternative holds.</summary>
+  internal enum AlternativeShape
+  {
+    /// <summary>`true`, for an alternative that carries nothing.</summary>
+    Unit,
+
+    /// <summary>One value, written bare, which C# names `Value`.</summary>
+    Value,
+
+    /// <summary>An object of fields.</summary>
+    Fields,
+  }
+
+  /// <summary>One alternative of a choice, which is one sealed record.</summary>
+  internal sealed class Alternative
+  {
+    /// <summary>The key that names it, which is also the record's name.</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>The `description` of the alternative, which the schema has to state.</summary>
+    public string Description { get; init; } = string.Empty;
+
+    /// <summary>What its key holds.</summary>
+    public AlternativeShape Shape { get; init; }
+
+    /// <summary>The record's parameters: none for a unit, `Value` alone for a value.</summary>
+    public IReadOnlyList<Option> Fields { get; init; } = Array.Empty<Option>();
+  }
+
+  /// <summary>The names a value may be, which is one generated enum.</summary>
+  internal sealed class OptionEnumeration : OptionType
+  {
+    /// <summary>The names, in the order the schema states them.</summary>
+    public IReadOnlyList<Member> Members { get; init; } = Array.Empty<Member>();
+  }
+
+  /// <summary>One name an enumeration admits.</summary>
+  /// <param name="Name">The name, as the document spells it and as C# declares it.</param>
+  /// <param name="Description">The `description` of the name, which the schema has to state.</param>
+  internal readonly record struct Member(string Name,
+                                         string Description);
+
+  /// <summary>
+  ///   The option vocabulary a schema describes: every type, the root group first.
   /// </summary>
   /// <remarks>
   ///   Corvus resolves the document - `$ref`, `$defs`, and the draft's own rules about which
@@ -79,14 +157,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     private const string SchemaUri = "schema://armonik/options.json";
 
-    /// <summary>Reads <paramref name="schemaJson" /> and returns the groups it describes.</summary>
+    /// <summary>Reads <paramref name="schemaJson" /> and returns the types it describes.</summary>
     /// <param name="schemaJson">A JSON schema, draft 2020-12.</param>
-    /// <returns>The root group first, then every group it reaches, each once.</returns>
+    /// <returns>The root group first, then every type it reaches, each once.</returns>
     /// <exception cref="NotSupportedException">
     ///   The schema uses a construct this generator does not turn into C#. Refusing is what keeps
     ///   a new option from being emitted as something that compiles and means nothing.
     /// </exception>
-    public static async Task<IReadOnlyList<OptionGroup>> ReadAsync(string schemaJson)
+    public static async Task<IReadOnlyList<OptionType>> ReadAsync(string schemaJson)
     {
       using var document = JsonDocument.Parse(schemaJson);
 
@@ -107,29 +185,35 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                         false)
                               .ConfigureAwait(false);
 
-      var groups = new List<OptionGroup>();
+      // The root is what the engine reads as one document, and a document is an object.
+      if (IsChoice(root))
+      {
+        throw new NotSupportedException("the schema's root is a choice, and the document the engine reads is a group of options.");
+      }
+
+      var types = new List<OptionType>();
       var read = new HashSet<string>(StringComparer.Ordinal);
 
       Read(root,
            NameOf(root,
                   true),
-           groups,
+           types,
            read);
 
-      return groups;
+      return types;
     }
 
     /// <summary>
-    ///   The groups of <paramref name="groups" /> that <paramref name="reused" /> does not hold: a
-    ///   group of the same name there is one class, rendered from that other schema.
+    ///   The types of <paramref name="groups" /> that <paramref name="reused" /> does not hold: a
+    ///   type of the same name there is one type, rendered from that other schema.
     /// </summary>
     /// <exception cref="NotSupportedException">
-    ///   The root is held there, or a group held there differs from it - two classes of one name,
-    ///   one of which would not be what its schema states - or no group is held there, which is a
-    ///   schema that reuses nothing and would declare again the classes it was meant to reuse.
+    ///   The root is held there, or a type held there differs from it - two types of one name,
+    ///   one of which would not be what its schema states - or no type is held there, which is a
+    ///   schema that reuses nothing and would declare again the types it was meant to reuse.
     /// </exception>
-    public static IReadOnlyList<OptionGroup> Without(IReadOnlyList<OptionGroup> groups,
-                                                     IReadOnlyList<OptionGroup> reused)
+    public static IReadOnlyList<OptionType> Without(IReadOnlyList<OptionType> groups,
+                                                    IReadOnlyList<OptionType> reused)
     {
       var held = reused.ToDictionary(group => group.Name,
                                      StringComparer.Ordinal);
@@ -139,7 +223,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         throw new NotSupportedException($"`{groups[0].Name}` is the root, and the reused schema renders it already.");
       }
 
-      var kept = new List<OptionGroup>();
+      var kept = new List<OptionType>();
       foreach (var group in groups)
       {
         if (!held.TryGetValue(group.Name,
@@ -150,45 +234,48 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         else if (!Same(group,
                        other))
         {
-          throw new NotSupportedException($"`{group.Name}` differs from the class of that name the reused schema renders.");
+          throw new NotSupportedException($"`{group.Name}` differs from the type of that name the reused schema renders.");
         }
       }
 
       if (kept.Count == groups.Count)
       {
-        throw new NotSupportedException("the reused schema holds none of these groups, so nothing is reused.");
+        throw new NotSupportedException("the reused schema holds none of these types, so nothing is reused.");
       }
 
       return kept;
     }
 
-    private static bool Same(OptionGroup one,
-                             OptionGroup other)
-    {
-      if (one.Description != other.Description || one.Options.Count != other.Options.Count)
-      {
-        return false;
-      }
+    private static bool Same(OptionType one,
+                             OptionType other)
+      => one.Description == other.Description && (one, other) switch
+                                                 {
+                                                   (OptionGroup mine, OptionGroup theirs) => Same(mine.Options,
+                                                                                                  theirs.Options),
+                                                   (OptionChoice mine, OptionChoice theirs) => mine.Alternatives.Count == theirs.Alternatives.Count &&
+                                                                                               mine.Alternatives.Zip(theirs.Alternatives,
+                                                                                                                     (a, b) => a.Name        == b.Name        &&
+                                                                                                                               a.Description == b.Description &&
+                                                                                                                               a.Shape       == b.Shape       && Same(a.Fields,
+                                                                                                                                                                      b.Fields))
+                                                                                                   .All(same => same),
+                                                   (OptionEnumeration mine, OptionEnumeration theirs) => mine.Members.SequenceEqual(theirs.Members),
+                                                   _                                                  => false,
+                                                 };
 
-      for (var at = 0; at < one.Options.Count; at++)
-      {
-        var mine   = one.Options[at];
-        var theirs = other.Options[at];
-        if (mine.Name != theirs.Name || mine.Type != theirs.Type || mine.IsGroup != theirs.IsGroup || mine.Description != theirs.Description ||
-            !mine.Bounds.SequenceEqual(theirs.Bounds))
-        {
-          return false;
-        }
-      }
+    private static bool Same(IReadOnlyList<Option> mine,
+                             IReadOnlyList<Option> theirs)
+      => mine.Count == theirs.Count && mine.Zip(theirs,
+                                                (one, other) => one.Name == other.Name && one.Type == other.Type && one.Kind == other.Kind &&
+                                                                one.Required == other.Required && one.Secret == other.Secret && one.Description == other.Description &&
+                                                                one.Bounds.SequenceEqual(other.Bounds))
+                                           .All(same => same);
 
-      return true;
-    }
-
-    // Depth first, and a group is read once: the root is emitted first, and a group reached twice
-    // is one class rather than two.
+    // Depth first, and a type is read once: the root is emitted first, and a type reached twice
+    // is one declaration rather than two.
     private static void Read(TypeDeclaration declaration,
                              string name,
-                             List<OptionGroup> groups,
+                             List<OptionType> types,
                              HashSet<string> read)
     {
       if (!read.Add(declaration.LocatedSchema.Location.ToString()))
@@ -196,6 +283,36 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         return;
       }
 
+      // Two schemas of one name would be one type declared twice, which the C# compiler reports
+      // as a duplicate member in a generated file nobody wrote.
+      if (types.Any(type => type.Name == name))
+      {
+        throw new NotSupportedException($"`{declaration.LocatedSchema.Location}` is named `{name}`, which another schema already is.");
+      }
+
+      var nested = new List<(TypeDeclaration Declaration, string Name)>();
+
+      types.Add(IsChoice(declaration)
+                  ? ReadChoice(declaration,
+                               name,
+                               nested)
+                  : ReadGroup(declaration,
+                              name,
+                              nested));
+
+      foreach (var (subdeclaration, subname) in nested)
+      {
+        Read(subdeclaration,
+             subname,
+             types,
+             read);
+      }
+    }
+
+    private static OptionGroup ReadGroup(TypeDeclaration declaration,
+                                         string name,
+                                         List<(TypeDeclaration Declaration, string Name)> nested)
+    {
       // An object stating no properties is a class with nothing in it, and whatever it was meant
       // to carry - an open map, a shape stated some other way - a generated property cannot hold.
       // Checked here rather than at each property, so the root is checked too.
@@ -204,88 +321,291 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         throw new NotSupportedException($"`{declaration.LocatedSchema.Location}` states no properties, which this generator has no class for.");
       }
 
-      var options = new List<Option>();
-      var nested = new List<(TypeDeclaration Declaration, string Name)>();
-
-      foreach (var property in declaration.PropertyDeclarations)
+      // A class's options are nullable and a caller sets the ones they want, so a required one
+      // would be a presence nothing on this side checks.
+      if (declaration.PropertyDeclarations.FirstOrDefault(property => property.RequiredOrOptional != RequiredOrOptional.Optional) is { } required)
       {
-        var node = property.ReducedPropertyType;
-        var target = Resolve(node);
+        throw new NotSupportedException($"`{name}` requires `{required.JsonPropertyName}`, and an option of a class is one a caller may leave unset.");
+      }
 
-        // The property's own, then the one its reference states: a `$defs` entry describes what it
-        // is, and a property describes what it is for here. Read unreduced, because a property
-        // that states nothing beside its `$ref` but a description reduces to what it references.
-        var description = Described(Description(property.UnreducedPropertyType) ?? Description(target),
-                                    $"`{property.JsonPropertyName}`");
+      return new OptionGroup
+             {
+               Name = name,
+               Description = Described(Description(declaration),
+                                       $"`{name}`"),
+               Options = Declared(declaration)
+                         .Select(property => ReadOption(property,
+                                                        nested,
+                                                        true))
+                         .ToList(),
+             };
+    }
 
-        var type = Keyword(target,
-                           "type")
-                   ?.GetString();
+    // An option of a group or a field of an alternative: a value, or a type of its own that is
+    // read after the one holding it.
+    private static Option ReadOption(PropertyDeclaration property,
+                                     List<(TypeDeclaration Declaration, string Name)> nested,
+                                     bool holdsGroups)
+    {
+      var node = property.ReducedPropertyType;
+      var target = Resolve(node);
 
-        if (type == "object" || target.HasPropertyDeclarations)
+      // The property's own, then the one its reference states: a `$defs` entry describes what it
+      // is, and a property describes what it is for here. Read unreduced, because a property
+      // that states nothing beside its `$ref` but a description reduces to what it references.
+      var description = Described(Description(property.UnreducedPropertyType) ?? Description(target),
+                                  $"`{property.JsonPropertyName}`");
+
+      var required = property.RequiredOrOptional != RequiredOrOptional.Optional;
+
+      // A constant is read where it is what an alternative carries; anywhere else it would be a
+      // constraint the engine enforces and the C# lets through.
+      if (Keyword(target,
+                  "const") is not null)
+      {
+        throw new NotSupportedException($"`{property.JsonPropertyName}` states a constant, which this generator reads only as what an alternative carrying nothing holds.");
+      }
+
+      var type = Keyword(target,
+                         "type")
+                 ?.GetString();
+
+      // A choice first: Corvus composes the properties of a `oneOf`'s alternatives into the
+      // choice itself, so it would also pass for an object.
+      if (IsChoice(target) || type == "object" || target.HasPropertyDeclarations)
+      {
+        // A type is bounded by what it declares, not by the option that holds one. Written on
+        // the option it would bind that one embedding and not the next, which is the opposite of
+        // what a `$defs` entry is for - and the keywords this generator checks bound a number or
+        // a string, so on a type they asserted nothing and were dropped.
+        var bounds = BoundsOf(node,
+                              target);
+
+        if (bounds.Count > 0)
         {
-          // A group is bounded by what it declares, not by the option that holds one. Written
-          // on the option it would bind that one embedding and not the next, which is the
-          // opposite of what a `$defs` entry is for - and the keywords this generator checks
-          // bound a number or a string, so on a group they asserted nothing and were dropped.
-          var bounds = BoundsOf(node,
-                                target);
-
-          if (bounds.Count > 0)
-          {
-            throw new NotSupportedException($"`{property.JsonPropertyName}` is a group and states {string.Join(", ", bounds.Select(bound => $"`{bound.Keyword}`"))}, which bounds no group. State it on the options the group declares.");
-          }
-
-          var groupName = NameOf(target,
-                                 false);
-          nested.Add((target, groupName));
-
-          options.Add(new Option
-                      {
-                        Name        = property.JsonPropertyName,
-                        Description = description,
-                        Type        = groupName,
-                        IsGroup     = true,
-                      });
-          continue;
+          throw new NotSupportedException($"`{property.JsonPropertyName}` names a type and states {string.Join(", ", bounds.Select(bound => $"`{bound.Keyword}`"))}, which bounds no type. State it on the values the type declares.");
         }
 
-        options.Add(new Option
-                    {
-                      Name        = property.JsonPropertyName,
-                      Description = description,
-                      Type = CSharpType(type,
-                                        Keyword(target,
-                                                "format")
-                                          ?.GetString(),
-                                        property.JsonPropertyName),
-                      Bounds = BoundsOf(node,
-                                        target),
-                    });
+        var kind = !IsChoice(target)
+                     ? OptionKind.Group
+                     : IsEnumeration(target)
+                       ? OptionKind.Enumeration
+                       : OptionKind.Choice;
+
+        // A record is immutable and a class is not, so a record holding a class would be a value
+        // a caller can change through a copy that was meant to be its own.
+        if (kind == OptionKind.Group && !holdsGroups)
+        {
+          throw new NotSupportedException($"`{property.JsonPropertyName}` is a group, and an alternative holds none: a record is immutable, and a class in it would not be.");
+        }
+
+        var typeName = NameOf(target,
+                              false);
+        nested.Add((target, typeName));
+
+        return new Option
+               {
+                 Name        = property.JsonPropertyName,
+                 Description = description,
+                 Type        = typeName,
+                 Kind        = kind,
+                 Required    = required,
+               };
       }
 
-      // Two schemas of one name would be one class declared twice, which the C# compiler reports
-      // as a duplicate member in a generated file nobody wrote.
-      if (groups.Any(group => group.Name == name))
+      return new Option
+             {
+               Name        = property.JsonPropertyName,
+               Description = description,
+               Type = CSharpType(type,
+                                 Keyword(target,
+                                         "format")
+                                   ?.GetString(),
+                                 property.JsonPropertyName),
+               Required = required,
+               Secret   = IsSecret(property.UnreducedPropertyType) || IsSecret(target),
+               Bounds = BoundsOf(node,
+                                 target),
+             };
+    }
+
+    private static bool IsSecret(TypeDeclaration declaration)
+      => Keyword(declaration,
+                 "writeOnly") is { ValueKind: JsonValueKind.True };
+
+    // Corvus returns the properties sorted by name, and the schema lists them as the Rust type
+    // declares them: that is the order a caller reads them in, and the one a record takes them in,
+    // where the name order would put a password before its username.
+    private static IEnumerable<PropertyDeclaration> Declared(TypeDeclaration declaration)
+    {
+      var order = Keyword(declaration,
+                          "properties") is { ValueKind: JsonValueKind.Object } properties
+                    ? properties.EnumerateObject()
+                                .Select(property => property.Name)
+                                .ToList()
+                    : new List<string>();
+
+      return declaration.PropertyDeclarations.OrderBy(property => order.IndexOf(property.JsonPropertyName) is var at and >= 0
+                                                                    ? at
+                                                                    : int.MaxValue);
+    }
+
+    // A `oneOf` is how a Rust enum renders: names alone, or alternatives each tagged by its key.
+    private static bool IsChoice(TypeDeclaration declaration)
+      => Keyword(declaration,
+                 "oneOf") is { ValueKind: JsonValueKind.Array };
+
+    // An enum of unit variants renders each as a constant, and one variant carrying anything
+    // renders every variant as an object of one key.
+    private static bool IsEnumeration(TypeDeclaration declaration)
+      => Keyword(declaration,
+                 "oneOf")!.Value.EnumerateArray()
+                          .All(branch => branch.ValueKind == JsonValueKind.Object && branch.TryGetProperty("const",
+                                                                                                           out _));
+
+    private static OptionType ReadChoice(TypeDeclaration declaration,
+                                         string name,
+                                         List<(TypeDeclaration Declaration, string Name)> nested)
+    {
+      var description = Described(Description(declaration),
+                                  $"`{name}`");
+
+      // Null where Corvus composes no alternative, which the count below then refuses.
+      var branches = (declaration.OneOfCompositionTypes() ?? new Dictionary<IOneOfSubschemaValidationKeyword, IReadOnlyCollection<TypeDeclaration>>())
+                     .SelectMany(keyword => keyword.Value)
+                     .ToList();
+
+      if (branches.Count != Keyword(declaration,
+                                    "oneOf")!.Value.GetArrayLength())
       {
-        throw new NotSupportedException($"`{declaration.LocatedSchema.Location}` is named `{name}`, which another schema already is.");
+        throw new NotSupportedException($"`{name}` states alternatives this generator cannot read one for one.");
       }
 
-      groups.Add(new OptionGroup
-                 {
-                   Name = name,
-                   Description = Described(Description(declaration),
-                                           $"`{name}`"),
-                   Options = options,
-                 });
-
-      foreach (var (subdeclaration, subname) in nested)
+      // An empty `oneOf` admits no value, and would render an enum or a record nothing can be.
+      if (branches.Count == 0)
       {
-        Read(subdeclaration,
-             subname,
-             groups,
-             read);
+        throw new NotSupportedException($"`{name}` states no alternative, so no value is one.");
       }
+
+      if (IsEnumeration(declaration))
+      {
+        return new OptionEnumeration
+               {
+                 Name        = name,
+                 Description = description,
+                 Members = branches.Select(branch =>
+                                           {
+                                             var constant = Keyword(branch,
+                                                                    "const");
+
+                                             if (constant is not { ValueKind: JsonValueKind.String })
+                                             {
+                                               throw new NotSupportedException($"`{name}` admits a constant that is not a name, which no C# enum declares.");
+                                             }
+
+                                             var member = constant.Value.GetString()!;
+
+                                             return new Member(member,
+                                                               Described(Description(branch),
+                                                                         $"`{name}.{member}`"));
+                                           })
+                                   .ToList(),
+               };
+      }
+
+      return new OptionChoice
+             {
+               Name        = name,
+               Description = description,
+               Alternatives = branches.Select(branch => ReadAlternative(branch,
+                                                                        name,
+                                                                        nested))
+                                      .ToList(),
+             };
+    }
+
+    // An alternative is an object of one key, required and alone, which names it and holds what
+    // it carries: `true` for nothing, a value, or an object of fields.
+    private static Alternative ReadAlternative(TypeDeclaration branch,
+                                               string choice,
+                                               List<(TypeDeclaration Declaration, string Name)> nested)
+    {
+      var properties = branch.HasPropertyDeclarations
+                         ? branch.PropertyDeclarations.ToList()
+                         : new List<PropertyDeclaration>();
+
+      if (properties.Count != 1 || properties[0].RequiredOrOptional == RequiredOrOptional.Optional)
+      {
+        throw new NotSupportedException($"An alternative of `{choice}` is not an object of one required key, which is how an alternative names itself.");
+      }
+
+      var property = properties[0];
+      var name = property.JsonPropertyName;
+      var description = Described(Description(branch),
+                                  $"`{choice}.{name}`");
+      var node = property.ReducedPropertyType;
+      var payload = Resolve(node);
+
+      if (Keyword(payload,
+                  "const") is { } constant)
+      {
+        return constant.ValueKind == JsonValueKind.True
+                 ? new Alternative
+                   {
+                     Name        = name,
+                     Description = description,
+                     Shape       = AlternativeShape.Unit,
+                   }
+                 : throw new NotSupportedException($"`{choice}.{name}` is a constant other than `true`, which is how an alternative carrying nothing is written.");
+      }
+
+      if (IsChoice(payload))
+      {
+        throw new NotSupportedException($"`{choice}.{name}` carries a choice bare, which this generator has no record for. Give it a field.");
+      }
+
+      var type = Keyword(payload,
+                         "type")
+                 ?.GetString();
+
+      if (type == "object" || payload.HasPropertyDeclarations)
+      {
+        return new Alternative
+               {
+                 Name        = name,
+                 Description = description,
+                 Shape       = AlternativeShape.Fields,
+                 Fields = Declared(payload)
+                          .Select(field => ReadOption(field,
+                                                      nested,
+                                                      false))
+                          .ToList(),
+               };
+      }
+
+      return new Alternative
+             {
+               Name        = name,
+               Description = description,
+               Shape       = AlternativeShape.Value,
+               Fields = new[]
+                        {
+                          new Option
+                          {
+                            Name        = "Value",
+                            Description = description,
+                            Type = CSharpType(type,
+                                              Keyword(payload,
+                                                      "format")
+                                                ?.GetString(),
+                                              $"{choice}.{name}"),
+                            Required = true,
+                            Secret   = IsSecret(node) || IsSecret(payload),
+                            Bounds = BoundsOf(node,
+                                              payload),
+                          },
+                        },
+             };
     }
 
     // A property whose schema is a `$ref` states its type there, and may state its own keywords
@@ -584,7 +904,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
             continue;
           }
 
-          if (SubschemaLists.Contains(member.Name))
+          if (SubschemaLists.Contains(member.Name) || ReadLists.Contains(member.Name))
           {
             if (member.Value.ValueKind == JsonValueKind.Array)
             {
@@ -594,7 +914,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
               }
             }
 
-            Report(member.Name);
+            if (SubschemaLists.Contains(member.Name))
+            {
+              Report(member.Name);
+            }
+
             continue;
           }
 
@@ -660,14 +984,22 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                              {
                                                                "allOf",
                                                                "anyOf",
-                                                               "oneOf",
                                                                "prefixItems",
                                                              };
 
+    // The same shape, for the one composition this generator reads: `oneOf` is a choice or an
+    // enumeration, and `ReadChoice` refuses any other shape of it.
+    private static readonly HashSet<string> ReadLists = new(StringComparer.Ordinal)
+                                                        {
+                                                          "oneOf",
+                                                        };
+
     // What a schema may say that this generator either reads or can ignore without losing a
     // constraint: the types and names it emits from, the documentation it carries over, and the
-    // annotations that assert nothing. `format` is read for the C# type. `default` is not here: a
-    // default is stated in its option's description, and applying it is the engine's.
+    // annotations that assert nothing. `format` is read for the C# type; `const` and `required`
+    // for a choice, and the reading refuses them anywhere else - a constant outside an
+    // alternative, a required option of a class. `default` is not here: a default is stated in
+    // its option's description, and applying it is the engine's.
     private static readonly HashSet<string> Understood = new(StringComparer.Ordinal)
                                                          {
                                                            "$anchor",
@@ -675,6 +1007,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                            "$id",
                                                            "$ref",
                                                            "$schema",
+                                                           "const",
                                                            "deprecated",
                                                            "description",
                                                            "examples",
@@ -686,6 +1019,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                            "minLength",
                                                            "minimum",
                                                            "readOnly",
+                                                           "required",
                                                            "title",
                                                            "type",
                                                            "writeOnly",

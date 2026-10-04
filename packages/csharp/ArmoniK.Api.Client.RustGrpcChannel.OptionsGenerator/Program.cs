@@ -41,8 +41,8 @@ Options:
                       ArmoniK.Api.Client.RustGrpcChannel.
   --no-document       The engine takes these options as fields, not as a JSON document: no
                       encoding and no serializer context are rendered.
-  --reuse <path>      A schema whose classes are rendered elsewhere: a group of the same name is
-                      taken as declared already, and has to be the same group.
+  --reuse <path>      A schema whose types are rendered elsewhere: a type of the same name is
+                      taken as declared already, and has to be the same type.
   --check             Writes nothing and fails if --output is not what --schema renders.
   -h, --help          Prints this text.
 
@@ -155,7 +155,7 @@ The same schema always renders the same bytes, which is what makes --check a bui
 
         if (reusePath is not null)
         {
-          IReadOnlyList<OptionGroup> reused;
+          IReadOnlyList<OptionType> reused;
           try
           {
             reused = await OptionVocabulary.ReadAsync(File.ReadAllText(reusePath))

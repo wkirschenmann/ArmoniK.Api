@@ -195,6 +195,31 @@ public sealed class Options
     Transport?.Validate();
   }
 
+  /// <summary>The options <paramref name=""section"" /> states, each key matched to one without case.</summary>
+  /// <param name=""section"">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref=""InvalidOperationException"">A key names no option, or holds what its option does not admit.</exception>
+  internal static Options Bind(IConfigurationSection section)
+  {
+    var bound = new Options();
+
+    foreach (var entry in OptionsConfiguration.Entries(section))
+    {
+      if (OptionsConfiguration.Is(entry,
+                                  ""Transport""))
+      {
+        bound.Transport = OptionsConfiguration.Holds(entry) ? TransportOptions.Bind(entry) : null;
+      }
+      else
+      {
+        throw OptionsConfiguration.Unknown(entry,
+                                           ""Options"");
+      }
+    }
+
+    return bound;
+  }
+
   /// <summary>The document the engine reads, as UTF-8.</summary>
   /// <returns>The options as JSON, without the ones left unset.</returns>
   /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its bounds.</exception>
@@ -243,12 +268,519 @@ public sealed class TransportOptions
   {
     // The schema bounds nothing here.
   }
+
+  /// <summary>The options <paramref name=""section"" /> states, each key matched to one without case.</summary>
+  /// <param name=""section"">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref=""InvalidOperationException"">A key names no option, or holds what its option does not admit.</exception>
+  internal static TransportOptions Bind(IConfigurationSection section)
+  {
+    var bound = new TransportOptions();
+
+    foreach (var entry in OptionsConfiguration.Entries(section))
+    {
+      if (OptionsConfiguration.Is(entry,
+                                  ""Name""))
+      {
+        bound.Name = OptionsConfiguration.Text(entry);
+      }
+      else
+      {
+        throw OptionsConfiguration.Unknown(entry,
+                                           ""TransportOptions"");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>How the text of a configuration becomes the options above, and why it may not.</summary>
+internal static class OptionsConfiguration
+";
+
+      Assert.That(rendered,
+                  Does.Contain(classes.Replace("\r\n",
+                                               "\n")));
+    }
+
+    /// <summary>A choice, its alternatives of each shape, and an enumeration, rendered to exactly this.</summary>
+    /// <remarks>
+    ///   A Rust enum renders as a `oneOf`: of objects of one key for one whose variants carry
+    ///   something, of constants for one whose variants carry nothing. The first is a closed
+    ///   hierarchy of records, with its binding and its writer; the second a C# enum.
+    /// </remarks>
+    [Test]
+    public async Task AChoiceRendersItsRecordsBindingAndWriterToExactlyThisText()
+    {
+      var rendered = await Render(Choice)
+                       .ConfigureAwait(false);
+
+      const string choice = @"/// <summary>How a peer is verified.</summary>
+[JsonConverter(typeof(VerificationJsonConverter))]
+public abstract record Verification
+{
+  private Verification()
+  {
+  }
+
+  /// <summary>Against a pinned key.</summary>
+  /// <param name=""Value"">Against a pinned key.</param>
+  public sealed record Pinned(string Value) : Verification
+  {
+    /// <summary>Against a pinned key.</summary>
+    public string Value { get; init; } = Value ?? throw new ArgumentNullException(nameof(Value));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is string value && value.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              ""Value has to be at least 1 character long."");
+      }
+    }
+  }
+
+  /// <summary>Against a store.</summary>
+  /// <param name=""Path"">Its path.</param>
+  /// <param name=""Where"">Where it is.</param>
+  public sealed record Store(string Path,
+                             Place? Where = null) : Verification
+  {
+    /// <summary>Its path.</summary>
+    public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Where is Place where && !Enum.IsDefined(typeof(Place), where))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Where),
+                                              where,
+                                              ""Where has to be a name Place declares."");
+      }
+    }
+  }
+
+  /// <summary>Not at all.</summary>
+  public sealed record Unchecked : Verification
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref=""ArgumentOutOfRangeException"">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+
+  /// <summary>The alternative <paramref name=""section"" /> names by its one key, matched without case.</summary>
+  /// <param name=""section"">The section, which has to hold one key.</param>
+  /// <returns>The alternative, with the fields its key states.</returns>
+  /// <exception cref=""InvalidOperationException"">
+  ///   The section names no alternative or two, or one with a field it does not admit.
+  /// </exception>
+  internal static Verification Bind(IConfigurationSection section)
+  {
+    var alternative = OptionsConfiguration.Alternative(section,
+                                                       ""Verification"");
+
+    if (OptionsConfiguration.Is(alternative,
+                                ""Pinned""))
+    {
+      return new Pinned(OptionsConfiguration.Text(alternative));
+    }
+
+    if (OptionsConfiguration.Is(alternative,
+                                ""Store""))
+    {
+      string? path = null;
+      Place? where = null;
+
+      foreach (var entry in OptionsConfiguration.Entries(alternative))
+      {
+        if (OptionsConfiguration.Is(entry,
+                                    ""Where""))
+        {
+          where = OptionsConfiguration.Enumeration<Place>(entry);
+        }
+        else if (OptionsConfiguration.Is(entry,
+                                         ""Path""))
+        {
+          path = OptionsConfiguration.Text(entry);
+        }
+        else
+        {
+          throw OptionsConfiguration.Unknown(entry,
+                                             ""Verification.Store"");
+        }
+      }
+
+      return new Store(path ?? throw OptionsConfiguration.Missing(alternative,
+                                                                  ""Path""),
+                       where);
+    }
+
+    if (OptionsConfiguration.Is(alternative,
+                                ""Unchecked""))
+    {
+      OptionsConfiguration.Chosen(alternative);
+
+      return new Unchecked();
+    }
+
+    throw OptionsConfiguration.Unknown(alternative,
+                                       ""Verification"");
+  }
+}
+
+/// <summary>Writes a <see cref=""Verification"" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class VerificationJsonConverter : JsonConverter<Verification>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Verification? Read(ref Utf8JsonReader reader,
+                                     Type typeToConvert,
+                                     JsonSerializerOptions options)
+    => throw new NotSupportedException(""Verification is written to the engine, and never read back."");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Verification value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name=""written"" />, as the converter of a choice holding one does too.</summary>
+  /// <param name=""writer"">Where it is written.</param>
+  /// <param name=""written"">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Verification written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case Verification.Pinned pinned:
+      {
+        writer.WriteString(""Pinned"",
+                           pinned.Value);
+        break;
+      }
+
+      case Verification.Store store:
+      {
+        writer.WriteStartObject(""Store"");
+
+        if (store.Where is Place where)
+        {
+          writer.WriteString(""Where"",
+                             where.ToString());
+        }
+
+        writer.WriteString(""Path"",
+                           store.Path);
+        writer.WriteEndObject();
+        break;
+      }
+
+      case Verification.Unchecked:
+      {
+        writer.WriteBoolean(""Unchecked"",
+                            true);
+        break;
+      }
+    }
+
+    writer.WriteEndObject();
+  }
+}
+
+/// <summary>Where a store is.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<Place>))]
+public enum Place
+{
+  /// <summary>Here.</summary>
+  Here,
+
+  /// <summary>There.</summary>
+  There,
 }
 ";
 
       Assert.That(rendered,
-                  Does.EndWith(classes.Replace("\r\n",
-                                               "\n")));
+                  Does.Contain(choice.Replace("\r\n",
+                                              "\n")));
+    }
+
+    private const string Choice = @"{
+  ""$schema"": ""https://json-schema.org/draft/2020-12/schema"",
+  ""title"": ""Options"",
+  ""description"": ""What a caller may set."",
+  ""type"": ""object"",
+  ""properties"": {""Verify"": { ""description"": ""How the peer is verified."", ""$ref"": ""#/$defs/Verification"" }},
+  ""additionalProperties"": false,
+  ""$defs"": {
+    ""Verification"": {
+      ""description"": ""How a peer is verified."",
+      ""oneOf"": [
+        { ""description"": ""Against a pinned key."", ""type"": ""object"", ""properties"": { ""Pinned"": { ""type"": ""string"", ""minLength"": 1 } }, ""additionalProperties"": false, ""required"": [""Pinned""] },
+        { ""description"": ""Against a store."", ""type"": ""object"", ""properties"": { ""Store"": { ""$ref"": ""#/$defs/Store"" } }, ""additionalProperties"": false, ""required"": [""Store""] },
+        { ""description"": ""Not at all."", ""type"": ""object"", ""properties"": { ""Unchecked"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Unchecked""] }
+      ]
+    },
+    ""Store"": {
+      ""description"": ""A store."",
+      ""type"": ""object"",
+      ""properties"": {
+        ""Where"": { ""description"": ""Where it is."", ""$ref"": ""#/$defs/Place"" },
+        ""Path"": { ""description"": ""Its path."", ""type"": ""string"" }
+      },
+      ""required"": [""Path""],
+      ""additionalProperties"": false
+    },
+    ""Place"": {
+      ""description"": ""Where a store is."",
+      ""oneOf"": [
+        { ""description"": ""Here."", ""type"": ""string"", ""const"": ""Here"" },
+        { ""description"": ""There."", ""type"": ""string"", ""const"": ""There"" }
+      ]
+    }
+  }
+}";
+
+    /// <summary>The fixture with one alternative replaced by <paramref name="alternative" />.</summary>
+    private static string ChoiceWith(string alternative)
+      => Choice.Replace(@"{ ""description"": ""Not at all."", ""type"": ""object"", ""properties"": { ""Unchecked"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Unchecked""] }",
+                        alternative);
+
+    /// <summary>An alternative is an object of one required key; anything else names no alternative.</summary>
+    [TestCase(@"{ ""description"": ""Two."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": true }, ""B"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""A"", ""B""] }",
+              "one required key",
+              TestName = "AnAlternative_TwoKeys")]
+    [TestCase(@"{ ""description"": ""Optional."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""additionalProperties"": false }",
+              "one required key",
+              TestName = "AnAlternative_Optional")]
+    [TestCase(@"{ ""description"": ""False."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
+              "other than `true`",
+              TestName = "AnAlternative_ConstantFalse")]
+    [TestCase(@"{ ""description"": ""Bare."", ""type"": ""object"", ""properties"": { ""A"": { ""$ref"": ""#/$defs/Place"" } }, ""additionalProperties"": false, ""required"": [""A""] }",
+              "carries a choice bare",
+              TestName = "AnAlternative_BareChoice")]
+    [TestCase(@"{ ""description"": ""Group."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Inner"": { ""description"": ""Inner."", ""$ref"": ""#/$defs/Held"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
+              "an alternative holds none",
+              TestName = "AnAlternative_HoldingAGroup")]
+    [TestCase(@"{ ""description"": ""Plumbing."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Entry"": { ""description"": ""Entry."", ""type"": ""string"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
+              "declares already",
+              TestName = "AnAlternative_FieldNamedLikeALocal")]
+    public void AnAlternativeThisGeneratorHasNoRecordForIsRefused(string alternative,
+                                                                  string said)
+      => Assert.That(async () => await Render(ChoiceWith(alternative)
+                                                .Replace(@"""Place"": {",
+                                                         @"""Held"": { ""description"": ""A group."", ""type"": ""object"", ""properties"": { ""X"": { ""description"": ""X."", ""type"": ""string"" } }, ""additionalProperties"": false },
+    ""Place"": {"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains(said));
+
+    /// <summary>The document is a group, so a root that is a choice is refused.</summary>
+    [Test]
+    public void ARootThatIsAChoiceIsRefused()
+      => Assert.That(async () => await Render(@"{
+  ""title"": ""Options"",
+  ""description"": ""Either."",
+  ""oneOf"": [
+    { ""description"": ""A."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""A""] }
+  ]
+}")
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("root is a choice"));
+
+    /// <summary>A type named after a converter this renders would be two types of one name.</summary>
+    [Test]
+    public void ATypeNamedAfterAConverterIsRefused()
+      => Assert.That(async () => await Render(Choice.Replace("Place",
+                                                             "VerificationJsonConverter"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("beside the vocabulary"));
+
+    /// <summary>A class's options are optional, so one the schema requires is refused.</summary>
+    /// <remarks>Nothing generated checks that an option of a class was set; a field of an alternative is a parameter.</remarks>
+    [Test]
+    public void ARequiredOptionOfAGroupIsRefused()
+      => Assert.That(async () => await Render(@"{
+  ""title"": ""Options"",
+  ""description"": ""What a caller may set."",
+  ""type"": ""object"",
+  ""properties"": { ""X"": { ""description"": ""X."", ""type"": ""string"" } },
+  ""required"": [""X""],
+  ""additionalProperties"": false
+}")
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("may leave unset"));
+
+    /// <summary>The reading declares what the rendered types call, and nothing they do not.</summary>
+    /// <remarks>A member nothing calls is code no build exercises, in a file nobody reads closely.</remarks>
+    [Test]
+    public async Task TheReadingDeclaresOnlyWhatTheTypesCall()
+    {
+      var rendered = await Render(Wrap($@"""Name"": {{ {Documented}""type"": ""string"" }}"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("internal static string Text(IConfigurationSection section)"));
+                        Assert.That(rendered,
+                                    Does.Not.Contain("Int32(")
+                                        .And.Not.Contain("Alternative(")
+                                        .And.Not.Contain("Unreadable("));
+                        Assert.That(rendered,
+                                    Does.Not.Contain("using System.Globalization;"),
+                                    "nothing here parses a number");
+                      });
+    }
+
+    /// <summary>A field the schema marks `writeOnly` is a secret: printed elided, and never quoted.</summary>
+    /// <remarks>
+    ///   A record prints every property in its ToString, which reaches logs and debuggers; and an
+    ///   ArgumentOutOfRangeException carries the value it is given in its message.
+    /// </remarks>
+    [Test]
+    public async Task ASecretFieldIsPrintedElidedAndNeverQuoted()
+    {
+      var rendered = await Render(ChoiceWith(@"{ ""description"": ""A bundle."", ""type"": ""object"", ""properties"": { ""Bundle"": { ""type"": ""object"", ""properties"": { ""Path"": { ""description"": ""Its path."", ""type"": ""string"" }, ""Password"": { ""description"": ""Its password."", ""type"": ""string"", ""minLength"": 1, ""writeOnly"": true } }, ""required"": [""Path""], ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""Bundle""] }"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("protected override bool PrintMembers(global::System.Text.StringBuilder builder)"));
+                        Assert.That(rendered,
+                                    Does.Contain(@"builder.Append(Password is null ? ""null"" : ""***"");"));
+                        Assert.That(rendered,
+                                    Does.Contain("builder.Append((object?)Path);"));
+                        Assert.That(rendered,
+                                    Does.Match(@"nameof\(Password\),\n\s+""Password has to be at least 1 character long\.""\);"),
+                                    "the secret is not passed as the actual value");
+                        Assert.That(rendered.Split("PrintMembers(")
+                                            .Length - 1,
+                                    Is.EqualTo(1),
+                                    "only the alternative holding a secret prints its own way");
+                      });
+    }
+
+    /// <summary>An alternative whose fields are none is made with none.</summary>
+    [Test]
+    public async Task AnAlternativeWithNoFieldsIsMadeWithNone()
+    {
+      var rendered = await Render(ChoiceWith(@"{ ""description"": ""Empty."", ""type"": ""object"", ""properties"": { ""Empty"": { ""type"": ""object"", ""properties"": {}, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""Empty""] }"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("public sealed record Empty : Verification"));
+                        Assert.That(rendered,
+                                    Does.Contain("return new Empty();"));
+                        Assert.That(rendered,
+                                    Does.Contain(@"writer.WriteStartObject(""Empty"");
+        writer.WriteEndObject();".Replace("\r\n",
+                                          "\n")));
+                      });
+    }
+
+    /// <summary>What the reading cannot tell apart, or a C# scope would confuse, is refused.</summary>
+    [TestCase(@"""Unchecked""",
+              @"""PINNED""",
+              "differ at most in case",
+              TestName = "AName_AlternativesTwinInCase")]
+    [TestCase(@"""Pinned""",
+              @"""Place""",
+              "which it would hide",
+              TestName = "AName_AnAlternativeHidingAType")]
+    [TestCase(@"""const"": ""There""",
+              @"""const"": ""HERE""",
+              "differ at most in case",
+              TestName = "AName_EnumerationTwinsInCase")]
+    public void ANameTheBindingOrTheScopeCannotTellApartIsRefused(string from,
+                                                                  string to,
+                                                                  string said)
+      => Assert.That(async () => await Render(Choice.Replace(from,
+                                                             to))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains(said));
+
+    /// <summary>Two options of a class that differ only in case are one key to a configuration.</summary>
+    [Test]
+    public void TwoOptionsThatDifferOnlyInCaseAreRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Name"": {{ {Documented}""type"": ""string"" }}, ""NAME"": {{ {Documented}""type"": ""string"" }}"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("differ at most in case"));
+
+    /// <summary>A constant outside an alternative is a constraint nothing here would check.</summary>
+    [Test]
+    public void AConstantOutsideAnAlternativeIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Fixed"": {{ {Documented}""type"": ""integer"", ""format"": ""int32"", ""const"": 5 }}"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("states a constant"));
+
+    /// <summary>A `oneOf` of nothing admits no value, and is refused.</summary>
+    [Test]
+    public void AChoiceOfNothingIsRefused()
+      => Assert.That(async () => await Render(Choice.Replace("\r\n",
+                                                             "\n")
+                                                    .Replace(@"""oneOf"": [
+        { ""description"": ""Here."", ""type"": ""string"", ""const"": ""Here"" },
+        { ""description"": ""There."", ""type"": ""string"", ""const"": ""There"" }
+      ]".Replace("\r\n",
+                 "\n"),
+                                                             @"""oneOf"": []"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("states no alternative"));
+
+    /// <summary>The options keep the order the schema states, which is the order the type declares.</summary>
+    /// <remarks>Corvus sorts them by name, which would put a password before its username.</remarks>
+    [Test]
+    public async Task TheOptionsKeepTheOrderTheSchemaStates()
+    {
+      var rendered = await Render(Wrap($@"""Zed"": {{ {Documented}""type"": ""string"" }}, ""Alpha"": {{ {Documented}""type"": ""string"" }}"))
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered.IndexOf("public string? Zed",
+                                   StringComparison.Ordinal),
+                  Is.LessThan(rendered.IndexOf("public string? Alpha",
+                                               StringComparison.Ordinal)));
+    }
+
+    /// <summary>A choice the reused schema renders is not rendered again.</summary>
+    [Test]
+    public async Task AChoiceTheReusedSchemaHoldsIsNotRenderedAgain()
+    {
+      var reused = await OptionVocabulary.ReadAsync(Choice)
+                                         .ConfigureAwait(false);
+      var types = await OptionVocabulary.ReadAsync(Choice.Replace(@"""title"": ""Options""",
+                                                                  @"""title"": ""Other"""))
+                                        .ConfigureAwait(false);
+
+      Assert.That(OptionVocabulary.Without(types,
+                                           reused)
+                                  .Select(type => type.Name),
+                  Is.EqualTo(new[]
+                             {
+                               "Other",
+                             }));
     }
 
     /// <summary>A description is documentation, and its paragraphs are the XML's two elements.</summary>
@@ -699,22 +1231,22 @@ public sealed class TransportOptions
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("contains it"));
 
-    /// <summary>`required` reaches no check, so it has to be reported rather than dropped.</summary>
+    /// <summary>`oneOf`, `const` and `required` are read, and what a `oneOf` holds is still walked.</summary>
     /// <remarks>
-    ///   Nothing generated verifies that an option was set, and every option of this vocabulary
-    ///   has a default - but a future schema stating `required` would silently lose it.
+    ///   The reading refuses a constant outside an alternative and a required option of a class,
+    ///   so the walk need not; a keyword inside an alternative is still one the walk reports.
     /// </remarks>
     [Test]
-    public void ARequiredOptionIsReportedBecauseNothingChecksPresence()
+    public void AChoiceIsReadAndWhatItHoldsIsWalked()
       => Assert.That(OptionVocabulary.Unhandled(@"{
-  ""type"": ""object"",
-  ""properties"": { ""X"": { ""type"": ""string"" } },
-  ""required"": [""X""],
-  ""additionalProperties"": false
+  ""oneOf"": [
+    { ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""required"": [""A""], ""additionalProperties"": false },
+    { ""type"": ""object"", ""properties"": { ""B"": { ""type"": ""string"", ""pattern"": ""^b"" } }, ""required"": [""B""], ""additionalProperties"": false }
+  ]
 }"),
                      Is.EqualTo(new[]
                                 {
-                                  "required",
+                                  "pattern",
                                 }));
 
     /// <summary>A subschema container is walked, so what is unhandled inside it is named.</summary>
@@ -775,7 +1307,7 @@ public sealed class TransportOptions
   }"))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
-                           .With.Message.Contains("bounds no group"));
+                           .With.Message.Contains("bounds no type"));
 
     /// <summary>Two bounds are compared as integers, so one past 2^53 does not move.</summary>
     /// <remarks>
