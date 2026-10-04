@@ -1,9 +1,9 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03 and 2026-10-04; not built. Until each of its steps lands, every
-other document of the specification wins over this one on what that step changes.
-`DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it describes
-the binding as it was before.
+**Status**: decided 2026-10-03 and 2026-10-04; step 1 built, steps 2 to 5 not. Until each of its
+steps lands, every other document of the specification wins over this one on what that step
+changes. `DotNetBinding.tla` is the exception: it follows at step 5, and from step 2 until then it
+describes the binding as it was before.
 
 A gRPC method has one of four cardinalities, and each direction of a call carries either exactly
 one message or a stream of them. The ABI treats every call as a bidirectional stream: the host
@@ -431,8 +431,15 @@ prose included - so that they never describe what is no longer built. The one ex
 says.
 
 1. **One task per call**, with no ABI change: the driver, the writer and the reader become one
-   task, joined rather than spawned; every mapping row and every passage of the models' prose
-   that names the actor, its writer or its reader, including those a later step rewrites again.
+   task, joined rather than spawned. Done: the transport hands the caller what drives a call
+   rather than spawning it, and the engine joins it with the writer and the reader in one task.
+   The actor, its writer and its reader stay, as three futures of that task, so no mapping row
+   and no passage of the models' prose that names them needs rewriting. Measured with the two
+   engines loaded in one process and their unary calls interleaved, 10 000 pairs: `ak_call_start`
+   from 10.8 to 8.8 us at the median, the round trip unchanged (a paired difference of 2 us at
+   the median, against a spread of 70 between its quartiles), two allocations fewer per call. On
+   the .NET 8 benchmark, alternated over six runs, the unary median and the server-streaming
+   throughput move within their run-to-run spread.
 2. **Batched delivery**: the array callback and `ak_events_consumed`, with its row and its
    arguments' in the mapping table, which `check_abi_coverage.py` requires of every function in
    the header, and the rows of the delivery steps and `DeliveryCallbackReturns`, which a batch

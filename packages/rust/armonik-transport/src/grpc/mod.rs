@@ -12,7 +12,7 @@ pub use call::{
     CallControl, CallStartOptions, Deadline, GrpcCall, HeadOrigin, OwnedMessage, ReadGate,
     RecvHalf, RecvResult, ResponseHead, SendHalf,
 };
-pub use channel::{GrpcChannel, GrpcChannelConfig};
+pub use channel::{CallDriver, GrpcChannel, GrpcChannelConfig};
 pub use error::{CallError, ChannelError, GrpcChannelConfigError};
 pub use metadata::{Metadata, MetadataError, MetadataValue, BINARY_SUFFIX};
 pub use retry::RetryConfig;

@@ -47,8 +47,8 @@ pub(crate) fn start_on(
     options.deadline = deadline;
     options.read_gate = Some(Arc::clone(&turn) as _);
 
-    let grpc_call = match channel.grpc.start_call(options) {
-        Ok(call) => call,
+    let (grpc_call, driver) = match channel.grpc.prepare_call(options) {
+        Ok(prepared) => prepared,
         Err(error) => return Err(Refusal::call(error)),
     };
 
@@ -78,6 +78,6 @@ pub(crate) fn start_on(
     // From here the call is the channel's to count, and its terminal is what gives the count
     // back.
     joined.kept();
-    actor::start(&state, send, recv, commands, &channel.spawner);
+    actor::start(&state, driver, send, recv, commands, &channel.spawner);
     Ok(handle)
 }

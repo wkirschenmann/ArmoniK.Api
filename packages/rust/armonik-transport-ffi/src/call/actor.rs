@@ -2,7 +2,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use armonik_transport::grpc::{
-    CallControl, CallError, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf, RecvResult, SendHalf,
+    CallControl, CallDriver, CallError, GrpcStatus, GrpcStatusCode, Metadata, RecvHalf, RecvResult,
+    SendHalf,
 };
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch, Semaphore};
@@ -46,17 +47,30 @@ pub(super) fn create(
     (state, rx)
 }
 
+/// The call's one task: the transport's driver, the writer and the reader, joined. One spawn wakes
+/// the channel's thread once for the three, and they share its task cell.
 pub(super) fn start(
     state: &Arc<CallState>,
+    driver: CallDriver,
     send: SendHalf,
     recv: RecvHalf,
     commands: mpsc::Receiver<Command>,
     spawner: &tokio::runtime::Handle,
 ) {
     let (writer_done, writer_is_done) = oneshot::channel();
+    let state = Arc::clone(state);
 
-    spawner.spawn(writer(Arc::clone(state), send, commands, writer_done));
-    spawner.spawn(reader(Arc::clone(state), recv, writer_is_done));
+    // The futures are made inside, where they are polled, so the task is laid out with each once.
+    // In this order on every poll: the reader takes what the driver has just read, and the writer
+    // sees at once that the reader has ended the call.
+    spawner.spawn(async move {
+        tokio::join!(
+            biased;
+            driver.drive(),
+            reader(Arc::clone(&state), recv, writer_is_done),
+            writer(state, send, commands, writer_done),
+        );
+    });
 }
 
 async fn writer(

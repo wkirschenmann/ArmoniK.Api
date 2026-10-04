@@ -137,6 +137,18 @@ impl GrpcChannel {
     }
 
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError> {
+        let (call, driver) = self.prepare_call(options)?;
+        self.inner.spawner.spawn(driver.drive());
+        Ok(call)
+    }
+
+    /// The call, and what drives it, which the caller runs on the channel's runtime, joined with
+    /// its own work on the call rather than as a task of its own. Nothing is sent until it is
+    /// driven; dropped, it leaves the call aborted.
+    pub fn prepare_call(
+        &self,
+        options: CallStartOptions,
+    ) -> Result<(GrpcCall, CallDriver), ChannelError> {
         if *self.inner.closed.borrow() {
             return Err(ChannelError::Closed);
         }
@@ -171,11 +183,14 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
         };
-        self.inner
-            .spawner
-            .spawn(driver::drive(self.inner.clone(), outgoing, driving));
-
-        Ok(grpc_call)
+        Ok((
+            grpc_call,
+            CallDriver {
+                inner: self.inner.clone(),
+                outgoing,
+                driving,
+            },
+        ))
     }
 
     pub fn close(&self) {
@@ -187,6 +202,28 @@ impl GrpcChannel {
         self.inner.spawner.spawn(async move {
             inner.connection.lock().await.sender.take();
         });
+    }
+}
+
+/// What drives a call, from its request to its terminal: arguments rather than a future, so that
+/// the future is built where it is polled and the caller's own stays small.
+#[must_use = "the call makes no progress until its driver is polled"]
+pub struct CallDriver {
+    inner: Arc<Inner>,
+    outgoing: Outgoing,
+    driving: driver::Driving,
+}
+
+impl CallDriver {
+    /// The call, driven to its terminal.
+    pub fn drive(self) -> impl Future<Output = ()> + Send + 'static {
+        driver::drive(self.inner, self.outgoing, self.driving)
+    }
+}
+
+impl std::fmt::Debug for CallDriver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CallDriver").finish_non_exhaustive()
     }
 }
 
@@ -752,6 +789,7 @@ fn method_path(method: &str) -> Result<PathAndQuery, ChannelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::CallError;
 
     /// Both edges of the window, at the door that takes a number.
     ///
@@ -780,6 +818,26 @@ mod tests {
             refused(LARGEST_WINDOW as usize).is_none(),
             "the deepest window the options admit is one this door takes"
         );
+    }
+
+    /// Nothing is dialed: the driver is dropped before anything polls it.
+    #[tokio::test]
+    async fn a_call_whose_driver_is_dropped_unpolled_is_aborted() {
+        let channel = GrpcChannel::new(
+            GrpcChannelConfig::new(TransportConfig::new(Uri::from_static(
+                "http://127.0.0.1:1234",
+            ))),
+            tokio::runtime::Handle::current(),
+        )
+        .expect("a valid configuration");
+        let (call, driver) = channel
+            .prepare_call(CallStartOptions::new("/echo.Echo/Say"))
+            .expect("an open channel");
+        drop(driver);
+
+        let (_send, mut recv, _control) = call.split();
+        assert!(matches!(recv.recv_head().await, Err(CallError::Aborted)));
+        assert_eq!(recv.next_message().await, Err(CallError::Aborted));
     }
 
     #[test]

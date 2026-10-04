@@ -241,9 +241,9 @@ that the threads are gone. `ak_runtime_status` returning QUIESCENT is the guaran
 there unloading the library, destroying the runtime and starting a new one are all safe.
 
 **A thread per channel.** Each channel runs on a thread of its own, a current-thread tokio
-runtime that carries the channel's connection, the driver of each of its calls and the
-call's own tasks, so that a call never moves between threads (`decisions.md` gives what that
-was measured against). The calls of one channel share that thread for all their work -
+runtime that carries the channel's connection and one task for each of its calls, joining its
+driver, writer and reader, so that a call never moves between threads (`decisions.md` gives
+what that was measured against). The calls of one channel share that thread for all their work -
 framing, encoding and decoding, the host's callbacks - and channels run in parallel. The
 runtime keeps one worker of its own, which delivers AK_EVENT_SHUTDOWN_COMPLETE. A channel's
 thread stops with the channel, once the host has released it and its last call has been
