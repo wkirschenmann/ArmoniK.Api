@@ -24,7 +24,7 @@ abstraction, and a level is not a layer.
 |    Generated stubs over a CallInvoker the caller supplies  |
 +------------------------------------------------------------+
 | 4. ArmoniK.Api.Client.RustGrpcChannel   C#, netstandard2.0 |
-|    A native CallInvoker; the runtime, its channels and     |  and net8.0
+|    A native CallInvoker; the runtime, its channels and     |  net8.0, net10.0
 |    their calls; the callback trampoline                    |
 +------------------------------------------------------------+
 | 3. armonik-transport-ffi                      Rust, cdylib |
@@ -60,9 +60,9 @@ by its disposal; each call publishes its events into a ring its reader drains.
 **Layer 5** is the existing client. It takes the `CallInvoker` its caller chooses, so the native
 channel reaches it without a selector inside it.
 
-The package multi-targets `netstandard2.0` and `net8.0`. Behavior is identical on both, which is
-the point of objective 2; the second target is there for the APIs it adds, not for a different
-path.
+The package multi-targets `netstandard2.0`, `net8.0` and `net10.0`, and `net11.0` when an SDK 11
+builds it. Behavior is identical on all of them, which is the point of objective 2; the .NET
+targets are there for the APIs they add, not for a different path.
 
 ---
 

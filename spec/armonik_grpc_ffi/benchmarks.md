@@ -83,7 +83,7 @@ On Windows 11 or Windows Server 2022 or later: on .NET Framework the managed sid
 dotnet build ArmoniK.Api.Client.RustGrpcChannel.Benchmarks -c Release
 ```
 
-then, for each of `net4.8` and `net8.0` and each of `native` and `managed`, from
+then, for each of `net4.8`, `net8.0` and `net10.0` and each of `native` and `managed`, from
 `ArmoniK.Api.Client.RustGrpcChannel.Benchmarks/bin/Release`:
 
 ```bash
@@ -95,4 +95,12 @@ net4.8/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.exe native
 ```
 
 and the same with `busy` after the transport for the busy scenario. Each run prints one line: the
-latencies and the throughput, and for an idle run the two memory figures.
+latencies and the throughput, and for an idle run the two memory figures. Built with a .NET 11
+SDK, the project also targets `net11.0`. The benchmark starts its test server, a `net8.0`
+program, with the `dotnet` the system finds first, which has to be an install with a .NET 8
+runtime. A run on an SDK installed apart from that one therefore goes through the apphost, with
+`DOTNET_ROOT` naming the other install:
+
+```bash
+DOTNET_ROOT=<the other install> net11.0/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.exe native
+```

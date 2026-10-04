@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- The two hosts the baseline is recorded on: the binding's netstandard2.0 half on .NET
-         Framework, its net8.0 half on .NET. -->
-    <TargetFrameworks>net4.8;net8.0</TargetFrameworks>
+    <!-- The binding's netstandard2.0 half on .NET Framework, and each of its .NET halves on its
+         own runtime. -->
+    <TargetFrameworks>net4.8;net8.0;net10.0</TargetFrameworks>
+    <!-- net11.0 is built only by an SDK 11 or later; CI installs none. -->
+    <TargetFrameworks Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">$(TargetFrameworks);net11.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <PackageVersion>3.29.2</PackageVersion>

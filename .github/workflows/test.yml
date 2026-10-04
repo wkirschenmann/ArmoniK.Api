@@ -404,10 +404,10 @@ jobs:
         working-directory: packages/rust
         run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi --features armonik-transport/test-hooks,armonik-transport-ffi/test-hooks
 
-  # The binding ships netstandard2.0 and net8.0 and loads a native engine of one architecture, so
-  # what has to be exercised is the pairing: three client runtimes against two architectures. Its
-  # own job rather than a row in the matrix above, because it needs a Rust toolchain and an
-  # architecture dimension that nothing else there has.
+  # The binding ships netstandard2.0, net8.0 and net10.0 and loads a native engine of one
+  # architecture, so what has to be exercised is the pairing: four client runtimes against two
+  # architectures. Its own job rather than a row in the matrix above, because it needs a Rust
+  # toolchain and an architecture dimension that nothing else there has.
   test-rust-grpc-channel:
     name: Test RustGrpcChannel ${{ matrix.tfm }} ${{ matrix.arch }} on ${{ matrix.os }}
     strategy:
@@ -430,6 +430,11 @@ jobs:
             rid: win-x64
             triple: x86_64-pc-windows-msvc
           - os: windows-latest
+            tfm: net10.0
+            arch: x64
+            rid: win-x64
+            triple: x86_64-pc-windows-msvc
+          - os: windows-latest
             tfm: net4.7
             arch: x86
             rid: win-x86
@@ -444,9 +449,19 @@ jobs:
             arch: x86
             rid: win-x86
             triple: i686-pc-windows-msvc
+          - os: windows-latest
+            tfm: net10.0
+            arch: x86
+            rid: win-x86
+            triple: i686-pc-windows-msvc
           # .NET Framework is Windows only, so Linux carries the one runtime it can.
           - os: ubuntu-latest
             tfm: net8.0
+            arch: x64
+            rid: linux-x64
+            triple: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            tfm: net10.0
             arch: x64
             rid: linux-x64
             triple: x86_64-unknown-linux-gnu
@@ -459,7 +474,9 @@ jobs:
       - name: Install .NET
         uses: actions/setup-dotnet@3951f0dfe7a07e2313ec93c75700083e2005cbab # v4
         with:
-          dotnet-version: 8.x
+          dotnet-version: |
+            8.x
+            10.x
 
       - name: Install the Rust target
         run: rustup target add ${{ matrix.triple }}

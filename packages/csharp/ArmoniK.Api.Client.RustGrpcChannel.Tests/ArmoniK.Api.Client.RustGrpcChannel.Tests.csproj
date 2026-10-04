@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- The binding ships netstandard2.0 and net8.0, and a .NET Framework consumer resolves to the
-         netstandard2.0 half. That half is the one nothing exercised, so it gets its own hosts. -->
-    <TargetFrameworks>net4.7;net4.8;net8.0</TargetFrameworks>
+    <!-- The binding ships netstandard2.0, net8.0, net10.0 and, built by an SDK 11, net11.0. A
+         .NET Framework consumer resolves to the netstandard2.0 half, so that half gets its own
+         hosts. -->
+    <TargetFrameworks>net4.7;net4.8;net8.0;net10.0</TargetFrameworks>
+    <!-- net11.0 is built only by an SDK 11 or later; CI installs none. -->
+    <TargetFrameworks Condition="$([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0'))">$(TargetFrameworks);net11.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <PackageVersion>3.29.2</PackageVersion>
     <Version>3.29.2</Version>

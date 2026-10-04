@@ -238,6 +238,10 @@ public static class Program
   private static string Framework()
 #if NETFRAMEWORK
     => "net4.8";
+#elif NET11_0_OR_GREATER
+    => "net11.0";
+#elif NET10_0_OR_GREATER
+    => "net10.0";
 #else
     => "net8.0";
 #endif

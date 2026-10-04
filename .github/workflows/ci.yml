@@ -61,6 +61,7 @@ jobs:
           dotnet-version: |
             6.x
             8.x
+            10.x
 
       - name: Install ReSharper
         run: |
