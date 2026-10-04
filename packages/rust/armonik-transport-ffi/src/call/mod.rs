@@ -44,13 +44,14 @@ impl Debt {
         // Sequentially consistent, for two handshakes with `lend`: `terminal` against its claim
         // of `buffers`, and, for the shutdown, `terminal` then `Ledger::empty` against its count
         // then its second read of `terminal`. In both, either this side sees the lend or the lend
-        // sees the terminal.
-        self.terminal.load(Ordering::SeqCst) && self.callbacks.load(Ordering::Acquire) == 0
+        // sees the terminal. The other reads here and in `settled` are sequentially consistent for
+        // the wake-up `moved_on` states.
+        self.terminal.load(Ordering::SeqCst) && self.callbacks.load(Ordering::SeqCst) == 0
     }
 
     fn settled(&self) -> bool {
         self.quiet()
-            && self.payloads.load(Ordering::Acquire) == 0
+            && self.payloads.load(Ordering::SeqCst) == 0
             && self.buffers.load(Ordering::SeqCst) == 0
     }
 
@@ -247,13 +248,13 @@ impl CallState {
     }
 
     fn took_back(&self, len: usize) {
-        self.debt.buffers.fetch_sub(1, Ordering::AcqRel);
+        self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
         self.ledger.release_bytes(len);
         self.moved_on();
     }
 
     fn handed_over(&self) {
-        self.debt.buffers.fetch_sub(1, Ordering::AcqRel);
+        self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
         self.moved_on();
     }
 
@@ -261,7 +262,7 @@ impl CallState {
         if returns_credit {
             self.credits.add_permits(1);
         }
-        self.debt.payloads.fetch_sub(1, Ordering::AcqRel);
+        self.debt.payloads.fetch_sub(1, Ordering::SeqCst);
         self.ledger.release();
         self.moved_on();
     }
@@ -352,12 +353,23 @@ impl CallState {
     fn in_callback(&self, emit: impl FnOnce()) {
         self.debt.callbacks.fetch_add(1, Ordering::AcqRel);
         emit();
-        self.debt.callbacks.fetch_sub(1, Ordering::AcqRel);
-        self.moved_on();
+        self.debt.callbacks.fetch_sub(1, Ordering::SeqCst);
+        // Quiet is what `finished` waits for; settled, which the reclaim waits for, implies it. This
+        // is also what announces a debt paid inside the callback, before the terminal, which
+        // `moved_on` saw no reason to.
+        if self.debt.quiet() {
+            self.announce();
+        }
     }
 
+    /// Wakes the reclaim once the call is settled, and not before: a wake-up that finds a debt
+    /// still owed costs the channel's thread a turn for nothing, and a host that gives back a
+    /// callback's payloads one by one would pay it for each.
+    ///
+    /// The counters' decrements and the reads in `settled` are sequentially consistent, so of two
+    /// last debts paid at once, the one later in that order reads the other paid, and announces.
     fn moved_on(&self) {
-        if self.debt.terminal.load(Ordering::Acquire) {
+        if self.debt.settled() {
             self.announce();
         }
     }
