@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use armonik_transport::grpc::{GrpcChannelConfig, RetryConfig};
 use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
-use armonik_transport::options::{ChannelOptions, OptionRefusal, Seconds, LARGEST_WINDOW};
+use armonik_transport::options::{
+    ChannelOptions, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
+};
 use armonik_transport::reexports::http::Uri;
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
@@ -205,7 +207,11 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
     let proxy = options
         .transport
         .proxy
-        .to_config()
+        .as_ref()
+        .map_or_else(
+            || ProxyOptions::default().to_config(),
+            ProxyOptions::to_config,
+        )
         .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Proxy")))?;
     let retry = options
         .retry
@@ -539,9 +545,8 @@ mod tests {
             r#"{{
                 "Transport": {{
                     "Tls": {{
-                        "CaCertPath": "{certificate}",
-                        "CertPem": "{certificate}",
-                        "KeyPem": "{key}",
+                        "Server": {{ "CaPem": "{certificate}" }},
+                        "Client": {{ "Pem": {{ "Certificate": "{certificate}", "Key": "{key}" }} }},
                         "OverrideTargetName": "server.test"
                     }},
                     "TcpKeepalive": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }}
@@ -583,7 +588,7 @@ mod tests {
         assert_eq!(http2.stream_window, 1_048_576);
         assert_eq!(http2.connection_window, 3_145_728);
 
-        let unsafe_document = br#"{"Transport":{"Tls":{"AllowUnsafeConnection":true}}}"#;
+        let unsafe_document = br#"{"Transport":{"Tls":{"Server":{"Unverified":true}}}}"#;
         let config = parse(unsafe_document)
             .expect("admissible")
             .into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
@@ -704,8 +709,8 @@ mod tests {
                 "Transport.ConnectTimeoutSeconds",
             ),
             (
-                &br#"{"Transport":{"Tls":{"CaCertPath":"no/such/file.pem"}}}"#[..],
-                "Transport.Tls.CaCertPath",
+                &br#"{"Transport":{"Tls":{"Server":{"CaPem":"no/such/file.pem"}}}}"#[..],
+                "Transport.Tls.Server.CaPem",
             ),
             (
                 &br#"{"Transport":{"TcpKeepalive":{"Retries":3}}}"#[..],
@@ -716,12 +721,17 @@ mod tests {
                 "Http2.ConnectionWindowSize",
             ),
             (
-                &br#"{"Transport":{"Tls":{"CertP12Password":123456}}}"#[..],
-                "Transport.Tls.CertP12Password",
+                &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
+                    [..],
+                "Transport.Tls.Client.P12.Password",
             ),
             (
-                &br#"{"Transport":{"Proxy":{"Address":"https://proxy.test"}}}"#[..],
-                "Transport.Proxy.Address",
+                &br#"{"Transport":{"Proxy":{"Url":{"Address":"https://proxy.test"}}}}"#[..],
+                "Transport.Proxy.Url.Address",
+            ),
+            (
+                &br#"{"Transport":{"Proxy":{"None":true,"System":{}}}}"#[..],
+                "Transport.Proxy",
             ),
         ] {
             let Err(refused) = parse(document) else {
@@ -741,7 +751,7 @@ mod tests {
         use armonik_transport::http2::ProxySource;
 
         let config = config_of(
-            br#"{"Transport":{"Proxy":{"Address":"proxy.test:3128","Username":"alice","Password":"s3cret"}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice","Password":"s3cret"}}}}"#,
         );
         let proxy = &config.transport.proxy;
         let ProxySource::Explicit(uri) = &proxy.source else {
@@ -755,15 +765,16 @@ mod tests {
     #[test]
     fn a_password_of_the_wrong_type_is_refused_without_being_quoted() {
         for document in [
-            &br#"{"Transport":{"Tls":{"CertP12Password":123456}}}"#[..],
-            &br#"{"Transport":{"Tls":{"CertP12Password":-123456.5}}}"#[..],
-            &br#"{"Transport":{"Tls":{"CertP12Password":["s3cret"]}}}"#[..],
-            &br#"{"Transport":{"Tls":{"CertP12Password":{"s3cret":1}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":-123456.5}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":["s3cret"]}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":{"s3cret":1}}}}}}"#[..],
         ] {
             let Err(refused) = parse(document) else {
                 panic!("{} is admitted", String::from_utf8_lossy(document));
             };
             let said = refused.to_string();
+            assert!(said.contains("Transport.Tls.Client.P12.Password"), "{said}");
             assert!(!said.contains("123456"), "{said}");
             assert!(!said.contains("s3cret"), "{said}");
         }

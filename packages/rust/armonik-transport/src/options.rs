@@ -99,26 +99,67 @@ pub struct TransportOptions {
 
     /// The HTTP proxy every dial tunnels through.
     ///
-    /// Defaults to `{}`, which tunnels through the proxy the environment names, if any.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub proxy: ProxyOptions,
+    /// Defaults to `{"System": {}}`: the proxy the system names, if any, with no credentials of
+    /// its own.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "ProxyOptions"))]
+    pub proxy: Option<ProxyOptions>,
+}
+
+/// `true`, the value of an alternative that carries nothing: a key names an alternative, and this
+/// is what it is set to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Chosen;
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Chosen {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(true)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Chosen {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if bool::deserialize(deserializer)? {
+            Ok(Chosen)
+        } else {
+            Err(serde::de::Error::custom(
+                "an alternative is chosen with `true`; one not chosen is left out",
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Chosen {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Chosen".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({ "const": true })
+    }
 }
 
 /// An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the
 /// server.
-#[derive(Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct ProxyOptions {
-    /// `none` for no proxy, `system` for the one the system names, or the proxy's `http://` URL,
-    /// with no path; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,
-    /// percent-encoded, when `Username` and `Password` are not set - which a serialized document
-    /// then carries too.
+pub enum ProxyOptions {
+    /// No proxy: every dial goes to the endpoint itself.
+    None(Chosen),
+
+    /// The proxy the system names for the endpoint, if any.
     ///
     /// The environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and
     /// by the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the
@@ -134,20 +175,33 @@ pub struct ProxyOptions {
     /// again for two minutes.
     ///
     /// The system's proxy is never used for a loopback endpoint.
-    ///
-    /// Defaults to `system`.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub address: Option<String>,
+    System(ProxyCredentials),
 
-    /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
+    /// The proxy at an address.
+    Url(ProxyUrl),
+}
+
+impl Default for ProxyOptions {
+    fn default() -> Self {
+        Self::System(ProxyCredentials::default())
+    }
+}
+
+/// The credentials the system's proxy is authenticated to with, by `Basic`.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct ProxyCredentials {
+    /// The username, which `Basic` forbids a `:` in.
     ///
-    /// Refused beside credentials the `Address` URL carries; ignored beside `none`, and when the
-    /// system names no proxy. Beside the environment's proxy, it takes the place of the username
-    /// that proxy's URL carries; beside the one Windows' settings name, it is the username.
+    /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+    /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
+    /// username.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -157,12 +211,61 @@ pub struct ProxyOptions {
 
     /// The password that goes with `Username`.
     ///
-    /// Refused beside credentials the `Address` URL carries; ignored beside `none`, and when the
-    /// system names no proxy. Beside the environment's proxy, it takes the place of the password
-    /// that proxy's URL carries; beside the one Windows' settings name, it is the password.
+    /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+    /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
+    /// password.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
+}
+
+/// A proxy named by its address.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct ProxyUrl {
+    /// The proxy's `http://` URL, with no path; `http://` is assumed when no scheme is written.
+    ///
+    /// It may carry `user:password@`, percent-encoded, when `Username` and `Password` are not
+    /// set, which a serialized document then carries too.
+    // `writeOnly`, so a generated binding treats it as the secret it may hold.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(length(min = 1), extend("writeOnly" = true))
+    )]
+    pub address: String,
+
+    /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
+    ///
+    /// Refused beside credentials the `Address` URL carries.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub username: Option<String>,
+
+    /// The password that goes with `Username`.
+    ///
+    /// Refused beside credentials the `Address` URL carries.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub password: Option<Password>,
+}
+
+impl ProxyUrl {
+    pub fn new(address: impl Into<String>) -> Self {
+        Self {
+            address: address.into(),
+            username: None,
+            password: None,
+        }
+    }
 }
 
 /// The address as a Debug print may show it, which is how a URL is typed and not how it parses:
@@ -196,10 +299,10 @@ fn elided(address: &str) -> String {
 }
 
 /// The address is printed elided, since it may carry a password.
-impl std::fmt::Debug for ProxyOptions {
+impl std::fmt::Debug for ProxyUrl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProxyOptions")
-            .field("address", &self.address.as_deref().map(elided))
+        f.debug_struct("ProxyUrl")
+            .field("address", &elided(&self.address))
             .field("username", &self.username)
             .field("password", &self.password)
             .finish()
@@ -210,22 +313,27 @@ impl ProxyOptions {
     /// The proxy these options name. A refusal never quotes the address, which may hold a
     /// password.
     pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
-        let dedicated = self.username.is_some() || self.password.is_some();
-        let address = match self.address.as_deref() {
-            None => return self.with_dedicated(ProxySource::System),
-            // Credentials beside `none` are left unread: a deployment that turned its proxy off
-            // without clearing the credentials it needed is in a normal state.
-            Some(none) if none.eq_ignore_ascii_case("none") => return Ok(ProxyConfig::default()),
-            Some(system) if system.eq_ignore_ascii_case("system") => {
-                return self.with_dedicated(ProxySource::System)
-            }
-            Some(address) => address,
-        };
+        match self {
+            Self::None(Chosen) => Ok(ProxyConfig::default()),
+            Self::System(credentials) => authenticated(
+                ProxySource::System,
+                &credentials.username,
+                &credentials.password,
+            )
+            .map_err(|refused| refused.under("System")),
+            Self::Url(url) => url.to_config().map_err(|refused| refused.under("Url")),
+        }
+    }
+}
 
+impl ProxyUrl {
+    fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
+        let dedicated = self.username.is_some() || self.password.is_some();
+        let address = self.address.as_str();
         let not_a_url = || {
             OptionRefusal::new(
                 "Address",
-                "it is neither `none` nor a proxy URL such as `http://proxy.example.com:3128`",
+                "it is not a proxy URL such as `http://proxy.example.com:3128`",
             )
         };
         let written = if address.contains("://") {
@@ -301,27 +409,30 @@ impl ProxyOptions {
                     password: password.into(),
                 })
             }
-            None => self.with_dedicated(source),
+            None => authenticated(source, &self.username, &self.password),
         }
     }
+}
 
-    /// `source`, authenticated to with `Username` and `Password`, empty when unset.
-    fn with_dedicated(&self, source: ProxySource) -> Result<ProxyConfig, OptionRefusal> {
-        let username = self.username.clone().unwrap_or_default();
-        if username.contains(':') {
-            return Err(OptionRefusal::new("Username", NO_COLON));
-        }
-        let password = self
-            .password
-            .as_ref()
-            .map(|password| password.0.expose_secret().to_owned())
-            .unwrap_or_default();
-        Ok(ProxyConfig {
-            source,
-            username,
-            password: password.into(),
-        })
+/// `source`, authenticated to with `username` and `password`, empty when unset.
+fn authenticated(
+    source: ProxySource,
+    username: &Option<String>,
+    password: &Option<Password>,
+) -> Result<ProxyConfig, OptionRefusal> {
+    let username = username.clone().unwrap_or_default();
+    if username.contains(':') {
+        return Err(OptionRefusal::new("Username", NO_COLON));
     }
+    let password = password
+        .as_ref()
+        .map(|password| password.0.expose_secret().to_owned())
+        .unwrap_or_default();
+    Ok(ProxyConfig {
+        source,
+        username,
+        password: password.into(),
+    })
 }
 
 /// `Basic` splits user and password at the first `:`, so one in the user moves the rest into the
@@ -339,85 +450,25 @@ const NO_COLON: &str = "the username holds a `:`, which `Basic` authentication c
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct TlsOptions {
-    /// Path to a PEM file of the roots the server certificate is verified against, in place of
-    /// the system's. Every certificate the file holds is a root.
+    /// How the server certificate is verified.
     ///
-    /// Refused together with `AllowUnsafeConnection`, which verifies nothing.
+    /// Defaults to the system's roots.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub ca_cert_path: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "ServerVerification"))]
+    pub server: Option<ServerVerification>,
 
-    /// Path to a PEM file of the client's certificate, then each issuer the server may not hold.
+    /// The certificate the client presents, and its key.
     ///
-    /// Set together with `KeyPem`.
+    /// Defaults to none.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub cert_pem: Option<String>,
-
-    /// Path to a PEM file of the key of the client's certificate.
-    ///
-    /// Set together with `CertPem`.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub key_pem: Option<String>,
-
-    /// Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.
-    ///
-    /// Refused together with `CertPem` or `KeyPem`, which name an identity too.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub cert_p12: Option<String>,
-
-    /// The password `CertP12` is protected by. Defaults to the empty one.
-    ///
-    /// Refused without `CertP12`.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub cert_p12_password: Option<Password>,
-
-    /// The client's certificate and key from a Windows certificate store, `My` unless `Name`
-    /// says otherwise, with the issuers the store's `CA` holds. Its key has to be exportable.
-    ///
-    /// Refused together with `CertPem`, `KeyPem` or `CertP12`, and off Windows.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "StoreCertificate"))]
-    pub cert_store: Option<StoreCertificate>,
-
-    /// The root the server certificate is verified against, from a Windows certificate store,
-    /// `Root` unless `Name` says otherwise, in place of the system's.
-    ///
-    /// Refused together with `CaCertPath` or `AllowUnsafeConnection`, and off Windows.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "StoreCertificate"))]
-    pub ca_store: Option<StoreCertificate>,
-
-    /// Accept any server certificate. The connection is still encrypted, to whoever answers.
-    ///
-    /// Defaults to false.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
-    pub allow_unsafe_connection: Option<bool>,
+    #[cfg_attr(feature = "schema", schemars(with = "ClientCertificate"))]
+    pub client: Option<ClientCertificate>,
 
     /// The host the server certificate is verified against, and sent as SNI, in place of the
     /// endpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is
@@ -430,9 +481,118 @@ pub struct TlsOptions {
     pub override_target_name: Option<String>,
 }
 
-/// A certificate of a Windows certificate store, named by exactly one of `Thumbprint`,
-/// `SubjectName` and `FriendlyName`.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// How the server certificate is verified.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum ServerVerification {
+    /// Against the roots of a PEM file, named by its path, in place of the system's. Every
+    /// certificate the file holds is a root.
+    CaPem(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+
+    /// Against a root from a Windows certificate store, `Root` unless `Name` says otherwise, in
+    /// place of the system's.
+    ///
+    /// Refused off Windows.
+    CaStore(StoreCertificate),
+
+    /// Not at all: any server certificate is accepted. The connection is still encrypted, to
+    /// whoever answers.
+    Unverified(Chosen),
+}
+
+/// The certificate the client presents, and its key.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum ClientCertificate {
+    /// From PEM files.
+    Pem(PemCertificate),
+
+    /// From a PKCS#12 bundle.
+    P12(P12Certificate),
+
+    /// From a Windows certificate store, `My` unless `Name` says otherwise, with the issuers the
+    /// store's `CA` holds. Its key has to be exportable.
+    ///
+    /// Refused off Windows.
+    Store(StoreCertificate),
+}
+
+/// A client certificate and its key, from PEM files.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct PemCertificate {
+    /// Path to a PEM file of the client's certificate, then each issuer the server may not hold.
+    #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    pub certificate: String,
+
+    /// Path to a PEM file of the certificate's key.
+    #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    pub key: String,
+}
+
+impl PemCertificate {
+    pub fn new(certificate: impl Into<String>, key: impl Into<String>) -> Self {
+        Self {
+            certificate: certificate.into(),
+            key: key.into(),
+        }
+    }
+
+    fn load(&self) -> Result<ClientIdentity, OptionRefusal> {
+        let chain = certificates("Certificate", &self.certificate)?;
+        let key = PrivateKeyDer::from_pem_slice(&read("Key", &self.key)?).map_err(|error| {
+            OptionRefusal::new(
+                "Key",
+                format!("the file it names holds no key PEM can carry: {error}"),
+            )
+        })?;
+        Ok(ClientIdentity { chain, key })
+    }
+}
+
+/// A client certificate and its key, from a PKCS#12 bundle.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct P12Certificate {
+    /// Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.
+    #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    pub path: String,
+
+    /// The password the bundle is protected by.
+    ///
+    /// Defaults to the empty one.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub password: Option<Password>,
+}
+
+impl P12Certificate {
+    pub fn new(path: impl Into<String>, password: Option<Password>) -> Self {
+        Self {
+            path: path.into(),
+            password,
+        }
+    }
+}
+
+/// A certificate of a Windows certificate store.
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "serde",
@@ -441,15 +601,15 @@ pub struct TlsOptions {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct StoreCertificate {
-    /// `CurrentUser` or `LocalMachine`.
+    /// Where the store is.
     ///
     /// Defaults to `CurrentUser`.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub location: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "StoreLocation"))]
+    pub location: Option<StoreLocation>,
 
     /// The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.
     #[cfg_attr(
@@ -459,31 +619,49 @@ pub struct StoreCertificate {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub name: Option<String>,
 
-    /// The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between
-    /// them are ignored.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub thumbprint: Option<String>,
+    /// How the certificate is found in the store.
+    pub find: StoreSearch,
+}
 
-    /// A text the certificate's subject contains, compared without case, as .NET's
-    /// `FindBySubjectName` compares it.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub subject_name: Option<String>,
+impl StoreCertificate {
+    pub fn new(find: StoreSearch) -> Self {
+        Self {
+            location: None,
+            name: None,
+            find,
+        }
+    }
+}
 
-    /// The certificate's friendly name, exactly.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub friendly_name: Option<String>,
+/// Where a Windows certificate store is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum StoreLocation {
+    /// The current user's stores.
+    CurrentUser,
+
+    /// The machine's stores, which every user shares.
+    LocalMachine,
+}
+
+/// How a certificate is found in its store.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum StoreSearch {
+    /// By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are
+    /// ignored.
+    Thumbprint(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+
+    /// By a text its subject contains, compared without case, as .NET's `FindBySubjectName`
+    /// compares it.
+    SubjectName(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+
+    /// By its friendly name, exactly.
+    FriendlyName(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
 }
 
 /// A thumbprint as the 20 bytes it writes, with what a copy from a certificate dialog carries
@@ -496,7 +674,7 @@ fn thumbprint(written: &str) -> Result<[u8; 20], OptionRefusal> {
         .collect();
     if digits.len() != 40 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(OptionRefusal::new(
-            "Thumbprint",
+            "Find.Thumbprint",
             "it has to be 40 hexadecimal digits, a SHA-1 fingerprint",
         ));
     }
@@ -512,27 +690,10 @@ impl StoreCertificate {
     /// The store this names, `default` unless `Name` is set, and where it sits.
     #[cfg_attr(not(windows), allow(dead_code))]
     fn place<'a>(&'a self, default: &'a str) -> Result<(bool, &'a str), OptionRefusal> {
-        // An empty text would match every certificate's subject, and pick one silently.
-        for (key, text) in [
-            ("Location", &self.location),
-            ("Name", &self.name),
-            ("SubjectName", &self.subject_name),
-            ("FriendlyName", &self.friendly_name),
-        ] {
-            if text.as_deref() == Some("") {
-                return Err(OptionRefusal::new(key, "it is empty"));
-            }
+        if self.name.as_deref() == Some("") {
+            return Err(OptionRefusal::new("Name", "it is empty"));
         }
-        let local_machine = match self.location.as_deref() {
-            None | Some("CurrentUser") => false,
-            Some("LocalMachine") => true,
-            Some(other) => {
-                return Err(OptionRefusal::new(
-                    "Location",
-                    format!("`{other}` is neither CurrentUser nor LocalMachine"),
-                ))
-            }
-        };
+        let local_machine = self.location == Some(StoreLocation::LocalMachine);
         Ok((local_machine, self.name.as_deref().unwrap_or(default)))
     }
 
@@ -546,25 +707,19 @@ impl StoreCertificate {
         use crate::windows_store::By;
 
         let (local_machine, name) = self.place(default)?;
-        let by =
-            match (&self.thumbprint, &self.subject_name, &self.friendly_name) {
-                (Some(written), None, None) => By::Thumbprint(thumbprint(written)?),
-                (None, Some(subject), None) => By::SubjectName(subject),
-                (None, None, Some(friendly)) => By::FriendlyName(friendly),
-                (None, None, None) => return Err(OptionRefusal::new(
-                    "Thumbprint",
-                    "one of Thumbprint, SubjectName and FriendlyName has to name the certificate",
-                )),
-                _ => return Err(OptionRefusal::new(
-                    "Thumbprint",
-                    "only one of Thumbprint, SubjectName and FriendlyName may name the certificate",
-                )),
-            };
-        let key = match by {
-            By::Thumbprint(_) => "Thumbprint",
-            By::SubjectName(_) => "SubjectName",
-            By::FriendlyName(_) => "FriendlyName",
+        let (by, key) = match &self.find {
+            StoreSearch::Thumbprint(written) => {
+                (By::Thumbprint(thumbprint(written)?), "Find.Thumbprint")
+            }
+            StoreSearch::SubjectName(subject) => (By::SubjectName(subject), "Find.SubjectName"),
+            StoreSearch::FriendlyName(friendly) => {
+                (By::FriendlyName(friendly), "Find.FriendlyName")
+            }
         };
+        // An empty text would match every certificate's subject, and pick one silently.
+        if matches!(by, By::SubjectName("") | By::FriendlyName("")) {
+            return Err(OptionRefusal::new(key, "it is empty"));
+        }
         crate::windows_store::find(local_machine, name, &by)
             .map(|found| (found, local_machine, key))
             .map_err(|why| OptionRefusal::new(key, why))
@@ -1162,83 +1317,32 @@ fn open_pkcs12(bundle: &[u8], password: &str) -> Result<ClientIdentity, Unopened
 impl TlsOptions {
     /// What these options say, with every file they name read.
     pub fn load(&self) -> Result<TlsConfig, OptionRefusal> {
-        let accept_any_server = self.allow_unsafe_connection.unwrap_or(false);
-        if accept_any_server && self.ca_cert_path.is_some() {
-            return Err(OptionRefusal::new(
-                "CaCertPath",
-                "it names roots to verify against, and AllowUnsafeConnection verifies nothing",
-            ));
-        }
-
-        if self.ca_store.is_some() && (self.ca_cert_path.is_some() || accept_any_server) {
-            return Err(OptionRefusal::new(
-                "CaStore",
-                "it names a root, and so does CaCertPath, or AllowUnsafeConnection verifies nothing",
-            ));
-        }
-        if self.cert_store.is_some()
-            && (self.cert_pem.is_some() || self.key_pem.is_some() || self.cert_p12.is_some())
-        {
-            return Err(OptionRefusal::new(
-                "CertStore",
-                "it names a client identity, and so do CertPem, KeyPem or CertP12",
-            ));
-        }
-
-        let roots = match (&self.ca_cert_path, &self.ca_store) {
-            (Some(path), _) => certificates("CaCertPath", path)?,
-            (None, Some(store)) => {
-                vec![store.root().map_err(|refused| refused.under("CaStore"))?]
-            }
-            (None, None) => Vec::new(),
+        let (roots, accept_any_server) = match &self.server {
+            None => (Vec::new(), false),
+            Some(ServerVerification::CaPem(path)) => (certificates("Server.CaPem", path)?, false),
+            Some(ServerVerification::CaStore(store)) => (
+                vec![store
+                    .root()
+                    .map_err(|refused| refused.under("Server.CaStore"))?],
+                false,
+            ),
+            Some(ServerVerification::Unverified(Chosen)) => (Vec::new(), true),
         };
 
-        if self.cert_p12.is_some() && (self.cert_pem.is_some() || self.key_pem.is_some()) {
-            return Err(OptionRefusal::new(
-                "CertP12",
-                "it names a client identity, and so do CertPem and KeyPem",
-            ));
-        }
-        if self.cert_p12.is_none() && self.cert_p12_password.is_some() {
-            return Err(OptionRefusal::new(
-                "CertP12Password",
-                "it is set, and CertP12 names no bundle",
-            ));
-        }
-
-        let identity = match (&self.cert_pem, &self.key_pem) {
-            (None, None) => match (&self.cert_p12, &self.cert_store) {
-                (Some(path), _) => Some(pkcs12("CertP12", path, self.cert_p12_password.as_ref())?),
-                (None, Some(store)) => Some(
-                    store
-                        .identity()
-                        .map_err(|refused| refused.under("CertStore"))?,
-                ),
-                (None, None) => None,
-            },
-            (Some(_), None) => {
-                return Err(OptionRefusal::new(
-                    "KeyPem",
-                    "it is missing, and CertPem names a certificate that needs its key",
-                ))
+        let identity = match &self.client {
+            None => None,
+            Some(ClientCertificate::Pem(pem)) => {
+                Some(pem.load().map_err(|refused| refused.under("Client.Pem"))?)
             }
-            (None, Some(_)) => {
-                return Err(OptionRefusal::new(
-                    "CertPem",
-                    "it is missing, and KeyPem names a key that needs its certificate",
-                ))
-            }
-            (Some(cert), Some(key)) => {
-                let chain = certificates("CertPem", cert)?;
-                let key =
-                    PrivateKeyDer::from_pem_slice(&read("KeyPem", key)?).map_err(|error| {
-                        OptionRefusal::new(
-                            "KeyPem",
-                            format!("the file it names holds no key PEM can carry: {error}"),
-                        )
-                    })?;
-                Some(ClientIdentity { chain, key })
-            }
+            Some(ClientCertificate::P12(p12)) => Some(
+                pkcs12("Path", &p12.path, p12.password.as_ref())
+                    .map_err(|refused| refused.under("Client.P12"))?,
+            ),
+            Some(ClientCertificate::Store(store)) => Some(
+                store
+                    .identity()
+                    .map_err(|refused| refused.under("Client.Store"))?,
+            ),
         };
 
         if let Some(name) = &self.override_target_name {
@@ -1535,11 +1639,16 @@ mod tests {
         let (certificate, key) = pem_pair();
         let two = format!("{certificate}{certificate}");
         let options = TlsOptions {
-            ca_cert_path: Some(write(&directory, "ca.pem", &certificate)),
-            cert_pem: Some(write(&directory, "chain.pem", &two)),
-            key_pem: Some(write(&directory, "key.pem", &key)),
+            server: Some(ServerVerification::CaPem(write(
+                &directory,
+                "ca.pem",
+                &certificate,
+            ))),
+            client: Some(ClientCertificate::Pem(PemCertificate::new(
+                write(&directory, "chain.pem", &two),
+                write(&directory, "key.pem", &key),
+            ))),
             override_target_name: Some("server.test".to_owned()),
-            ..TlsOptions::default()
         };
 
         let config = options.load().expect("readable files");
@@ -1552,6 +1661,15 @@ mod tests {
         );
         assert_eq!(config.server_name.as_deref(), Some("server.test"));
         assert!(!config.accept_any_server);
+
+        let unverified = TlsOptions {
+            server: Some(ServerVerification::Unverified(Chosen)),
+            ..TlsOptions::default()
+        }
+        .load()
+        .expect("nothing to read");
+        assert!(unverified.accept_any_server);
+        assert!(unverified.roots.is_empty());
     }
 
     #[test]
@@ -1565,60 +1683,32 @@ mod tests {
             .into_owned();
         let empty = write(&directory, "empty.pem", "no PEM here");
         let certificate = write(&directory, "cert.pem", &certificate);
+        let pem = |certificate: &str, key: &str| TlsOptions {
+            client: Some(ClientCertificate::Pem(PemCertificate::new(
+                certificate,
+                key,
+            ))),
+            ..TlsOptions::default()
+        };
 
         for (options, key) in [
             (
                 TlsOptions {
-                    ca_cert_path: Some(missing.clone()),
+                    server: Some(ServerVerification::CaPem(missing.clone())),
                     ..TlsOptions::default()
                 },
-                "CaCertPath",
+                "Server.CaPem",
             ),
             (
                 TlsOptions {
-                    ca_cert_path: Some(empty.clone()),
+                    server: Some(ServerVerification::CaPem(empty.clone())),
                     ..TlsOptions::default()
                 },
-                "CaCertPath",
+                "Server.CaPem",
             ),
-            (
-                TlsOptions {
-                    cert_pem: Some(certificate.clone()),
-                    ..TlsOptions::default()
-                },
-                "KeyPem",
-            ),
-            (
-                TlsOptions {
-                    key_pem: Some(missing.clone()),
-                    ..TlsOptions::default()
-                },
-                "CertPem",
-            ),
-            (
-                TlsOptions {
-                    cert_pem: Some(certificate.clone()),
-                    key_pem: Some(certificate.clone()),
-                    ..TlsOptions::default()
-                },
-                "KeyPem",
-            ),
-            (
-                TlsOptions {
-                    cert_pem: Some(certificate.clone()),
-                    key_pem: Some(missing.clone()),
-                    ..TlsOptions::default()
-                },
-                "KeyPem",
-            ),
-            (
-                TlsOptions {
-                    ca_cert_path: Some(certificate.clone()),
-                    allow_unsafe_connection: Some(true),
-                    ..TlsOptions::default()
-                },
-                "CaCertPath",
-            ),
+            (pem(&missing, &certificate), "Client.Pem.Certificate"),
+            (pem(&certificate, &certificate), "Client.Pem.Key"),
+            (pem(&certificate, &missing), "Client.Pem.Key"),
             (
                 TlsOptions {
                     override_target_name: Some("-nope-".to_owned()),
@@ -1639,6 +1729,39 @@ mod tests {
             }
             assert!(!said.contains("s3cret"), "{said}");
         }
+    }
+
+    /// Alternatives exclude one another by their shape: a document naming two is refused as it
+    /// is read, before any file is.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn a_document_naming_two_alternatives_is_refused() {
+        for document in [
+            r#"{"Server":{"CaPem":"ca.pem","Unverified":true}}"#,
+            r#"{"Client":{"Pem":{"Certificate":"c.pem","Key":"k.pem"},"P12":{"Path":"c.p12"}}}"#,
+            r#"{"Server":{"Unverified":false}}"#,
+            r#"{"Client":{"Pem":{"Certificate":"c.pem"}}}"#,
+            r#"{"Client":{"P12":{"Password":"s3cret"}}}"#,
+        ] {
+            let read = serde_json::from_str::<TlsOptions>(document);
+            assert!(read.is_err(), "{document}");
+            assert!(
+                !read.unwrap_err().to_string().contains("s3cret"),
+                "{document}"
+            );
+        }
+        let read: TlsOptions = serde_json::from_str(
+            r#"{"Server":{"Unverified":true},"Client":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
+        )
+        .expect("one alternative each");
+        assert_eq!(read.server, Some(ServerVerification::Unverified(Chosen)));
+        assert_eq!(
+            read.client,
+            Some(ClientCertificate::P12(P12Certificate::new(
+                "c.p12",
+                Some(Password::new("x"))
+            )))
+        );
     }
 
     /// A PKCS#12 bundle of `key` and `certificates`, protected by `password`.
@@ -1669,6 +1792,16 @@ mod tests {
         path.to_string_lossy().into_owned()
     }
 
+    fn p12(path: &str, password: Option<&str>) -> TlsOptions {
+        TlsOptions {
+            client: Some(ClientCertificate::P12(P12Certificate::new(
+                path,
+                password.map(Password::new),
+            ))),
+            ..TlsOptions::default()
+        }
+    }
+
     #[test]
     fn a_pkcs12_bundle_is_read_into_the_identity_it_carries() {
         let directory = scratch("p12");
@@ -1676,15 +1809,14 @@ mod tests {
         let rcgen::CertifiedKey { cert, signing_key } =
             rcgen::generate_simple_self_signed(["client.test".to_owned()]).expect("an identity");
 
-        let options = TlsOptions {
-            cert_p12: Some(bundled(
+        let options = p12(
+            &bundled(
                 &directory,
                 "identity.p12",
                 p12_bundle(&signing_key, &[&cert], "s3cret-word"),
-            )),
-            cert_p12_password: Some(Password::new("s3cret-word")),
-            ..TlsOptions::default()
-        };
+            ),
+            Some("s3cret-word"),
+        );
         let identity = options
             .load()
             .expect("a bundle")
@@ -1697,14 +1829,14 @@ mod tests {
         };
         assert_eq!(key.secret_pkcs8_der(), signing_key.serialize_der());
 
-        let unprotected = TlsOptions {
-            cert_p12: Some(bundled(
+        let unprotected = p12(
+            &bundled(
                 &directory,
                 "open.p12",
                 p12_bundle(&signing_key, &[&cert], ""),
-            )),
-            ..TlsOptions::default()
-        };
+            ),
+            None,
+        );
         assert!(
             unprotected.load().expect("no password").identity.is_some(),
             "no password opens a bundle written with the empty one"
@@ -1751,56 +1883,14 @@ mod tests {
             )
         };
 
-        for (options, key) in [
-            (
-                TlsOptions {
-                    cert_p12: Some(protected.clone()),
-                    cert_p12_password: Some(Password::new("hunter2")),
-                    ..TlsOptions::default()
-                },
-                "CertP12",
-            ),
-            (
-                TlsOptions {
-                    cert_p12: Some(empty.clone()),
-                    cert_p12_password: Some(Password::new("s3cret-word")),
-                    ..TlsOptions::default()
-                },
-                "CertP12",
-            ),
-            (
-                TlsOptions {
-                    cert_p12: Some(garbage.clone()),
-                    ..TlsOptions::default()
-                },
-                "CertP12",
-            ),
-            (
-                TlsOptions {
-                    cert_p12: Some(two.clone()),
-                    cert_p12_password: Some(Password::new("s3cret-word")),
-                    ..TlsOptions::default()
-                },
-                "CertP12",
-            ),
-            (
-                TlsOptions {
-                    cert_p12: Some(protected.clone()),
-                    cert_pem: Some(protected.clone()),
-                    ..TlsOptions::default()
-                },
-                "CertP12",
-            ),
-            (
-                TlsOptions {
-                    cert_p12_password: Some(Password::new("s3cret-word")),
-                    ..TlsOptions::default()
-                },
-                "CertP12Password",
-            ),
+        for options in [
+            p12(&protected, Some("hunter2")),
+            p12(&empty, Some("s3cret-word")),
+            p12(&garbage, None),
+            p12(&two, Some("s3cret-word")),
         ] {
-            let refused = options.load().expect_err(key);
-            assert_eq!(refused.key(), key, "{refused}");
+            let refused = options.load().expect_err("refused");
+            assert_eq!(refused.key(), "Client.P12.Path", "{refused}");
             let said = refused.to_string();
             for secret in ["s3cret", "hunter2", &protected, &empty, &garbage, &two] {
                 assert!(!said.contains(secret), "{said}");
@@ -1815,22 +1905,21 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn a_windows_store_is_refused_off_windows_by_the_option_naming_it() {
-        let mut store = StoreCertificate::default();
-        store.friendly_name = Some("anything".to_owned());
+        let store = StoreCertificate::new(StoreSearch::FriendlyName("anything".to_owned()));
         for (options, unit) in [
             (
                 TlsOptions {
-                    cert_store: Some(store.clone()),
+                    client: Some(ClientCertificate::Store(store.clone())),
                     ..TlsOptions::default()
                 },
-                "CertStore",
+                "Client.Store",
             ),
             (
                 TlsOptions {
-                    ca_store: Some(store.clone()),
+                    server: Some(ServerVerification::CaStore(store.clone())),
                     ..TlsOptions::default()
                 },
-                "CaStore",
+                "Server.CaStore",
             ),
         ] {
             let refused = options.load().expect_err(unit);
@@ -1839,16 +1928,18 @@ mod tests {
         }
     }
 
-    fn proxy(
-        address: Option<&str>,
-        username: Option<&str>,
-        password: Option<&str>,
-    ) -> ProxyOptions {
-        ProxyOptions {
-            address: address.map(str::to_owned),
+    fn url(address: &str, username: Option<&str>, password: Option<&str>) -> ProxyOptions {
+        let mut url = ProxyUrl::new(address);
+        url.username = username.map(str::to_owned);
+        url.password = password.map(Password::new);
+        ProxyOptions::Url(url)
+    }
+
+    fn system(username: Option<&str>, password: Option<&str>) -> ProxyOptions {
+        ProxyOptions::System(ProxyCredentials {
             username: username.map(str::to_owned),
             password: password.map(Password::new),
-        }
+        })
     }
 
     #[test]
@@ -1859,7 +1950,7 @@ mod tests {
         };
 
         let (uri, username, password) = explicit(
-            proxy(Some("proxy.test:3128"), Some("alice"), Some("s3cret"))
+            url("proxy.test:3128", Some("alice"), Some("s3cret"))
                 .to_config()
                 .expect("a proxy"),
         );
@@ -1870,7 +1961,7 @@ mod tests {
         );
 
         let (uri, username, password) = explicit(
-            proxy(Some("http://alice:s%40cret@proxy.test:3128"), None, None)
+            url("http://alice:s%40cret@proxy.test:3128", None, None)
                 .to_config()
                 .expect("a proxy"),
         );
@@ -1883,42 +1974,35 @@ mod tests {
             ("alice", "s@cret")
         );
 
-        for none in ["none", "NONE"] {
-            let config = proxy(Some(none), None, None).to_config().expect("no proxy");
-            assert_eq!(config.source, ProxySource::Disabled, "{none:?}");
-        }
-        let config = proxy(Some("none"), Some("alice"), Some("s3cret"))
-            .to_config()
-            .expect("credentials beside `none` are left unread");
+        let config = ProxyOptions::None(Chosen).to_config().expect("no proxy");
         assert_eq!(config.source, ProxySource::Disabled);
 
         let (uri, _, _) = explicit(
-            proxy(Some("http://[::1]:3128"), None, None)
+            url("http://[::1]:3128", None, None)
                 .to_config()
                 .expect("a bracketed IPv6 proxy"),
         );
         assert_eq!(uri, "http://[::1]:3128/");
 
-        let refused = proxy(Some("proxy.test:3128"), Some("corp:alice"), Some("s3cret"))
+        let refused = url("proxy.test:3128", Some("corp:alice"), Some("s3cret"))
             .to_config()
             .expect_err("a `:` in the username");
-        assert_eq!(refused.key(), "Username");
+        assert_eq!(refused.key(), "Url.Username");
     }
 
     #[test]
-    fn no_address_or_system_is_the_environments_proxy_with_the_dedicated_credentials() {
-        for address in [None, Some("system"), Some("System")] {
-            let config = proxy(address, Some("alice"), None)
-                .to_config()
-                .expect("the environment's proxy");
-            assert_eq!(config.source, ProxySource::System, "{address:?}");
-            assert_eq!(config.username, "alice");
-            assert_eq!(config.password.expose_secret(), "");
-        }
-        let refused = proxy(None, Some("corp:alice"), None)
+    fn the_system_proxy_is_the_default_and_takes_the_dedicated_credentials() {
+        assert_eq!(ProxyOptions::default(), system(None, None));
+        let config = system(Some("alice"), None)
+            .to_config()
+            .expect("the environment's proxy");
+        assert_eq!(config.source, ProxySource::System);
+        assert_eq!(config.username, "alice");
+        assert_eq!(config.password.expose_secret(), "");
+        let refused = system(Some("corp:alice"), None)
             .to_config()
             .expect_err("a `:` in the username");
-        assert_eq!(refused.key(), "Username");
+        assert_eq!(refused.key(), "System.Username");
     }
 
     #[test]
@@ -1933,7 +2017,7 @@ mod tests {
             ("http://[::1]:s3cret", "http://[::1]:***"),
             ("proxy.test:3128", "proxy.test:3128"),
         ] {
-            let printed = format!("{:?}", proxy(Some(address), None, None));
+            let printed = format!("{:?}", url(address, None, None));
             assert!(printed.contains(shown), "{address}: {printed}");
             assert!(!printed.contains("s3cret"), "{printed}");
         }
@@ -1942,25 +2026,21 @@ mod tests {
     #[test]
     fn a_proxy_refusal_names_the_address_and_quotes_neither_it_nor_a_password() {
         for options in [
-            proxy(Some("https://proxy.test:443"), None, None),
-            proxy(Some("http://alice:s3cret@proxy.test"), Some("bob"), None),
-            proxy(Some("http://alice:s3cret@proxy.test"), None, Some("other")),
-            proxy(Some("http://proxy.test:99999"), None, None),
-            proxy(Some("http://proxy.test:s3cret"), None, None),
-            proxy(Some("http://:3128"), None, None),
-            proxy(Some("not a url"), None, None),
-            proxy(Some("http://proxy.test:3128/pac.js"), None, None),
-            proxy(Some("http://proxy.test:3128/?s3cret"), None, None),
-            proxy(Some("http://proxy.test:3128#s3cret"), None, None),
-            proxy(Some("http://alice:%FF@proxy.test:3128"), None, None),
-            proxy(
-                Some("http://corp%3Aalice:s3cret@proxy.test:3128"),
-                None,
-                None,
-            ),
+            url("https://proxy.test:443", None, None),
+            url("http://alice:s3cret@proxy.test", Some("bob"), None),
+            url("http://alice:s3cret@proxy.test", None, Some("other")),
+            url("http://proxy.test:99999", None, None),
+            url("http://proxy.test:s3cret", None, None),
+            url("http://:3128", None, None),
+            url("not a url", None, None),
+            url("http://proxy.test:3128/pac.js", None, None),
+            url("http://proxy.test:3128/?s3cret", None, None),
+            url("http://proxy.test:3128#s3cret", None, None),
+            url("http://alice:%FF@proxy.test:3128", None, None),
+            url("http://corp%3Aalice:s3cret@proxy.test:3128", None, None),
         ] {
             let refused = options.to_config().expect_err("refused");
-            assert_eq!(refused.key(), "Address", "{options:?}: {refused}");
+            assert_eq!(refused.key(), "Url.Address", "{options:?}: {refused}");
             let said = refused.to_string();
             assert!(!said.contains("s3cret"), "{said}");
             assert!(!said.contains("proxy.test"), "{said}");
@@ -2154,7 +2234,11 @@ mod tests {
         );
     }
 
-    /// Every option the schema declares is one `serde` reads, under the name the schema spells.
+    /// Every option the schema declares is one `serde` reads, under the name the schema spells,
+    /// and so is every alternative of each `oneOf`. A document holds one alternative per choice,
+    /// so one is written per index, and the index picks the alternatives of nested choices digit by
+    /// digit: a choice has at most three, and nests at most two deep, so nine indices reach every
+    /// one.
     ///
     /// The two derives are separate readings of the same fields, and this crate makes them differ
     /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
@@ -2166,23 +2250,31 @@ mod tests {
         let schema: serde_json::Value =
             serde_json::from_str(&schema()).expect("the schema is a document");
 
-        let document = a_value_for(&schema, &schema);
+        for alternative in 0..9 {
+            let document = a_value_for(&schema, &schema, alternative);
 
-        let read = serde_json::from_value::<ChannelOptions>(document.clone());
+            let read = serde_json::from_value::<ChannelOptions>(document.clone());
 
-        assert!(
-            read.is_ok(),
-            "the schema declares {document}, which serde refuses: {}",
-            read.unwrap_err()
-        );
+            assert!(
+                read.is_ok(),
+                "the schema declares {document}, which serde refuses: {}",
+                read.unwrap_err()
+            );
+        }
     }
 
-    /// A value each property of `node` admits, as one document naming all of them.
+    /// A value each property of `node` admits, as one document naming all of them. A `oneOf`
+    /// takes the alternative `alternative` picks in the base of its alternatives' count, and hands
+    /// what is left of the index to the choices that alternative holds.
     ///
     /// Values rather than a name list, because `deny_unknown_fields` refuses a name and the type
     /// refuses a value, and only a document carrying both exercises the two.
     #[cfg(all(feature = "schema", feature = "serde"))]
-    fn a_value_for(node: &serde_json::Value, root: &serde_json::Value) -> serde_json::Value {
+    fn a_value_for(
+        node: &serde_json::Value,
+        root: &serde_json::Value,
+        alternative: usize,
+    ) -> serde_json::Value {
         use serde_json::{json, Value};
 
         // A `$ref` states the type and the property beside it states its bounds, so the reference
@@ -2198,6 +2290,14 @@ mod tests {
             None => node,
         };
 
+        if let Some(constant) = node.get("const") {
+            return constant.clone();
+        }
+        if let Some(alternatives) = node.get("oneOf").and_then(Value::as_array) {
+            let picked = &alternatives[alternative % alternatives.len()];
+            return a_value_for(picked, root, alternative / alternatives.len());
+        }
+
         match node.get("type").and_then(Value::as_str) {
             Some("object") | None => {
                 let properties = node
@@ -2208,7 +2308,9 @@ mod tests {
                 Value::Object(
                     properties
                         .iter()
-                        .map(|(name, property)| (name.clone(), a_value_for(property, root)))
+                        .map(|(name, property)| {
+                            (name.clone(), a_value_for(property, root, alternative))
+                        })
                         .collect(),
                 )
             }

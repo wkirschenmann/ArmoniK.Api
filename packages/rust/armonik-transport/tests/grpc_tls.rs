@@ -10,7 +10,9 @@ use armonik_transport::grpc::{
     GrpcStatus, GrpcStatusCode,
 };
 use armonik_transport::http2::{ClientIdentity, TlsConfig, TransportConfig, TransportErrorKind};
-use armonik_transport::options::{Password, TlsOptions};
+use armonik_transport::options::{
+    ClientCertificate, P12Certificate, Password, PemCertificate, ServerVerification, TlsOptions,
+};
 use armonik_transport::reexports::rustls::pki_types::PrivateKeyDer;
 use bytes::Bytes;
 use common::echo::{channel_with, unary, ECHO};
@@ -193,13 +195,17 @@ async fn the_files_a_host_names_carry_the_whole_chain() {
     let scratch = Scratch::new("chain");
     let ca = scratch.file("ca.pem", root.root_pem().as_bytes());
     let mut pem = TlsOptions::default();
-    pem.ca_cert_path = Some(ca.clone());
-    pem.cert_pem = Some(scratch.file("chain.pem", client.chain_pem.as_bytes()));
-    pem.key_pem = Some(scratch.file("key.pem", client.key_pem.as_bytes()));
+    pem.server = Some(ServerVerification::CaPem(ca.clone()));
+    pem.client = Some(ClientCertificate::Pem(PemCertificate::new(
+        scratch.file("chain.pem", client.chain_pem.as_bytes()),
+        scratch.file("key.pem", client.key_pem.as_bytes()),
+    )));
     let mut p12 = TlsOptions::default();
-    p12.ca_cert_path = Some(ca);
-    p12.cert_p12 = Some(scratch.file("client.p12", &client.pkcs12("s3cret")));
-    p12.cert_p12_password = Some(Password::new("s3cret"));
+    p12.server = Some(ServerVerification::CaPem(ca));
+    p12.client = Some(ClientCertificate::P12(P12Certificate::new(
+        scratch.file("client.p12", &client.pkcs12("s3cret")),
+        Some(Password::new("s3cret")),
+    )));
 
     for options in [pem, p12] {
         let tls = options.load().expect("the files the options name");
@@ -219,9 +225,13 @@ async fn a_pkcs12_bundle_and_its_password_authenticate_the_client() {
 
     let scratch = Scratch::new("p12");
     let mut options = TlsOptions::default();
-    options.ca_cert_path = Some(scratch.file("ca.pem", pki.root_pem().as_bytes()));
-    options.cert_p12 = Some(scratch.file("client.p12", &pki.client().pkcs12("s3cret")));
-    options.cert_p12_password = Some(Password::new("s3cret"));
+    options.server = Some(ServerVerification::CaPem(
+        scratch.file("ca.pem", pki.root_pem().as_bytes()),
+    ));
+    options.client = Some(ClientCertificate::P12(P12Certificate::new(
+        scratch.file("client.p12", &pki.client().pkcs12("s3cret")),
+        Some(Password::new("s3cret")),
+    )));
     let tls = options.load().expect("the files the options name");
 
     let status = echo(&server.endpoint, tls).await;

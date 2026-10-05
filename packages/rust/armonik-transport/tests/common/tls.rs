@@ -31,9 +31,9 @@ pub struct Pki {
 pub struct Leaf {
     pub chain: Vec<CertificateDer<'static>>,
     pub key: PrivateKeyDer<'static>,
-    /// The chain, as the PEM file `CertPem` names.
+    /// The chain, as the PEM file `Pem.Certificate` names.
     pub chain_pem: String,
-    /// The key, as the PEM file `KeyPem` names.
+    /// The key, as the PEM file `Pem.Key` names.
     pub key_pem: String,
 }
 
@@ -134,7 +134,7 @@ impl Pki {
         self.issuer.der().clone()
     }
 
-    /// The same certificate, as the PEM a `CaCertPath` file holds.
+    /// The same certificate, as the PEM a `CaPem` file holds.
     pub fn root_pem(&self) -> String {
         self.issuer.pem()
     }

@@ -77,7 +77,7 @@
           "$ref": "#/$defs/TcpKeepaliveOptions"
         },
         "Proxy": {
-          "description": "The HTTP proxy every dial tunnels through.\n\nDefaults to `{}`, which tunnels through the proxy the environment names, if any.",
+          "description": "The HTTP proxy every dial tunnels through.\n\nDefaults to `{\"System\": {}}`: the proxy the system names, if any, with no credentials of\nits own.",
           "$ref": "#/$defs/ProxyOptions"
         }
       },
@@ -93,42 +93,13 @@
       "description": "How an `https://` endpoint is secured. Each file is read when the channel is created, so a\npath that names nothing usable is refused then, by its option's name.",
       "type": "object",
       "properties": {
-        "CaCertPath": {
-          "description": "Path to a PEM file of the roots the server certificate is verified against, in place of\nthe system's. Every certificate the file holds is a root.\n\nRefused together with `AllowUnsafeConnection`, which verifies nothing.",
-          "type": "string",
-          "minLength": 1
+        "Server": {
+          "description": "How the server certificate is verified.\n\nDefaults to the system's roots.",
+          "$ref": "#/$defs/ServerVerification"
         },
-        "CertPem": {
-          "description": "Path to a PEM file of the client's certificate, then each issuer the server may not hold.\n\nSet together with `KeyPem`.",
-          "type": "string",
-          "minLength": 1
-        },
-        "KeyPem": {
-          "description": "Path to a PEM file of the key of the client's certificate.\n\nSet together with `CertPem`.",
-          "type": "string",
-          "minLength": 1
-        },
-        "CertP12": {
-          "description": "Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.\n\nRefused together with `CertPem` or `KeyPem`, which name an identity too.",
-          "type": "string",
-          "minLength": 1
-        },
-        "CertP12Password": {
-          "description": "The password `CertP12` is protected by. Defaults to the empty one.\n\nRefused without `CertP12`.",
-          "type": "string",
-          "writeOnly": true
-        },
-        "CertStore": {
-          "description": "The client's certificate and key from a Windows certificate store, `My` unless `Name`\nsays otherwise, with the issuers the store's `CA` holds. Its key has to be exportable.\n\nRefused together with `CertPem`, `KeyPem` or `CertP12`, and off Windows.",
-          "$ref": "#/$defs/StoreCertificate"
-        },
-        "CaStore": {
-          "description": "The root the server certificate is verified against, from a Windows certificate store,\n`Root` unless `Name` says otherwise, in place of the system's.\n\nRefused together with `CaCertPath` or `AllowUnsafeConnection`, and off Windows.",
-          "$ref": "#/$defs/StoreCertificate"
-        },
-        "AllowUnsafeConnection": {
-          "description": "Accept any server certificate. The connection is still encrypted, to whoever answers.\n\nDefaults to false.",
-          "type": "boolean"
+        "Client": {
+          "description": "The certificate the client presents, and its key.\n\nDefaults to none.",
+          "$ref": "#/$defs/ClientCertificate"
         },
         "OverrideTargetName": {
           "description": "The host the server certificate is verified against, and sent as SNI, in place of the\nendpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is\nnot read.",
@@ -138,37 +109,220 @@
       },
       "additionalProperties": false
     },
+    "ServerVerification": {
+      "description": "How the server certificate is verified.",
+      "oneOf": [
+        {
+          "description": "Against the roots of a PEM file, named by its path, in place of the system's. Every\ncertificate the file holds is a root.",
+          "type": "object",
+          "properties": {
+            "CaPem": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "CaPem"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Against a root from a Windows certificate store, `Root` unless `Name` says otherwise, in\nplace of the system's.\n\nRefused off Windows.",
+          "type": "object",
+          "properties": {
+            "CaStore": {
+              "$ref": "#/$defs/StoreCertificate"
+            }
+          },
+          "required": [
+            "CaStore"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Not at all: any server certificate is accepted. The connection is still encrypted, to\nwhoever answers.",
+          "type": "object",
+          "properties": {
+            "Unverified": {
+              "const": true
+            }
+          },
+          "required": [
+            "Unverified"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "StoreCertificate": {
-      "description": "A certificate of a Windows certificate store, named by exactly one of `Thumbprint`,\n`SubjectName` and `FriendlyName`.",
+      "description": "A certificate of a Windows certificate store.",
       "type": "object",
       "properties": {
         "Location": {
-          "description": "`CurrentUser` or `LocalMachine`.\n\nDefaults to `CurrentUser`.",
-          "type": "string",
-          "minLength": 1
+          "description": "Where the store is.\n\nDefaults to `CurrentUser`.",
+          "$ref": "#/$defs/StoreLocation"
         },
         "Name": {
           "description": "The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.",
           "type": "string",
           "minLength": 1
         },
-        "Thumbprint": {
-          "description": "The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between\nthem are ignored.",
+        "Find": {
+          "description": "How the certificate is found in the store.",
+          "$ref": "#/$defs/StoreSearch"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Find"
+      ]
+    },
+    "StoreLocation": {
+      "description": "Where a Windows certificate store is.",
+      "oneOf": [
+        {
+          "description": "The current user's stores.",
+          "type": "string",
+          "const": "CurrentUser"
+        },
+        {
+          "description": "The machine's stores, which every user shares.",
+          "type": "string",
+          "const": "LocalMachine"
+        }
+      ]
+    },
+    "StoreSearch": {
+      "description": "How a certificate is found in its store.",
+      "oneOf": [
+        {
+          "description": "By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are\nignored.",
+          "type": "object",
+          "properties": {
+            "Thumbprint": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "Thumbprint"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "By a text its subject contains, compared without case, as .NET's `FindBySubjectName`\ncompares it.",
+          "type": "object",
+          "properties": {
+            "SubjectName": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "SubjectName"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "By its friendly name, exactly.",
+          "type": "object",
+          "properties": {
+            "FriendlyName": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "FriendlyName"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ClientCertificate": {
+      "description": "The certificate the client presents, and its key.",
+      "oneOf": [
+        {
+          "description": "From PEM files.",
+          "type": "object",
+          "properties": {
+            "Pem": {
+              "$ref": "#/$defs/PemCertificate"
+            }
+          },
+          "required": [
+            "Pem"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "From a PKCS#12 bundle.",
+          "type": "object",
+          "properties": {
+            "P12": {
+              "$ref": "#/$defs/P12Certificate"
+            }
+          },
+          "required": [
+            "P12"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "From a Windows certificate store, `My` unless `Name` says otherwise, with the issuers the\nstore's `CA` holds. Its key has to be exportable.\n\nRefused off Windows.",
+          "type": "object",
+          "properties": {
+            "Store": {
+              "$ref": "#/$defs/StoreCertificate"
+            }
+          },
+          "required": [
+            "Store"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PemCertificate": {
+      "description": "A client certificate and its key, from PEM files.",
+      "type": "object",
+      "properties": {
+        "Certificate": {
+          "description": "Path to a PEM file of the client's certificate, then each issuer the server may not hold.",
           "type": "string",
           "minLength": 1
         },
-        "SubjectName": {
-          "description": "A text the certificate's subject contains, compared without case, as .NET's\n`FindBySubjectName` compares it.",
-          "type": "string",
-          "minLength": 1
-        },
-        "FriendlyName": {
-          "description": "The certificate's friendly name, exactly.",
+        "Key": {
+          "description": "Path to a PEM file of the certificate's key.",
           "type": "string",
           "minLength": 1
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": [
+        "Certificate",
+        "Key"
+      ]
+    },
+    "P12Certificate": {
+      "description": "A client certificate and its key, from a PKCS#12 bundle.",
+      "type": "object",
+      "properties": {
+        "Path": {
+          "description": "Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Password": {
+          "description": "The password the bundle is protected by.\n\nDefaults to the empty one.",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Path"
+      ]
     },
     "TcpKeepaliveOptions": {
       "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.",
@@ -198,24 +352,88 @@
     },
     "ProxyOptions": {
       "description": "An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the\nserver.",
+      "oneOf": [
+        {
+          "description": "No proxy: every dial goes to the endpoint itself.",
+          "type": "object",
+          "properties": {
+            "None": {
+              "const": true
+            }
+          },
+          "required": [
+            "None"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The proxy the system names for the endpoint, if any.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused when the channel is created,\nand any other value the environment cannot read as a proxy is ignored.\n\nOn Windows, when the environment names no proxy, the system's is the one the current\nuser's network settings name: a PAC script, detected or at the configured address, which\nWinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and\nits bypass list. Those settings are read when the channel is created, and an `https://` or\n`socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which\nWinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried\nagain for two minutes.\n\nThe system's proxy is never used for a loopback endpoint.",
+          "type": "object",
+          "properties": {
+            "System": {
+              "$ref": "#/$defs/ProxyCredentials"
+            }
+          },
+          "required": [
+            "System"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The proxy at an address.",
+          "type": "object",
+          "properties": {
+            "Url": {
+              "$ref": "#/$defs/ProxyUrl"
+            }
+          },
+          "required": [
+            "Url"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProxyCredentials": {
+      "description": "The credentials the system's proxy is authenticated to with, by `Basic`.",
       "type": "object",
       "properties": {
-        "Address": {
-          "description": "`none` for no proxy, `system` for the one the system names, or the proxy's `http://` URL,\nwith no path; `http://` is assumed when no scheme is written. The URL may carry `user:password@`,\npercent-encoded, when `Username` and `Password` are not set - which a serialized document\nthen carries too.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused when the channel is created,\nand any other value the environment cannot read as a proxy is ignored.\n\nOn Windows, when the environment names no proxy, the system's is the one the current\nuser's network settings name: a PAC script, detected or at the configured address, which\nWinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and\nits bypass list. Those settings are read when the channel is created, and an `https://` or\n`socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which\nWinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried\nagain for two minutes.\n\nThe system's proxy is never used for a loopback endpoint.\n\nDefaults to `system`.",
-          "type": "string",
-          "minLength": 1
-        },
         "Username": {
-          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nsystem names no proxy. Beside the environment's proxy, it takes the place of the username\nthat proxy's URL carries; beside the one Windows' settings name, it is the username.",
+          "description": "The username, which `Basic` forbids a `:` in.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the username that proxy's URL carries; beside the one Windows' settings name, it is the\nusername.",
           "type": "string"
         },
         "Password": {
-          "description": "The password that goes with `Username`.\n\nRefused beside credentials the `Address` URL carries; ignored beside `none`, and when the\nsystem names no proxy. Beside the environment's proxy, it takes the place of the password\nthat proxy's URL carries; beside the one Windows' settings name, it is the password.",
+          "description": "The password that goes with `Username`.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the password that proxy's URL carries; beside the one Windows' settings name, it is the\npassword.",
           "type": "string",
           "writeOnly": true
         }
       },
       "additionalProperties": false
+    },
+    "ProxyUrl": {
+      "description": "A proxy named by its address.",
+      "type": "object",
+      "properties": {
+        "Address": {
+          "description": "The proxy's `http://` URL, with no path; `http://` is assumed when no scheme is written.\n\nIt may carry `user:password@`, percent-encoded, when `Username` and `Password` are not\nset, which a serialized document then carries too.",
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true
+        },
+        "Username": {
+          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries.",
+          "type": "string"
+        },
+        "Password": {
+          "description": "The password that goes with `Username`.\n\nRefused beside credentials the `Address` URL carries.",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Address"
+      ]
     },
     "Http2Options": {
       "description": "The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much\nit lets the peer send ahead of what is read.",

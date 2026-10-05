@@ -11,7 +11,9 @@ use std::time::Duration;
 
 use armonik_transport::grpc::{CallStartOptions, GrpcChannelConfig, GrpcStatus, GrpcStatusCode};
 use armonik_transport::http2::{TlsConfig, TransportConfig};
-use armonik_transport::options::{StoreCertificate, TlsOptions};
+use armonik_transport::options::{
+    ClientCertificate, ServerVerification, StoreCertificate, StoreSearch, TlsOptions,
+};
 use bytes::Bytes;
 use common::echo::{channel_with, unary, ECHO};
 use common::tls::{Leaf, Pki, TlsServer};
@@ -82,10 +84,9 @@ impl TestStore {
         added
     }
 
-    fn naming(&self, by: impl FnOnce(&mut StoreCertificate)) -> StoreCertificate {
-        let mut store = StoreCertificate::default();
+    fn naming(&self, find: StoreSearch) -> StoreCertificate {
+        let mut store = StoreCertificate::new(find);
         store.name = Some(self.name.to_owned());
-        by(&mut store);
         store
     }
 }
@@ -140,26 +141,25 @@ async fn a_client_identity_and_its_root_are_found_by_each_way_of_naming_them() {
     let ways = [
         (
             "FriendlyName",
-            identities.naming(|store| {
-                store.friendly_name = Some("armonik-transport test identity".to_owned())
-            }),
+            identities.naming(StoreSearch::FriendlyName(
+                "armonik-transport test identity".to_owned(),
+            )),
         ),
         (
             "Thumbprint",
-            identities.naming(|store| store.thumbprint = Some(thumbprint.to_uppercase())),
+            identities.naming(StoreSearch::Thumbprint(thumbprint.to_uppercase())),
         ),
         (
             "SubjectName",
-            identities.naming(|store| store.subject_name = Some("CLIENT.TEST".to_owned())),
+            identities.naming(StoreSearch::SubjectName("CLIENT.TEST".to_owned())),
         ),
     ];
     for (way, store) in ways {
         let mut options = TlsOptions::default();
-        options.cert_store = Some(store);
-        options.ca_store =
-            Some(roots.naming(|store| {
-                store.friendly_name = Some("armonik-transport test root".to_owned())
-            }));
+        options.client = Some(ClientCertificate::Store(store));
+        options.server = Some(ServerVerification::CaStore(roots.naming(
+            StoreSearch::FriendlyName("armonik-transport test root".to_owned()),
+        )));
         let tls = options
             .load()
             .unwrap_or_else(|refused| panic!("{way}: {refused}"));
@@ -176,14 +176,13 @@ async fn a_key_the_store_keeps_unexportable_is_refused_by_the_option_naming_it()
     identities.add(&pki.client(), "armonik-transport unexportable", false);
 
     let mut options = TlsOptions::default();
-    options.cert_store =
-        Some(identities.naming(|store| {
-            store.friendly_name = Some("armonik-transport unexportable".to_owned())
-        }));
+    options.client = Some(ClientCertificate::Store(identities.naming(
+        StoreSearch::FriendlyName("armonik-transport unexportable".to_owned()),
+    )));
     let refused = options
         .load()
         .expect_err("a key that cannot leave the store");
-    assert!(refused.key().starts_with("CertStore."), "{refused}");
+    assert!(refused.key().starts_with("Client.Store."), "{refused}");
     assert!(refused.to_string().contains("without a key"), "{refused}");
 }
 
@@ -195,16 +194,15 @@ async fn a_certificate_with_no_key_is_refused_as_an_identity_the_same_way() {
     identities.add_certificate(&keyless, "armonik-transport keyless");
 
     let mut options = TlsOptions::default();
-    options.cert_store = Some(
-        identities
-            .naming(|store| store.friendly_name = Some("armonik-transport keyless".to_owned())),
-    );
+    options.client = Some(ClientCertificate::Store(identities.naming(
+        StoreSearch::FriendlyName("armonik-transport keyless".to_owned()),
+    )));
     let refused = options.load().expect_err("a certificate with no key");
     assert!(refused.to_string().contains("it has none"), "{refused}");
 }
 
 #[tokio::test]
-async fn a_certificate_named_by_none_or_by_two_is_refused() {
+async fn a_name_that_finds_no_certificate_or_two_is_refused() {
     let pki = Pki::new();
     let mut identities = TestStore::new("ArmoniKTransportTest-Ambiguous");
     identities.add(&pki.client(), "armonik-transport twin", true);
@@ -212,44 +210,30 @@ async fn a_certificate_named_by_none_or_by_two_is_refused() {
 
     let refusals = [
         (
-            identities
-                .naming(|store| store.friendly_name = Some("armonik-transport twin".to_owned())),
+            identities.naming(StoreSearch::FriendlyName(
+                "armonik-transport twin".to_owned(),
+            )),
             "2 certificates",
         ),
         (
-            identities.naming(|store| store.friendly_name = Some("no such name".to_owned())),
+            identities.naming(StoreSearch::FriendlyName("no such name".to_owned())),
             "no certificate",
         ),
-        (identities.naming(|_| {}), "has to name the certificate"),
         (
-            identities.naming(|store| {
-                store.friendly_name = Some("armonik-transport twin".to_owned());
-                store.subject_name = Some("client.test".to_owned());
-            }),
-            "only one of",
-        ),
-        (
-            identities.naming(|store| store.thumbprint = Some("not forty digits".to_owned())),
+            identities.naming(StoreSearch::Thumbprint("not forty digits".to_owned())),
             "40 hexadecimal digits",
         ),
         (
-            identities.naming(|store| {
-                store.location = Some("Elsewhere".to_owned());
-                store.friendly_name = Some("armonik-transport twin".to_owned());
-            }),
-            "neither CurrentUser nor LocalMachine",
-        ),
-        (
-            identities.naming(|store| store.subject_name = Some(String::new())),
+            identities.naming(StoreSearch::SubjectName(String::new())),
             "it is empty",
         ),
     ];
     for (store, said) in refusals {
         let mut options = TlsOptions::default();
-        options.cert_store = Some(store.clone());
+        options.client = Some(ClientCertificate::Store(store.clone()));
         let refused = options.load().expect_err("refused");
         assert!(
-            refused.key().starts_with("CertStore."),
+            refused.key().starts_with("Client.Store.Find."),
             "{store:?}: {refused}"
         );
         assert!(refused.to_string().contains(said), "{store:?}: {refused}");
@@ -305,10 +289,9 @@ async fn an_identity_from_the_store_carries_the_issuers_the_ca_store_holds() {
     identities.add(&leaf_alone, "armonik-transport chained", true);
 
     let mut options = TlsOptions::default();
-    options.cert_store = Some(
-        identities
-            .naming(|store| store.friendly_name = Some("armonik-transport chained".to_owned())),
-    );
+    options.client = Some(ClientCertificate::Store(identities.naming(
+        StoreSearch::FriendlyName("armonik-transport chained".to_owned()),
+    )));
     let mut tls = options.load().expect("the identity in the store");
     assert_eq!(
         tls.identity.as_ref().map(|identity| identity.chain.len()),

@@ -204,7 +204,7 @@ public static class Program
                                                   {
                                                     Tls = new TlsOptions
                                                           {
-                                                            CaCertPath = server.Authority,
+                                                            Server = new ServerVerification.CaPem(server.Authority),
                                                           },
                                                   },
                                     });

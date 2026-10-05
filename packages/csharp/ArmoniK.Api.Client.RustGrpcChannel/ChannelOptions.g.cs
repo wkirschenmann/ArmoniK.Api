@@ -328,9 +328,7 @@ public sealed class TransportOptions
     TcpKeepalive = other.TcpKeepalive is null
                      ? null
                      : new TcpKeepaliveOptions(other.TcpKeepalive);
-    Proxy = other.Proxy is null
-              ? null
-              : new ProxyOptions(other.Proxy);
+    Proxy = other.Proxy;
   }
 
   /// <summary>How long a dial may take before it is given up on.</summary>
@@ -358,7 +356,10 @@ public sealed class TransportOptions
   public TcpKeepaliveOptions? TcpKeepalive { get; set; }
 
   /// <summary>The HTTP proxy every dial tunnels through.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which tunnels through the proxy the environment names, if any.</remarks>
+  /// <remarks>
+  ///   Defaults to <c>{"System": {}}</c>: the proxy the system names, if any, with no credentials of
+  ///   its own.
+  /// </remarks>
   [JsonPropertyName("Proxy")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public ProxyOptions? Proxy { get; set; }
@@ -441,77 +442,22 @@ public sealed class TlsOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    CaCertPath = other.CaCertPath;
-    CertPem = other.CertPem;
-    KeyPem = other.KeyPem;
-    CertP12 = other.CertP12;
-    CertP12Password = other.CertP12Password;
-    CertStore = other.CertStore is null
-                  ? null
-                  : new StoreCertificate(other.CertStore);
-    CaStore = other.CaStore is null
-                ? null
-                : new StoreCertificate(other.CaStore);
-    AllowUnsafeConnection = other.AllowUnsafeConnection;
+    Server = other.Server;
+    Client = other.Client;
     OverrideTargetName = other.OverrideTargetName;
   }
 
-  /// <summary>
-  ///   Path to a PEM file of the roots the server certificate is verified against, in place of
-  ///   the system's. Every certificate the file holds is a root.
-  /// </summary>
-  /// <remarks>Refused together with <c>AllowUnsafeConnection</c>, which verifies nothing.</remarks>
-  [JsonPropertyName("CaCertPath")]
+  /// <summary>How the server certificate is verified.</summary>
+  /// <remarks>Defaults to the system's roots.</remarks>
+  [JsonPropertyName("Server")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CaCertPath { get; set; }
+  public ServerVerification? Server { get; set; }
 
-  /// <summary>Path to a PEM file of the client's certificate, then each issuer the server may not hold.</summary>
-  /// <remarks>Set together with <c>KeyPem</c>.</remarks>
-  [JsonPropertyName("CertPem")]
+  /// <summary>The certificate the client presents, and its key.</summary>
+  /// <remarks>Defaults to none.</remarks>
+  [JsonPropertyName("Client")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CertPem { get; set; }
-
-  /// <summary>Path to a PEM file of the key of the client's certificate.</summary>
-  /// <remarks>Set together with <c>CertPem</c>.</remarks>
-  [JsonPropertyName("KeyPem")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? KeyPem { get; set; }
-
-  /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
-  /// <remarks>Refused together with <c>CertPem</c> or <c>KeyPem</c>, which name an identity too.</remarks>
-  [JsonPropertyName("CertP12")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CertP12 { get; set; }
-
-  /// <summary>The password <c>CertP12</c> is protected by. Defaults to the empty one.</summary>
-  /// <remarks>Refused without <c>CertP12</c>.</remarks>
-  [JsonPropertyName("CertP12Password")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CertP12Password { get; set; }
-
-  /// <summary>
-  ///   The client's certificate and key from a Windows certificate store, <c>My</c> unless <c>Name</c>
-  ///   says otherwise, with the issuers the store's <c>CA</c> holds. Its key has to be exportable.
-  /// </summary>
-  /// <remarks>Refused together with <c>CertPem</c>, <c>KeyPem</c> or <c>CertP12</c>, and off Windows.</remarks>
-  [JsonPropertyName("CertStore")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public StoreCertificate? CertStore { get; set; }
-
-  /// <summary>
-  ///   The root the server certificate is verified against, from a Windows certificate store,
-  ///   <c>Root</c> unless <c>Name</c> says otherwise, in place of the system's.
-  /// </summary>
-  /// <remarks>Refused together with <c>CaCertPath</c> or <c>AllowUnsafeConnection</c>, and off Windows.</remarks>
-  [JsonPropertyName("CaStore")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public StoreCertificate? CaStore { get; set; }
-
-  /// <summary>Accept any server certificate. The connection is still encrypted, to whoever answers.</summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("AllowUnsafeConnection")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? AllowUnsafeConnection { get; set; }
+  public ClientCertificate? Client { get; set; }
 
   /// <summary>
   ///   The host the server certificate is verified against, and sent as SNI, in place of the
@@ -526,34 +472,6 @@ public sealed class TlsOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (CaCertPath is string caCertPath && caCertPath.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CaCertPath),
-                                            caCertPath,
-                                            "CaCertPath has to be at least 1 character long.");
-    }
-
-    if (CertPem is string certPem && certPem.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CertPem),
-                                            certPem,
-                                            "CertPem has to be at least 1 character long.");
-    }
-
-    if (KeyPem is string keyPem && keyPem.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeyPem),
-                                            keyPem,
-                                            "KeyPem has to be at least 1 character long.");
-    }
-
-    if (CertP12 is string certP12 && certP12.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CertP12),
-                                            certP12,
-                                            "CertP12 has to be at least 1 character long.");
-    }
-
     if (OverrideTargetName is string overrideTargetName && overrideTargetName.Length < 1)
     {
       throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
@@ -561,8 +479,8 @@ public sealed class TlsOptions
                                             "OverrideTargetName has to be at least 1 character long.");
     }
 
-    CertStore?.Validate();
-    CaStore?.Validate();
+    Server?.Validate();
+    Client?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
@@ -576,44 +494,14 @@ public sealed class TlsOptions
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "CaCertPath"))
+                                         "Server"))
       {
-        bound.CaCertPath = ChannelOptionsConfiguration.Text(entry);
+        bound.Server = ChannelOptionsConfiguration.Holds(entry) ? ServerVerification.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertPem"))
+                                              "Client"))
       {
-        bound.CertPem = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "KeyPem"))
-      {
-        bound.KeyPem = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertP12"))
-      {
-        bound.CertP12 = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertP12Password"))
-      {
-        bound.CertP12Password = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertStore"))
-      {
-        bound.CertStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CaStore"))
-      {
-        bound.CaStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "AllowUnsafeConnection"))
-      {
-        bound.AllowUnsafeConnection = ChannelOptionsConfiguration.Boolean(entry);
+        bound.Client = ChannelOptionsConfiguration.Holds(entry) ? ClientCertificate.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "OverrideTargetName"))
@@ -631,149 +519,729 @@ public sealed class TlsOptions
   }
 }
 
-/// <summary>
-///   A certificate of a Windows certificate store, named by exactly one of <c>Thumbprint</c>,
-///   <c>SubjectName</c> and <c>FriendlyName</c>.
-/// </summary>
-public sealed class StoreCertificate
+/// <summary>How the server certificate is verified.</summary>
+[JsonConverter(typeof(ServerVerificationJsonConverter))]
+public abstract record ServerVerification
 {
-  /// <summary>Options nobody has set.</summary>
-  public StoreCertificate()
+  private ServerVerification()
   {
   }
-
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public StoreCertificate(StoreCertificate other)
-  {
-    if (other is null)
-    {
-      throw new ArgumentNullException(nameof(other));
-    }
-
-    Location = other.Location;
-    Name = other.Name;
-    Thumbprint = other.Thumbprint;
-    SubjectName = other.SubjectName;
-    FriendlyName = other.FriendlyName;
-  }
-
-  /// <summary><c>CurrentUser</c> or <c>LocalMachine</c>.</summary>
-  /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
-  [JsonPropertyName("Location")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Location { get; set; }
-
-  /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
-  [JsonPropertyName("Name")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Name { get; set; }
 
   /// <summary>
-  ///   The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between
-  ///   them are ignored.
+  ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
+  ///   certificate the file holds is a root.
   /// </summary>
-  [JsonPropertyName("Thumbprint")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Thumbprint { get; set; }
-
-  /// <summary>
-  ///   A text the certificate's subject contains, compared without case, as .NET's
-  ///   <c>FindBySubjectName</c> compares it.
-  /// </summary>
-  [JsonPropertyName("SubjectName")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? SubjectName { get; set; }
-
-  /// <summary>The certificate's friendly name, exactly.</summary>
-  [JsonPropertyName("FriendlyName")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? FriendlyName { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
+  /// <param name="Value">
+  ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
+  ///   certificate the file holds is a root.
+  /// </param>
+  public sealed record CaPem(string Value) : ServerVerification
   {
-    if (Location is string location && location.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(Location),
-                                            location,
-                                            "Location has to be at least 1 character long.");
-    }
+    /// <summary>
+    ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
+    ///   certificate the file holds is a root.
+    /// </summary>
+    public string Value { get; init; } = Value ?? throw new ArgumentNullException(nameof(Value));
 
-    if (Name is string name && name.Length < 1)
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(Name),
-                                            name,
-                                            "Name has to be at least 1 character long.");
-    }
-
-    if (Thumbprint is string thumbprint && thumbprint.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(Thumbprint),
-                                            thumbprint,
-                                            "Thumbprint has to be at least 1 character long.");
-    }
-
-    if (SubjectName is string subjectName && subjectName.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(SubjectName),
-                                            subjectName,
-                                            "SubjectName has to be at least 1 character long.");
-    }
-
-    if (FriendlyName is string friendlyName && friendlyName.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(FriendlyName),
-                                            friendlyName,
-                                            "FriendlyName has to be at least 1 character long.");
+      if (Value is string value && value.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1 character long.");
+      }
     }
   }
 
-  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
-  /// <param name="section">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static StoreCertificate Bind(IConfigurationSection section)
+  /// <summary>
+  ///   Against a root from a Windows certificate store, <c>Root</c> unless <c>Name</c> says otherwise, in
+  ///   place of the system's.
+  /// </summary>
+  /// <remarks>Refused off Windows.</remarks>
+  /// <param name="Find">How the certificate is found in the store.</param>
+  /// <param name="Location">
+  ///   Where the store is.
+  ///   Defaults to <c>CurrentUser</c>.
+  /// </param>
+  /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
+  public sealed record CaStore(StoreSearch Find,
+                               StoreLocation? Location = null,
+                               string? Name = null) : ServerVerification
   {
-    var bound = new StoreCertificate();
+    /// <summary>How the certificate is found in the store.</summary>
+    public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
 
-    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    /// <inheritdoc />
+    public override void Validate()
     {
-      if (ChannelOptionsConfiguration.Is(entry,
-                                         "Location"))
+      if (Location is StoreLocation location && !Enum.IsDefined(typeof(StoreLocation), location))
       {
-        bound.Location = ChannelOptionsConfiguration.Text(entry);
+        throw new ArgumentOutOfRangeException(nameof(Location),
+                                              location,
+                                              "Location has to be a name StoreLocation declares.");
       }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Name"))
+
+      if (Name is string name && name.Length < 1)
       {
-        bound.Name = ChannelOptionsConfiguration.Text(entry);
+        throw new ArgumentOutOfRangeException(nameof(Name),
+                                              name,
+                                              "Name has to be at least 1 character long.");
       }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Thumbprint"))
+
+      Find.Validate();
+    }
+  }
+
+  /// <summary>
+  ///   Not at all: any server certificate is accepted. The connection is still encrypted, to
+  ///   whoever answers.
+  /// </summary>
+  public sealed record Unverified : ServerVerification
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+
+  /// <summary>The alternative <paramref name="section" /> names by its one key, matched without case.</summary>
+  /// <param name="section">The section, which has to hold one key.</param>
+  /// <returns>The alternative, with the fields its key states.</returns>
+  /// <exception cref="InvalidOperationException">
+  ///   The section names no alternative or two, or one with a field it does not admit.
+  /// </exception>
+  internal static ServerVerification Bind(IConfigurationSection section)
+  {
+    var alternative = ChannelOptionsConfiguration.Alternative(section,
+                                                              "ServerVerification");
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "CaPem"))
+    {
+      return new CaPem(ChannelOptionsConfiguration.Text(alternative));
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "CaStore"))
+    {
+      StoreSearch? find = null;
+      StoreLocation? location = null;
+      string? name = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
       {
-        bound.Thumbprint = ChannelOptionsConfiguration.Text(entry);
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "Location"))
+        {
+          location = ChannelOptionsConfiguration.Enumeration<StoreLocation>(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Name"))
+        {
+          name = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Find"))
+        {
+          find = ChannelOptionsConfiguration.Holds(entry) ? StoreSearch.Bind(entry) : null;
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "ServerVerification.CaStore");
+        }
       }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "SubjectName"))
+
+      return new CaStore(find ?? throw ChannelOptionsConfiguration.Missing(alternative,
+                                                                           "Find"),
+                         location,
+                         name);
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Unverified"))
+    {
+      ChannelOptionsConfiguration.Chosen(alternative);
+
+      return new Unverified();
+    }
+
+    throw ChannelOptionsConfiguration.Unknown(alternative,
+                                              "ServerVerification");
+  }
+}
+
+/// <summary>Writes a <see cref="ServerVerification" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVerification>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override ServerVerification? Read(ref Utf8JsonReader reader,
+                                           Type typeToConvert,
+                                           JsonSerializerOptions options)
+    => throw new NotSupportedException("ServerVerification is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             ServerVerification value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  ServerVerification written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case ServerVerification.CaPem caPem:
       {
-        bound.SubjectName = ChannelOptionsConfiguration.Text(entry);
+        writer.WriteString("CaPem",
+                           caPem.Value);
+        break;
       }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "FriendlyName"))
+
+      case ServerVerification.CaStore caStore:
       {
-        bound.FriendlyName = ChannelOptionsConfiguration.Text(entry);
+        writer.WriteStartObject("CaStore");
+
+        if (caStore.Location is StoreLocation location)
+        {
+          writer.WriteString("Location",
+                             location.ToString());
+        }
+
+        if (caStore.Name is string name)
+        {
+          writer.WriteString("Name",
+                             name);
+        }
+
+        writer.WritePropertyName("Find");
+        StoreSearchJsonConverter.WriteValue(writer,
+                                            caStore.Find);
+        writer.WriteEndObject();
+        break;
       }
-      else
+
+      case ServerVerification.Unverified:
       {
-        throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "StoreCertificate");
+        writer.WriteBoolean("Unverified",
+                            true);
+        break;
       }
     }
 
-    return bound;
+    writer.WriteEndObject();
+  }
+}
+
+/// <summary>Where a Windows certificate store is.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<StoreLocation>))]
+public enum StoreLocation
+{
+  /// <summary>The current user's stores.</summary>
+  CurrentUser,
+
+  /// <summary>The machine's stores, which every user shares.</summary>
+  LocalMachine,
+}
+
+/// <summary>How a certificate is found in its store.</summary>
+[JsonConverter(typeof(StoreSearchJsonConverter))]
+public abstract record StoreSearch
+{
+  private StoreSearch()
+  {
+  }
+
+  /// <summary>
+  ///   By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are
+  ///   ignored.
+  /// </summary>
+  /// <param name="Value">
+  ///   By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are
+  ///   ignored.
+  /// </param>
+  public sealed record Thumbprint(string Value) : StoreSearch
+  {
+    /// <summary>
+    ///   By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are
+    ///   ignored.
+    /// </summary>
+    public string Value { get; init; } = Value ?? throw new ArgumentNullException(nameof(Value));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is string value && value.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1 character long.");
+      }
+    }
+  }
+
+  /// <summary>
+  ///   By a text its subject contains, compared without case, as .NET's <c>FindBySubjectName</c>
+  ///   compares it.
+  /// </summary>
+  /// <param name="Value">
+  ///   By a text its subject contains, compared without case, as .NET's <c>FindBySubjectName</c>
+  ///   compares it.
+  /// </param>
+  public sealed record SubjectName(string Value) : StoreSearch
+  {
+    /// <summary>
+    ///   By a text its subject contains, compared without case, as .NET's <c>FindBySubjectName</c>
+    ///   compares it.
+    /// </summary>
+    public string Value { get; init; } = Value ?? throw new ArgumentNullException(nameof(Value));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is string value && value.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1 character long.");
+      }
+    }
+  }
+
+  /// <summary>By its friendly name, exactly.</summary>
+  /// <param name="Value">By its friendly name, exactly.</param>
+  public sealed record FriendlyName(string Value) : StoreSearch
+  {
+    /// <summary>By its friendly name, exactly.</summary>
+    public string Value { get; init; } = Value ?? throw new ArgumentNullException(nameof(Value));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is string value && value.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1 character long.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+
+  /// <summary>The alternative <paramref name="section" /> names by its one key, matched without case.</summary>
+  /// <param name="section">The section, which has to hold one key.</param>
+  /// <returns>The alternative, with the fields its key states.</returns>
+  /// <exception cref="InvalidOperationException">
+  ///   The section names no alternative or two, or one with a field it does not admit.
+  /// </exception>
+  internal static StoreSearch Bind(IConfigurationSection section)
+  {
+    var alternative = ChannelOptionsConfiguration.Alternative(section,
+                                                              "StoreSearch");
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Thumbprint"))
+    {
+      return new Thumbprint(ChannelOptionsConfiguration.Text(alternative));
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "SubjectName"))
+    {
+      return new SubjectName(ChannelOptionsConfiguration.Text(alternative));
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "FriendlyName"))
+    {
+      return new FriendlyName(ChannelOptionsConfiguration.Text(alternative));
+    }
+
+    throw ChannelOptionsConfiguration.Unknown(alternative,
+                                              "StoreSearch");
+  }
+}
+
+/// <summary>Writes a <see cref="StoreSearch" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class StoreSearchJsonConverter : JsonConverter<StoreSearch>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override StoreSearch? Read(ref Utf8JsonReader reader,
+                                    Type typeToConvert,
+                                    JsonSerializerOptions options)
+    => throw new NotSupportedException("StoreSearch is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             StoreSearch value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  StoreSearch written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case StoreSearch.Thumbprint thumbprint:
+      {
+        writer.WriteString("Thumbprint",
+                           thumbprint.Value);
+        break;
+      }
+
+      case StoreSearch.SubjectName subjectName:
+      {
+        writer.WriteString("SubjectName",
+                           subjectName.Value);
+        break;
+      }
+
+      case StoreSearch.FriendlyName friendlyName:
+      {
+        writer.WriteString("FriendlyName",
+                           friendlyName.Value);
+        break;
+      }
+    }
+
+    writer.WriteEndObject();
+  }
+}
+
+/// <summary>The certificate the client presents, and its key.</summary>
+[JsonConverter(typeof(ClientCertificateJsonConverter))]
+public abstract record ClientCertificate
+{
+  private ClientCertificate()
+  {
+  }
+
+  /// <summary>From PEM files.</summary>
+  /// <param name="Certificate">Path to a PEM file of the client's certificate, then each issuer the server may not hold.</param>
+  /// <param name="Key">Path to a PEM file of the certificate's key.</param>
+  public sealed record Pem(string Certificate,
+                           string Key) : ClientCertificate
+  {
+    /// <summary>Path to a PEM file of the client's certificate, then each issuer the server may not hold.</summary>
+    public string Certificate { get; init; } = Certificate ?? throw new ArgumentNullException(nameof(Certificate));
+
+    /// <summary>Path to a PEM file of the certificate's key.</summary>
+    public string Key { get; init; } = Key ?? throw new ArgumentNullException(nameof(Key));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Certificate is string certificate && certificate.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Certificate),
+                                              certificate,
+                                              "Certificate has to be at least 1 character long.");
+      }
+
+      if (Key is string key && key.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Key),
+                                              key,
+                                              "Key has to be at least 1 character long.");
+      }
+    }
+  }
+
+  /// <summary>From a PKCS#12 bundle.</summary>
+  /// <param name="Path">Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</param>
+  /// <param name="Password">
+  ///   The password the bundle is protected by.
+  ///   Defaults to the empty one.
+  /// </param>
+  public sealed record P12(string Path,
+                           string? Password = null) : ClientCertificate
+  {
+    /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
+    public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Path is string path && path.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Path),
+                                              path,
+                                              "Path has to be at least 1 character long.");
+      }
+    }
+
+    /// <summary>The fields, a secret one elided.</summary>
+    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
+    {
+      builder.Append("Path = ");
+      builder.Append((object?)Path);
+      builder.Append(", Password = ");
+      builder.Append(Password is null ? "null" : "***");
+
+      return true;
+    }
+  }
+
+  /// <summary>
+  ///   From a Windows certificate store, <c>My</c> unless <c>Name</c> says otherwise, with the issuers the
+  ///   store's <c>CA</c> holds. Its key has to be exportable.
+  /// </summary>
+  /// <remarks>Refused off Windows.</remarks>
+  /// <param name="Find">How the certificate is found in the store.</param>
+  /// <param name="Location">
+  ///   Where the store is.
+  ///   Defaults to <c>CurrentUser</c>.
+  /// </param>
+  /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
+  public sealed record Store(StoreSearch Find,
+                             StoreLocation? Location = null,
+                             string? Name = null) : ClientCertificate
+  {
+    /// <summary>How the certificate is found in the store.</summary>
+    public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Location is StoreLocation location && !Enum.IsDefined(typeof(StoreLocation), location))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Location),
+                                              location,
+                                              "Location has to be a name StoreLocation declares.");
+      }
+
+      if (Name is string name && name.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Name),
+                                              name,
+                                              "Name has to be at least 1 character long.");
+      }
+
+      Find.Validate();
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+
+  /// <summary>The alternative <paramref name="section" /> names by its one key, matched without case.</summary>
+  /// <param name="section">The section, which has to hold one key.</param>
+  /// <returns>The alternative, with the fields its key states.</returns>
+  /// <exception cref="InvalidOperationException">
+  ///   The section names no alternative or two, or one with a field it does not admit.
+  /// </exception>
+  internal static ClientCertificate Bind(IConfigurationSection section)
+  {
+    var alternative = ChannelOptionsConfiguration.Alternative(section,
+                                                              "ClientCertificate");
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Pem"))
+    {
+      string? certificate = null;
+      string? key = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
+      {
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "Certificate"))
+        {
+          certificate = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Key"))
+        {
+          key = ChannelOptionsConfiguration.Text(entry);
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "ClientCertificate.Pem");
+        }
+      }
+
+      return new Pem(certificate ?? throw ChannelOptionsConfiguration.Missing(alternative,
+                                                                              "Certificate"),
+                     key ?? throw ChannelOptionsConfiguration.Missing(alternative,
+                                                                      "Key"));
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "P12"))
+    {
+      string? path = null;
+      string? password = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
+      {
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "Path"))
+        {
+          path = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Password"))
+        {
+          password = ChannelOptionsConfiguration.Text(entry);
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "ClientCertificate.P12");
+        }
+      }
+
+      return new P12(path ?? throw ChannelOptionsConfiguration.Missing(alternative,
+                                                                       "Path"),
+                     password);
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Store"))
+    {
+      StoreSearch? find = null;
+      StoreLocation? location = null;
+      string? name = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
+      {
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "Location"))
+        {
+          location = ChannelOptionsConfiguration.Enumeration<StoreLocation>(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Name"))
+        {
+          name = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Find"))
+        {
+          find = ChannelOptionsConfiguration.Holds(entry) ? StoreSearch.Bind(entry) : null;
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "ClientCertificate.Store");
+        }
+      }
+
+      return new Store(find ?? throw ChannelOptionsConfiguration.Missing(alternative,
+                                                                         "Find"),
+                       location,
+                       name);
+    }
+
+    throw ChannelOptionsConfiguration.Unknown(alternative,
+                                              "ClientCertificate");
+  }
+}
+
+/// <summary>Writes a <see cref="ClientCertificate" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCertificate>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override ClientCertificate? Read(ref Utf8JsonReader reader,
+                                          Type typeToConvert,
+                                          JsonSerializerOptions options)
+    => throw new NotSupportedException("ClientCertificate is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             ClientCertificate value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  ClientCertificate written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case ClientCertificate.Pem pem:
+      {
+        writer.WriteStartObject("Pem");
+        writer.WriteString("Certificate",
+                           pem.Certificate);
+        writer.WriteString("Key",
+                           pem.Key);
+        writer.WriteEndObject();
+        break;
+      }
+
+      case ClientCertificate.P12 p12:
+      {
+        writer.WriteStartObject("P12");
+        writer.WriteString("Path",
+                           p12.Path);
+
+        if (p12.Password is string password)
+        {
+          writer.WriteString("Password",
+                             password);
+        }
+
+        writer.WriteEndObject();
+        break;
+      }
+
+      case ClientCertificate.Store store:
+      {
+        writer.WriteStartObject("Store");
+
+        if (store.Location is StoreLocation location)
+        {
+          writer.WriteString("Location",
+                             location.ToString());
+        }
+
+        if (store.Name is string name)
+        {
+          writer.WriteString("Name",
+                             name);
+        }
+
+        writer.WritePropertyName("Find");
+        StoreSearchJsonConverter.WriteValue(writer,
+                                            store.Find);
+        writer.WriteEndObject();
+        break;
+      }
+    }
+
+    writer.WriteEndObject();
   }
 }
 
@@ -890,34 +1358,24 @@ public sealed class TcpKeepaliveOptions
 ///   An HTTP proxy, which a dial tunnels through with <c>CONNECT</c>, so TLS stays end to end with the
 ///   server.
 /// </summary>
-public sealed class ProxyOptions
+[JsonConverter(typeof(ProxyOptionsJsonConverter))]
+public abstract record ProxyOptions
 {
-  /// <summary>Options nobody has set.</summary>
-  public ProxyOptions()
+  private ProxyOptions()
   {
   }
 
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public ProxyOptions(ProxyOptions other)
+  /// <summary>No proxy: every dial goes to the endpoint itself.</summary>
+  public sealed record None : ProxyOptions
   {
-    if (other is null)
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentNullException(nameof(other));
+      // The schema bounds nothing here.
     }
-
-    Address = other.Address;
-    Username = other.Username;
-    Password = other.Password;
   }
 
-  /// <summary>
-  ///   <c>none</c> for no proxy, <c>system</c> for the one the system names, or the proxy's <c>http://</c> URL,
-  ///   with no path; <c>http://</c> is assumed when no scheme is written. The URL may carry <c>user:password@</c>,
-  ///   percent-encoded, when <c>Username</c> and <c>Password</c> are not set - which a serialized document
-  ///   then carries too.
-  /// </summary>
+  /// <summary>The proxy the system names for the endpoint, if any.</summary>
   /// <remarks>
   ///   The environment's proxy is <c>ALL_PROXY</c>, <c>HTTPS_PROXY</c> or <c>HTTP_PROXY</c>, in either case and
   ///   by the endpoint's scheme, unless <c>NO_PROXY</c> names the endpoint's host; it is read when the
@@ -931,77 +1389,261 @@ public sealed class ProxyOptions
   ///   WinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried
   ///   again for two minutes.
   ///   The system's proxy is never used for a loopback endpoint.
-  ///   Defaults to <c>system</c>.
   /// </remarks>
-  [JsonPropertyName("Address")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Address { get; set; }
-
-  /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
-  /// <remarks>
-  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
-  ///   system names no proxy. Beside the environment's proxy, it takes the place of the username
-  ///   that proxy's URL carries; beside the one Windows' settings name, it is the username.
-  /// </remarks>
-  [JsonPropertyName("Username")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Username { get; set; }
-
-  /// <summary>The password that goes with <c>Username</c>.</summary>
-  /// <remarks>
-  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
-  ///   system names no proxy. Beside the environment's proxy, it takes the place of the password
-  ///   that proxy's URL carries; beside the one Windows' settings name, it is the password.
-  /// </remarks>
-  [JsonPropertyName("Password")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Password { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
+  /// <param name="Username">
+  ///   The username, which <c>Basic</c> forbids a <c>:</c> in.
+  ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+  ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
+  ///   username.
+  /// </param>
+  /// <param name="Password">
+  ///   The password that goes with <c>Username</c>.
+  ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+  ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
+  ///   password.
+  /// </param>
+  public sealed record System(string? Username = null,
+                              string? Password = null) : ProxyOptions
   {
-    if (Address is string address && address.Length < 1)
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(Address),
-                                            address,
-                                            "Address has to be at least 1 character long.");
+      // The schema bounds nothing here.
+    }
+
+    /// <summary>The fields, a secret one elided.</summary>
+    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
+    {
+      builder.Append("Username = ");
+      builder.Append((object?)Username);
+      builder.Append(", Password = ");
+      builder.Append(Password is null ? "null" : "***");
+
+      return true;
     }
   }
 
-  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
-  /// <param name="section">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static ProxyOptions Bind(IConfigurationSection section)
+  /// <summary>The proxy at an address.</summary>
+  /// <param name="Address">
+  ///   The proxy's <c>http://</c> URL, with no path; <c>http://</c> is assumed when no scheme is written.
+  ///   It may carry <c>user:password@</c>, percent-encoded, when <c>Username</c> and <c>Password</c> are not
+  ///   set, which a serialized document then carries too.
+  /// </param>
+  /// <param name="Username">
+  ///   The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.
+  ///   Refused beside credentials the <c>Address</c> URL carries.
+  /// </param>
+  /// <param name="Password">
+  ///   The password that goes with <c>Username</c>.
+  ///   Refused beside credentials the <c>Address</c> URL carries.
+  /// </param>
+  public sealed record Url(string Address,
+                           string? Username = null,
+                           string? Password = null) : ProxyOptions
   {
-    var bound = new ProxyOptions();
+    /// <summary>The proxy's <c>http://</c> URL, with no path; <c>http://</c> is assumed when no scheme is written.</summary>
+    /// <remarks>
+    ///   It may carry <c>user:password@</c>, percent-encoded, when <c>Username</c> and <c>Password</c> are not
+    ///   set, which a serialized document then carries too.
+    /// </remarks>
+    public string Address { get; init; } = Address ?? throw new ArgumentNullException(nameof(Address));
 
-    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    /// <inheritdoc />
+    public override void Validate()
     {
-      if (ChannelOptionsConfiguration.Is(entry,
-                                         "Address"))
+      if (Address is string address && address.Length < 1)
       {
-        bound.Address = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Username"))
-      {
-        bound.Username = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Password"))
-      {
-        bound.Password = ChannelOptionsConfiguration.Text(entry);
-      }
-      else
-      {
-        throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "ProxyOptions");
+        throw new ArgumentOutOfRangeException(nameof(Address),
+                                              "Address has to be at least 1 character long.");
       }
     }
 
-    return bound;
+    /// <summary>The fields, a secret one elided.</summary>
+    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
+    {
+      builder.Append("Address = ");
+      builder.Append(Address is null ? "null" : "***");
+      builder.Append(", Username = ");
+      builder.Append((object?)Username);
+      builder.Append(", Password = ");
+      builder.Append(Password is null ? "null" : "***");
+
+      return true;
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+
+  /// <summary>The alternative <paramref name="section" /> names by its one key, matched without case.</summary>
+  /// <param name="section">The section, which has to hold one key.</param>
+  /// <returns>The alternative, with the fields its key states.</returns>
+  /// <exception cref="InvalidOperationException">
+  ///   The section names no alternative or two, or one with a field it does not admit.
+  /// </exception>
+  internal static ProxyOptions Bind(IConfigurationSection section)
+  {
+    var alternative = ChannelOptionsConfiguration.Alternative(section,
+                                                              "ProxyOptions");
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "None"))
+    {
+      ChannelOptionsConfiguration.Chosen(alternative);
+
+      return new None();
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "System"))
+    {
+      string? username = null;
+      string? password = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
+      {
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "Username"))
+        {
+          username = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Password"))
+        {
+          password = ChannelOptionsConfiguration.Text(entry);
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "ProxyOptions.System");
+        }
+      }
+
+      return new System(username,
+                        password);
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Url"))
+    {
+      string? address = null;
+      string? username = null;
+      string? password = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
+      {
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "Address"))
+        {
+          address = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Username"))
+        {
+          username = ChannelOptionsConfiguration.Text(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "Password"))
+        {
+          password = ChannelOptionsConfiguration.Text(entry);
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "ProxyOptions.Url");
+        }
+      }
+
+      return new Url(address ?? throw ChannelOptionsConfiguration.Missing(alternative,
+                                                                          "Address"),
+                     username,
+                     password);
+    }
+
+    throw ChannelOptionsConfiguration.Unknown(alternative,
+                                              "ProxyOptions");
+  }
+}
+
+/// <summary>Writes a <see cref="ProxyOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override ProxyOptions? Read(ref Utf8JsonReader reader,
+                                     Type typeToConvert,
+                                     JsonSerializerOptions options)
+    => throw new NotSupportedException("ProxyOptions is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             ProxyOptions value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  ProxyOptions written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case ProxyOptions.None:
+      {
+        writer.WriteBoolean("None",
+                            true);
+        break;
+      }
+
+      case ProxyOptions.System system:
+      {
+        writer.WriteStartObject("System");
+
+        if (system.Username is string username)
+        {
+          writer.WriteString("Username",
+                             username);
+        }
+
+        if (system.Password is string password)
+        {
+          writer.WriteString("Password",
+                             password);
+        }
+
+        writer.WriteEndObject();
+        break;
+      }
+
+      case ProxyOptions.Url url:
+      {
+        writer.WriteStartObject("Url");
+        writer.WriteString("Address",
+                           url.Address);
+
+        if (url.Username is string username)
+        {
+          writer.WriteString("Username",
+                             username);
+        }
+
+        if (url.Password is string password)
+        {
+          writer.WriteString("Password",
+                             password);
+        }
+
+        writer.WriteEndObject();
+        break;
+      }
+    }
+
+    writer.WriteEndObject();
   }
 }
 
@@ -1387,6 +2029,27 @@ internal static class ChannelOptionsConfiguration
     => !string.IsNullOrEmpty(section.Value) || section.GetChildren()
                                                       .Any();
 
+  /// <summary>The one key of a section naming an alternative of <paramref name="choice" />.</summary>
+  /// <exception cref="InvalidOperationException">It holds none, or more than one.</exception>
+  internal static IConfigurationSection Alternative(IConfigurationSection section,
+                                                    string                choice)
+  {
+    var entries = Entries(section);
+
+    return entries.Length == 1
+             ? entries[0]
+             : throw new InvalidOperationException($"{section.Path} names {entries.Length} alternatives of {choice}, and it has to name one.");
+  }
+
+  /// <summary>Refuses an alternative chosen with anything but `true`.</summary>
+  internal static void Chosen(IConfigurationSection section)
+  {
+    if (Boolean(section) != true)
+    {
+      throw new InvalidOperationException($"{section.Path} has to be true: an alternative is chosen with true.");
+    }
+  }
+
   /// <summary>The text of a key that holds a value.</summary>
   /// <exception cref="InvalidOperationException">It holds options instead.</exception>
   internal static string Text(IConfigurationSection section)
@@ -1438,10 +2101,40 @@ internal static class ChannelOptionsConfiguration
                                   "true or false");
   }
 
+  /// <summary>A name <typeparamref name="T" /> declares, without case, or none where the text is empty.</summary>
+  /// <remarks>Matched by name, never parsed: `Enum.TryParse` reads digits as any value of the type.</remarks>
+  internal static T? Enumeration<T>(IConfigurationSection section)
+    where T : struct, Enum
+  {
+    var text = Text(section);
+
+    if (text.Length == 0)
+    {
+      return null;
+    }
+
+    var names = Enum.GetNames(typeof(T));
+    var name = names.FirstOrDefault(declared => string.Equals(declared,
+                                                              text,
+                                                              StringComparison.OrdinalIgnoreCase));
+
+    return name is null
+             ? throw Unreadable(section,
+                                "one of " + string.Join(", ",
+                                                        names))
+             : (T)Enum.Parse(typeof(T),
+                             name);
+  }
+
   /// <summary>A key nothing declares, refused by its path.</summary>
   internal static InvalidOperationException Unknown(IConfigurationSection section,
                                                     string                owner)
     => new($"{section.Path} names nothing {owner} declares.");
+
+  /// <summary>A field the alternative cannot be made without.</summary>
+  internal static InvalidOperationException Missing(IConfigurationSection section,
+                                                    string                what)
+    => new($"{section.Path} has to state {what}.");
 
   private static InvalidOperationException Unreadable(IConfigurationSection section,
                                                       string                what)

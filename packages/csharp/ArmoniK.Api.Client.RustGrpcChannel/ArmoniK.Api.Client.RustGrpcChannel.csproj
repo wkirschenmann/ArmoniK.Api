@@ -44,6 +44,9 @@
     <!-- IAsyncDisposable and ValueTask: a channel's disposal is asynchronous because the last
          one released awaits the runtime's destroy, and neither type is in netstandard2.0. -->
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.0" />
+    <!-- IsExternalInit: the generated options declare a choice's alternatives as positional
+         records, whose init accessors the compiler marks with a type netstandard2.0 lacks. -->
+    <PackageReference Include="IsExternalInit" Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>
 
   <!-- ChannelOptions.g.cs and RuntimeOptions.g.cs are generated from the engine's own option

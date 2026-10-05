@@ -46,23 +46,25 @@ public class OptionVocabularyTests
 {
   /// <summary>A `GrpcClient` option and the path of the option that answers it here.</summary>
   /// <remarks>
-  ///   `CaCert` is a path on both sides, and spelled `CaCertPath` here, as the Rust client's
-  ///   vocabulary spells it. `KeepAliveTime` and `KeepAliveTimeInterval` are a socket's keepalive in
-  ///   `GrpcClient`, which sets them through `ServicePoint.SetTcpKeepAlive`.
+  ///   `CaCert` is a path on both sides, the `CaPem` alternative here. `AllowUnsafeConnection` is the
+  ///   `Unverified` alternative, and `Proxy` with its credentials the `Url` one: what excludes another
+  ///   is an alternative here, where `GrpcClient` has options that refuse or ignore one another.
+  ///   `KeepAliveTime` and `KeepAliveTimeInterval` are a socket's keepalive in `GrpcClient`, which
+  ///   sets them through `ServicePoint.SetTcpKeepAlive`.
   /// </remarks>
   private static readonly IReadOnlyDictionary<string, string> Counterparts = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                              {
-                                                                               ["AllowUnsafeConnection"] = "Transport.Tls.AllowUnsafeConnection",
-                                                                               ["CaCert"]                = "Transport.Tls.CaCertPath",
-                                                                               ["CertPem"]               = "Transport.Tls.CertPem",
-                                                                               ["CertP12"]               = "Transport.Tls.CertP12",
-                                                                               ["KeyPem"]                = "Transport.Tls.KeyPem",
+                                                                               ["AllowUnsafeConnection"] = "Transport.Tls.Server.Unverified",
+                                                                               ["CaCert"]                = "Transport.Tls.Server.CaPem",
+                                                                               ["CertPem"]               = "Transport.Tls.Client.Pem.Certificate",
+                                                                               ["CertP12"]               = "Transport.Tls.Client.P12.Path",
+                                                                               ["KeyPem"]                = "Transport.Tls.Client.Pem.Key",
                                                                                ["OverrideTargetName"]    = "Transport.Tls.OverrideTargetName",
                                                                                ["KeepAliveTime"]         = "Transport.TcpKeepalive.IdleSeconds",
                                                                                ["KeepAliveTimeInterval"] = "Transport.TcpKeepalive.IntervalSeconds",
-                                                                               ["Proxy"]                 = "Transport.Proxy.Address",
-                                                                               ["ProxyUsername"]         = "Transport.Proxy.Username",
-                                                                               ["ProxyPassword"]         = "Transport.Proxy.Password",
+                                                                               ["Proxy"]                 = "Transport.Proxy.Url.Address",
+                                                                               ["ProxyUsername"]         = "Transport.Proxy.Url.Username",
+                                                                               ["ProxyPassword"]         = "Transport.Proxy.Url.Password",
                                                                                ["RequestTimeout"]        = "DefaultDeadlineSeconds",
                                                                                ["MaxIdleTime"]           = "Http2.IdleTimeoutSeconds",
                                                                                ["MaxAttempts"]           = "Retry.MaxAttempts",
@@ -98,17 +100,20 @@ public class OptionVocabularyTests
                                                                        ["UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
-                                                                       ["Transport.Tls.CertP12Password"] = "GrpcClient opens its bundle with no password",
-                                                                       ["Transport.Tls.CertStore.Location"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CertStore.Name"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CertStore.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CertStore.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CertStore.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CaStore.Location"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CaStore.Name"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CaStore.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CaStore.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.CaStore.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Client.P12.Password"] = "GrpcClient opens its bundle with no password",
+                                                                       ["Transport.Tls.Client.Store.Find.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Client.Store.Find.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Client.Store.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Client.Store.Location"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Client.Store.Name"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Server.CaStore.Find.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Server.CaStore.Find.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Server.CaStore.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Server.CaStore.Location"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.Server.CaStore.Name"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Proxy.None"] = "GrpcClient's Proxy set to `none`, an alternative here rather than a value of an address",
+                                                                       ["Transport.Proxy.System.Username"] = "GrpcClient's proxy credentials go with its own address only",
+                                                                       ["Transport.Proxy.System.Password"] = "GrpcClient's proxy credentials go with its own address only",
                                                                        ["Http2.KeepAliveIntervalSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveTimeoutSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveWhileIdle"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
@@ -296,7 +301,8 @@ public class OptionVocabularyTests
   }
 
   // A group becomes a prefix, which is the same path .NET's configuration reaches with `__` and
-  // the same one the JSON document nests.
+  // the same one the JSON document nests. So does an alternative of a choice, whose key names it:
+  // one carrying nothing, or a value alone, is the path itself.
   private static IEnumerable<string> Paths(Type type,
                                            string prefix)
   {
@@ -307,6 +313,31 @@ public class OptionVocabularyTests
                    : prefix + "." + property.Name;
 
       var held = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+
+      if (held.IsAbstract && held.Namespace == typeof(ChannelOptions).Namespace)
+      {
+        foreach (var alternative in held.GetNestedTypes()
+                                        .Where(held.IsAssignableFrom))
+        {
+          var at = path + "." + alternative.Name;
+          var fields = Settable(alternative)
+            .ToList();
+
+          if (fields.Count == 0 || (fields.Count == 1 && fields[0].Name == "Value"))
+          {
+            yield return at;
+            continue;
+          }
+
+          foreach (var one in Paths(alternative,
+                                    at))
+          {
+            yield return one;
+          }
+        }
+
+        continue;
+      }
 
       // A class of this namespace and not a value type of it: an enum option would otherwise be
       // recursed into, and an enum declares no instance property - so the option would vanish

@@ -897,15 +897,16 @@ its own, and a binding that wants `GrpcClient`'s writes them.
 **Source**: the #7xx stack
 **Deliverable**: mTLS with a P12 bundle and its password, the password read as a `Secret`.
 
-**Status**: done. `Transport.Tls.CertP12` names the bundle and `Transport.Tls.CertP12Password` its
-password, held in a `Password` over `secrecy`'s `SecretString`: no Debug print shows it, no refusal
+**Status**: done. `Transport.Tls.Client.P12` names the bundle by its `Path`, and its `Password`,
+held in a `Password` over `secrecy`'s `SecretString`: no Debug print shows it, no refusal
 quotes it, the schema marks it `writeOnly`, and it is zeroed when dropped. The bundle is read by
 `TlsOptions::load` with `p12-keystore`, strictly, so a chain it cannot rebuild is refused rather
 than cut short, and so is a bundle holding more than one key, since nothing says which to use. It
-excludes `CertPem` and `KeyPem`, and a password without a bundle is refused. `tests/grpc_tls.rs`
+is one alternative of the client's identity, beside `Pem` and `Store`, so a document cannot name
+two, and its password cannot be stated without it. `tests/grpc_tls.rs`
 authenticates a client from such a bundle against a server that asks for one. Untested: a bundle
 written with no password at all - a NULL password, distinct from the empty one in PKCS#12's key
-derivation - which an unset `CertP12Password` opens as the empty one.
+derivation - which an unset `Password` opens as the empty one.
 
 ### T4.3: The whole certificate chain
 
@@ -916,8 +917,8 @@ derivation - which an unset `CertP12Password` opens as the empty one.
 **Deliverable**: a handshake a server accepts only when given an intermediate.
 
 **Status**: done, and the commit list had nothing left to change: the loaders already kept every
-certificate in the order the file writes it, `CertPem` as a PEM sequence and `CertP12` as the chain
-`p12-keystore` rebuilds, and `ClientIdentity` carries the chain rustls presents. What this task adds
+certificate in the order the file writes it, a `Pem` certificate as a PEM sequence and a `P12`
+bundle as the chain `p12-keystore` rebuilds, and `ClientIdentity` carries the chain rustls presents. What this task adds
 is the proof. In `tests/grpc_tls.rs` a server that trusts only the root refuses a client sending its
 leaf alone, and accepts the leaf and its intermediate whether they are built in memory or loaded
 from a PEM file or a PKCS#12 bundle; a loader keeping only the first certificate fails the test
@@ -930,9 +931,9 @@ that loads them.
 
 **Deliverable**: mTLS from the store, on the Windows CI.
 
-**Status**: done. `Transport.Tls.CertStore` names the client's certificate and
-`Transport.Tls.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
-`LocalMachine`), `Name` (`My` and `Root` by default) and exactly one of `Thumbprint`, `SubjectName`
+**Status**: done. `Transport.Tls.Client.Store` names the client's certificate and
+`Transport.Tls.Server.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
+`LocalMachine`), `Name` (`My` and `Root` by default) and `Find`, one of `Thumbprint`, `SubjectName`
 - a text the subject contains, without case, as .NET's `FindBySubjectName` reads it - and
 `FriendlyName`. The identity leaves the store as a PKCS#12 export read by T4.2's loader, followed by
 the issuers the store's `CA` holds; a key the store keeps unexportable is refused with a message
@@ -956,8 +957,9 @@ carries.
 
 **Deliverable**: a unary call through an explicit HTTP proxy, and no credential in any message.
 
-**Status**: done. `Transport.Proxy` carries `Address` - `none`, or the proxy's `http://` URL - and
-`Username` and `Password`, the same three `GrpcClient` has; `system` follows the environment. The
+**Status**: done. `Transport.Proxy` is `None`, `System` - the environment's, with `Username` and
+`Password` - or `Url`, the proxy's `http://` `Address` with its own `Username` and `Password`: the
+three `GrpcClient` has, and what its `none` and `system` spell. The
 engine's connector tunnels through it with `hyper_util`'s `Tunnel` below TLS, so TLS stays end to
 end, and the connect timeout bounds the whole dial, tunnel included; a target naming no port is
 tunnelled to its scheme's. A failure is `TransportErrorKind::ProxyConnect`, saying whether the proxy
@@ -987,7 +989,7 @@ it, which keeps a local server reachable under a corporate `HTTP_PROXY`. A proxy
 names by `https://` or a `socks` scheme is refused when the channel is created, without quoting
 its userinfo; any other value the matcher cannot read as a proxy is ignored. `Username` and
 `Password`, when set, take the place of the URL's own, half by half. In the options, an absent
-`Address` or `system` is this source - the default, as it is `GrpcClient`'s - while the engine's own
+`Proxy` or `System` is this source - the default, as it is `GrpcClient`'s - while the engine's own
 `ProxyConfig` defaults to none. `tests/grpc_proxy_env.rs` is serialised and restores the variables;
 a `.test` name only the test proxy resolves shows which dials went through it.
 

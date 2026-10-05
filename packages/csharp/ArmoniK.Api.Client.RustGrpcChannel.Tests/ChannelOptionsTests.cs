@@ -33,6 +33,10 @@ public class ChannelOptionsTests
   private static string Encoded(ChannelOptions options)
     => Encoding.UTF8.GetString(options.Encode());
 
+  private static IConfiguration Configuration(Dictionary<string, string?> values)
+    => new ConfigurationBuilder().AddInMemoryCollection(values)
+                                 .Build();
+
   /// <summary>An option nobody set is absent, not null and not a default spelled out.</summary>
   /// <remarks>
   ///   The engine reads an absent option as its own default, and every option has one - which is
@@ -344,4 +348,153 @@ public class ChannelOptionsTests
                              MaxSendsInFlight = 536870910,
                            }),
                    Is.EqualTo(@"{""MaxSendsInFlight"":536870910,""DeliveryCredits"":1}"));
+
+  /// <summary>An alternative is an object whose one key names it, as the engine reads a Rust enum.</summary>
+  /// <remarks>A field left unset is absent, as an option is; one carrying nothing is `true`.</remarks>
+  [Test]
+  public void AnAlternativeIsAnObjectWhoseOneKeyNamesIt()
+    => Assert.That(Encoded(new ChannelOptions
+                           {
+                             Transport = new TransportOptions
+                                         {
+                                           Tls = new TlsOptions
+                                                 {
+                                                   Server = new ServerVerification.CaStore(new StoreSearch.Thumbprint("ab"),
+                                                                                           StoreLocation.LocalMachine),
+                                                   Client = new ClientCertificate.P12("me.p12"),
+                                                 },
+                                           Proxy = new ProxyOptions.None(),
+                                         },
+                           }),
+                   Is.EqualTo(@"{""Transport"":{""Tls"":{""Server"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""Client"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":{""None"":true}}}"));
+
+  /// <summary>A field's bounds are checked through the group holding its alternative.</summary>
+  [Test]
+  public void AFieldOutsideItsRangeIsRefusedThroughItsGroup()
+    => Assert.That(() => new ChannelOptions
+                         {
+                           Transport = new TransportOptions
+                                       {
+                                         Tls = new TlsOptions
+                                               {
+                                                 Server = new ServerVerification.CaPem(string.Empty),
+                                               },
+                                       },
+                         }.Encode(),
+                   Throws.TypeOf<ArgumentOutOfRangeException>()
+                         .With.Message.Contains("Value has to be at least 1 character long"));
+
+  /// <summary>An enum is a number, and a number its type does not name is refused.</summary>
+  [Test]
+  public void ALocationNoNameDeclaresIsRefused()
+    => Assert.That(() => new ServerVerification.CaStore(new StoreSearch.FriendlyName("root"),
+                                                        (StoreLocation)7).Validate(),
+                   Throws.TypeOf<ArgumentOutOfRangeException>()
+                         .With.Message.Contains("Location has to be a name StoreLocation declares"));
+
+  /// <summary>A field an alternative cannot do without is refused null as it is passed.</summary>
+  [Test]
+  public void ARequiredFieldIsRefusedNull()
+    => Assert.That(() => new ClientCertificate.Pem("me.pem",
+                                                   null!),
+                   Throws.TypeOf<ArgumentNullException>());
+
+  /// <summary>A secret is printed elided, and so is a proxy's address, which may carry a password.</summary>
+  /// <remarks>A record prints every property in its ToString, which reaches logs and debuggers.</remarks>
+  [Test]
+  public void ASecretIsPrintedElided()
+  {
+    var printed = new ProxyOptions.Url("http://alice:s3cret@proxy.test:3128",
+                                       "bob",
+                                       "hunter2") + " " + new ClientCertificate.P12("me.p12",
+                                                                                   "hunter2");
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(printed,
+                                  Does.Not.Contain("s3cret")
+                                      .And.Not.Contain("hunter2"));
+                      Assert.That(printed,
+                                  Does.Contain("Username = bob")
+                                      .And.Contain("Path = me.p12"),
+                                  "what is not secret is printed");
+                    });
+  }
+
+  /// <summary>A section names an alternative by its one key, as the document does, without case.</summary>
+  [Test]
+  public void ASectionNamesAnAlternativeByItsKey()
+  {
+    var options = NativeRuntime.OptionsFrom(Configuration(new Dictionary<string, string?>
+                                                          {
+                                                            ["Section:Transport:Tls:Server:CaStore:Find:Thumbprint"] = "ab",
+                                                            ["Section:Transport:Tls:Server:CaStore:Location"]        = "localmachine",
+                                                            ["Section:Transport:Tls:Client:Pem:Certificate"]         = "me.pem",
+                                                            ["Section:Transport:Tls:Client:Pem:Key"]                 = "me.key",
+                                                            ["Section:Transport:Proxy:url:Address"]                  = "proxy.test:3128",
+                                                          }),
+                                            "Section");
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(options.Transport?.Tls?.Server,
+                                  Is.EqualTo(new ServerVerification.CaStore(new StoreSearch.Thumbprint("ab"),
+                                                                            StoreLocation.LocalMachine)));
+                      Assert.That(options.Transport?.Tls?.Client,
+                                  Is.EqualTo(new ClientCertificate.Pem("me.pem",
+                                                                       "me.key")));
+                      Assert.That(options.Transport?.Proxy,
+                                  Is.EqualTo(new ProxyOptions.Url("proxy.test:3128")));
+                    });
+  }
+
+  /// <summary>What a section cannot be is refused by the key at fault, and its value never quoted.</summary>
+  /// <remarks>Not quoted, because a value may be a password.</remarks>
+  [Test]
+  public void ASectionThatIsNoAlternativeIsRefusedByTheKeyAtFault()
+  {
+    var refusals = new[]
+                   {
+                     (new Dictionary<string, string?>
+                      {
+                        ["Section:Transport:Proxy:None"]            = "true",
+                        ["Section:Transport:Proxy:System:Username"] = "s3cret",
+                      }, "Section:Transport:Proxy names 2 alternatives"),
+                     (new Dictionary<string, string?>
+                      {
+                        ["Section:Transport:Proxy:Elsewhere"] = "s3cret",
+                      }, "Section:Transport:Proxy:Elsewhere names nothing"),
+                     (new Dictionary<string, string?>
+                      {
+                        ["Section:Transport:Tls:Server:Unverified"] = "false",
+                      }, "Section:Transport:Tls:Server:Unverified has to be true"),
+                     (new Dictionary<string, string?>
+                      {
+                        ["Section:Transport:Tls:Client:Pem:Certificate"] = "s3cret",
+                      }, "Section:Transport:Tls:Client:Pem has to state Key"),
+                     (new Dictionary<string, string?>
+                      {
+                        ["Section:Transport:Tls:Server:CaStore:Find:Thumbprint"] = "ab",
+                        ["Section:Transport:Tls:Server:CaStore:Location"]        = "s3cret",
+                      }, "Section:Transport:Tls:Server:CaStore:Location has to be one of"),
+                     (new Dictionary<string, string?>
+                      {
+                        ["Section:MaxSendsInFlight"] = "s3cret",
+                      }, "Section:MaxSendsInFlight has to be an integer"),
+                   };
+
+    foreach (var (values, said) in refusals)
+    {
+      var refused = Assert.Throws<InvalidOperationException>(() => NativeRuntime.OptionsFrom(Configuration(values),
+                                                                                            "Section"));
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(refused?.Message,
+                                    Does.StartWith(said));
+                        Assert.That(refused?.Message,
+                                    Does.Not.Contain("s3cret"));
+                      });
+    }
+  }
 }

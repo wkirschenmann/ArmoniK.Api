@@ -51,10 +51,10 @@ public class UnaryTests : EchoServerFixture
 
   /// <summary>Every option set in a configuration, and a call over the channel it opens.</summary>
   /// <remarks>
-  ///   The whole path: an environment variable, .NET's binder, the generated options, the JSON,
-  ///   and the engine reading it. `ChannelOptionsTests` stops at the document; only a served call
-  ///   says the engine accepted it. The timeout carries a fraction, which a culture's decimal
-  ///   comma or an integer reading would break.
+  ///   The whole path: an environment variable, the generated binding and options, the JSON, and
+  ///   the engine reading it. `ChannelOptionsTests` stops at the document; only a served call says
+  ///   the engine accepted it. The timeout carries a fraction, which a culture's decimal comma or an
+  ///   integer reading would break, and the proxy is an alternative, which only its key names.
   /// </remarks>
   [Test]
   public async Task EveryOptionSetOnlyInTheEnvironmentReachesTheEngine()
@@ -67,6 +67,7 @@ public class UnaryTests : EchoServerFixture
                       ("MaxReceiveMessageSize", "65536"),
                       ("MaxSendsInFlight", "2"),
                       ("Transport__ConnectTimeoutSeconds", "2.5"),
+                      ("Transport__Proxy__None", "true"),
                       ("UserAgent", "unary-tests"),
                     };
 

@@ -1279,7 +1279,19 @@ the shape every option takes, and gives the reasons:
   is the reader's, and a test compares the two;
 - nothing is nullable: unset is absent;
 - `additionalProperties: false` everywhere, so an unknown option is refused rather than ignored;
-- nothing is required, and `{}` is a valid configuration.
+- options that exclude one another are one Rust enum, which the schema renders as a `oneOf` of
+  objects of one key: the key names the alternative and holds what it carries, `true` for
+  nothing - `"Server": {"CaPem": "ca.pem"}`, `"Proxy": {"None": true}`. In C# a choice is an
+  abstract record whose constructor is private, and its alternatives the sealed records nested in
+  it, so a switch over them is complete. An enum whose variants carry nothing is a `oneOf` of
+  names, and a C# enum;
+- nothing is required but a field an alternative cannot do without, and `{}` is a valid
+  configuration.
+
+A configuration section reaches the options through the generated `Bind`, which matches each key
+without case, as a configuration does, and refuses one nothing declares by its path - not through
+`ConfigurationBinder`, which cannot make an abstract record and would have to guess which
+alternative a section names.
 
 A binding may narrow what the schema admits, and cannot widen it: the engine checks every bound
 again. The schema states what the engine can honour, and a binding that sizes something of its
@@ -1320,13 +1332,13 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | Existing option | ChannelOptions field |
 |-----------------|--------------------------|
 | `Address` | `Endpoint` |
-| `CaCert` | `Transport.Tls.CaCertPath` |
-| `ClientCert` / `ClientKey` | `Transport.Tls.CertPem` / `Transport.Tls.KeyPem` |
-| `ClientP12` | `Transport.Tls.CertP12`; its password, `Transport.Tls.CertP12Password`, has no counterpart |
-| `AllowUnsafeConnection` | `Transport.Tls.AllowUnsafeConnection` |
+| `CaCert` | `Transport.Tls.Server.CaPem` |
+| `ClientCert` / `ClientKey` | `Transport.Tls.Client.Pem.Certificate` / `Transport.Tls.Client.Pem.Key` |
+| `ClientP12` | `Transport.Tls.Client.P12.Path`; its password, `Transport.Tls.Client.P12.Password`, has no counterpart |
+| `AllowUnsafeConnection` | `Transport.Tls.Server.Unverified` |
 | `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
-| `Proxy` | `Transport.Proxy.Address` |
-| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Username` / `Transport.Proxy.Password` |
+| `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, or `Transport.Proxy.Url.Address` |
+| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
 | `RequestTimeout` | `DefaultDeadlineSeconds` |
 | `MaxAttempts` | `Retry.MaxAttempts` |
 | `InitialBackOff` etc. | `Retry.*` |
