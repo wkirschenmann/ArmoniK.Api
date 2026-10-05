@@ -52,7 +52,7 @@ packages/rust/patches/h2-batch/build.sh test -p armonik-transport --all-features
 `build.sh` runs cargo with what follows it, after it has:
 
 1. waited for its turn on the target directory, since every run there rewrites the same copy
-   and the same Cargo.lock: the .NET binding builds once per target framework, in parallel;
+   and the same Cargo.lock;
 2. read the h2 version and checksum Cargo.lock pins, and refused to go on unless it is 0.4.19,
    the version the patch is made against;
 3. found `h2-0.4.19.crate` in cargo's cache, fetching it first if it is not there, and checked

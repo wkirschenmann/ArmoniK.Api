@@ -771,12 +771,12 @@ sketch actions - move with what they read.
 
 **Status**: done. cbindgen renders the header and csbindgen the P/Invoke half,
 `Interop/NativeMethods.g.cs`, both from `abi.rs` and `lib.rs`, through a crate of their own,
-`armonik-transport-ffi-bindgen`: its test and the binding's `CheckGeneratedBindingsMatchTheAbi`
-fail when a committed file is not what the Rust renders. The header's prose is in
-`cbindgen.toml`'s `header` and in the Rust doc comments, and the binding takes the generated
-C names as they come rather than through a layer that renames them. The layout tests measure
-what they measured, on net4.7, net4.8 and net8.0 and on x64 and x86, against the generated
-field names.
+`armonik-transport-ffi-bindgen`: its test and the binding build's
+`CheckGeneratedBindingsMatchTheAbi`, in `packages/csharp/NativeEngine.targets`, fail when a
+committed file is not what the Rust renders. The header's prose is in `cbindgen.toml`'s `header` and
+in the Rust doc comments, and the binding takes the generated C names as they come rather than
+through a layer that renames them. The layout tests measure what they measured, on net4.7, net4.8
+and net8.0 and on x64 and x86, against the generated field names.
 
 design.md is the index of five documents now - contract.md, abi.md, architecture.md,
 formal-model.md and decisions.md. abi.md gives the header the declarations of what is built and

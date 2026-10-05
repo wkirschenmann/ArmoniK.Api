@@ -104,18 +104,12 @@
   </Target>
 
   <!-- The engine this binds to is a Rust cdylib in the same repository, and a binding without it
-       does nothing, so building one builds the other. Cargo's profile directories are named after
-       the .NET configurations, which is why the same lowercased name serves both. -->
+       does nothing, so building one builds the other. -->
   <PropertyGroup>
     <!-- The host alone by default: the other architectures need cross toolchains this machine may
          not have, and a routine build should not spend minutes on engines nobody is about to run.
          CI and packing pass the identifiers they want, separated by `;` or `,`. -->
     <NativeEngineRids Condition="'$(NativeEngineRids)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeEngineRids>
-    <!-- NativeEngineH2Batch `true` builds the engine against h2-batch's patch of h2, through its
-         recipe, which needs bash: packages/rust/patches/h2-batch/README.md. -->
-    <NativeEngineCargo>cargo</NativeEngineCargo>
-    <NativeEngineCargo Condition="'$(NativeEngineH2Batch)' == 'true'">bash patches/h2-batch/build.sh</NativeEngineCargo>
-    <_NativeEngineCargoNeeds Condition="'$(NativeEngineH2Batch)' == 'true'"> The h2-batch recipe also needs the bash of Git for Windows first on PATH, not WSL's.</_NativeEngineCargoNeeds>
   </PropertyGroup>
 
   <Import Project="$(MSBuildThisFileDirectory)..\RustTargets.props" />
@@ -141,71 +135,21 @@
     </ItemGroup>
   </Target>
 
-  <!-- Interop/NativeMethods.g.cs is rendered from the engine's Rust and committed, beside the C
-       header rendered from the same declarations. A stale one is a P/Invoke that reads the wrong
-       bytes, so the build compares both with what the Rust renders now and fails on a
-       difference; it never rewrites them. Skipped with the engine, for the same image that has
-       no Rust toolchain. -->
-  <ItemGroup>
-    <AbiDeclaration Include="$(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/src/abi.rs;
-                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/src/lib.rs;
-                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/cbindgen.toml;
-                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/include/armonik_transport_ffi.h;
-                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi-bindgen/src/main.rs;
-                             $(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi-bindgen/Cargo.toml;
-                             $(MSBuildThisFileDirectory)../../rust/Cargo.toml;
-                             $(MSBuildThisFileDirectory)../../rust/Cargo.lock;
-                             $(MSBuildThisFileDirectory)Interop/NativeMethods.g.cs" />
-  </ItemGroup>
+  <!-- The engine, and the check that Interop/NativeMethods.g.cs and the C header are what its Rust
+       renders, are NativeEngine.targets'. Called from each target framework with the same global
+       properties, so that MSBuild runs it once per build, and the frameworks of every project
+       above this one cost one cargo run per architecture.
 
-  <Target Name="CheckGeneratedBindingsMatchTheAbi" BeforeTargets="BeforeBuild"
-          Condition="'$(SkipNativeEngine)' != 'true'"
-          Inputs="@(AbiDeclaration)"
-          Outputs="$(IntermediateOutputPath)bindings-checked.stamp">
-    <Exec Command="cargo run -q -p armonik-transport-ffi-bindgen -- --check"
-          WorkingDirectory="$(RustWorkspace)"
-          ContinueOnError="true">
-      <Output TaskParameter="ExitCode" PropertyName="BindingsCheckExitCode" />
-    </Exec>
-    <!-- The generator exits 1 for a stale file and only for that; any other code is cargo or the
-         generator failing, which writing the files again does not mend. -->
-    <Error Condition="'$(BindingsCheckExitCode)' == '1'"
-           Text="Interop/NativeMethods.g.cs or the C header is not what armonik-transport-ffi declares. Write them again with `cargo run -p armonik-transport-ffi-bindgen` in packages/rust; on Windows that needs a Visual Studio environment." />
-    <Error Condition="'$(BindingsCheckExitCode)' != '0' AND '$(BindingsCheckExitCode)' != '1'"
-           Text="Interop/NativeMethods.g.cs and the C header could not be checked: `cargo run -p armonik-transport-ffi-bindgen -- --check` in packages/rust exited $(BindingsCheckExitCode). On Windows it needs a Visual Studio environment." />
-    <!-- Runs before PrepareForBuild, which is what creates the intermediate directory. -->
-    <MakeDir Directories="$(IntermediateOutputPath)" />
-    <Touch Files="$(IntermediateOutputPath)bindings-checked.stamp" AlwaysCreate="true" />
-    <ItemGroup>
-      <FileWrites Include="$(IntermediateOutputPath)bindings-checked.stamp" />
-    </ItemGroup>
-  </Target>
-
-  <!-- For a build that wants the managed surface and no engine: the documentation, which reads
-       this assembly's public types on an image with no Rust toolchain. The assembly is pure
-       managed, so it compiles without one; what it cannot do is load a call at run time. -->
+       SkipNativeEngine is for a build that wants the managed surface and no engine: the
+       documentation, which reads this assembly's public types on an image with no Rust
+       toolchain. The assembly is pure managed, so it compiles without one; what it cannot do is
+       load a call at run time. -->
   <Target Name="BuildNativeEngine" BeforeTargets="BeforeBuild"
-          Condition="'$(SkipNativeEngine)' != 'true'"
-          Outputs="%(RustTarget.Identity)">
-    <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild
-         run this once per architecture rather than once with all of them. -->
-    <!-- Whole identifiers, between separators: linux-arm is a substring of linux-arm64. -->
-    <PropertyGroup>
-      <_NativeEngineRidList>;$(NativeEngineRids.Replace(',', ';').Replace(' ', ''));</_NativeEngineRidList>
-      <RustTargetWanted>$(_NativeEngineRidList.Contains(';%(RustTarget.Identity);'))</RustTargetWanted>
-    </PropertyGroup>
-
-    <Exec Condition="'$(RustTargetWanted)' == 'true'"
-          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
-          WorkingDirectory="$(RustWorkspace)"
-          ContinueOnError="true">
-      <Output TaskParameter="ExitCode" PropertyName="CargoExitCode" />
-    </Exec>
-    <!-- On Windows cargo needs cl.exe and link.exe, which only a Visual Studio environment puts on
-         PATH, and a 32-bit engine needs the x64_x86 one rather than the x64 one, so a plain shell
-         fails here rather than in anything a reader would connect to the C toolchain. -->
-    <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(CargoExitCode)' != '0'"
-           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86.$(_NativeEngineCargoNeeds)" />
+          Condition="'$(SkipNativeEngine)' != 'true'">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\NativeEngine.targets"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);NativeEngineRids=$(NativeEngineRids.Replace(';', '%3B'))"
+             RemoveProperties="TargetFramework;RuntimeIdentifier;SelfContained" />
   </Target>
 
 </Project>

@@ -1,0 +1,91 @@
+<Project DefaultTargets="Build">
+
+  <!-- The Rust engine the binding loads, and the check of the bindings rendered from it. A
+       .targets file rather than a project, so that a bare `dotnet build` here finds the solution
+       alone.
+
+       The binding calls this from each of its target frameworks with the same global properties,
+       its own TargetFramework and RuntimeIdentifier removed: MSBuild builds a project once per set
+       of global properties in a build, and every other call waits for that result rather than
+       running cargo again. Its frameworks, and those of every project above it, then cost one
+       cargo run per architecture. -->
+
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+  </PropertyGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)RustTargets.props" />
+
+  <PropertyGroup>
+    <!-- NativeEngineH2Batch `true` builds the engine against h2-batch's patch of h2, through its
+         recipe, which needs bash: packages/rust/patches/h2-batch/README.md. -->
+    <NativeEngineCargo>cargo</NativeEngineCargo>
+    <NativeEngineCargo Condition="'$(NativeEngineH2Batch)' == 'true'">bash patches/h2-batch/build.sh</NativeEngineCargo>
+    <_NativeEngineCargoNeeds Condition="'$(NativeEngineH2Batch)' == 'true'"> The h2-batch recipe also needs the bash of Git for Windows first on PATH, not WSL's.</_NativeEngineCargoNeeds>
+    <!-- Shared by every configuration and left by a clean: the check depends on its inputs
+         alone. -->
+    <NativeEngineStamps>$(MSBuildThisFileDirectory)obj\NativeEngine\</NativeEngineStamps>
+  </PropertyGroup>
+
+  <Target Name="Build" DependsOnTargets="CheckGeneratedBindingsMatchTheAbi;BuildNativeEngine" />
+
+  <!-- Interop/NativeMethods.g.cs is rendered from the engine's Rust and committed, beside the C
+       header rendered from the same declarations. A stale one is a P/Invoke that reads the wrong
+       bytes, so the build compares both with what the Rust renders now and fails on a
+       difference; it never rewrites them. -->
+  <ItemGroup>
+    <AbiDeclaration Include="$(RustWorkspace)armonik-transport-ffi/src/abi.rs;
+                             $(RustWorkspace)armonik-transport-ffi/src/lib.rs;
+                             $(RustWorkspace)armonik-transport-ffi/cbindgen.toml;
+                             $(RustWorkspace)armonik-transport-ffi/include/armonik_transport_ffi.h;
+                             $(RustWorkspace)armonik-transport-ffi-bindgen/src/main.rs;
+                             $(RustWorkspace)armonik-transport-ffi-bindgen/Cargo.toml;
+                             $(RustWorkspace)Cargo.toml;
+                             $(RustWorkspace)Cargo.lock;
+                             $(MSBuildThisFileDirectory)ArmoniK.Api.Client.RustGrpcChannel/Interop/NativeMethods.g.cs" />
+  </ItemGroup>
+
+  <Target Name="CheckGeneratedBindingsMatchTheAbi"
+          Inputs="@(AbiDeclaration)"
+          Outputs="$(NativeEngineStamps)bindings-checked.stamp">
+    <Exec Command="cargo run -q -p armonik-transport-ffi-bindgen -- --check"
+          WorkingDirectory="$(RustWorkspace)"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="BindingsCheckExitCode" />
+    </Exec>
+    <!-- The generator exits 1 for a stale file and only for that; any other code is cargo or the
+         generator failing, which writing the files again does not mend. -->
+    <Error Condition="'$(BindingsCheckExitCode)' == '1'"
+           Text="Interop/NativeMethods.g.cs or the C header is not what armonik-transport-ffi declares. Write them again with `cargo run -p armonik-transport-ffi-bindgen` in packages/rust; on Windows that needs a Visual Studio environment." />
+    <Error Condition="'$(BindingsCheckExitCode)' != '0' AND '$(BindingsCheckExitCode)' != '1'"
+           Text="Interop/NativeMethods.g.cs and the C header could not be checked: `cargo run -p armonik-transport-ffi-bindgen -- --check` in packages/rust exited $(BindingsCheckExitCode). On Windows it needs a Visual Studio environment." />
+    <MakeDir Directories="$(NativeEngineStamps)" />
+    <Touch Files="$(NativeEngineStamps)bindings-checked.stamp" AlwaysCreate="true" />
+  </Target>
+
+  <!-- NativeEngineRids comes from the binding, which defaults it to the SDK's own identifier: a
+       project without an SDK does not know it. -->
+  <Target Name="BuildNativeEngine" Outputs="%(RustTarget.Identity)">
+    <Error Condition="'$(NativeEngineRids)' == ''" Text="NativeEngine.targets needs NativeEngineRids" />
+    <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild
+         run this once per architecture rather than once with all of them. -->
+    <!-- Whole identifiers, between separators: linux-arm is a substring of linux-arm64. -->
+    <PropertyGroup>
+      <_NativeEngineRidList>;$(NativeEngineRids.Replace(',', ';').Replace(' ', ''));</_NativeEngineRidList>
+      <RustTargetWanted>$(_NativeEngineRidList.Contains(';%(RustTarget.Identity);'))</RustTargetWanted>
+    </PropertyGroup>
+
+    <Exec Condition="'$(RustTargetWanted)' == 'true'"
+          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
+          WorkingDirectory="$(RustWorkspace)"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="CargoExitCode" />
+    </Exec>
+    <!-- On Windows cargo needs cl.exe and link.exe, which only a Visual Studio environment puts on
+         PATH, and a 32-bit engine needs the x64_x86 one rather than the x64 one, so a plain shell
+         fails here rather than in anything a reader would connect to the C toolchain. -->
+    <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(CargoExitCode)' != '0'"
+           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86.$(_NativeEngineCargoNeeds)" />
+  </Target>
+
+</Project>
