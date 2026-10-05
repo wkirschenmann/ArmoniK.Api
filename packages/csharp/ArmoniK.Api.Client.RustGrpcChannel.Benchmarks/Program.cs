@@ -34,7 +34,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 
 /// <summary>
 ///   One transport, measured against the test server over TLS: unary latency, server-streaming
-///   throughput, and what the process holds once both have run. Prints one line of results.
+///   throughput, the throughput of sending 150 MiB as one message and as a stream of chunks, and
+///   what the process holds once they have run. Prints one line of results.
 /// </summary>
 /// <remarks>
 ///   One transport per process, so that what one leaves allocated is not counted against the
@@ -47,16 +48,22 @@ public static class Program
   private const int StreamRuns    = 5;
   private const int ChunkCount    = 2_000;
   private const int ChunkSize     = 64 * 1024;
+  private const int UploadSize    = 150 * 1024 * 1024;
   private const int BusyWorkers   = 2;
 
   public static async Task<int> Main(string[] args)
   {
-    if (args.Length is < 1 or > 2 || (args[0] != "native" && args[0] != "managed") || (args.Length == 2 && args[1] != "busy"))
+    if (args.Length is < 1 or > 2 || (args[0] != "native" && args[0] != "native-batch" && args[0] != "managed") ||
+        (args.Length == 2 && args[1] != "busy"))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|managed [busy]");
+      Console.Error.WriteLine("usage: Benchmarks native|native-batch|managed [busy]");
       return 2;
     }
 
+#if NETFRAMEWORK
+    // What allocation counts on .NET Framework, which has no GC.GetTotalAllocatedBytes.
+    AppDomain.MonitoringIsEnabled = true;
+#endif
     var transport = args[0];
     var busy      = args.Length == 2;
     using var server = Server.Start();
@@ -104,6 +111,8 @@ public static class Program
 
       var latencies = new double[MeasuredCalls];
       var clock     = new Stopwatch();
+      var allocated = Allocated();
+      var poolItems = PoolItems();
       for (var call = 0; call < MeasuredCalls; call++)
       {
         clock.Restart();
@@ -113,6 +122,9 @@ public static class Program
                               });
         latencies[call] = clock.Elapsed.TotalMilliseconds * 1000;
       }
+
+      var allocatedPerCall = (Allocated() - allocated) / (double)MeasuredCalls;
+      var poolItemsPerCall = (PoolItems() - poolItems) / (double)MeasuredCalls;
 
       Array.Sort(latencies);
 
@@ -138,8 +150,12 @@ public static class Program
       throughputs.Sort();
 
       var after = Footprint.Read();
+      var (streamedUpload, wholeUpload) = await Uploads(client)
+                                            .ConfigureAwait(false);
+      var afterUploads = Footprint.Read();
+
       var line = string.Format(CultureInfo.InvariantCulture,
-                               "{0} {1}{2} p50_us={3:F0} p95_us={4:F0} p99_us={5:F0} stream_mib_s={6:F0}",
+                               "{0} {1}{2} p50_us={3:F0} p95_us={4:F0} p99_us={5:F0} stream_mib_s={6:F0} upload_stream_mib_s={9:F0} upload_unary_mib_s={10:F0} alloc_b_call={7:F0}{8}",
                                transport,
                                Framework(),
                                busy
@@ -151,15 +167,25 @@ public static class Program
                                           0.95),
                                Percentile(latencies,
                                           0.99),
-                               throughputs[throughputs.Count / 2]);
+                               throughputs[throughputs.Count / 2],
+                               allocatedPerCall,
+                               // .NET Framework counts no work items, which is not zero of them.
+                               poolItems < 0
+                                 ? ""
+                                 : string.Format(CultureInfo.InvariantCulture,
+                                                 " pool_items_call={0:F2}",
+                                                 poolItemsPerCall),
+                               streamedUpload,
+                               wholeUpload);
       // The load holds memory of its own, so a busy run's says as much about it as about the
       // transport.
       if (!busy)
       {
         line += string.Format(CultureInfo.InvariantCulture,
-                              " private_mib={0:F1} managed_mib={1:F1}",
+                              " private_mib={0:F1} managed_mib={1:F1} private_after_uploads_mib={2:F1}",
                               (after.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024),
-                              (after.ManagedBytes - before.ManagedBytes) / (1024.0 * 1024));
+                              (after.ManagedBytes - before.ManagedBytes) / (1024.0 * 1024),
+                              (afterUploads.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024));
       }
 
       Console.WriteLine(line);
@@ -194,8 +220,10 @@ public static class Program
   private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
                                                                Server server)
   {
-    if (transport == "native")
+    if (transport is "native" or "native-batch")
     {
+      // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
+      // by any other.
       var runtime = NativeRuntime.Create();
       var channel = runtime.Channel(server.Endpoint,
                                     new ChannelOptions
@@ -207,6 +235,15 @@ public static class Program
                                                             Server = new ServerVerification.CaPem(server.Authority),
                                                           },
                                                   },
+                                      Http2 = transport == "native-batch"
+                                                ? new Http2Options
+                                                  {
+                                                    Send = new Http2SendOptions
+                                                           {
+                                                             FramesPerWrite = 16,
+                                                           },
+                                                  }
+                                                : null,
                                     });
       return (channel, async () =>
                        {
@@ -228,6 +265,77 @@ public static class Program
                        return Task.CompletedTask;
                      });
   }
+
+  /// <summary>The median MiB per second of sending 150 MiB as a stream of chunks, and as one
+  /// message.</summary>
+  private static async Task<(double Streamed, double Whole)> Uploads(Echo.EchoClient client)
+  {
+    var clock = new Stopwatch();
+    var streamedUploads = new List<double>();
+    var chunk = new Chunk
+                {
+                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[ChunkSize]),
+                };
+    for (var run = 0; run < StreamRuns; run++)
+    {
+      clock.Restart();
+      using var upload = client.Upload();
+      for (var sent = 0; sent < UploadSize / ChunkSize; sent++)
+      {
+        await upload.RequestStream.WriteAsync(chunk)
+                    .ConfigureAwait(false);
+      }
+
+      await upload.RequestStream.CompleteAsync()
+                  .ConfigureAwait(false);
+      var reply = await upload.ResponseAsync.ConfigureAwait(false);
+      streamedUploads.Add(Throughput(reply,
+                                     clock));
+    }
+
+    streamedUploads.Sort();
+
+    var wholeUploads = new List<double>();
+    var whole = new Chunk
+                {
+                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[UploadSize]),
+                };
+    for (var run = 0; run < StreamRuns; run++)
+    {
+      clock.Restart();
+      var reply = await client.UploadWholeAsync(whole)
+                              .ConfigureAwait(false);
+      wholeUploads.Add(Throughput(reply,
+                                  clock));
+    }
+
+    wholeUploads.Sort();
+
+    return (streamedUploads[streamedUploads.Count / 2], wholeUploads[wholeUploads.Count / 2]);
+  }
+
+  /// <summary>The MiB per second of an upload, from the bytes the server says it read.</summary>
+  private static double Throughput(EchoReply reply,
+                                   Stopwatch clock)
+    => long.Parse(reply.Text,
+                  CultureInfo.InvariantCulture) / clock.Elapsed.TotalSeconds / (1024 * 1024);
+
+  /// <summary>The work items the thread pool has run so far; -1 on .NET Framework, which does
+  /// not count them.</summary>
+  private static long PoolItems()
+#if NETFRAMEWORK
+    => -1;
+#else
+    => ThreadPool.CompletedWorkItemCount;
+#endif
+
+  /// <summary>The managed bytes the process has allocated so far, every thread's.</summary>
+  private static long Allocated()
+#if NETFRAMEWORK
+    => AppDomain.CurrentDomain.MonitoringTotalAllocatedMemorySize;
+#else
+    => GC.GetTotalAllocatedBytes(true);
+#endif
 
   /// <summary>The value below which <paramref name="fraction" /> of the sorted samples fall.</summary>
   private static double Percentile(double[] sorted,

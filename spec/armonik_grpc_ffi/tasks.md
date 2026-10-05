@@ -1234,8 +1234,8 @@ against managed, on net4.8 and net8.0.
 **Status**: done. `ArmoniK.Api.Client.RustGrpcChannel.Benchmarks` measures one transport per
 process against the test server over TLS, and benchmarks.md records the baseline and how to run it
 again. Two items read differently from the plan: memory is the process's private bytes and managed
-heap after both runs, not a count of allocations; and the campaign runs by hand, not in CI, where a
-shared runner would measure its neighbours.
+heap, with the managed bytes allocated per unary call, not the resident set; and the campaign runs
+by hand, not in CI, where a shared runner would measure its neighbours.
 
 ### T6.8: Integration into `ArmoniK.Api.Client`
 

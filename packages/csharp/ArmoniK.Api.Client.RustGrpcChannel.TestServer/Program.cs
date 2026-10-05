@@ -69,17 +69,25 @@ public static class Program
                                   X509Certificate2?     certificate,
                                   bool                  tls)
   {
-    builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback,
-                                                               0,
-                                                               listen =>
-                                                               {
-                                                                 listen.Protocols = HttpProtocols.Http2;
-                                                                 if (certificate is not null)
-                                                                 {
-                                                                   listen.UseHttps(certificate);
-                                                                 }
-                                                               }));
-    builder.Services.AddGrpc();
+    builder.WebHost.ConfigureKestrel(options =>
+                                     {
+                                       // gRPC lifts Kestrel's 30 MB body limit for streaming calls
+                                       // only, and the benchmarks send a unary message of 150 MiB.
+                                       options.Limits.MaxRequestBodySize = null;
+                                       options.Listen(IPAddress.Loopback,
+                                                      0,
+                                                      listen =>
+                                                      {
+                                                        listen.Protocols = HttpProtocols.Http2;
+                                                        if (certificate is not null)
+                                                        {
+                                                          listen.UseHttps(certificate);
+                                                        }
+                                                      });
+                                     });
+    // No limit on what a call sends, as ArmoniK's own workers have none: the benchmarks send a
+    // message of 150 MiB.
+    builder.Services.AddGrpc(options => options.MaxReceiveMessageSize = null);
     builder.Logging.ClearProviders();
 
     var server = builder.Build();

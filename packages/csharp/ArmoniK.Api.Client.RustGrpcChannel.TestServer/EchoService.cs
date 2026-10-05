@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -117,6 +118,31 @@ public class EchoService : Echo.EchoBase
                      .ConfigureAwait(false);
     }
   }
+
+  /// <summary>Reads every chunk and answers with how many bytes they held.</summary>
+  public override async Task<EchoReply> Upload(IAsyncStreamReader<Chunk> requests,
+                                               ServerCallContext       context)
+  {
+    long received = 0;
+    while (await requests.MoveNext(context.CancellationToken)
+                         .ConfigureAwait(false))
+    {
+      received += requests.Current.Data.Length;
+    }
+
+    return new EchoReply
+           {
+             Text = received.ToString(CultureInfo.InvariantCulture),
+           };
+  }
+
+  /// <summary>Answers with how many bytes the one chunk held.</summary>
+  public override Task<EchoReply> UploadWhole(Chunk             request,
+                                              ServerCallContext context)
+    => Task.FromResult(new EchoReply
+                       {
+                         Text = request.Data.Length.ToString(CultureInfo.InvariantCulture),
+                       });
 
   /// <summary>Reads every request message and answers once, naming what it saw.</summary>
   public override async Task<EchoReply> Collect(IAsyncStreamReader<EchoRequest> requests,

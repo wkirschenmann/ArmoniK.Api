@@ -42,4 +42,8 @@ service Echo {
   // `count` chunks of `size` bytes each, so a client measures what it can read rather than what
   // the server takes to build.
   rpc Stream (StreamRequest) returns (stream Chunk);
+  // Reads chunks until the client ends, and answers with how many bytes they held.
+  rpc Upload (stream Chunk) returns (EchoReply);
+  // Answers with how many bytes the one chunk held.
+  rpc UploadWhole (Chunk) returns (EchoReply);
 }
