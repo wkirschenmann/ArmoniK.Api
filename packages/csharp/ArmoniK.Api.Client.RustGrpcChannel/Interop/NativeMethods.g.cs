@@ -141,12 +141,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  ignored. That schema, `options.schema.json`, names each option with its type and, where it has
         ///  them, its range and default.
         ///
-        ///  The two windows mirror each other. DeliveryCredits bounds the payloads of one call outstanding
-        ///  at once - the terminal status takes no credit, so a host holds at most one more - and the host
-        ///  chooses it because the host is what has to hold them; MaxSendsInFlight bounds the buffers one
-        ///  call may have out, counting those being filled and those awaiting their WRITE_DONE.
-        ///  DeliveryCredits defaults to 4 and MaxSendsInFlight to 1, and the schema states the range either
-        ///  may take.
+        ///  The two windows mirror each other. Grpc.Host.Receive.Credits bounds the payloads of one call
+        ///  outstanding at once - the terminal status takes no credit, so a host holds at most one more -
+        ///  and the host chooses it because the host is what has to hold them. Grpc.Host.Sends.MaxInFlight
+        ///  bounds the buffers one call may have out, counting those being filled and those awaiting their
+        ///  WRITE_DONE. Grpc.Host.Receive.Credits defaults to 4 and Grpc.Host.Sends.MaxInFlight to 1, and
+        ///  the schema states the range either may take.
         ///
         ///  A call whose payloads the host does not consume reads a few messages past its spent credits,
         ///  which the engine holds outside what the credits count, and then stops reading its stream; what
@@ -217,7 +217,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  Lends a buffer out of the call's arena to serialize into. The exact length is known before the
         ///  first byte is written, so no growable writer is needed.
         ///
-        ///  One unfilled buffer at a time, whatever max_sends_in_flight says: asking for a second while
+        ///  One unfilled buffer at a time, whatever Grpc.Host.Sends.MaxInFlight says: asking for a second while
         ///  still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
         ///  counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
         ///  the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
@@ -332,8 +332,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  1. frees the native memory;
         ///  2. arms reception of the next event for that call.
         ///
-        ///  At most DeliveryCredits non-consumed payloads per call, four by default: while the host owes
-        ///  them, the runtime withholds the next data event. Only a terminal still goes out with the credit spent.
+        ///  At most Grpc.Host.Receive.Credits non-consumed payloads per call, four by default: while the
+        ///  host owes them, the runtime withholds the next data event. Only a terminal still goes out with the credit spent.
         ///
         ///  The host MUST give a call's payloads back in delivery order: with several outstanding, the
         ///  oldest is the next one consumed. Another order is not refused - this library frees whichever

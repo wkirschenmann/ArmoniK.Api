@@ -187,7 +187,7 @@ represent it.
 - When a data event is ready, the task looks once more at what is already there - a message in
   hand, trailers received - and delivers all of it in one callback. What is not there yet is
   waited for one round of the channel's thread while the batch holds less than
-  `DeliveryCoalescingBytes`: the connection shares that thread, and decodes on its next turn what
+  `Grpc.Host.Receive.CoalescingBytes`: the connection shares that thread, and decodes on its next turn what
   the same read of the socket brought. A head goes alone only when nothing follows it within
   that round, as from a server that sends its headers early.
 - Every read of that look, the status's included but for the one below, goes through `ReadGate` as

@@ -60,19 +60,12 @@ public sealed class ChannelOptions
     Transport = other.Transport is null
                   ? null
                   : new TransportOptions(other.Transport);
-    UserAgent = other.UserAgent;
-    MaxReceiveMessageSize = other.MaxReceiveMessageSize;
-    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
-    MaxSendsInFlight = other.MaxSendsInFlight;
-    DeliveryCredits = other.DeliveryCredits;
-    DeliveryCoalescingBytes = other.DeliveryCoalescingBytes;
     Http2 = other.Http2 is null
               ? null
               : new Http2Options(other.Http2);
-    Retry = other.Retry is null
-              ? null
-              : new RetryOptions(other.Retry);
-    ConnectEagerly = other.ConnectEagerly;
+    Grpc = other.Grpc is null
+             ? null
+             : new GrpcOptions(other.Grpc);
   }
 
   /// <summary>What the transport does, beyond reaching the endpoint.</summary>
@@ -81,135 +74,28 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public TransportOptions? Transport { get; set; }
 
-  /// <summary>What this client calls itself in <c>user-agent</c>.</summary>
-  /// <remarks>Defaults to <c>armonik-transport/</c> followed by the engine's version.</remarks>
-  [JsonPropertyName("UserAgent")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? UserAgent { get; set; }
-
-  /// <summary>The largest message this client will accept, in bytes.</summary>
-  /// <remarks>
-  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-  ///   at all.
-  /// </remarks>
-  [JsonPropertyName("MaxReceiveMessageSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxReceiveMessageSize { get; set; }
-
-  /// <summary>
-  ///   The deadline of a call that states none, counted from its start: the call ends
-  ///   <c>DEADLINE_EXCEEDED</c> once it passes, and the server is told what was left of it when the
-  ///   call started as <c>grpc-timeout</c>. A call's own deadline takes its place, and a call that
-  ///   states none takes this one.
-  /// </summary>
-  /// <remarks>
-  ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-  ///   finest duration the engine holds.
-  /// </remarks>
-  [JsonPropertyName("DefaultDeadlineSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? DefaultDeadlineSeconds { get; set; }
-
-  /// <summary>How many messages a call may have sent and unacquitted at once.</summary>
-  /// <remarks>Defaults to 1.</remarks>
-  [JsonPropertyName("MaxSendsInFlight")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxSendsInFlight { get; set; }
-
-  /// <summary>
-  ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
-  ///   The terminal status takes none, so a host holds at most one more.
-  /// </summary>
-  /// <remarks>Defaults to 4.</remarks>
-  [JsonPropertyName("DeliveryCredits")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? DeliveryCredits { get; set; }
-
-  /// <summary>
-  ///   How many bytes of a response a delivery to the host may wait to gather, so that a unary
-  ///   answer's head, message and status reach it in one callback. 0 delivers each read at once.
-  /// </summary>
-  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
-  [JsonPropertyName("DeliveryCoalescingBytes")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? DeliveryCoalescingBytes { get; set; }
-
   /// <summary>The HTTP/2 session the channel's calls share.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Http2")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public Http2Options? Http2 { get; set; }
 
-  /// <summary>When a failed call is sent again.</summary>
-  /// <remarks>
-  ///   Defaults to <c>{}</c>: five attempts in all, as <c>GrpcClient</c> has them. A call its peer never
-  ///   processed goes again besides, whatever <c>MaxAttempts</c> is, while every message it sent is
-  ///   kept.
-  /// </remarks>
-  [JsonPropertyName("Retry")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RetryOptions? Retry { get; set; }
-
   /// <summary>
-  ///   Whether the channel starts dialling its endpoint as it is created rather than at its first
-  ///   call, which then finds the session open or joins the dial under way. A dial that fails is
-  ///   not reported: the first call dials again and reports what it meets.
+  ///   What the channel's calls do: their messages, deadlines and retries, and what crosses
+  ///   between the host and the engine.
   /// </summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("ConnectEagerly")]
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Grpc")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? ConnectEagerly { get; set; }
+  public GrpcOptions? Grpc { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (UserAgent is string userAgent && userAgent.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(UserAgent),
-                                            userAgent,
-                                            "UserAgent has to be at least 1 character long.");
-    }
-
-    if (MaxReceiveMessageSize is int maxReceiveMessageSize && maxReceiveMessageSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxReceiveMessageSize),
-                                            maxReceiveMessageSize,
-                                            "MaxReceiveMessageSize has to be at least 1.");
-    }
-
-    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
-                                            defaultDeadlineSeconds,
-                                            "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (MaxSendsInFlight is int maxSendsInFlight && (maxSendsInFlight < 1 || maxSendsInFlight > 536870910))
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxSendsInFlight),
-                                            maxSendsInFlight,
-                                            "MaxSendsInFlight has to be at least 1 and at most 536870910.");
-    }
-
-    if (DeliveryCredits is int deliveryCredits && (deliveryCredits < 1 || deliveryCredits > 536870910))
-    {
-      throw new ArgumentOutOfRangeException(nameof(DeliveryCredits),
-                                            deliveryCredits,
-                                            "DeliveryCredits has to be at least 1 and at most 536870910.");
-    }
-
-    if (DeliveryCoalescingBytes is int deliveryCoalescingBytes && deliveryCoalescingBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(DeliveryCoalescingBytes),
-                                            deliveryCoalescingBytes,
-                                            "DeliveryCoalescingBytes has to be at least 0.");
-    }
-
     Transport?.Validate();
     Http2?.Validate();
-    Retry?.Validate();
+    Grpc?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
@@ -228,49 +114,14 @@ public sealed class ChannelOptions
         bound.Transport = ChannelOptionsConfiguration.Holds(entry) ? TransportOptions.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "UserAgent"))
-      {
-        bound.UserAgent = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxReceiveMessageSize"))
-      {
-        bound.MaxReceiveMessageSize = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "DefaultDeadlineSeconds"))
-      {
-        bound.DefaultDeadlineSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxSendsInFlight"))
-      {
-        bound.MaxSendsInFlight = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "DeliveryCredits"))
-      {
-        bound.DeliveryCredits = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "DeliveryCoalescingBytes"))
-      {
-        bound.DeliveryCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
                                               "Http2"))
       {
         bound.Http2 = ChannelOptionsConfiguration.Holds(entry) ? Http2Options.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Retry"))
+                                              "Grpc"))
       {
-        bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "ConnectEagerly"))
-      {
-        bound.ConnectEagerly = ChannelOptionsConfiguration.Boolean(entry);
+        bound.Grpc = ChannelOptionsConfiguration.Holds(entry) ? GrpcOptions.Bind(entry) : null;
       }
       else
       {
@@ -329,6 +180,7 @@ public sealed class TransportOptions
                      ? null
                      : new TcpKeepaliveOptions(other.TcpKeepalive);
     Proxy = other.Proxy;
+    ConnectEagerly = other.ConnectEagerly;
   }
 
   /// <summary>How long a dial may take before it is given up on.</summary>
@@ -363,6 +215,16 @@ public sealed class TransportOptions
   [JsonPropertyName("Proxy")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public ProxyOptions? Proxy { get; set; }
+
+  /// <summary>
+  ///   Whether the channel starts dialling its endpoint as it is created rather than at its first
+  ///   call, which then finds the session open or joins the dial under way. A dial that fails is
+  ///   not reported: the first call dials again and reports what it meets.
+  /// </summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("ConnectEagerly")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public bool? ConnectEagerly { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -409,6 +271,11 @@ public sealed class TransportOptions
                                               "Proxy"))
       {
         bound.Proxy = ChannelOptionsConfiguration.Holds(entry) ? ProxyOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "ConnectEagerly"))
+      {
+        bound.ConnectEagerly = ChannelOptionsConfiguration.Boolean(entry);
       }
       else
       {
@@ -1834,6 +1701,159 @@ public sealed class Http2Options
 }
 
 /// <summary>
+///   What the channel's calls do: their messages, deadlines and retries, and what crosses between
+///   the host and the engine.
+/// </summary>
+public sealed class GrpcOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public GrpcOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public GrpcOptions(GrpcOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    UserAgent = other.UserAgent;
+    MaxReceiveMessageSize = other.MaxReceiveMessageSize;
+    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
+    Retry = other.Retry is null
+              ? null
+              : new RetryOptions(other.Retry);
+    Host = other.Host is null
+             ? null
+             : new HostOptions(other.Host);
+  }
+
+  /// <summary>What this client calls itself in <c>user-agent</c>.</summary>
+  /// <remarks>Defaults to <c>armonik-transport/</c> followed by the engine's version.</remarks>
+  [JsonPropertyName("UserAgent")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? UserAgent { get; set; }
+
+  /// <summary>The largest message this client will accept, in bytes.</summary>
+  /// <remarks>
+  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
+  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
+  ///   at all.
+  /// </remarks>
+  [JsonPropertyName("MaxReceiveMessageSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxReceiveMessageSize { get; set; }
+
+  /// <summary>
+  ///   The deadline of a call that states none, counted from its start: the call ends
+  ///   <c>DEADLINE_EXCEEDED</c> once it passes, and the server is told what was left of it when the
+  ///   call started as <c>grpc-timeout</c>. A call's own deadline takes its place, and a call that
+  ///   states none takes this one.
+  /// </summary>
+  /// <remarks>
+  ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
+  ///   finest duration the engine holds.
+  /// </remarks>
+  [JsonPropertyName("DefaultDeadlineSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? DefaultDeadlineSeconds { get; set; }
+
+  /// <summary>When a failed call is sent again.</summary>
+  /// <remarks>
+  ///   Defaults to <c>{}</c>: five attempts in all, as <c>GrpcClient</c> has them. A call its peer never
+  ///   processed goes again besides, whatever <c>MaxAttempts</c> is, while every message it sent is
+  ///   kept.
+  /// </remarks>
+  [JsonPropertyName("Retry")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public RetryOptions? Retry { get; set; }
+
+  /// <summary>What crosses between the host and the engine on each call.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Host")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public HostOptions? Host { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (UserAgent is string userAgent && userAgent.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(UserAgent),
+                                            userAgent,
+                                            "UserAgent has to be at least 1 character long.");
+    }
+
+    if (MaxReceiveMessageSize is int maxReceiveMessageSize && maxReceiveMessageSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxReceiveMessageSize),
+                                            maxReceiveMessageSize,
+                                            "MaxReceiveMessageSize has to be at least 1.");
+    }
+
+    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
+                                            defaultDeadlineSeconds,
+                                            "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    Retry?.Validate();
+    Host?.Validate();
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static GrpcOptions Bind(IConfigurationSection section)
+  {
+    var bound = new GrpcOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "UserAgent"))
+      {
+        bound.UserAgent = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxReceiveMessageSize"))
+      {
+        bound.MaxReceiveMessageSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DefaultDeadlineSeconds"))
+      {
+        bound.DefaultDeadlineSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Retry"))
+      {
+        bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Host"))
+      {
+        bound.Host = ChannelOptionsConfiguration.Holds(entry) ? HostOptions.Bind(entry) : null;
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "GrpcOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>
 ///   When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
 ///   that starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to
 ///   <c>MaxBackoffSeconds</c>, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
@@ -1997,6 +2017,238 @@ public sealed class RetryOptions
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
                                                   "RetryOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>What crosses between the host and the engine on each call, one way and the other.</summary>
+public sealed class HostOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public HostOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public HostOptions(HostOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Sends = other.Sends is null
+              ? null
+              : new SendOptions(other.Sends);
+    Receive = other.Receive is null
+                ? null
+                : new ReceiveOptions(other.Receive);
+  }
+
+  /// <summary>What the host sends.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Sends")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public SendOptions? Sends { get; set; }
+
+  /// <summary>What the engine delivers to the host.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Receive")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public ReceiveOptions? Receive { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    Sends?.Validate();
+    Receive?.Validate();
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static HostOptions Bind(IConfigurationSection section)
+  {
+    var bound = new HostOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "Sends"))
+      {
+        bound.Sends = ChannelOptionsConfiguration.Holds(entry) ? SendOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Receive"))
+      {
+        bound.Receive = ChannelOptionsConfiguration.Holds(entry) ? ReceiveOptions.Bind(entry) : null;
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "HostOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>What a call's host sends: the messages it hands the engine.</summary>
+public sealed class SendOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public SendOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public SendOptions(SendOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    MaxInFlight = other.MaxInFlight;
+  }
+
+  /// <summary>How many messages a call may have sent and unacquitted at once.</summary>
+  /// <remarks>Defaults to 1.</remarks>
+  [JsonPropertyName("MaxInFlight")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxInFlight { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (MaxInFlight is int maxInFlight && (maxInFlight < 1 || maxInFlight > 536870910))
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxInFlight),
+                                            maxInFlight,
+                                            "MaxInFlight has to be at least 1 and at most 536870910.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static SendOptions Bind(IConfigurationSection section)
+  {
+    var bound = new SendOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "MaxInFlight"))
+      {
+        bound.MaxInFlight = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "SendOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>What the engine delivers to a call's host: its payloads and its status.</summary>
+public sealed class ReceiveOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public ReceiveOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public ReceiveOptions(ReceiveOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Credits = other.Credits;
+    CoalescingBytes = other.CoalescingBytes;
+  }
+
+  /// <summary>
+  ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
+  ///   The terminal status takes none, so a host holds at most one more.
+  /// </summary>
+  /// <remarks>Defaults to 4.</remarks>
+  [JsonPropertyName("Credits")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? Credits { get; set; }
+
+  /// <summary>
+  ///   How many bytes of a response a delivery to the host may wait to gather, so that a unary
+  ///   answer's head, message and status reach it in one callback. 0 delivers each read at once.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
+  [JsonPropertyName("CoalescingBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? CoalescingBytes { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (Credits is int credits && (credits < 1 || credits > 536870910))
+    {
+      throw new ArgumentOutOfRangeException(nameof(Credits),
+                                            credits,
+                                            "Credits has to be at least 1 and at most 536870910.");
+    }
+
+    if (CoalescingBytes is int coalescingBytes && coalescingBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CoalescingBytes),
+                                            coalescingBytes,
+                                            "CoalescingBytes has to be at least 0.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static ReceiveOptions Bind(IConfigurationSection section)
+  {
+    var bound = new ReceiveOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "Credits"))
+      {
+        bound.Credits = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CoalescingBytes"))
+      {
+        bound.CoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "ReceiveOptions");
       }
     }
 

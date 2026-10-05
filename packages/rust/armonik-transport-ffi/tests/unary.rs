@@ -70,7 +70,7 @@ fn a_head_event_says_where_the_head_came_from() {
     // No retry: the subject is the head of the one attempt that fails to dial.
     let unreachable = host.channel_with(
         &format!("http://127.0.0.1:{port}"),
-        r#"{"Retry":{"MaxAttempts":1}}"#,
+        r#"{"Grpc":{"Retry":{"MaxAttempts":1}}}"#,
     );
 
     for (what, channel, method, origin) in [
@@ -148,7 +148,7 @@ fn a_default_channel_delivers_the_message_while_the_head_is_held() {
 }
 
 /// A window of one, so that a call whose head is held is parked before its message.
-const ONE_CREDIT: &str = r#"{"DeliveryCredits":1}"#;
+const ONE_CREDIT: &str = r#"{"Grpc":{"Host":{"Receive":{"Credits":1}}}}"#;
 
 #[test]
 fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
@@ -840,7 +840,7 @@ fn the_retry_options_reach_the_engine() {
     let host = Host::start();
     let channel = host.channel_with(
         &server.endpoint,
-        r#"{"Retry":{"InitialBackoffSeconds":0.01,"MaxBackoffSeconds":0.05}}"#,
+        r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":0.01,"MaxBackoffSeconds":0.05}}}"#,
     );
     let metadata = blob(&[
         (b"x-flaky-key", b"through-the-abi"),
@@ -862,7 +862,10 @@ fn an_eager_channel_is_connected_before_its_first_call_and_a_lazy_one_is_not() {
     let host = Host::start();
     let eager_server = TestServer::start();
     let lazy_server = TestServer::start();
-    let eager = host.channel_with(&eager_server.endpoint, r#"{"ConnectEagerly":true}"#);
+    let eager = host.channel_with(
+        &eager_server.endpoint,
+        r#"{"Transport":{"ConnectEagerly":true}}"#,
+    );
     let lazy = host.channel(&lazy_server.endpoint);
 
     support::poll_until(
@@ -893,7 +896,7 @@ fn an_eager_channel_is_connected_before_its_first_call_and_a_lazy_one_is_not() {
 fn a_released_channel_closes_its_connection_cleanly() {
     let host = Host::start();
     let server = TestServer::start();
-    let channel = host.channel_with(&server.endpoint, r#"{"ConnectEagerly":true}"#);
+    let channel = host.channel_with(&server.endpoint, r#"{"Transport":{"ConnectEagerly":true}}"#);
     support::poll_until(
         || server.connections() == 1,
         || format!("the server saw {}", server.connections()),
@@ -917,7 +920,7 @@ fn an_eager_dial_that_fails_leaves_the_first_call_to_report_it() {
     let host = Host::start();
     let channel = host.channel_with(
         "http://127.0.0.1:1",
-        r#"{"ConnectEagerly":true,"Retry":{"MaxAttempts":1}}"#,
+        r#"{"Transport":{"ConnectEagerly":true},"Grpc":{"Retry":{"MaxAttempts":1}}}"#,
     );
 
     let call = start_call(channel, ECHO, &blob(&[]));
@@ -1274,7 +1277,7 @@ fn consuming_an_unowned_payload_is_a_no_op() {
 #[test]
 fn channel_defaults_the_engine_refuses_leave_no_runtime() {
     assert_eq!(
-        refused_over(r#"{"DeliveryCredits":0}"#),
+        refused_over(r#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#),
         ak_status::AK_STATUS_INVALID_ARG
     );
     assert_eq!(
@@ -1289,7 +1292,7 @@ fn channel_defaults_the_engine_refuses_leave_no_runtime() {
 fn a_record_that_ends_before_the_defaults_reads_as_none() {
     let server = TestServer::start();
     // Defaults the engine refuses, so that reading past the record would refuse the runtime.
-    let host = Host::with_record_size(32, r#"{"DeliveryCredits":0}"#);
+    let host = Host::with_record_size(32, r#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#);
     let channel = host.channel(&server.endpoint);
     send_one(start_call(channel, ECHO, &[]), b"hello");
     host.recorder.await_terminals(1);

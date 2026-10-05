@@ -1071,7 +1071,7 @@ reference. The send window's depth, the question below, is not changed by this.
 
 **A fourth question belongs here, because it shares the subject: whether this binding starts using
 the send window's depth.** The window is a memory bound on the arena and it is live for any host -
-at most `MaxSendsInFlight` buffers lent at once, charged at the lend, refused past it with
+at most `Grpc.Host.Sends.MaxInFlight` buffers lent at once, charged at the lend, refused past it with
 `AK_STATUS_SLOT_BUSY`. What a depth above one buys is pipelining, and not of the network: the
 serialization of message N+1 overlaps the transmission of N, which is a gain on a saturated link
 as much as an idle one.
@@ -1110,7 +1110,7 @@ It also lifts `MustCarryNoDeadline`, the binding's `Unimplemented` refusal of a 
 no longer refused.
 
 **Status**: done. `CallStartOptions.deadline` is a `Deadline`, absolute or relative, and
-`GrpcChannelConfig.default_deadline`, set from the new `DefaultDeadlineSeconds` option, is the
+`GrpcChannelConfig.default_deadline`, set from the new `Grpc.DefaultDeadlineSeconds` option, is the
 deadline of a call that states none. The driver bounds the whole call with `timeout_at`, the dial
 included, and ending it drops the stream, which hyper resets with `CANCEL`; tonic writes what is
 left of the deadline as `grpc-timeout`, within its eight digits. A deadline already passed ends the
@@ -1179,7 +1179,7 @@ that reaches it and nothing else.
 
 **Deliverable**: with the option set, the connection is established before the first call.
 
-**Status**: done. `ConnectEagerly`, false by default, is read by the FFI: `ak_channel_create`
+**Status**: done. `Transport.ConnectEagerly`, false by default, is read by the FFI: `ak_channel_create`
 spawns `GrpcChannel::connect()` once the channel is registered, so creating it does not wait on
 the dial and a refused creation dials nothing. The engine's configuration carries no such flag,
 as contract.md has it: its constructor starts no work it could not report. A dial that fails is
@@ -1293,8 +1293,8 @@ ABI promises.
 
 **Why**: the runtime's ceiling bounds only the buffers a host fills to send. A message the engine
 receives and lends to the host is counted for quiescence and not in bytes, so what a runtime holds
-on the receive side is bounded per call - (`DeliveryCredits` plus the few messages the engine reads
-ahead of them) times `MaxReceiveMessageSize` - and not at all across calls. A client downloading
+on the receive side is bounded per call - (`Grpc.Host.Receive.Credits` plus the few messages the engine reads
+ahead of them) times `Grpc.MaxReceiveMessageSize` - and not at all across calls. A client downloading
 large chunks on many calls at once can exhaust the process's memory with every bound respected.
 
 **Commit**: two thresholds over the one count of bytes that sends and receives then share.
@@ -1342,7 +1342,7 @@ Settled (2026-10-02, `decisions.md`):
 - the event wakes every call refused since the last release, carries no payload and takes no
   delivery credit, as WRITE_DONE does not; its name is the model's to fix;
 - the two `RESOURCE_EXHAUSTED` are told apart by their status message only. The second threshold
-  is transient and runtime-wide, a message past `MaxReceiveMessageSize` permanent, and a retry
+  is transient and runtime-wide, a message past `Grpc.MaxReceiveMessageSize` permanent, and a retry
   policy reading the code does not see the difference - which matters only to one that names
   `RESOURCE_EXHAUSTED`, and T6.3's default does not;
 - a send refused for room is served before new reads: while one waits, the threshold where reads

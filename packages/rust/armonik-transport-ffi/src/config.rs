@@ -31,16 +31,24 @@ pub(crate) struct ChannelSettings {
 
 impl ChannelSettings {
     pub(crate) fn delivery_credits(&self) -> usize {
-        self.options.delivery_credits.unwrap_or(DELIVERY_CREDITS) as usize
+        self.options
+            .grpc
+            .host
+            .receive
+            .credits
+            .unwrap_or(DELIVERY_CREDITS) as usize
     }
 
     pub(crate) fn connect_eagerly(&self) -> bool {
-        self.options.connect_eagerly.unwrap_or(false)
+        self.options.transport.connect_eagerly.unwrap_or(false)
     }
 
     pub(crate) fn max_sends_in_flight(&self) -> usize {
         self.options
-            .max_sends_in_flight
+            .grpc
+            .host
+            .sends
+            .max_in_flight
             .unwrap_or(MAX_SENDS_IN_FLIGHT) as usize
     }
 
@@ -57,11 +65,12 @@ impl ChannelSettings {
 
         let mut config = GrpcChannelConfig::new(transport);
         config.max_sends_in_flight = max_sends_in_flight;
-        config.user_agent = self.options.user_agent;
-        if let Some(max) = self.options.max_receive_message_size {
+        let grpc = self.options.grpc;
+        config.user_agent = grpc.user_agent;
+        if let Some(max) = grpc.max_receive_message_size {
             config.max_recv_message_size = max as usize;
         }
-        if let Some(bytes) = self.options.delivery_coalescing_bytes {
+        if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }
         config.default_deadline = self.default_deadline;
@@ -113,11 +122,13 @@ impl fmt::Display for ConfigRefusal {
             ),
             Self::NoMessage { value } => write!(
                 f,
-                "MaxReceiveMessageSize is {value}, and has to be at least 1 - a channel that \
+                "Grpc.MaxReceiveMessageSize is {value}, and has to be at least 1 - a channel that \
                  receives no message at all"
             ),
             Self::Bytes { key, value } => write!(f, "{key} is {value}, and has to be at least 0"),
-            Self::EmptyUserAgent => f.write_str("UserAgent is empty, and has to name something"),
+            Self::EmptyUserAgent => {
+                f.write_str("Grpc.UserAgent is empty, and has to name something")
+            }
             Self::Seconds { key, seconds } => write!(
                 f,
                 "{key} is {seconds}, and has to be at least 1e-9 and less than 2^64"
@@ -198,22 +209,28 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
         }
         _ => Ok(()),
     };
-    window("DeliveryCredits", options.delivery_credits)?;
-    window("MaxSendsInFlight", options.max_sends_in_flight)?;
+    let grpc = &options.grpc;
+    window("Grpc.Host.Receive.Credits", grpc.host.receive.credits)?;
+    window("Grpc.Host.Sends.MaxInFlight", grpc.host.sends.max_in_flight)?;
 
     // Zero is refused: it is a channel that can receive no message at all.
-    if let Some(value) = options.max_receive_message_size.filter(|max| *max < 1) {
+    if let Some(value) = grpc.max_receive_message_size.filter(|max| *max < 1) {
         return Err(ConfigRefusal::NoMessage { value });
     }
 
-    if let Some(value) = options.delivery_coalescing_bytes.filter(|bytes| *bytes < 0) {
+    if let Some(value) = grpc
+        .host
+        .receive
+        .coalescing_bytes
+        .filter(|bytes| *bytes < 0)
+    {
         return Err(ConfigRefusal::Bytes {
-            key: "DeliveryCoalescingBytes",
+            key: "Grpc.Host.Receive.CoalescingBytes",
             value,
         });
     }
 
-    if options.user_agent.as_deref().is_some_and(str::is_empty) {
+    if grpc.user_agent.as_deref().is_some_and(str::is_empty) {
         return Err(ConfigRefusal::EmptyUserAgent);
     }
 
@@ -238,7 +255,7 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
         "Transport.ConnectTimeoutSeconds",
         options.transport.connect_timeout_seconds,
     )?;
-    let default_deadline = duration("DefaultDeadlineSeconds", options.default_deadline_seconds)?;
+    let default_deadline = duration("Grpc.DefaultDeadlineSeconds", grpc.default_deadline_seconds)?;
 
     let tls = options
         .transport
@@ -263,10 +280,10 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
             ProxyOptions::to_config,
         )
         .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Proxy")))?;
-    let retry = options
+    let retry = grpc
         .retry
         .to_config()
-        .map_err(|refused| ConfigRefusal::Option(refused.under("Retry")))?;
+        .map_err(|refused| ConfigRefusal::Option(refused.under("Grpc.Retry")))?;
 
     Ok(ChannelSettings {
         options,
@@ -315,21 +332,21 @@ mod tests {
 
         let settings = parse(b"{}").expect("an empty document is valid");
         assert_eq!(
-            stated("/properties/DeliveryCredits/description"),
+            stated("/$defs/ReceiveOptions/properties/Credits/description"),
             settings.delivery_credits() as f64
         );
         assert_eq!(
-            stated("/properties/MaxSendsInFlight/description"),
+            stated("/$defs/SendOptions/properties/MaxInFlight/description"),
             settings.max_sends_in_flight() as f64
         );
 
         let config = config_of(b"{}");
         assert_eq!(
-            stated("/properties/MaxReceiveMessageSize/description"),
+            stated("/$defs/GrpcOptions/properties/MaxReceiveMessageSize/description"),
             config.max_recv_message_size as f64
         );
         assert_eq!(
-            stated("/properties/DeliveryCoalescingBytes/description"),
+            stated("/$defs/ReceiveOptions/properties/CoalescingBytes/description"),
             config.delivery_coalescing as f64
         );
         assert_eq!(
@@ -385,39 +402,60 @@ mod tests {
         let stated = |pointer: &str| schema.pointer(pointer).and_then(serde_json::Value::as_i64);
         let admits = |document: String| parse(document.as_bytes()).is_ok();
 
-        for option in [
-            "DeliveryCredits",
-            "MaxSendsInFlight",
-            "MaxReceiveMessageSize",
-            "DeliveryCoalescingBytes",
+        // Each option, by where the schema states it and the path a document names it by.
+        let document = |path: &[&str], value: i64| {
+            path.iter().rev().fold(value.to_string(), |inner, key| {
+                format!(r#"{{"{key}":{inner}}}"#)
+            })
+        };
+        for (option, path) in [
+            (
+                "/$defs/ReceiveOptions/properties/Credits",
+                &["Grpc", "Host", "Receive", "Credits"][..],
+            ),
+            (
+                "/$defs/SendOptions/properties/MaxInFlight",
+                &["Grpc", "Host", "Sends", "MaxInFlight"][..],
+            ),
+            (
+                "/$defs/GrpcOptions/properties/MaxReceiveMessageSize",
+                &["Grpc", "MaxReceiveMessageSize"][..],
+            ),
+            (
+                "/$defs/ReceiveOptions/properties/CoalescingBytes",
+                &["Grpc", "Host", "Receive", "CoalescingBytes"][..],
+            ),
         ] {
-            let minimum = stated(&format!("/properties/{option}/minimum"))
+            let minimum = stated(&format!("{option}/minimum"))
                 .unwrap_or_else(|| panic!("{option} states no minimum"));
             assert!(
-                !admits(format!(r#"{{"{option}":{}}}"#, minimum - 1)),
+                !admits(document(path, minimum - 1)),
                 "{option} is admitted below the minimum the schema states"
             );
             assert!(
-                admits(format!(r#"{{"{option}":{minimum}}}"#)),
+                admits(document(path, minimum)),
                 "{option} is refused at the minimum the schema states"
             );
 
             // Absent for the receive size, whose largest value is a channel refusing nothing.
-            if let Some(maximum) = stated(&format!("/properties/{option}/maximum")) {
+            if let Some(maximum) = stated(&format!("{option}/maximum")) {
                 assert!(
-                    admits(format!(r#"{{"{option}":{maximum}}}"#)),
+                    admits(document(path, maximum)),
                     "{option} is refused at the maximum the schema states"
                 );
                 assert!(
-                    !admits(format!(r#"{{"{option}":{}}}"#, maximum + 1)),
+                    !admits(document(path, maximum + 1)),
                     "{option} is admitted above the maximum the schema states"
                 );
             }
         }
 
-        assert_eq!(stated("/properties/UserAgent/minLength"), Some(1));
-        assert!(!admits(r#"{"UserAgent":""}"#.to_owned()));
-        assert!(admits(r#"{"UserAgent":"a"}"#.to_owned()));
+        assert_eq!(
+            stated("/$defs/GrpcOptions/properties/UserAgent/minLength"),
+            Some(1)
+        );
+        assert!(!admits(r#"{"Grpc":{"UserAgent":""}}"#.to_owned()));
+        assert!(admits(r#"{"Grpc":{"UserAgent":"a"}}"#.to_owned()));
 
         assert_eq!(
             schema
@@ -449,21 +487,23 @@ mod tests {
 
         assert_eq!(
             schema
-                .pointer("/properties/DefaultDeadlineSeconds/minimum")
+                .pointer("/$defs/GrpcOptions/properties/DefaultDeadlineSeconds/minimum")
                 .and_then(serde_json::Value::as_f64),
             Some(1e-9)
         );
-        assert!(!admits(r#"{"DefaultDeadlineSeconds":0.0}"#.to_owned()));
         assert!(!admits(
-            r#"{"DefaultDeadlineSeconds":18446744073709551616.0}"#.to_owned()
+            r#"{"Grpc":{"DefaultDeadlineSeconds":0.0}}"#.to_owned()
+        ));
+        assert!(!admits(
+            r#"{"Grpc":{"DefaultDeadlineSeconds":18446744073709551616.0}}"#.to_owned()
         ));
         assert_eq!(
-            config_of(br#"{"DefaultDeadlineSeconds":1e-9}"#).default_deadline,
+            config_of(br#"{"Grpc":{"DefaultDeadlineSeconds":1e-9}}"#).default_deadline,
             Some(Duration::from_nanos(1))
         );
         assert_eq!(config_of(b"{}").default_deadline, None);
 
-        assert!(parse(br#"{"ConnectEagerly":true}"#)
+        assert!(parse(br#"{"Transport":{"ConnectEagerly":true}}"#)
             .expect("valid")
             .connect_eagerly());
         assert!(!parse(b"{}").expect("valid").connect_eagerly());
@@ -504,15 +544,15 @@ mod tests {
             ),
             (
                 "/$defs/RetryOptions/properties/MaxAttempts/minimum",
-                r#"{"Retry":{"MaxAttempts":N}}"#,
+                r#"{"Grpc":{"Retry":{"MaxAttempts":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/CallReplayBytes/minimum",
-                r#"{"Retry":{"CallReplayBytes":N}}"#,
+                r#"{"Grpc":{"Retry":{"CallReplayBytes":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/ChannelReplayBytes/minimum",
-                r#"{"Retry":{"ChannelReplayBytes":N}}"#,
+                r#"{"Grpc":{"Retry":{"ChannelReplayBytes":N}}}"#,
             ),
         ] {
             let minimum = stated(pointer).unwrap_or_else(|| panic!("{pointer} states none"));
@@ -543,15 +583,15 @@ mod tests {
             ),
             (
                 "/$defs/RetryOptions/properties/InitialBackoffSeconds/minimum",
-                r#"{"Retry":{"InitialBackoffSeconds":N}}"#,
+                r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/MaxBackoffSeconds/minimum",
-                r#"{"Retry":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}"#,
+                r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/BackoffMultiplier/minimum",
-                r#"{"Retry":{"BackoffMultiplier":N}}"#,
+                r#"{"Grpc":{"Retry":{"BackoffMultiplier":N}}}"#,
             ),
         ] {
             let minimum = schema
@@ -649,8 +689,8 @@ mod tests {
     fn a_channel_that_could_receive_no_message_is_refused() {
         // Every other size is a channel that refuses some messages; zero refuses all of them,
         // which is a configuration with no use and a call that can only ever fail.
-        assert!(parse(br#"{"MaxReceiveMessageSize":0}"#).is_err());
-        assert!(parse(br#"{"MaxReceiveMessageSize":1}"#).is_ok());
+        assert!(parse(br#"{"Grpc":{"MaxReceiveMessageSize":0}}"#).is_err());
+        assert!(parse(br#"{"Grpc":{"MaxReceiveMessageSize":1}}"#).is_ok());
     }
 
     #[test]
@@ -675,8 +715,8 @@ mod tests {
     fn an_option_spelled_as_the_wrong_type_is_refused() {
         // The schema says a number, so a string spelled like one is not the same document. A
         // reader that took it would make the schema a suggestion.
-        assert!(parse(br#"{"DeliveryCredits":"2"}"#).is_err());
-        assert!(parse(br#"{"DeliveryCredits":2}"#).is_ok());
+        assert!(parse(br#"{"Grpc":{"Host":{"Receive":{"Credits":"2"}}}}"#).is_err());
+        assert!(parse(br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}}}"#).is_ok());
     }
 
     #[test]
@@ -717,9 +757,9 @@ mod tests {
     #[test]
     fn a_bound_the_schema_states_is_a_bound_this_refuses() {
         for refused in [
-            &br#"{"DeliveryCredits":0}"#[..],
-            &br#"{"MaxSendsInFlight":0}"#[..],
-            &br#"{"UserAgent":""}"#[..],
+            &br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#[..],
+            &br#"{"Grpc":{"Host":{"Sends":{"MaxInFlight":0}}}}"#[..],
+            &br#"{"Grpc":{"UserAgent":""}}"#[..],
             &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
         ] {
             assert!(
@@ -734,18 +774,27 @@ mod tests {
     fn a_refusal_names_the_key_it_was_refused_over() {
         for (document, key) in [
             (&br#"{"UserAgnt":"typo"}"#[..], "UserAgnt"),
-            (&br#"{"DeliveryCredits":"2"}"#[..], "DeliveryCredits"),
-            (&br#"{"DeliveryCredits":0}"#[..], "DeliveryCredits"),
-            (&br#"{"MaxSendsInFlight":0}"#[..], "MaxSendsInFlight"),
             (
-                &br#"{"MaxReceiveMessageSize":0}"#[..],
-                "MaxReceiveMessageSize",
+                &br#"{"Grpc":{"Host":{"Receive":{"Credits":"2"}}}}"#[..],
+                "Grpc.Host.Receive.Credits",
             ),
             (
-                &br#"{"DeliveryCoalescingBytes":-1}"#[..],
-                "DeliveryCoalescingBytes",
+                &br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#[..],
+                "Grpc.Host.Receive.Credits",
             ),
-            (&br#"{"UserAgent":""}"#[..], "UserAgent"),
+            (
+                &br#"{"Grpc":{"Host":{"Sends":{"MaxInFlight":0}}}}"#[..],
+                "Grpc.Host.Sends.MaxInFlight",
+            ),
+            (
+                &br#"{"Grpc":{"MaxReceiveMessageSize":0}}"#[..],
+                "Grpc.MaxReceiveMessageSize",
+            ),
+            (
+                &br#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":-1}}}}"#[..],
+                "Grpc.Host.Receive.CoalescingBytes",
+            ),
+            (&br#"{"Grpc":{"UserAgent":""}}"#[..], "Grpc.UserAgent"),
             (
                 &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
                 "ConnectTimeoutSeconds",
@@ -832,7 +881,10 @@ mod tests {
 
     #[test]
     fn a_window_past_what_the_schema_admits_is_refused() {
-        let past = format!(r#"{{"DeliveryCredits":{}}}"#, LARGEST_WINDOW as i64 + 1);
+        let past = format!(
+            r#"{{"Grpc":{{"Host":{{"Receive":{{"Credits":{}}}}}}}}}"#,
+            LARGEST_WINDOW as i64 + 1
+        );
         assert!(parse(past.as_bytes()).is_err());
     }
 
@@ -841,7 +893,7 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"DeliveryCredits":2,"Http2":{"KeepAliveWhileIdle":true,"StreamWindowSize":70000}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}},"Http2":{"KeepAliveWhileIdle":true,"StreamWindowSize":70000}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(
@@ -863,7 +915,7 @@ mod tests {
     fn defaults_are_read_as_a_channel_document() {
         assert!(defaults(b"").expect("empty is none").is_none());
         for document in [
-            &br#"{"DeliveryCredits":0}"#[..],
+            &br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#[..],
             &br#"{"NoSuchOption":1}"#[..],
             &b"not json"[..],
         ] {
@@ -878,9 +930,13 @@ mod tests {
     /// A key a channel states as null states nothing, as serde reads it, so the default stands.
     #[test]
     fn a_null_in_a_channel_document_leaves_the_default() {
-        let defaults = defaults(br#"{"DeliveryCredits":2}"#).expect("valid defaults");
-        let settings =
-            parse_over(defaults.as_ref(), br#"{"DeliveryCredits":null}"#).expect("a valid merge");
+        let defaults =
+            defaults(br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}}}"#).expect("valid defaults");
+        let settings = parse_over(
+            defaults.as_ref(),
+            br#"{"Grpc":{"Host":{"Receive":{"Credits":null}}}}"#,
+        )
+        .expect("a valid merge");
         assert_eq!(settings.delivery_credits(), 2);
     }
 
@@ -888,8 +944,9 @@ mod tests {
     /// disagree is refused as the merge's, the channel's own document being admitted alone.
     #[test]
     fn bounds_that_disagree_once_merged_refuse_the_merge() {
-        let defaults = defaults(br#"{"Retry":{"MaxBackoffSeconds":2}}"#).expect("valid defaults");
-        let own = br#"{"Retry":{"InitialBackoffSeconds":3}}"#;
+        let defaults =
+            defaults(br#"{"Grpc":{"Retry":{"MaxBackoffSeconds":2}}}"#).expect("valid defaults");
+        let own = br#"{"Grpc":{"Retry":{"InitialBackoffSeconds":3}}}"#;
         assert!(
             parse(own).is_ok(),
             "the channel's document alone is admitted"
@@ -931,8 +988,13 @@ mod tests {
     /// A channel's own document is refused over the defaults as it would be alone.
     #[test]
     fn a_channel_document_is_refused_over_the_defaults_as_alone() {
-        let defaults = defaults(br#"{"DeliveryCredits":2}"#).expect("valid defaults");
-        assert!(parse_over(defaults.as_ref(), br#"{"DeliveryCredits":0}"#).is_err());
+        let defaults =
+            defaults(br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}}}"#).expect("valid defaults");
+        assert!(parse_over(
+            defaults.as_ref(),
+            br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#
+        )
+        .is_err());
         assert!(parse_over(defaults.as_ref(), b"not json").is_err());
     }
 }

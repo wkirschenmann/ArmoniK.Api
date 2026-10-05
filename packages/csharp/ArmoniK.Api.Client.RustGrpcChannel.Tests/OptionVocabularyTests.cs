@@ -65,12 +65,12 @@ public class OptionVocabularyTests
                                                                                ["Proxy"]                 = "Transport.Proxy.Url.Address",
                                                                                ["ProxyUsername"]         = "Transport.Proxy.Url.Username",
                                                                                ["ProxyPassword"]         = "Transport.Proxy.Url.Password",
-                                                                               ["RequestTimeout"]        = "DefaultDeadlineSeconds",
+                                                                               ["RequestTimeout"]        = "Grpc.DefaultDeadlineSeconds",
                                                                                ["MaxIdleTime"]           = "Http2.IdleTimeoutSeconds",
-                                                                               ["MaxAttempts"]           = "Retry.MaxAttempts",
-                                                                               ["InitialBackOff"]        = "Retry.InitialBackoffSeconds",
-                                                                               ["MaxBackOff"]            = "Retry.MaxBackoffSeconds",
-                                                                               ["BackoffMultiplier"]     = "Retry.BackoffMultiplier",
+                                                                               ["MaxAttempts"]           = "Grpc.Retry.MaxAttempts",
+                                                                               ["InitialBackOff"]        = "Grpc.Retry.InitialBackoffSeconds",
+                                                                               ["MaxBackOff"]            = "Grpc.Retry.MaxBackoffSeconds",
+                                                                               ["BackoffMultiplier"]     = "Grpc.Retry.BackoffMultiplier",
                                                                              };
 
   /// <summary>A `GrpcClient` option this channel does not answer, and the task that carries it.</summary>
@@ -90,14 +90,14 @@ public class OptionVocabularyTests
   /// <summary>An option of this channel that `GrpcClient` has no name for.</summary>
   private static readonly IReadOnlyDictionary<string, string> Ours = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                      {
-                                                                       ["ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
-                                                                       ["DeliveryCredits"] = "the delivery window, which only this ABI has",
-                                                                       ["DeliveryCoalescingBytes"] = "the delivery to the host, which only this ABI has",
-                                                                       ["Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
-                                                                       ["Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
-                                                                       ["MaxSendsInFlight"] = "the send window, which only this ABI has",
-                                                                       ["MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
-                                                                       ["UserAgent"] = "grpc-dotnet writes its own and offers no option",
+                                                                       ["Transport.ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
+                                                                       ["Grpc.Host.Receive.Credits"] = "the delivery window, which only this ABI has",
+                                                                       ["Grpc.Host.Receive.CoalescingBytes"] = "the delivery to the host, which only this ABI has",
+                                                                       ["Grpc.Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
+                                                                       ["Grpc.Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
+                                                                       ["Grpc.Host.Sends.MaxInFlight"] = "the send window, which only this ABI has",
+                                                                       ["Grpc.MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
+                                                                       ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
                                                                        ["Transport.Tls.Client.P12.Password"] = "GrpcClient opens its bundle with no password",

@@ -16,7 +16,7 @@ const SIZED: &str = "/raw/Sized";
 
 /// Room for the head and every message of a call: what the host holds is then what the ceiling
 /// decides, not the delivery window.
-const CREDITS: &str = r#"{"DeliveryCredits": 8}"#;
+const CREDITS: &str = r#"{"Grpc":{"Host":{"Receive":{"Credits":8}}}}"#;
 
 const DEADLINE_EXCEEDED: i32 = 4;
 const RESOURCE_EXHAUSTED: i32 = 8;

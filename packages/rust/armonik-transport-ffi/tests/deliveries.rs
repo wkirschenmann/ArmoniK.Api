@@ -1,4 +1,4 @@
-//! How a response reaches the host: in how many callbacks, as `DeliveryCoalescingBytes` gathers
+//! How a response reaches the host: in how many callbacks, as `Grpc.Host.Receive.CoalescingBytes` gathers
 //! what each read of the connection brings.
 //!
 //! The rounds counted are the process's. Each test holds the one runtime from its first call to
@@ -76,11 +76,17 @@ fn a_channel_takes_the_runtime_defaults_under_its_own_options() {
         host.stop();
         rounds
     };
-    assert_eq!(rounds(r#"{"DeliveryCoalescingBytes":0}"#, "{}"), 0);
+    assert_eq!(
+        rounds(
+            r#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":0}}}}"#,
+            "{}"
+        ),
+        0
+    );
     assert!(
         rounds(
-            r#"{"DeliveryCoalescingBytes":0}"#,
-            r#"{"DeliveryCoalescingBytes":16384}"#
+            r#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":0}}}}"#,
+            r#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":16384}}}}"#
         ) > 0
     );
 }
@@ -89,6 +95,7 @@ fn a_channel_takes_the_runtime_defaults_under_its_own_options() {
 /// whether an answer's parts come together is the server's pacing alone.
 #[test]
 fn a_limit_of_zero_waits_no_round() {
-    let (_, rounds) = answers_in_one_callback(r#"{"DeliveryCoalescingBytes":0}"#);
+    let (_, rounds) =
+        answers_in_one_callback(r#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":0}}}}"#);
     assert_eq!(rounds, 0);
 }

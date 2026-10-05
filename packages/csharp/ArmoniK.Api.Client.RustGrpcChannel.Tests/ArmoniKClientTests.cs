@@ -90,10 +90,13 @@ public class ArmoniKClientTests : RuntimeFixture
     await using var channel = Runtime.Channel(ClosedPort.Endpoint(),
                                               new ChannelOptions
                                               {
-                                                Retry = new RetryOptions
-                                                        {
-                                                          MaxAttempts = 1,
-                                                        },
+                                                Grpc = new GrpcOptions
+                                                       {
+                                                         Retry = new RetryOptions
+                                                                 {
+                                                                   MaxAttempts = 1,
+                                                                 },
+                                                       },
                                               });
 
     Assert.That(await WaitForResultsEnd(channel,

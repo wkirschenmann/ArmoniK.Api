@@ -113,9 +113,9 @@ impose a timeout, so that my application is not blocked on a server that is not 
    a warning).
 
 **Status**: 1 to 5 are met. A call's deadline - `CallOptions.Deadline` through the binding,
-`timeout_ns` through the ABI - or else the channel's `DefaultDeadlineSeconds` ends the call
+`timeout_ns` through the ABI - or else the channel's `Grpc.DefaultDeadlineSeconds` ends the call
 `DEADLINE_EXCEEDED` once it passes and is sent as `grpc-timeout`; one already passed ends the call
-without reaching the server. 6 waits for the transport switch: `DefaultDeadlineSeconds` is
+without reaching the server. 6 waits for the transport switch: `Grpc.DefaultDeadlineSeconds` is
 `RequestTimeout`'s counterpart in the option vocabulary, and `GrpcChannelFactory`, which builds
 the grpc-dotnet channel, still warns that `RequestTimeout` is not applied.
 

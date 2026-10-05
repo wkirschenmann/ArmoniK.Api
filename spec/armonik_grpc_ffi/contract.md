@@ -171,7 +171,7 @@ pub struct GrpcChannelConfig {
     /// Default 1.
     pub max_sends_in_flight: usize,
     // No eager_connect flag: connecting is GrpcChannel::connect().await. The
-    // option document's ConnectEagerly is the FFI's, which calls connect()
+    // option document's Transport.ConnectEagerly is the FFI's, which calls connect()
     // once ak_channel_create has registered the channel.
 }
 

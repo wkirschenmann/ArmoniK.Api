@@ -85,8 +85,8 @@ AkRuntime                       owns: runtime state, task group, callback + runt
   |           |                        write_dones_emitted, *_callback_running,
   |           |                        payloads_consumed_by_host, the observed
   |           |                        cancel/release requests
-  |           +-- send window     MaxSendsInFlight entries, FIFO
-  |           +-- delivery window DeliveryCredits outstanding payloads
+  |           +-- send window     Grpc.Host.Sends.MaxInFlight entries, FIFO
+  |           +-- delivery window Grpc.Host.Receive.Credits outstanding payloads
   |
   +-- payload allocator          the only structure touched by ak_event_consumed
 ```
@@ -132,7 +132,7 @@ callback finished unwinding) to be argued *out* of a precondition; the right sha
 precondition at all.
 
 **The send window** bounds the memory the call's arena lends out: at most
-`MaxSendsInFlight` buffers at a time, counting both those the host is still filling and
+`Grpc.Host.Sends.MaxInFlight` buffers at a time, counting both those the host is still filling and
 those already committed and awaiting their WRITE_DONE. The slot is charged when the
 buffer is lent rather than when the message is committed, because the allocation is what
 costs memory. Acceptance must be synchronous - the ABI refuses with `AK_STATUS_SLOT_BUSY` rather
@@ -153,13 +153,13 @@ is the gap the names close. The set is finite so that the per-buffer arguments a
 inductions. Its size is a modelling bound: identities are never reused, so a level-1
 call accepts at most `Cardinality(BufferIds)` sends and the freshness a lend needs
 depends on it - a configured depth is reachable in the model only if the space is at
-least that large. It is not `MaxSendsInFlight`,
+least that large. It is not `Grpc.Host.Sends.MaxInFlight`,
 which bounds how many allocations are outstanding at once and is what makes a returned
 buffer's send debt bounded by a constant.
 
 **The slot goes back at emission, not at return**, and the distinction is load-bearing.
 Two counts live here and they are distinct: `SendWindowOccupancy`, which
-`MaxSendsInFlight` bounds and which shrinks when WRITE_DONE is emitted, and the
+`Grpc.Host.Sends.MaxInFlight` bounds and which shrinks when WRITE_DONE is emitted, and the
 acquittal callback still on the stack, which only quiescence and the terminal care
 about. Freeing at return would mean a host woken by WRITE_DONE could ask for a buffer,
 be refused with `AK_STATUS_SLOT_BUSY`, and have already spent the wakeup that was going to free
@@ -192,7 +192,7 @@ receive side, where `WF(HostConsumesEvent(c))` per call suffices *because* relea
 nothing. The host is therefore asked for two things, and they are symmetric: give back
 what you consumed, give back what you borrowed.
 
-**The delivery window** is the exact mirror. At most `DeliveryCredits` payloads may be
+**The delivery window** is the exact mirror. At most `Grpc.Host.Receive.Credits` payloads may be
 outstanding, and the host releases them **in delivery order**, so one counter - payloads
 released - is all the bookkeeping needed, against `events_delivered` the way the send
 counter runs against `submitted`. `ak_event_consumed` still takes the payload rather than
@@ -261,7 +261,7 @@ channel's thread adds nothing to what it has to write, or once that reaches
 its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
 
 **Deliveries gather what is ready.** A response's delivery to the host waits while the work
-already ready on the channel's thread reads more of it, up to `DeliveryCoalescingBytes`: the
+already ready on the channel's thread reads more of it, up to `Grpc.Host.Receive.CoalescingBytes`: the
 connection shares that thread, so the message a head precedes, and the trailers a message
 precedes, are decoded on its next turn, and a unary answer whose server wrote it in parts still
 reaches the host in one callback rather than two or three.
@@ -327,7 +327,7 @@ may still be reading.
 - `ak_get_call_buffer(handle, len, &buf)` — Rust lends writable native memory
 - the host serializes into it and commits with `ak_call_send_message(handle, buf)`, or gives
   it back unused with `ak_return_call_buffer(buf)`
-- at most `MaxSendsInFlight` buffers out of one arena (natural backpressure, on top of HTTP/2
+- at most `Grpc.Host.Sends.MaxInFlight` buffers out of one arena (natural backpressure, on top of HTTP/2
   flow control)
 - nothing to pin on the .NET side: no `GCHandle`, no pinned object heap, no fragmentation of
   the collected generations
@@ -355,7 +355,7 @@ send window, which bounds what the host serializes at once and nothing a replay 
 
 **Memory fragmentation**:
 - Send side: every send buffer comes out of the call's arena, bounded by
-  `MaxSendsInFlight` buffers at a time, and the arena is dropped in one piece when the call
+  `Grpc.Host.Sends.MaxInFlight` buffers at a time, and the arena is dropped in one piece when the call
   is released - which the release precondition guarantees is safe. Retained replay bytes are
   these allocations, kept past their WRITE_DONE, and bounded separately, per call and per
   channel, by the retry unit's replay bytes.
@@ -370,7 +370,7 @@ send window, which bounds what the host serializes at once and nothing a replay 
 - Neither pool is visible across the ABI, so either can be added or removed later without
   touching a binding.
 
-**A global ceiling above the per-call budgets.** `MaxSendsInFlight` bounds one call's
+**A global ceiling above the per-call budgets.** `Grpc.Host.Sends.MaxInFlight` bounds one call's
 outstanding buffers; nothing bounded their product across the calls a process carries. The
 runtime therefore holds a byte budget shared by every channel, handed out by
 `ak_get_call_buffer`. What a replay keeps is not charged to it: a channel's total of replay bytes bounds
@@ -732,8 +732,8 @@ class CallState
 {
     // The delivery ring is the stream queue: metadata, messages and the
     // terminal all ride it, so there is one buffer per call, not two.
-    // NextPow2(DeliveryCredits + 1): the ABI never leaves more than
-    // DeliveryCredits + 1 payloads outstanding, and Head and Tail are
+    // NextPow2(Credits + 1): the ABI never leaves more than
+    // Credits + 1 payloads outstanding, and Head and Tail are
     // monotonic counters rather than wrapped indexes, so occupancy is
     // Head - Tail and empty is already distinct from full without a slot
     // spent to tell them apart. It therefore cannot fill.
@@ -756,7 +756,7 @@ class CallState
     // Buffers lent by ak_get_call_buffer and not yet given back. Every one
     // of them must be returned, or the call is never reclaimed.
     ConcurrentBag<ak_buffer> LentBuffers;               // native depth allows
-                                   // MaxSendsInFlight; this binding exercises one, the
+                                   // Grpc.Host.Sends.MaxInFlight; this binding exercises one, the
                                    // writer being single and completing at WRITE_DONE
 }
 
@@ -1181,7 +1181,7 @@ lone response on a side path would put a second consumer on the ring, which is t
 the release order cannot survive. One path per call, one consumer, and the obligations below
 hold for every shape rather than for most of them.
 
-This is also what keeps `DeliveryCredits` meaningful. Because a payload is released only
+This is also what keeps `Grpc.Host.Receive.Credits` meaningful. Because a payload is released only
 when the application has parsed it, the native side genuinely withholds the next message
 until the reader has caught up: the credit is application backpressure, not an accounting
 detail absorbed by a managed buffer.
@@ -1286,7 +1286,10 @@ the shape every option takes, and gives the reasons:
   it, so a switch over them is complete. An enum whose variants carry nothing is a `oneOf` of
   names, and a C# enum;
 - nothing is required but a field an alternative cannot do without, and `{}` is a valid
-  configuration.
+  configuration;
+- an option belongs to the layer it acts on: `Transport` the dial and the socket, `Http2` the
+  session, `Grpc` the calls - and under it `Host`, what crosses between the host and the
+  engine, `Sends` one way and `Receive` the other.
 
 A configuration section reaches the options through the generated `Bind`, which matches each key
 without case, as a configuration does, and refuses one nothing declares by its path - not through
@@ -1296,10 +1299,10 @@ alternative a section names.
 A binding may narrow what the schema admits, and cannot widen it: the engine checks every bound
 again. The schema states what the engine can honour, and a binding that sizes something of its
 own from an option bounds it by what that costs on its side. The .NET binding does so once. Each
-call allocates its delivery ring at the next power of two above `DeliveryCredits`, so it refuses
+call allocates its delivery ring at the next power of two above `Grpc.Host.Receive.Credits`, so it refuses
 a window past `NativeRuntime.MaxDeliveryCredits`, 32768 - 65536 slots, two megabytes per call in
 a 64-bit process - where the schema admits 536870910, just under what a tokio semaphore holds
-on a 32-bit target. `MaxSendsInFlight` sizes nothing on the .NET side, and keeps the schema's
+on a 32-bit target. `Grpc.Host.Sends.MaxInFlight` sizes nothing on the .NET side, and keeps the schema's
 bound.
 
 Options that name material - a certificate, an identity, a proxy - arrive with the tasks that
@@ -1339,9 +1342,9 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, or `Transport.Proxy.Url.Address` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
-| `RequestTimeout` | `DefaultDeadlineSeconds` |
-| `MaxAttempts` | `Retry.MaxAttempts` |
-| `InitialBackOff` etc. | `Retry.*` |
+| `RequestTimeout` | `Grpc.DefaultDeadlineSeconds` |
+| `MaxAttempts` | `Grpc.Retry.MaxAttempts` |
+| `InitialBackOff` etc. | `Grpc.Retry.*` |
 
 ---
 

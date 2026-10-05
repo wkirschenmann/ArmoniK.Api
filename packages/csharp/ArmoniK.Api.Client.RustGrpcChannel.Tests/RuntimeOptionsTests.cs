@@ -34,6 +34,19 @@ public class RuntimeOptionsTests : RuntimeFixture
     => new ConfigurationBuilder().AddInMemoryCollection(values)
                                  .Build();
 
+  // A delivery window, where the vocabulary nests it.
+  private static GrpcOptions Credits(int credits)
+    => new()
+       {
+         Host = new HostOptions
+                {
+                  Receive = new ReceiveOptions
+                            {
+                              Credits = credits,
+                            },
+                },
+       };
+
   [Test]
   public void ASectionCarriesEveryRuntimeOption()
   {
@@ -58,14 +71,14 @@ public class RuntimeOptionsTests : RuntimeFixture
   {
     var options = NativeRuntime.RuntimeOptionsFrom(Configuration(new Dictionary<string, string?>
                                                                  {
-                                                                   ["RustGrpcRuntime:ChannelDefaults:DeliveryCredits"]          = "2",
+                                                                   ["RustGrpcRuntime:ChannelDefaults:Grpc:Host:Receive:Credits"] = "2",
                                                                    ["RustGrpcRuntime:ChannelDefaults:Http2:KeepAliveWhileIdle"] = "true",
                                                                    ["RustGrpcRuntime:ChannelDefaults:Transport:Proxy:None"]     = "true",
                                                                  }));
 
     Assert.Multiple(() =>
                     {
-                      Assert.That(options.ChannelDefaults?.DeliveryCredits,
+                      Assert.That(options.ChannelDefaults?.Grpc?.Host?.Receive?.Credits,
                                   Is.EqualTo(2));
                       Assert.That(options.ChannelDefaults?.Http2?.KeepAliveWhileIdle,
                                   Is.True);
@@ -84,7 +97,7 @@ public class RuntimeOptionsTests : RuntimeFixture
                                                                 {
                                                                   ChannelDefaults = new ChannelOptions
                                                                                     {
-                                                                                      DeliveryCredits = 2,
+                                                                                      Grpc = Credits(2),
                                                                                     },
                                                                 }))
                     .ConfigureAwait(false);
@@ -95,7 +108,7 @@ public class RuntimeOptionsTests : RuntimeFixture
     var own = runtime.Channel("http://127.0.0.1:1",
                               new ChannelOptions
                               {
-                                DeliveryCredits = 3,
+                                Grpc = Credits(3),
                               });
     try
     {
@@ -128,7 +141,7 @@ public class RuntimeOptionsTests : RuntimeFixture
                                               {
                                                 ChannelDefaults = new ChannelOptions
                                                                   {
-                                                                    DeliveryCredits = 0,
+                                                                    Grpc = Credits(0),
                                                                   },
                                               }),
                    Throws.InstanceOf<ArgumentOutOfRangeException>());
@@ -140,7 +153,7 @@ public class RuntimeOptionsTests : RuntimeFixture
                                               {
                                                 ChannelDefaults = new ChannelOptions
                                                                   {
-                                                                    DeliveryCredits = NativeRuntime.MaxDeliveryCredits + 1,
+                                                                    Grpc = Credits(NativeRuntime.MaxDeliveryCredits + 1),
                                                                   },
                                               }),
                    Throws.InstanceOf<ArgumentOutOfRangeException>());

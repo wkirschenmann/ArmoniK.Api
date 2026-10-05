@@ -63,12 +63,12 @@ public class UnaryTests : EchoServerFixture
 
     var variables = new[]
                     {
-                      ("DeliveryCredits", "1"),
-                      ("MaxReceiveMessageSize", "65536"),
-                      ("MaxSendsInFlight", "2"),
+                      ("Grpc__Host__Receive__Credits", "1"),
+                      ("Grpc__MaxReceiveMessageSize", "65536"),
+                      ("Grpc__Host__Sends__MaxInFlight", "2"),
                       ("Transport__ConnectTimeoutSeconds", "2.5"),
                       ("Transport__Proxy__None", "true"),
-                      ("UserAgent", "unary-tests"),
+                      ("Grpc__UserAgent", "unary-tests"),
                     };
 
     foreach (var (name, value) in variables)
@@ -118,7 +118,7 @@ public class UnaryTests : EchoServerFixture
     await using var channel = Runtime.Channel(Endpoint,
                                               options);
 
-    Assert.That(options.DeliveryCredits,
+    Assert.That(options.Grpc,
                 Is.Null,
                 "the window was resolved into the copy the channel holds, not into this");
   }
@@ -591,10 +591,13 @@ public class UnaryTests : EchoServerFixture
     await using var channel = Runtime.Channel(ClosedPort.Endpoint(),
                                               new ChannelOptions
                                               {
-                                                Retry = new RetryOptions
-                                                        {
-                                                          MaxAttempts = 1,
-                                                        },
+                                                Grpc = new GrpcOptions
+                                                       {
+                                                         Retry = new RetryOptions
+                                                                 {
+                                                                   MaxAttempts = 1,
+                                                                 },
+                                                       },
                                               });
     using var call = Client(channel)
       .SayAsync(new EchoRequest
@@ -1012,7 +1015,7 @@ public class UnaryTests : EchoServerFixture
   public unsafe void ARefusedDocumentNamesItsKey()
   {
     var       endpoint = Encoding.UTF8.GetBytes("http://127.0.0.1:1");
-    var       json     = Encoding.UTF8.GetBytes("{\"DeliveryCredits\":\"2\"}");
+    var       json     = Encoding.UTF8.GetBytes("{\"Grpc\":{\"Host\":{\"Receive\":{\"Credits\":\"2\"}}}}");
     ak_status status;
     ak_error  error   = default;
     ulong     channel = 0;
@@ -1038,7 +1041,7 @@ public class UnaryTests : EchoServerFixture
                       Assert.That(kind,
                                   Is.EqualTo(ak_error_kind.AK_ERROR_CONFIG));
                       Assert.That(why,
-                                  Does.Contain("DeliveryCredits"));
+                                  Does.Contain("Grpc.Host.Receive.Credits"));
                       Assert.That(created,
                                   Is.Zero);
                     });

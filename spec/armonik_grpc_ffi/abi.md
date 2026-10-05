@@ -365,7 +365,7 @@ ceiling is held.
 #### Payload consumption
 
 `ak_event_consumed` does two things at once: it frees the native memory, and it arms the next
-event of the call, the demand signal. At most `DeliveryCredits` payloads of a call are
+event of the call, the demand signal. At most `Grpc.Host.Receive.Credits` payloads of a call are
 outstanding at once, a channel option whose default is 4: while the host owes that many, the
 runtime withholds the next data callback, and only a terminal may still go out with every credit
 spent.
@@ -495,7 +495,7 @@ ak_events_consumed(payloads, 3)    // free all three (no next, the terminal is i
 FFI note:
 - **Send**: the host serializes into a buffer lent by `ak_get_call_buffer` and gives it back
   exactly once, by `ak_call_send_message` or `ak_return_call_buffer`. One unfilled buffer at a
-  time, and at most `MaxSendsInFlight` out of one arena (default 1), counting those committed
+  time, and at most `Grpc.Host.Sends.MaxInFlight` out of one arena (default 1), counting those committed
   and awaiting their WRITE_DONE; WRITE_DONE acquits in send order,
   always arrives, exactly once per accepted send, and always before the terminal event, even
   on error or cancellation - but on a call that declared one request, whose commit settles its
@@ -505,8 +505,8 @@ FFI note:
   (deserializes directly from the native pointer) then calls `ak_event_consumed`, or
   `ak_events_consumed` for several in delivery order. This frees the memory AND arms
   reception of the next event. One callback carries the data events of a call that were
-  ready together or that its delivery waited to gather, up to `DeliveryCoalescingBytes`, and
-  every other event alone. At most `DeliveryCredits`
+  ready together or that its delivery waited to gather, up to `Grpc.Host.Receive.CoalescingBytes`, and
+  every other event alone. At most `Grpc.Host.Receive.Credits`
   non-consumed payloads per call (default 4) — this is the backpressure mechanism.
 The terminal `AK_EVENT_STATUS` may arrive instead of a next MESSAGE (end of stream or error).
 

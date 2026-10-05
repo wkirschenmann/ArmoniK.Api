@@ -107,6 +107,18 @@ pub struct TransportOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ProxyOptions"))]
     pub proxy: Option<ProxyOptions>,
+
+    /// Whether the channel starts dialling its endpoint as it is created rather than at its first
+    /// call, which then finds the session open or joins the dial under way. A dial that fails is
+    /// not reported: the first call dials again and reports what it meets.
+    ///
+    /// Defaults to false.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
+    pub connect_eagerly: Option<bool>,
 }
 
 /// `true`, the value of an alternative that carries nothing: a key names an alternative, and this
@@ -1467,6 +1479,31 @@ pub struct ChannelOptions {
     #[cfg_attr(feature = "serde", serde(default))]
     pub transport: TransportOptions,
 
+    /// The HTTP/2 session the channel's calls share.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub http2: Http2Options,
+
+    /// What the channel's calls do: their messages, deadlines and retries, and what crosses
+    /// between the host and the engine.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub grpc: GrpcOptions,
+}
+
+/// What the channel's calls do: their messages, deadlines and retries, and what crosses between
+/// the host and the engine.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct GrpcOptions {
     /// What this client calls itself in `user-agent`.
     ///
     /// Defaults to `armonik-transport/` followed by the engine's version.
@@ -1506,6 +1543,54 @@ pub struct ChannelOptions {
     )]
     pub default_deadline_seconds: Option<Seconds>,
 
+    /// When a failed call is sent again.
+    ///
+    /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never
+    /// processed goes again besides, whatever `MaxAttempts` is, while every message it sent is
+    /// kept.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub retry: RetryOptions,
+
+    /// What crosses between the host and the engine on each call.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub host: HostOptions,
+}
+
+/// What crosses between the host and the engine on each call, one way and the other.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct HostOptions {
+    /// What the host sends.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sends: SendOptions,
+
+    /// What the engine delivers to the host.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub receive: ReceiveOptions,
+}
+
+/// What a call's host sends: the messages it hands the engine.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct SendOptions {
     /// How many messages a call may have sent and unacquitted at once.
     ///
     /// Defaults to 1.
@@ -1517,8 +1602,19 @@ pub struct ChannelOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
-    pub max_sends_in_flight: Option<i32>,
+    pub max_in_flight: Option<i32>,
+}
 
+/// What the engine delivers to a call's host: its payloads and its status.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct ReceiveOptions {
     /// How many of a call's payloads the host may hold at once, delivered and not yet given back.
     /// The terminal status takes none, so a host holds at most one more.
     ///
@@ -1531,7 +1627,7 @@ pub struct ChannelOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
-    pub delivery_credits: Option<i32>,
+    pub credits: Option<i32>,
 
     /// How many bytes of a response a delivery to the host may wait to gather, so that a unary
     /// answer's head, message and status reach it in one callback. 0 delivers each read at once.
@@ -1542,33 +1638,7 @@ pub struct ChannelOptions {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
-    pub delivery_coalescing_bytes: Option<i32>,
-
-    /// The HTTP/2 session the channel's calls share.
-    ///
-    /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub http2: Http2Options,
-
-    /// When a failed call is sent again.
-    ///
-    /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never
-    /// processed goes again besides, whatever `MaxAttempts` is, while every message it sent is
-    /// kept.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub retry: RetryOptions,
-
-    /// Whether the channel starts dialling its endpoint as it is created rather than at its first
-    /// call, which then finds the session open or joins the dial under way. A dial that fails is
-    /// not reported: the first call dials again and reports what it meets.
-    ///
-    /// Defaults to false.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
-    pub connect_eagerly: Option<bool>,
+    pub coalescing_bytes: Option<i32>,
 }
 
 /// Options stated over their defaults: a struct field by field, recursively, and an option is the
@@ -1661,21 +1731,28 @@ macro_rules! over_fields {
 
 over_fields!(ChannelOptions {
     transport,
-    user_agent,
-    max_receive_message_size,
-    default_deadline_seconds,
-    max_sends_in_flight,
-    delivery_credits,
-    delivery_coalescing_bytes,
     http2,
-    retry,
-    connect_eagerly,
+    grpc,
 });
 over_fields!(TransportOptions {
     connect_timeout_seconds,
     tls,
     tcp_keepalive,
     proxy,
+    connect_eagerly,
+});
+over_fields!(GrpcOptions {
+    user_agent,
+    max_receive_message_size,
+    default_deadline_seconds,
+    retry,
+    host,
+});
+over_fields!(HostOptions { sends, receive });
+over_fields!(SendOptions { max_in_flight });
+over_fields!(ReceiveOptions {
+    credits,
+    coalescing_bytes,
 });
 over_fields!(TlsOptions {
     server,
@@ -2380,9 +2457,21 @@ mod tests {
     /// the same way within it.
     #[test]
     fn a_stated_option_wins_over_its_default() {
+        let credits = |credits| GrpcOptions {
+            host: HostOptions {
+                receive: ReceiveOptions {
+                    credits: Some(credits),
+                    ..ReceiveOptions::default()
+                },
+                ..HostOptions::default()
+            },
+            ..GrpcOptions::default()
+        };
         let defaults = ChannelOptions {
-            user_agent: Some("default".to_owned()),
-            delivery_credits: Some(2),
+            grpc: GrpcOptions {
+                user_agent: Some("default".to_owned()),
+                ..credits(2)
+            },
             http2: Http2Options {
                 keep_alive_while_idle: Some(true),
                 stream_window_size: Some(70_000),
@@ -2391,7 +2480,7 @@ mod tests {
             ..ChannelOptions::default()
         };
         let merged = ChannelOptions {
-            delivery_credits: Some(3),
+            grpc: credits(3),
             http2: Http2Options {
                 stream_window_size: Some(80_000),
                 ..Http2Options::default()
@@ -2400,8 +2489,8 @@ mod tests {
         }
         .over(&defaults);
 
-        assert_eq!(merged.user_agent.as_deref(), Some("default"));
-        assert_eq!(merged.delivery_credits, Some(3));
+        assert_eq!(merged.grpc.user_agent.as_deref(), Some("default"));
+        assert_eq!(merged.grpc.host.receive.credits, Some(3));
         assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
         assert_eq!(merged.http2.stream_window_size, Some(80_000));
     }
@@ -2422,9 +2511,12 @@ mod tests {
                 proxy: Some(ProxyOptions::Url(url)),
                 ..TransportOptions::default()
             },
-            retry: RetryOptions {
-                max_backoff_seconds: Some(Seconds(5.0)),
-                ..RetryOptions::default()
+            grpc: GrpcOptions {
+                retry: RetryOptions {
+                    max_backoff_seconds: Some(Seconds(5.0)),
+                    ..RetryOptions::default()
+                },
+                ..GrpcOptions::default()
             },
             ..ChannelOptions::default()
         };
@@ -2437,9 +2529,12 @@ mod tests {
                 proxy: Some(ProxyOptions::None(Chosen)),
                 ..TransportOptions::default()
             },
-            retry: RetryOptions {
-                initial_backoff_seconds: Some(Seconds(10.0)),
-                ..RetryOptions::default()
+            grpc: GrpcOptions {
+                retry: RetryOptions {
+                    initial_backoff_seconds: Some(Seconds(10.0)),
+                    ..RetryOptions::default()
+                },
+                ..GrpcOptions::default()
             },
             ..ChannelOptions::default()
         }
@@ -2454,8 +2549,11 @@ mod tests {
         );
         assert_eq!(tls.override_target_name.as_deref(), Some("server"));
         assert_eq!(merged.transport.proxy, Some(ProxyOptions::None(Chosen)));
-        assert_eq!(merged.retry.initial_backoff_seconds, Some(Seconds(10.0)));
-        assert_eq!(merged.retry.max_backoff_seconds, Some(Seconds(5.0)));
+        assert_eq!(
+            merged.grpc.retry.initial_backoff_seconds,
+            Some(Seconds(10.0))
+        );
+        assert_eq!(merged.grpc.retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
     /// An alternative stated over the same one merges its fields as a struct does, down to the

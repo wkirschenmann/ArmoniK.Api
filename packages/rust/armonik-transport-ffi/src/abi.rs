@@ -235,7 +235,8 @@ pub struct ak_event {
 /// order. The array and its events are valid for the callback's duration only; the payloads they
 /// own are the host's until given back. Several events come together only when they are data
 /// events (INITIAL_METADATA, MESSAGE, STATUS) of one call that were ready together, or that its
-/// delivery waited to gather (DeliveryCoalescingBytes); every other event comes alone.
+/// delivery waited to gather (Grpc.Host.Receive.CoalescingBytes); every other event comes
+/// alone.
 ///
 /// Data callbacks are serialized per call and concurrent between calls. WRITE_DONE and
 /// BUDGET_WAKE may arrive in parallel with any of them, including for the same call: a per-call
