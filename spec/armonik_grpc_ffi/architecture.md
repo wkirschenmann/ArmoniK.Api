@@ -1340,7 +1340,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `ClientP12` | `Transport.Tls.Client.P12.Path`; its password, `Transport.Tls.Client.P12.Password`, has no counterpart |
 | `AllowUnsafeConnection` | `Transport.Tls.Server.Unverified` |
 | `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
-| `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, or `Transport.Proxy.Url.Address` |
+| `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
 | `RequestTimeout` | `Grpc.DefaultDeadlineSeconds` |
 | `MaxAttempts` | `Grpc.Retry.MaxAttempts` |

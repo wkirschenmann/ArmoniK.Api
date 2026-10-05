@@ -301,7 +301,7 @@
           "minLength": 1
         },
         "Password": {
-          "description": "The password the bundle is protected by.\n\nDefaults to the empty one.",
+          "description": "The password the bundle is protected by.\n\nDefaults to the empty one. Taken from the runtime's channel defaults only when they name\nthe same `Path`.",
           "type": "string",
           "writeOnly": true
         }
@@ -367,7 +367,7 @@
           "additionalProperties": false
         },
         {
-          "description": "The proxy at an address.",
+          "description": "The proxy at an address that carries no credentials, with its own beside it, if any.",
           "type": "object",
           "properties": {
             "Url": {
@@ -378,6 +378,19 @@
             "Url"
           ],
           "additionalProperties": false
+        },
+        {
+          "description": "The proxy at an address that carries its credentials as `user:password@`, percent-encoded,\nwhich a serialized document then carries too.",
+          "type": "object",
+          "properties": {
+            "UrlWithCredentials": {
+              "$ref": "#/$defs/CredentialedUrl"
+            }
+          },
+          "required": [
+            "UrlWithCredentials"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -386,11 +399,11 @@
       "type": "object",
       "properties": {
         "Username": {
-          "description": "The username, which `Basic` forbids a `:` in.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the username that proxy's URL carries; beside the one Windows' settings name, it is the\nusername.",
+          "description": "The username, which `Basic` forbids a `:` in.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the username that proxy's URL carries; beside the one Windows' settings name, it is the\nusername. Taken from the runtime's channel defaults, with their `Password`, only when these\noptions state neither.",
           "type": "string"
         },
         "Password": {
-          "description": "The password that goes with `Username`.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the password that proxy's URL carries; beside the one Windows' settings name, it is the\npassword.",
+          "description": "The password that goes with `Username`.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the password that proxy's URL carries; beside the one Windows' settings name, it is the\npassword. Taken from the runtime's channel defaults, with their `Username`, only when these\noptions state neither.",
           "type": "string",
           "writeOnly": true
         }
@@ -402,17 +415,17 @@
       "type": "object",
       "properties": {
         "Address": {
-          "description": "The proxy's `http://` URL, with no path; `http://` is assumed when no scheme is written.\n\nIt may carry `user:password@`, percent-encoded, when `Username` and `Password` are not\nset, which a serialized document then carries too.",
+          "description": "The proxy's `http://` URL, with no path and no `user:password@`; `http://` is assumed when\nno scheme is written.",
           "type": "string",
           "minLength": 1,
           "writeOnly": true
         },
         "Username": {
-          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries.",
+          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nTaken from the runtime's channel defaults, with their `Password`, only when they name the\nsame `Address` and these options state neither.",
           "type": "string"
         },
         "Password": {
-          "description": "The password that goes with `Username`.\n\nRefused beside credentials the `Address` URL carries.",
+          "description": "The password that goes with `Username`.\n\nTaken from the runtime's channel defaults, with their `Username`, only when they name the\nsame `Address` and these options state neither.",
           "type": "string",
           "writeOnly": true
         }
@@ -421,6 +434,12 @@
       "required": [
         "Address"
       ]
+    },
+    "CredentialedUrl": {
+      "description": "A proxy's `http://` URL that carries its credentials, as `user:password@`, percent-encoded;\n`http://` is assumed when no scheme is written.",
+      "type": "string",
+      "minLength": 1,
+      "writeOnly": true
     },
     "Http2Options": {
       "description": "The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much\nit lets the peer send ahead of what is read.",

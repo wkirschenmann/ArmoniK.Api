@@ -189,8 +189,12 @@ pub enum ProxyOptions {
     /// The system's proxy is never used for a loopback endpoint.
     System(ProxyCredentials),
 
-    /// The proxy at an address.
+    /// The proxy at an address that carries no credentials, with its own beside it, if any.
     Url(ProxyUrl),
+
+    /// The proxy at an address that carries its credentials as `user:password@`, percent-encoded,
+    /// which a serialized document then carries too.
+    UrlWithCredentials(CredentialedUrl),
 }
 
 impl Default for ProxyOptions {
@@ -213,7 +217,8 @@ pub struct ProxyCredentials {
     ///
     /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// username.
+    /// username. Taken from the runtime's channel defaults, with their `Password`, only when these
+    /// options state neither.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -225,7 +230,8 @@ pub struct ProxyCredentials {
     ///
     /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// password.
+    /// password. Taken from the runtime's channel defaults, with their `Username`, only when these
+    /// options state neither.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -241,11 +247,9 @@ pub struct ProxyCredentials {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ProxyUrl {
-    /// The proxy's `http://` URL, with no path; `http://` is assumed when no scheme is written.
-    ///
-    /// It may carry `user:password@`, percent-encoded, when `Username` and `Password` are not
-    /// set, which a serialized document then carries too.
-    // `writeOnly`, so a generated binding treats it as the secret it may hold.
+    /// The proxy's `http://` URL, with no path and no `user:password@`; `http://` is assumed when
+    /// no scheme is written.
+    // `writeOnly`, so a generated binding never prints one written with credentials by mistake.
     #[cfg_attr(
         feature = "schema",
         schemars(length(min = 1), extend("writeOnly" = true))
@@ -254,7 +258,8 @@ pub struct ProxyUrl {
 
     /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
     ///
-    /// Refused beside credentials the `Address` URL carries.
+    /// Taken from the runtime's channel defaults, with their `Password`, only when they name the
+    /// same `Address` and these options state neither.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -264,10 +269,33 @@ pub struct ProxyUrl {
 
     /// The password that goes with `Username`.
     ///
-    /// Refused beside credentials the `Address` URL carries.
+    /// Taken from the runtime's channel defaults, with their `Username`, only when they name the
+    /// same `Address` and these options state neither.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
+}
+
+/// A proxy's `http://` URL that carries its credentials, as `user:password@`, percent-encoded;
+/// `http://` is assumed when no scheme is written.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+// `writeOnly`, so a generated binding treats it as the secret it holds.
+#[cfg_attr(
+    feature = "schema",
+    schemars(transparent, extend("writeOnly" = true))
+)]
+pub struct CredentialedUrl(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] pub String);
+
+/// The address is printed elided, since it holds a password.
+impl std::fmt::Debug for CredentialedUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("CredentialedUrl")
+            .field(&elided(&self.0))
+            .finish()
+    }
 }
 
 impl ProxyUrl {
@@ -334,96 +362,112 @@ impl ProxyOptions {
             )
             .map_err(|refused| refused.under("System")),
             Self::Url(url) => url.to_config().map_err(|refused| refused.under("Url")),
+            Self::UrlWithCredentials(url) => url.to_config(),
         }
     }
 }
 
 impl ProxyUrl {
     fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
-        let dedicated = self.username.is_some() || self.password.is_some();
-        let address = self.address.as_str();
-        let not_a_url = || {
-            OptionRefusal::new(
-                "Address",
-                "it is not a proxy URL such as `http://proxy.example.com:3128`",
-            )
-        };
-        let written = if address.contains("://") {
-            address.to_owned()
-        } else {
-            format!("http://{address}")
-        };
-        let uri: Uri = written.parse().map_err(|_| not_a_url())?;
-        if uri.scheme_str() != Some("http") {
+        let (proxy, userinfo) = proxy_url("Address", &self.address)?;
+        if userinfo.is_some() {
             return Err(OptionRefusal::new(
                 "Address",
-                "it has to be an `http://` URL: the `CONNECT` handshake is written in the clear",
+                "it carries `user:password@`: a proxy whose URL carries its credentials is \
+                 UrlWithCredentials, and Url states them as Username and Password",
             ));
         }
-        let authority = uri.authority().ok_or_else(not_a_url)?.as_str();
-        // The last `@`, because a password may hold one.
-        let (userinfo, host) = match authority.rsplit_once('@') {
-            Some((userinfo, host)) => (Some(userinfo), host),
-            None => (None, authority),
-        };
-        // A port that does not parse would otherwise be dialled as 80; a bracketed host's own
-        // colons stay inside its brackets.
-        let port = host
-            .rsplit_once(':')
-            .map(|(_, port)| port)
-            .filter(|port| !port.contains(']'));
-        if host.is_empty()
-            || host.starts_with(':')
-            || port.is_some_and(|port| port.parse::<u16>().map_or(true, |port| port == 0))
-        {
-            return Err(not_a_url());
-        }
-        if !matches!(uri.path(), "" | "/") || uri.query().is_some() || written.contains('#') {
-            return Err(OptionRefusal::new(
-                "Address",
-                "it carries a path, a query or a fragment, which a proxy is not addressed by",
-            ));
-        }
-        if userinfo.is_some() && dedicated {
-            return Err(OptionRefusal::new(
-                "Address",
-                "it carries `user:password@`, and so do Username or Password; set them one way",
-            ));
-        }
-        let proxy = Uri::builder()
-            .scheme("http")
-            .authority(host)
-            .path_and_query("/")
-            .build()
-            .map_err(|_| not_a_url())?;
+        authenticated(ProxySource::Explicit(proxy), &self.username, &self.password)
+    }
+}
 
+impl CredentialedUrl {
+    fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
+        const KEY: &str = "UrlWithCredentials";
+        let (proxy, userinfo) = proxy_url(KEY, &self.0)?;
+        let Some(userinfo) = userinfo else {
+            return Err(OptionRefusal::new(
+                KEY,
+                "it carries no `user:password@`: a proxy whose URL carries no credentials is Url",
+            ));
+        };
         // Strict: a byte that is not UTF-8 would otherwise become a replacement character, and a
         // password the user did not write.
         let decoded = |text: &str| -> Result<String, OptionRefusal> {
             percent_encoding::percent_decode_str(text)
                 .decode_utf8()
                 .map(|text| text.into_owned())
-                .map_err(|_| not_a_url())
+                .map_err(|_| not_a_proxy_url(KEY))
         };
-        let source = ProxySource::Explicit(proxy);
-        match userinfo {
-            Some(userinfo) => {
-                let (username, password) = match userinfo.split_once(':') {
-                    Some((username, password)) => (decoded(username)?, decoded(password)?),
-                    None => (decoded(userinfo)?, String::new()),
-                };
-                if username.contains(':') {
-                    return Err(OptionRefusal::new("Address", NO_COLON));
-                }
-                Ok(ProxyConfig {
-                    source,
-                    username,
-                    password: password.into(),
-                })
-            }
-            None => authenticated(source, &self.username, &self.password),
+        let (username, password) = match userinfo.split_once(':') {
+            Some((username, password)) => (decoded(username)?, decoded(password)?),
+            None => (decoded(&userinfo)?, String::new()),
+        };
+        if username.contains(':') {
+            return Err(OptionRefusal::new(KEY, NO_COLON));
         }
+        Ok(ProxyConfig {
+            source: ProxySource::Explicit(proxy),
+            username,
+            password: password.into(),
+        })
     }
+}
+
+fn not_a_proxy_url(key: &str) -> OptionRefusal {
+    OptionRefusal::new(
+        key,
+        "it is not a proxy URL such as `http://proxy.example.com:3128`",
+    )
+}
+
+/// The proxy a URL names, without its credentials, and the `user:password@` it carries, if any,
+/// refused by `key`. A refusal never quotes the URL, which may hold a password.
+fn proxy_url(key: &str, address: &str) -> Result<(Uri, Option<String>), OptionRefusal> {
+    let not_a_url = || not_a_proxy_url(key);
+    let written = if address.contains("://") {
+        address.to_owned()
+    } else {
+        format!("http://{address}")
+    };
+    let uri: Uri = written.parse().map_err(|_| not_a_url())?;
+    if uri.scheme_str() != Some("http") {
+        return Err(OptionRefusal::new(
+            key,
+            "it has to be an `http://` URL: the `CONNECT` handshake is written in the clear",
+        ));
+    }
+    let authority = uri.authority().ok_or_else(not_a_url)?.as_str();
+    // The last `@`, because a password may hold one.
+    let (userinfo, host) = match authority.rsplit_once('@') {
+        Some((userinfo, host)) => (Some(userinfo.to_owned()), host),
+        None => (None, authority),
+    };
+    // A port that does not parse would otherwise be dialled as 80; a bracketed host's own
+    // colons stay inside its brackets.
+    let port = host
+        .rsplit_once(':')
+        .map(|(_, port)| port)
+        .filter(|port| !port.contains(']'));
+    if host.is_empty()
+        || host.starts_with(':')
+        || port.is_some_and(|port| port.parse::<u16>().map_or(true, |port| port == 0))
+    {
+        return Err(not_a_url());
+    }
+    if !matches!(uri.path(), "" | "/") || uri.query().is_some() || written.contains('#') {
+        return Err(OptionRefusal::new(
+            key,
+            "it carries a path, a query or a fragment, which a proxy is not addressed by",
+        ));
+    }
+    let proxy = Uri::builder()
+        .scheme("http")
+        .authority(host)
+        .path_and_query("/")
+        .build()
+        .map_err(|_| not_a_url())?;
+    Ok((proxy, userinfo))
 }
 
 /// `source`, authenticated to with `username` and `password`, empty when unset.
@@ -588,7 +632,8 @@ pub struct P12Certificate {
 
     /// The password the bundle is protected by.
     ///
-    /// Defaults to the empty one.
+    /// Defaults to the empty one. Taken from the runtime's channel defaults only when they name
+    /// the same `Path`.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -1680,7 +1725,8 @@ over_values!(
     Seconds,
     Password,
     Chosen,
-    StoreLocation
+    StoreLocation,
+    CredentialedUrl,
 );
 
 /// `Over` for an enum whose every variant carries one value: the same variant merges what the two
@@ -1707,7 +1753,12 @@ over_variants!(ServerVerification {
     Unverified,
 });
 over_variants!(ClientCertificate { Pem, P12, Store });
-over_variants!(ProxyOptions { None, System, Url });
+over_variants!(ProxyOptions {
+    None,
+    System,
+    Url,
+    UrlWithCredentials,
+});
 over_variants!(StoreSearch {
     Thumbprint,
     SubjectName,
@@ -1781,14 +1832,60 @@ over_fields!(RetryOptions {
     call_replay_bytes,
     channel_replay_bytes,
 });
-over_fields!(ProxyCredentials { username, password });
-over_fields!(ProxyUrl {
-    address,
-    username,
-    password,
-});
 over_fields!(PemCertificate { certificate, key });
-over_fields!(P12Certificate { path, password });
+
+/// A username and its password are one credential: stating either states it, and nothing of the
+/// default's is paired with it.
+impl Over for ProxyCredentials {
+    fn over(self, defaults: &Self) -> Self {
+        let Self { username, password } = &self;
+        if username.is_some() || password.is_some() {
+            self
+        } else {
+            defaults.clone()
+        }
+    }
+}
+
+/// Credentials go with the proxy they were stated for: the default's are taken only for the same
+/// address, and whole, as `ProxyCredentials` takes them; another address is the channel's own,
+/// with its own credentials or none.
+impl Over for ProxyUrl {
+    fn over(self, defaults: &Self) -> Self {
+        let Self {
+            address,
+            username,
+            password,
+        } = self;
+        let stated = username.is_some() || password.is_some();
+        if address != defaults.address || stated {
+            return Self {
+                address,
+                username,
+                password,
+            };
+        }
+        Self {
+            address,
+            username: defaults.username.clone(),
+            password: defaults.password.clone(),
+        }
+    }
+}
+
+/// A password goes with the bundle it opens: the default's is taken only for the same path.
+impl Over for P12Certificate {
+    fn over(self, defaults: &Self) -> Self {
+        if self.path != defaults.path {
+            return self;
+        }
+        let Self { path, password } = self;
+        Self {
+            password: password.over(&defaults.password),
+            path,
+        }
+    }
+}
 over_fields!(StoreCertificate {
     location,
     name,
@@ -1796,6 +1893,19 @@ over_fields!(StoreCertificate {
 });
 
 impl ChannelOptions {
+    /// Refuses what these options state that is wrong by itself, whatever they are merged over:
+    /// an alternative whose own values contradict it, such as a `Url` whose address carries
+    /// credentials. Run on a document before it is merged.
+    pub fn check(&self) -> Result<(), OptionRefusal> {
+        match &self.transport.proxy {
+            Some(proxy) => proxy
+                .to_config()
+                .map(drop)
+                .map_err(|refused| refused.under("Transport.Proxy")),
+            None => Ok(()),
+        }
+    }
+
     /// These options over `defaults`: field by field, recursively, an option stated here winning
     /// and one left out the default's. An alternative - how the server is verified, who the client
     /// is, which proxy - stated over the same one merges its fields the same way, and over another
@@ -2197,9 +2307,11 @@ mod tests {
         );
 
         let (uri, username, password) = explicit(
-            url("http://alice:s%40cret@proxy.test:3128", None, None)
-                .to_config()
-                .expect("a proxy"),
+            ProxyOptions::UrlWithCredentials(CredentialedUrl(
+                "http://alice:s%40cret@proxy.test:3128".to_owned(),
+            ))
+            .to_config()
+            .expect("a proxy"),
         );
         assert_eq!(
             uri, "http://proxy.test:3128/",
@@ -2241,6 +2353,23 @@ mod tests {
         assert_eq!(refused.key(), "System.Username");
     }
 
+    /// The system proxy's credentials are one credential over the defaults too: taken whole when
+    /// the channel states none, and not at all when it states either.
+    #[test]
+    fn the_system_proxys_credentials_merge_whole() {
+        let defaults = system(Some("alice"), Some("s3cret"));
+        assert_eq!(system(None, None).over(&defaults), defaults);
+        assert_eq!(
+            system(Some("bob"), None).over(&defaults),
+            system(Some("bob"), None),
+            "another username takes none of the default's password"
+        );
+        assert_eq!(
+            system(None, Some("other")).over(&defaults),
+            system(None, Some("other"))
+        );
+    }
+
     #[test]
     fn a_debug_print_shows_the_proxy_and_never_its_password() {
         for (address, shown) in [
@@ -2272,8 +2401,7 @@ mod tests {
             url("http://proxy.test:3128/pac.js", None, None),
             url("http://proxy.test:3128/?s3cret", None, None),
             url("http://proxy.test:3128#s3cret", None, None),
-            url("http://alice:%FF@proxy.test:3128", None, None),
-            url("http://corp%3Aalice:s3cret@proxy.test:3128", None, None),
+            url("http://alice@proxy.test:3128", None, None),
         ] {
             let refused = options.to_config().expect_err("refused");
             assert_eq!(refused.key(), "Url.Address", "{options:?}: {refused}");
@@ -2282,6 +2410,45 @@ mod tests {
             assert!(!said.contains("proxy.test"), "{said}");
             assert!(!format!("{options:?}").contains("s3cret"), "{options:?}");
         }
+    }
+
+    /// A URL carrying its credentials is refused by its own option when it carries none, does not
+    /// decode, puts a `:` in the username or is no `http://` URL; neither the refusal nor a Debug
+    /// print quotes it.
+    #[test]
+    fn a_credentialed_url_refusal_quotes_neither_it_nor_its_password() {
+        let credentialed =
+            |address: &str| ProxyOptions::UrlWithCredentials(CredentialedUrl(address.to_owned()));
+        for options in [
+            credentialed("http://proxy.test:3128"),
+            credentialed("https://alice:s3cret@proxy.test:443"),
+            credentialed("http://alice:%FF@proxy.test:3128"),
+            credentialed("http://corp%3Aalice:s3cret@proxy.test:3128"),
+            credentialed("not a url"),
+        ] {
+            let refused = options.to_config().expect_err("refused");
+            assert_eq!(refused.key(), "UrlWithCredentials", "{refused}");
+            let said = refused.to_string();
+            assert!(!said.contains("s3cret"), "{said}");
+            assert!(!said.contains("proxy.test"), "{said}");
+            assert!(!format!("{options:?}").contains("s3cret"), "{options:?}");
+        }
+    }
+
+    /// A document's proxy is checked alone, so a URL that carries its credentials in the wrong
+    /// alternative is refused by the document's own path.
+    #[test]
+    fn a_document_is_checked_alone_by_its_own_paths() {
+        let options = ChannelOptions {
+            transport: TransportOptions {
+                proxy: Some(url("http://alice:s3cret@proxy.test:3128", None, None)),
+                ..TransportOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let refused = options.check().expect_err("credentials in a Url");
+        assert_eq!(refused.key(), "Transport.Proxy.Url.Address");
+        assert!(ChannelOptions::default().check().is_ok());
     }
 
     #[test]
@@ -2557,7 +2724,7 @@ mod tests {
     }
 
     /// An alternative stated over the same one merges its fields as a struct does, down to the
-    /// alternative a field of it holds.
+    /// alternative a field of it holds - but for credentials, which another target leaves behind.
     #[test]
     fn a_stated_alternative_over_the_same_one_merges_its_fields() {
         let mut default_url = ProxyUrl::new("http://default.test:3128");
@@ -2603,7 +2770,10 @@ mod tests {
         };
         assert_eq!(url.address, "http://own.test:3128");
         assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(url.password, Some(Password::new("s3cret")));
+        assert_eq!(
+            url.password, None,
+            "the default's password is for another proxy"
+        );
         let Some(ServerVerification::CaStore(store)) = &merged.transport.tls.server else {
             panic!("{:?}", merged.transport.tls.server);
         };
@@ -2612,8 +2782,68 @@ mod tests {
         assert_eq!(store.location, Some(StoreLocation::LocalMachine));
         assert_eq!(
             merged.transport.tls.client,
+            Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
+            "the default's password is for another bundle"
+        );
+    }
+
+    /// Credentials stated for a target are taken for the same target: a proxy's for the same
+    /// address, and only whole, a bundle's password for the same path.
+    #[test]
+    fn credentials_are_taken_for_the_target_they_were_stated_for() {
+        let mut default_url = ProxyUrl::new("http://proxy.test:3128");
+        default_url.username = Some("alice".to_owned());
+        default_url.password = Some(Password::new("s3cret"));
+        let defaults = ChannelOptions {
+            transport: TransportOptions {
+                tls: TlsOptions {
+                    client: Some(ClientCertificate::P12(P12Certificate::new(
+                        "me.p12",
+                        Some(Password::new("bundle")),
+                    ))),
+                    ..TlsOptions::default()
+                },
+                proxy: Some(ProxyOptions::Url(default_url)),
+                ..TransportOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let merged_with = |username: Option<&str>| {
+            let mut own_url = ProxyUrl::new("http://proxy.test:3128");
+            own_url.username = username.map(str::to_owned);
+            ChannelOptions {
+                transport: TransportOptions {
+                    tls: TlsOptions {
+                        client: Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
+                        ..TlsOptions::default()
+                    },
+                    proxy: Some(ProxyOptions::Url(own_url)),
+                    ..TransportOptions::default()
+                },
+                ..ChannelOptions::default()
+            }
+            .over(&defaults)
+        };
+
+        let merged = merged_with(None);
+        let Some(ProxyOptions::Url(url)) = &merged.transport.proxy else {
+            panic!("{:?}", merged.transport.proxy);
+        };
+        assert_eq!(url.username.as_deref(), Some("alice"));
+        assert_eq!(url.password, Some(Password::new("s3cret")));
+
+        let Some(ProxyOptions::Url(url)) = merged_with(Some("bob")).transport.proxy else {
+            panic!("a Url is merged into a Url");
+        };
+        assert_eq!(url.username.as_deref(), Some("bob"));
+        assert_eq!(
+            url.password, None,
+            "another username takes none of the default's password"
+        );
+        assert_eq!(
+            merged.transport.tls.client,
             Some(ClientCertificate::P12(P12Certificate::new(
-                "own.p12",
+                "me.p12",
                 Some(Password::new("bundle"))
             )))
         );

@@ -111,6 +111,7 @@ public class OptionVocabularyTests
                                                                        ["Transport.Tls.Server.CaStore.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
                                                                        ["Transport.Tls.Server.CaStore.Location"] = "the Windows store, which GrpcClient reads nothing from",
                                                                        ["Transport.Tls.Server.CaStore.Name"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Proxy.UrlWithCredentials"] = "GrpcClient's Proxy when its URL carries user:password@, an alternative here",
                                                                        ["Transport.Proxy.None"] = "GrpcClient's Proxy set to `none`, an alternative here rather than a value of an address",
                                                                        ["Transport.Proxy.System.Username"] = "GrpcClient's proxy credentials go with its own address only",
                                                                        ["Transport.Proxy.System.Password"] = "GrpcClient's proxy credentials go with its own address only",

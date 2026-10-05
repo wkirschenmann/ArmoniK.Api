@@ -179,6 +179,9 @@ pub(crate) fn parse_over(
     let Some(defaults) = defaults else {
         return settle(own);
     };
+    // What the document gets wrong by itself is refused before any merge is made, by the
+    // document's own path: such a refusal does not depend on the defaults.
+    own.check().map_err(ConfigRefusal::Option)?;
     settle(own.clone().over(defaults)).map_err(|merged| match settle(own) {
         Err(alone) => alone,
         Ok(_) => ConfigRefusal::Merged(Box::new(merged)),
@@ -983,6 +986,26 @@ mod tests {
             armonik_transport::http2::ProxySource::Disabled
         );
         assert_eq!(proxy.username, "");
+    }
+
+    /// A channel's document is checked alone before it is merged: credentials in a `Url`
+    /// address are refused by the document's own path, whatever the defaults state.
+    #[test]
+    fn a_channel_document_is_checked_before_it_is_merged() {
+        let defaults = defaults(
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+        )
+        .expect("valid defaults");
+        let Err(refused) = parse_over(
+            defaults.as_ref(),
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"http://bob:s3cret@proxy.test:3128"}}}}"#,
+        ) else {
+            panic!("credentials in a Url address are admitted");
+        };
+        let said = refused.to_string();
+        assert!(said.starts_with("Transport.Proxy.Url.Address"), "{said}");
+        assert!(!said.contains("ChannelDefaults"), "{said}");
+        assert!(!said.contains("s3cret"), "{said}");
     }
 
     /// A channel's own document is refused over the defaults as it would be alone.

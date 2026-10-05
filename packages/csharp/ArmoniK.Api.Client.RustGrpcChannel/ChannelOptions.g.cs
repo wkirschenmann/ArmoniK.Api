@@ -842,7 +842,8 @@ public abstract record ClientCertificate
   /// <param name="Path">Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</param>
   /// <param name="Password">
   ///   The password the bundle is protected by.
-  ///   Defaults to the empty one.
+  ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
+  ///   the same <c>Path</c>.
   /// </param>
   public sealed record P12(string Path,
                            string? Password = null) : ClientCertificate
@@ -1261,13 +1262,15 @@ public abstract record ProxyOptions
   ///   The username, which <c>Basic</c> forbids a <c>:</c> in.
   ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
   ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-  ///   username.
+  ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
+  ///   options state neither.
   /// </param>
   /// <param name="Password">
   ///   The password that goes with <c>Username</c>.
   ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
   ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-  ///   password.
+  ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
+  ///   options state neither.
   /// </param>
   public sealed record System(string? Username = null,
                               string? Password = null) : ProxyOptions
@@ -1290,29 +1293,29 @@ public abstract record ProxyOptions
     }
   }
 
-  /// <summary>The proxy at an address.</summary>
+  /// <summary>The proxy at an address that carries no credentials, with its own beside it, if any.</summary>
   /// <param name="Address">
-  ///   The proxy's <c>http://</c> URL, with no path; <c>http://</c> is assumed when no scheme is written.
-  ///   It may carry <c>user:password@</c>, percent-encoded, when <c>Username</c> and <c>Password</c> are not
-  ///   set, which a serialized document then carries too.
+  ///   The proxy's <c>http://</c> URL, with no path and no <c>user:password@</c>; <c>http://</c> is assumed when
+  ///   no scheme is written.
   /// </param>
   /// <param name="Username">
   ///   The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.
-  ///   Refused beside credentials the <c>Address</c> URL carries.
+  ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
+  ///   same <c>Address</c> and these options state neither.
   /// </param>
   /// <param name="Password">
   ///   The password that goes with <c>Username</c>.
-  ///   Refused beside credentials the <c>Address</c> URL carries.
+  ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
+  ///   same <c>Address</c> and these options state neither.
   /// </param>
   public sealed record Url(string Address,
                            string? Username = null,
                            string? Password = null) : ProxyOptions
   {
-    /// <summary>The proxy's <c>http://</c> URL, with no path; <c>http://</c> is assumed when no scheme is written.</summary>
-    /// <remarks>
-    ///   It may carry <c>user:password@</c>, percent-encoded, when <c>Username</c> and <c>Password</c> are not
-    ///   set, which a serialized document then carries too.
-    /// </remarks>
+    /// <summary>
+    ///   The proxy's <c>http://</c> URL, with no path and no <c>user:password@</c>; <c>http://</c> is assumed when
+    ///   no scheme is written.
+    /// </summary>
     public string Address { get; init; } = Address ?? throw new ArgumentNullException(nameof(Address));
 
     /// <inheritdoc />
@@ -1334,6 +1337,42 @@ public abstract record ProxyOptions
       builder.Append((object?)Username);
       builder.Append(", Password = ");
       builder.Append(Password is null ? "null" : "***");
+
+      return true;
+    }
+  }
+
+  /// <summary>
+  ///   The proxy at an address that carries its credentials as <c>user:password@</c>, percent-encoded,
+  ///   which a serialized document then carries too.
+  /// </summary>
+  /// <param name="Value">
+  ///   The proxy at an address that carries its credentials as <c>user:password@</c>, percent-encoded,
+  ///   which a serialized document then carries too.
+  /// </param>
+  public sealed record UrlWithCredentials(string Value) : ProxyOptions
+  {
+    /// <summary>
+    ///   The proxy at an address that carries its credentials as <c>user:password@</c>, percent-encoded,
+    ///   which a serialized document then carries too.
+    /// </summary>
+    public string Value { get; init; } = Value ?? throw new ArgumentNullException(nameof(Value));
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is string value && value.Length < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              "Value has to be at least 1 character long.");
+      }
+    }
+
+    /// <summary>The fields, a secret one elided.</summary>
+    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
+    {
+      builder.Append("Value = ");
+      builder.Append(Value is null ? "null" : "***");
 
       return true;
     }
@@ -1428,6 +1467,12 @@ public abstract record ProxyOptions
                      password);
     }
 
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "UrlWithCredentials"))
+    {
+      return new UrlWithCredentials(ChannelOptionsConfiguration.Text(alternative));
+    }
+
     throw ChannelOptionsConfiguration.Unknown(alternative,
                                               "ProxyOptions");
   }
@@ -1506,6 +1551,13 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         }
 
         writer.WriteEndObject();
+        break;
+      }
+
+      case ProxyOptions.UrlWithCredentials urlWithCredentials:
+      {
+        writer.WriteString("UrlWithCredentials",
+                           urlWithCredentials.Value);
         break;
       }
     }

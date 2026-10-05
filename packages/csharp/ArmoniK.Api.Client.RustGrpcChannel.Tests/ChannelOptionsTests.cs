@@ -434,15 +434,17 @@ public class ChannelOptionsTests
                                                    null!),
                    Throws.TypeOf<ArgumentNullException>());
 
-  /// <summary>A secret is printed elided, and so is a proxy's address, which may carry a password.</summary>
+  /// <summary>A secret is printed elided, and so is a proxy URL carrying its credentials.</summary>
   /// <remarks>A record prints every property in its ToString, which reaches logs and debuggers.</remarks>
   [Test]
   public void ASecretIsPrintedElided()
   {
-    var printed = new ProxyOptions.Url("http://alice:s3cret@proxy.test:3128",
+    // A Url's address is elided too: one written with credentials by mistake is still a secret.
+    var printed = new ProxyOptions.Url("http://carol:s3cret@proxy.test:3128",
                                        "bob",
-                                       "hunter2") + " " + new ClientCertificate.P12("me.p12",
-                                                                                   "hunter2");
+                                       "hunter2") + " " + new ProxyOptions.UrlWithCredentials("http://alice:s3cret@proxy.test:3128") + " " +
+                  new ClientCertificate.P12("me.p12",
+                                            "hunter2");
 
     Assert.Multiple(() =>
                     {
@@ -453,6 +455,25 @@ public class ChannelOptionsTests
                                   Does.Contain("Username = bob")
                                       .And.Contain("Path = me.p12"),
                                   "what is not secret is printed");
+                    });
+  }
+
+  /// <summary>A URL carrying its credentials is an alternative of its own, written as the bare URL.</summary>
+  [Test]
+  public void AUrlWithCredentialsIsWrittenAndBoundAsTheBareUrl()
+  {
+    var options = NativeRuntime.OptionsFrom(Configuration(new Dictionary<string, string?>
+                                                          {
+                                                            ["Section:Transport:Proxy:UrlWithCredentials"] = "http://alice:pw@proxy.test:3128",
+                                                          }),
+                                            "Section");
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(options.Transport?.Proxy,
+                                  Is.EqualTo(new ProxyOptions.UrlWithCredentials("http://alice:pw@proxy.test:3128")));
+                      Assert.That(Encoded(options),
+                                  Is.EqualTo(@"{""Transport"":{""Proxy"":{""UrlWithCredentials"":""http://alice:pw@proxy.test:3128""}}}"));
                     });
   }
 
