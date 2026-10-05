@@ -287,7 +287,8 @@ pub struct ak_runtime_config {
     /// A channel document, in the vocabulary of ak_channel_create's config_json, whose options
     /// every channel of the runtime takes where its own document states none: the two are merged
     /// option by option, a struct's options within it, and the channel's win; an alternative - how
-    /// the server is verified, who the client is, which proxy - is taken whole. Empty states none.
+    /// the server is verified, who the client is, which proxy - merges its fields over the same
+    /// alternative and is taken whole over another. Empty states none.
     /// Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
     pub channel_defaults_json: ak_bytes_in,
 }

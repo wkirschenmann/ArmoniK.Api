@@ -1571,18 +1571,78 @@ pub struct ChannelOptions {
     pub connect_eagerly: Option<bool>,
 }
 
-/// Options stated over their defaults: a struct field by field, recursively, and an option the
-/// stated one if it is stated. An alternative is an enum held in an option, so it is taken whole:
-/// two alternatives are never combined into one neither stated.
+/// Options stated over their defaults: a struct field by field, recursively, and an option is the
+/// default's where it is not stated. An alternative stated over the same one merges its fields
+/// the same way; over another, it is taken whole, so two alternatives are never combined into one
+/// neither stated.
 trait Over {
     fn over(self, defaults: &Self) -> Self;
 }
 
-impl<T: Clone> Over for Option<T> {
+impl<T: Over + Clone> Over for Option<T> {
     fn over(self, defaults: &Self) -> Self {
-        self.or_else(|| defaults.clone())
+        match (self, defaults) {
+            (Some(own), Some(default)) => Some(own.over(default)),
+            (Some(own), None) => Some(own),
+            (None, default) => default.clone(),
+        }
     }
 }
+
+/// `Over` for a value, which a stated one replaces whole.
+macro_rules! over_values {
+    ($($type:ty),+ $(,)?) => {
+        $(
+            impl Over for $type {
+                fn over(self, _: &Self) -> Self {
+                    self
+                }
+            }
+        )+
+    };
+}
+
+over_values!(
+    String,
+    i32,
+    f64,
+    bool,
+    Seconds,
+    Password,
+    Chosen,
+    StoreLocation
+);
+
+/// `Over` for an enum whose every variant carries one value: the same variant merges what the two
+/// carry, and another is taken whole. Every variant is listed and matched without `_`, so a
+/// variant the enum gains and this does not list fails to compile.
+macro_rules! over_variants {
+    ($type:ident { $($variant:ident),+ $(,)? }) => {
+        impl Over for $type {
+            fn over(self, defaults: &Self) -> Self {
+                match self {
+                    $(Self::$variant(own) => Self::$variant(match defaults {
+                        Self::$variant(default) => own.over(default),
+                        _ => own,
+                    }),)+
+                }
+            }
+        }
+    };
+}
+
+over_variants!(ServerVerification {
+    CaPem,
+    CaStore,
+    Unverified,
+});
+over_variants!(ClientCertificate { Pem, P12, Store });
+over_variants!(ProxyOptions { None, System, Url });
+over_variants!(StoreSearch {
+    Thumbprint,
+    SubjectName,
+    FriendlyName,
+});
 
 /// `Over` for a struct of options, every field merged. The fields are destructured without `..`,
 /// so a field the struct gains and this does not list fails to compile.
@@ -1644,13 +1704,27 @@ over_fields!(RetryOptions {
     call_replay_bytes,
     channel_replay_bytes,
 });
+over_fields!(ProxyCredentials { username, password });
+over_fields!(ProxyUrl {
+    address,
+    username,
+    password,
+});
+over_fields!(PemCertificate { certificate, key });
+over_fields!(P12Certificate { path, password });
+over_fields!(StoreCertificate {
+    location,
+    name,
+    find,
+});
 
 impl ChannelOptions {
     /// These options over `defaults`: field by field, recursively, an option stated here winning
     /// and one left out the default's. An alternative - how the server is verified, who the client
-    /// is, which proxy - is taken whole. Options that only bound one another, such as the two
-    /// backoff bounds, merge as any option, and a merge where they disagree is refused as a
-    /// document stating both would be.
+    /// is, which proxy - stated over the same one merges its fields the same way, and over another
+    /// is taken whole. Options that only bound one another, such as the two backoff bounds, merge
+    /// as any option, and a merge where they disagree is refused as a document stating both would
+    /// be.
     pub fn over(self, defaults: &Self) -> Self {
         Over::over(self, defaults)
     }
@@ -2332,8 +2406,8 @@ mod tests {
         assert_eq!(merged.http2.stream_window_size, Some(80_000));
     }
 
-    /// An alternative is taken whole, the stated one's: nothing of the default's is combined into
-    /// it. Beside it, every other option cumulates, the two backoff bounds included.
+    /// An alternative stated over another is taken whole: nothing of the default's is combined
+    /// into it. Beside it, every other option cumulates, the two backoff bounds included.
     #[test]
     fn a_stated_alternative_replaces_the_default_whole() {
         let mut url = ProxyUrl::new("http://proxy.test:3128");
@@ -2382,6 +2456,69 @@ mod tests {
         assert_eq!(merged.transport.proxy, Some(ProxyOptions::None(Chosen)));
         assert_eq!(merged.retry.initial_backoff_seconds, Some(Seconds(10.0)));
         assert_eq!(merged.retry.max_backoff_seconds, Some(Seconds(5.0)));
+    }
+
+    /// An alternative stated over the same one merges its fields as a struct does, down to the
+    /// alternative a field of it holds.
+    #[test]
+    fn a_stated_alternative_over_the_same_one_merges_its_fields() {
+        let mut default_url = ProxyUrl::new("http://default.test:3128");
+        default_url.username = Some("alice".to_owned());
+        default_url.password = Some(Password::new("s3cret"));
+        let mut store = StoreCertificate::new(StoreSearch::FriendlyName("root".to_owned()));
+        store.location = Some(StoreLocation::LocalMachine);
+        let defaults = ChannelOptions {
+            transport: TransportOptions {
+                tls: TlsOptions {
+                    server: Some(ServerVerification::CaStore(store)),
+                    client: Some(ClientCertificate::P12(P12Certificate::new(
+                        "default.p12",
+                        Some(Password::new("bundle")),
+                    ))),
+                    ..TlsOptions::default()
+                },
+                proxy: Some(ProxyOptions::Url(default_url)),
+                ..TransportOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let mut own_url = ProxyUrl::new("http://own.test:3128");
+        own_url.username = Some("bob".to_owned());
+        let mut own_store = StoreCertificate::new(StoreSearch::Thumbprint("ab".to_owned()));
+        own_store.name = Some("Pinned".to_owned());
+        let merged = ChannelOptions {
+            transport: TransportOptions {
+                tls: TlsOptions {
+                    server: Some(ServerVerification::CaStore(own_store)),
+                    client: Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
+                    ..TlsOptions::default()
+                },
+                proxy: Some(ProxyOptions::Url(own_url)),
+                ..TransportOptions::default()
+            },
+            ..ChannelOptions::default()
+        }
+        .over(&defaults);
+
+        let Some(ProxyOptions::Url(url)) = &merged.transport.proxy else {
+            panic!("{:?}", merged.transport.proxy);
+        };
+        assert_eq!(url.address, "http://own.test:3128");
+        assert_eq!(url.username.as_deref(), Some("bob"));
+        assert_eq!(url.password, Some(Password::new("s3cret")));
+        let Some(ServerVerification::CaStore(store)) = &merged.transport.tls.server else {
+            panic!("{:?}", merged.transport.tls.server);
+        };
+        assert_eq!(store.find, StoreSearch::Thumbprint("ab".to_owned()));
+        assert_eq!(store.name.as_deref(), Some("Pinned"));
+        assert_eq!(store.location, Some(StoreLocation::LocalMachine));
+        assert_eq!(
+            merged.transport.tls.client,
+            Some(ClientCertificate::P12(P12Certificate::new(
+                "own.p12",
+                Some(Password::new("bundle"))
+            )))
+        );
     }
 
     /// The committed schema is what generates the C# class, so it has to be what these types

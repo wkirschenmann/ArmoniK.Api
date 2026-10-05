@@ -17,7 +17,7 @@
       "minimum": 1
     },
     "ChannelDefaults": {
-      "description": "Channel options every channel of the runtime takes where its own options state none: the\ntwo are merged option by option, a struct's options within it, and the channel's win; an\nalternative - how the server is verified, who the client is, which proxy - is taken whole.\n\nDefaults to none.",
+      "description": "Channel options every channel of the runtime takes where its own options state none: the\ntwo are merged option by option, a struct's options within it, and the channel's win; an\nalternative - how the server is verified, who the client is, which proxy - merges its fields\nover the same alternative and is taken whole over another.\n\nDefaults to none.",
       "$ref": "#/$defs/ChannelOptions"
     }
   },

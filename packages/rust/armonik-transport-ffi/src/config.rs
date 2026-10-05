@@ -905,7 +905,7 @@ mod tests {
         );
     }
 
-    /// An alternative the channel states replaces the default's whole.
+    /// Another alternative than the default's, stated by the channel, replaces it whole.
     #[test]
     fn an_alternative_the_channel_states_replaces_the_defaults() {
         let defaults = defaults(
