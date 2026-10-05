@@ -283,8 +283,8 @@ was last.
 `ak_get_call_buffer` takes the most the host will write, which the generated marshaller knows
 before the first byte - it calls `SetPayloadLength(CalculateSize())` - so no growable writer is
 needed. The host says how many bytes it wrote when it commits, `ak_call_send_message(handle,
-buf, written)`, and only those are sent: the buffer is not zeroed, and nothing of it past
-`written` is read, and the host must have written those. A commit of more than the lend, or a
+buf, written)`, and only those are sent, so the host must have written them: the buffer is not
+zeroed, and nothing of it past `written` is read. A commit of more than the lend, or a
 write past its end that changed the bytes the library put after it, which the commit and
 `ak_return_call_buffer` check, is `AK_STATUS_CORRUPTED`: the memory around the buffer may be
 corrupted, so the buffer is taken back without being freed and the runtime shuts down. The lend is refused with `AK_STATUS_INVALID_STATE` once the call is over or its cancellation

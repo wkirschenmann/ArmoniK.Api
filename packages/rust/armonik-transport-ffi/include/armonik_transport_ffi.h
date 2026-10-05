@@ -564,9 +564,9 @@ typedef struct {
 /**
  * Lent by ak_get_call_buffer out of the call's arena. The host writes at most len bytes from its
  * start and gives it back exactly once, by ak_call_send_message, which says how many it wrote,
- * or ak_return_call_buffer. This library never reclaims a
- * lent buffer on its own - not on cancellation, not on channel close - which is what removes the
- * race between a writing thread and a cancelling one.
+ * or ak_return_call_buffer. This library never reclaims a lent buffer on its own - not on
+ * cancellation, not on channel close - which is what removes the race between a writing thread
+ * and a cancelling one.
  */
 typedef struct {
     uint8_t *ptr;
@@ -824,9 +824,9 @@ ak_status ak_call_send_message(ak_handle call,
  * a buffer whose send is refused, and the call is not reclaimed until it happens.
  *
  * Takes no call handle: the buffer determines its call. A refused ak_call_send_message therefore
- * leaves the buffer with the host, but AK_STATUS_CORRUPTED, which takes it back. A buffer given
- * back with the bytes after its end changed is an overrun, as at the commit: it is taken back
- * without being freed and the runtime shuts down, with no status to say so but the shutdown.
+ * leaves the buffer with the host, except for AK_STATUS_CORRUPTED, which takes it back. A buffer
+ * given back with the bytes after its end changed is an overrun, as at the commit: it is taken
+ * back without being freed and the runtime shuts down, with no status to say so but the shutdown.
  *
  * # Safety
  *

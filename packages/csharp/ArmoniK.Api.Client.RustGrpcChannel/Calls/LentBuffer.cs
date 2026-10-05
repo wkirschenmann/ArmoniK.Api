@@ -105,9 +105,9 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     => this;
 
   /// <summary>Ends the serialization, and checks the announced length was written.</summary>
-  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract: a
-  /// serializer that announces one length and writes another is one whose size and writes
-  /// disagree, and what it wrote is not the message it meant. Refused here, where it can still be
+  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract: the
+  /// buffer is lent at the announced length, and a serializer that then writes another length
+  /// computed its size from one message and wrote another. Refused here, where it can still be
   /// told apart from a transport failure.</remarks>
   public override void Complete()
   {

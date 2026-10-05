@@ -551,9 +551,9 @@ const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
 /// a buffer whose send is refused, and the call is not reclaimed until it happens.
 ///
 /// Takes no call handle: the buffer determines its call. A refused ak_call_send_message therefore
-/// leaves the buffer with the host, but AK_STATUS_CORRUPTED, which takes it back. A buffer given
-/// back with the bytes after its end changed is an overrun, as at the commit: it is taken back
-/// without being freed and the runtime shuts down, with no status to say so but the shutdown.
+/// leaves the buffer with the host, except for AK_STATUS_CORRUPTED, which takes it back. A buffer
+/// given back with the bytes after its end changed is an overrun, as at the commit: it is taken
+/// back without being freed and the runtime shuts down, with no status to say so but the shutdown.
 ///
 /// # Safety
 ///
