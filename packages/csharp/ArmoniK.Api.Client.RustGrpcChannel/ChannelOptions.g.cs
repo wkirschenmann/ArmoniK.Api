@@ -1736,6 +1736,7 @@ public sealed class Http2SendOptions
     }
 
     CoalescingBytes = other.CoalescingBytes;
+    StreamBufferSize = other.StreamBufferSize;
   }
 
   /// <summary>
@@ -1749,6 +1750,16 @@ public sealed class Http2SendOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? CoalescingBytes { get; set; }
 
+  /// <summary>
+  ///   How many bytes of one call's request may wait in the session to be written before the
+  ///   next part of it is taken in. A part goes in whole once fewer than this, and fewer than the
+  ///   peer's window lets the call send, are waiting, so one part more than this can wait.
+  /// </summary>
+  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
+  [JsonPropertyName("StreamBufferSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? StreamBufferSize { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -1758,6 +1769,13 @@ public sealed class Http2SendOptions
       throw new ArgumentOutOfRangeException(nameof(CoalescingBytes),
                                             coalescingBytes,
                                             "CoalescingBytes has to be at least 0.");
+    }
+
+    if (StreamBufferSize is int streamBufferSize && streamBufferSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(StreamBufferSize),
+                                            streamBufferSize,
+                                            "StreamBufferSize has to be at least 1.");
     }
   }
 
@@ -1775,6 +1793,11 @@ public sealed class Http2SendOptions
                                          "CoalescingBytes"))
       {
         bound.CoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "StreamBufferSize"))
+      {
+        bound.StreamBufferSize = ChannelOptionsConfiguration.Int32(entry);
       }
       else
       {

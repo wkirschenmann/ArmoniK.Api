@@ -1073,6 +1073,18 @@ pub struct Http2SendOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub coalescing_bytes: Option<i32>,
+
+    /// How many bytes of one call's request may wait in the session to be written before the
+    /// next part of it is taken in. A part goes in whole once fewer than this, and fewer than the
+    /// peer's window lets the call send, are waiting, so one part more than this can wait.
+    ///
+    /// Defaults to 1048576, 1 MiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub stream_buffer_size: Option<i32>,
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read.
@@ -1538,6 +1550,16 @@ impl Http2Options {
                 }
                 Some(bytes) => bytes as usize,
             },
+            send_buffer: match self.send.stream_buffer_size {
+                None => defaults.send_buffer,
+                Some(size) if size < 1 => {
+                    return Err(OptionRefusal::new(
+                        "Send.StreamBufferSize",
+                        format!("{size} has to be at least 1"),
+                    ))
+                }
+                Some(size) => size as usize,
+            },
         })
     }
 }
@@ -1906,7 +1928,10 @@ over_fields!(Http2Options {
     send,
     receive,
 });
-over_fields!(Http2SendOptions { coalescing_bytes });
+over_fields!(Http2SendOptions {
+    coalescing_bytes,
+    stream_buffer_size,
+});
 over_fields!(Http2ReceiveOptions {
     stream_window_size,
     connection_window_size,
@@ -2671,6 +2696,7 @@ mod tests {
             idle_timeout_seconds: Some(Seconds(300.0)),
             send: Http2SendOptions {
                 coalescing_bytes: Some(0),
+                stream_buffer_size: Some(4096),
             },
             receive: Http2ReceiveOptions {
                 stream_window_size: Some(1024),
@@ -2681,6 +2707,7 @@ mod tests {
         .expect("admissible");
         assert_eq!(config.idle_timeout, Some(Duration::from_secs(300)));
         assert_eq!(config.write_coalescing, 0);
+        assert_eq!(config.send_buffer, 4096);
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
         assert!(config.keep_alive_while_idle);
@@ -2708,12 +2735,24 @@ mod tests {
         let refused = Http2Options {
             send: Http2SendOptions {
                 coalescing_bytes: Some(-1),
+                ..Http2SendOptions::default()
             },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a negative size");
         assert_eq!(refused.key(), "Send.CoalescingBytes");
+
+        let refused = Http2Options {
+            send: Http2SendOptions {
+                stream_buffer_size: Some(0),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("a buffer that never takes a byte");
+        assert_eq!(refused.key(), "Send.StreamBufferSize");
     }
 
     /// An option stated over a default wins, one left out is the default's, and a struct merges

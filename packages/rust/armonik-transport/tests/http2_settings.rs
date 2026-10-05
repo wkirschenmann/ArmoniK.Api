@@ -176,15 +176,16 @@ async fn a_peer_that_answers_no_ping_ends_the_session_and_the_call_on_it() {
 }
 
 #[tokio::test]
-async fn a_window_or_a_keepalive_no_session_could_use_is_refused() {
+async fn a_setting_no_session_could_use_is_refused() {
     let endpoint = "http://127.0.0.1:1";
-    let changes: [fn(&mut Http2Config); 6] = [
+    let changes: [fn(&mut Http2Config); 7] = [
         |http2| http2.stream_window = 0,
         |http2| http2.connection_window = 1 << 31,
         |http2| http2.connection_window = 65_534,
         |http2| http2.keep_alive_interval = Some(Duration::ZERO),
         |http2| http2.keep_alive_timeout = Duration::ZERO,
         |http2| http2.idle_timeout = Some(Duration::ZERO),
+        |http2| http2.send_buffer = 0,
     ];
     let refusals = changes.map(|change| {
         let mut http2 = Http2Config::default();
@@ -238,5 +239,26 @@ async fn settings_at_their_bounds_are_admitted() {
     transport.http2.stream_window = 1;
     transport.http2.connection_window = 65_535;
     transport.http2.keep_alive_interval = Some(Duration::from_millis(1));
+    transport.http2.send_buffer = u32::MAX as usize;
+    channel_with(GrpcChannelConfig::new(transport.clone())).expect("every setting is in bounds");
+
+    transport.http2.send_buffer = 1;
     channel_with(GrpcChannelConfig::new(transport)).expect("every setting is in bounds");
+}
+
+/// The largest send buffer hyper takes is one a session is opened with.
+#[tokio::test]
+async fn the_largest_send_buffer_opens_a_session() {
+    let mut http2 = Http2Config::default();
+    http2.send_buffer = u32::MAX as usize;
+    announced(http2).await;
+}
+
+/// Past `u32::MAX`, where hyper would panic, which only a 64-bit `usize` can name.
+#[cfg(target_pointer_width = "64")]
+#[tokio::test]
+async fn a_send_buffer_past_what_hyper_takes_is_refused() {
+    let mut http2 = Http2Config::default();
+    http2.send_buffer = u32::MAX as usize + 1;
+    assert!(channel_with(config("http://127.0.0.1:1", http2)).is_err());
 }

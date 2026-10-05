@@ -75,8 +75,8 @@ pub struct TcpConfig {
     pub keepalive_retries: Option<u32>,      // not applied on Windows
 }
 
-/// hyper's defaults, written out: no PING, 20 s, 2 MiB, 5 MiB. Beside them, ours:
-/// 16 KiB gathered per write.
+/// hyper's defaults, written out: no PING, 20 s, 2 MiB, 5 MiB, 1 MiB. Beside them,
+/// ours: 16 KiB gathered per write.
 pub struct Http2Config {
     pub keep_alive_interval: Option<Duration>,
     pub keep_alive_timeout: Duration,
@@ -93,6 +93,9 @@ pub struct Http2Config {
     /// How many bytes a write to the connection may gather while the work
     /// already ready adds to it; 0 writes at once.
     pub write_coalescing: usize,
+    /// How many bytes of one stream's request may wait in the session to be
+    /// written before the next part of it is taken in, which goes in whole.
+    pub send_buffer: usize,
     // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
     // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,
     // server pushes. It is not a cap on outgoing calls; that one is

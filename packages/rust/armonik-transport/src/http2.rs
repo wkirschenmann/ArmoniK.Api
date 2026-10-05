@@ -273,6 +273,9 @@ pub struct Http2Config {
     /// How many bytes a write to the connection may gather while the work already ready adds to
     /// it; 0 writes at once.
     pub write_coalescing: usize,
+    /// How many bytes of one stream's request may wait in the session to be written before the
+    /// next part of it is taken in, which goes in whole. At least 1, and at most `u32::MAX`.
+    pub send_buffer: usize,
 }
 
 /// The largest window RFC 9113 admits, 2^31 - 1.
@@ -292,6 +295,7 @@ impl Default for Http2Config {
             connection_window: 5 * 1024 * 1024,
             idle_timeout: None,
             write_coalescing: 16 * 1024,
+            send_buffer: 1024 * 1024,
         }
     }
 }
@@ -315,6 +319,17 @@ impl Http2Config {
         }
         if self.idle_timeout.is_some_and(|after| after.is_zero()) {
             return refuse("an idle timeout of zero closes the session after every call");
+        }
+        // hyper panics past `u32::MAX`, and a buffer of zero never takes a byte to send.
+        if !(1..=u32::MAX as usize).contains(&self.send_buffer) {
+            return ConfigurationSnafu {
+                message: format!(
+                    "an HTTP/2 send buffer of {} bytes is outside 1 to {}",
+                    self.send_buffer,
+                    u32::MAX
+                ),
+            }
+            .fail();
         }
         for (window, what, least) in [
             (self.stream_window, "stream", 1),
@@ -529,6 +544,7 @@ where
             .keep_alive_while_idle(http2.keep_alive_while_idle)
             .initial_stream_window_size(http2.stream_window)
             .initial_connection_window_size(http2.connection_window)
+            .max_send_buf_size(http2.send_buffer)
             .handshake(Coalescing::new(io, http2.write_coalescing))
             .await
             .map_err(|error| {
