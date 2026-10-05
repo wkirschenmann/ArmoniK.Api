@@ -262,7 +262,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <remarks>
   ///   Required rather than optional: a caller who names a section meant to configure this, and a
   ///   misspelled name that quietly gave the engine's defaults would be a channel nobody
-  ///   configured. <see cref="Channel(string,int)" /> is how to ask for the defaults.
+  ///   configured. <see cref="Channel(string)" /> is how to ask for the defaults.
   ///
   ///   The same argument one level down is what binds the section strictly. The engine refuses an
   ///   option it does not know in the document it is handed, so a key dropped here would be the
@@ -319,7 +319,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
   /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
   public NativeChannel Channel(string endpoint,
-                               int deliveryCredits = DefaultDeliveryCredits)
+                               int deliveryCredits)
     => Channel(endpoint,
                new ChannelOptions
                {
