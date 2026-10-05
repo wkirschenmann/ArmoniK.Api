@@ -273,8 +273,9 @@ pub struct Http2Config {
     /// How many bytes a write to the connection may gather while the work already ready adds to
     /// it; 0 writes at once.
     pub write_coalescing: usize,
-    /// How many bytes of one stream's request may wait in the session to be written before the
-    /// next part of it is taken in, which goes in whole. At least 1, and at most `u32::MAX`.
+    /// How many bytes of one stream's request may be queued in the session, waiting to be
+    /// written, before its next part is handed over, whole. At least 1, and at most `u32::MAX`:
+    /// hyper panics past it.
     pub send_buffer: usize,
 }
 

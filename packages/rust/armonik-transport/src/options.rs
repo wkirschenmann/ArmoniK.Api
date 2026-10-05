@@ -1074,9 +1074,9 @@ pub struct Http2SendOptions {
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub coalescing_bytes: Option<i32>,
 
-    /// How many bytes of one call's request may wait in the session to be written before the
-    /// next part of it is taken in. A part goes in whole once fewer than this, and fewer than the
-    /// peer's window lets the call send, are waiting, so one part more than this can wait.
+    /// How many bytes of one call's request may be queued in the session, waiting to be written,
+    /// before its next part is handed over. A part is handed over whole once fewer bytes than this
+    /// are queued, and the peer's window has room, so up to one part more than this is queued.
     ///
     /// Defaults to 1048576, 1 MiB.
     #[cfg_attr(
