@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use tokio::sync::{watch, Notify};
 
 use crate::abi::{ak_memory_usage, ak_status};
 use crate::held::Held;
+use crate::spares::Spares;
 
 /// The most this library lends for one message, whatever the host asked for.
 ///
@@ -62,6 +63,12 @@ pub(crate) struct Ledger {
     /// waits on.
     room: watch::Sender<u64>,
     waiting: Mutex<Vec<Arc<Waiter>>>,
+    /// The bytes the channels keep in spare arenas: under the first threshold with the charges,
+    /// and given up for a charge that needs their room. Not in `bytes`, which is what the host
+    /// owes and is told of.
+    spare: AtomicU64,
+    /// The channels' spares, which a charge that needs their room empties.
+    spares: Mutex<Vec<Weak<Spares>>>,
 }
 
 impl Ledger {
@@ -75,6 +82,8 @@ impl Ledger {
             changed: watch::channel(0).0,
             room: watch::channel(0).0,
             waiting: Mutex::new(Vec::new()),
+            spare: AtomicU64::new(0),
+            spares: Mutex::new(Vec::new()),
         };
         if hard_ceiling != 0 && hard_ceiling < ledger.limit() {
             return Err(ak_status::AK_STATUS_INVALID_ARG);
@@ -149,24 +158,95 @@ impl Ledger {
     /// with a buffer still lent, which is the one thing that state is promised not to mean.
     pub(crate) fn hold_bytes(&self, len: usize) -> Result<(), ak_status> {
         self.hold();
+        if self.add_bytes(len) {
+            Ok(())
+        } else {
+            self.release();
+            Err(ak_status::AK_STATUS_BUDGET_BUSY)
+        }
+    }
 
-        let mut seen = self.bytes.load(Ordering::Acquire);
+    /// Charges `len` more to a lend already counted, unless that would pass the first threshold:
+    /// the slack of the spare arena it took.
+    pub(crate) fn hold_more(&self, len: usize) -> bool {
+        self.add_bytes(len)
+    }
+
+    // Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
+    // count and then reads the spares', a spare is kept and then the trim reads the charges, so
+    // the second of the two sees both and gives the spares up.
+    fn add_bytes(&self, len: usize) -> bool {
+        let mut seen = self.bytes.load(Ordering::SeqCst);
         loop {
             let Some(wanted) = seen
                 .checked_add(len as u64)
                 .filter(|wanted| *wanted <= self.limit())
             else {
-                self.release();
-                return Err(ak_status::AK_STATUS_BUDGET_BUSY);
+                return false;
             };
-            match self.bytes.compare_exchange_weak(
-                seen,
-                wanted,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return Ok(()),
+            match self
+                .bytes
+                .compare_exchange_weak(seen, wanted, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => {
+                    self.trim_spares();
+                    return true;
+                }
                 Err(current) => seen = current,
+            }
+        }
+    }
+
+    /// Counts a spare arena of `capacity` bytes, if the first threshold has room for it beside
+    /// what is charged and what is already kept. Correct only with `trim_spares` after the arena
+    /// is kept: a charge made meanwhile may not have seen it.
+    pub(crate) fn keep_spare(&self, capacity: usize) -> bool {
+        let mut seen = self.spare.load(Ordering::SeqCst);
+        loop {
+            let kept = seen.saturating_add(capacity as u64);
+            if self.bytes.load(Ordering::SeqCst).saturating_add(kept) > self.limit() {
+                return false;
+            }
+            match self
+                .spare
+                .compare_exchange_weak(seen, kept, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return true,
+                Err(current) => seen = current,
+            }
+        }
+    }
+
+    pub(crate) fn drop_spare(&self, capacity: usize) {
+        self.spare.fetch_sub(capacity as u64, Ordering::SeqCst);
+    }
+
+    /// Takes `spares` in among those a charge can empty, and lets go of the channels gone.
+    pub(crate) fn register(&self, spares: &Arc<Spares>) {
+        let mut registered = Held::new(self.spares.lock().unwrap_or_else(PoisonError::into_inner));
+        registered.retain(|spares| spares.strong_count() > 0);
+        registered.push(Arc::downgrade(spares));
+    }
+
+    fn over_with_spares(&self) -> bool {
+        self.bytes
+            .load(Ordering::SeqCst)
+            .saturating_add(self.spare.load(Ordering::SeqCst))
+            > self.limit()
+    }
+
+    /// Gives up spares, a channel's at a time, while they and the charges pass the first
+    /// threshold: a charge is never refused for them, and they leave it the room. A spare kept
+    /// while a charge was being made, which that charge could not see, calls it too.
+    pub(crate) fn trim_spares(&self) {
+        if self.spare.load(Ordering::SeqCst) == 0 || !self.over_with_spares() {
+            return;
+        }
+        let registered = Held::new(self.spares.lock().unwrap_or_else(PoisonError::into_inner));
+        for spares in registered.iter().filter_map(Weak::upgrade) {
+            spares.clear();
+            if !self.over_with_spares() {
+                break;
             }
         }
     }
@@ -194,7 +274,7 @@ impl Ledger {
     pub(crate) fn hold_received(self: &Arc<Self>, len: usize) -> Option<Received> {
         self.hold();
 
-        let mut seen = self.bytes.load(Ordering::Acquire);
+        let mut seen = self.bytes.load(Ordering::SeqCst);
         loop {
             let Some(wanted) = seen
                 .checked_add(len as u64)
@@ -203,17 +283,16 @@ impl Ledger {
                 self.release();
                 return None;
             };
-            match self.bytes.compare_exchange_weak(
-                seen,
-                wanted,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
+            match self
+                .bytes
+                .compare_exchange_weak(seen, wanted, Ordering::SeqCst, Ordering::SeqCst)
+            {
                 Ok(_) => {
+                    self.trim_spares();
                     return Some(Received {
                         ledger: Arc::clone(self),
                         len,
-                    })
+                    });
                 }
                 Err(current) => seen = current,
             }

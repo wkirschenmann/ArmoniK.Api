@@ -10,6 +10,7 @@ use crate::held::Held;
 use crate::refusal::Refusal;
 use crate::registry::Spread;
 use crate::runtime::{AkRuntime, ChannelThread};
+use crate::spares::Spares;
 use crate::tables;
 
 pub(crate) struct AkChannel {
@@ -17,6 +18,8 @@ pub(crate) struct AkChannel {
     pub(crate) runtime: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: usize,
+    /// The arenas its sends are done with, to lend again.
+    pub(crate) spares: Arc<Spares>,
     /// Its thread's runtime, where its connection and its calls run.
     pub(crate) spawner: tokio::runtime::Handle,
     /// Dropped with the channel, which is what stops its thread: a channel goes once the host
@@ -233,6 +236,7 @@ pub(crate) fn create(
                 runtime,
                 delivery_credits,
                 max_sends_in_flight,
+                spares: Spares::new(owner.ledger(), SPARES_PER_SEND * max_sends_in_flight),
                 spawner: spawner.clone(),
                 _stop: stop,
                 handle,
@@ -253,6 +257,10 @@ pub(crate) fn create(
     }
     Ok(handle)
 }
+
+/// How many spare arenas a channel keeps for each buffer one of its calls may have out: enough
+/// for a few calls in a row, or at once, to lend again what the last ones gave back.
+const SPARES_PER_SEND: usize = 4;
 
 const ENDPOINT_NOT_UTF8: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,

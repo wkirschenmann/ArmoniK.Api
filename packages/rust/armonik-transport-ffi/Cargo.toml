@@ -30,8 +30,9 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "ti
 schemars = { workspace = true, optional = true }
 
 [features]
-# Points where a test holds a host thread inside a downcall, a count of the channels' threads,
-# and the transport's own hooks. Off unless a test asks for it; no shipped build enables it.
+# Points where a test holds a host thread inside a downcall, counts of the channels' threads and
+# of the arenas lends allocate, and the transport's own hooks. Off unless a test asks for it; no
+# shipped build enables it.
 test-hooks = ["armonik-transport/test-hooks"]
 # A JSON schema of the runtime options, for generating an options class in another language.
 schema = ["dep:schemars", "armonik-transport/schema"]
@@ -52,6 +53,10 @@ required-features = ["test-hooks"]
 
 [[test]]
 name = "writes"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "spares"
 required-features = ["test-hooks"]
 
 [[test]]

@@ -12,6 +12,27 @@ static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREAD_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREADS: AtomicUsize = AtomicUsize::new(0);
+static NEW_ARENAS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many arenas lends have allocated rather than taken from a channel's spares.
+pub fn new_arenas() -> usize {
+    NEW_ARENAS.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_new_arena() {
+    NEW_ARENAS.fetch_add(1, Ordering::SeqCst);
+}
+
+static SPARES_KEPT: AtomicUsize = AtomicUsize::new(0);
+
+/// How many arenas channels have kept as spares.
+pub fn spares_kept() -> usize {
+    SPARES_KEPT.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_spare_kept() {
+    SPARES_KEPT.fetch_add(1, Ordering::SeqCst);
+}
 
 /// How many channels' threads are running, counted until each has dropped its tokio runtime.
 pub fn channel_threads() -> usize {

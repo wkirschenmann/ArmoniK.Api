@@ -515,7 +515,9 @@ typedef struct {
     /**
      * The buffers lent and the messages received and not yet given back, atomic snapshot. Past
      * `ceiling` by up to a message per call admitted to read, and never past the second
-     * threshold.
+     * threshold. The spare arenas channels keep to lend again are not in it: they fit under
+     * `ceiling` beside it, give their room to any charge that needs it, and are kept until then
+     * or until their channel closes.
      */
     uint64_t bytes_used;
     /**
@@ -755,7 +757,8 @@ ak_status ak_call_start(ak_handle channel,
 /**
  * Lends a buffer out of the call's arena to serialize into, of `len` bytes at most: the host
  * writes from its start and says how many bytes it wrote when it commits it. The buffer holds
- * whatever the allocator left there, never read: only the bytes the host says it wrote are sent.
+ * whatever the allocator, or the last message the channel lent it for, left there, never read:
+ * only the bytes the host says it wrote are sent.
  * Writing past `len` is an overrun, which the commit or the return may detect by the bytes this
  * library put after the end: a write that changes them is AK_STATUS_CORRUPTED, and the runtime
  * shuts down. A write that leaves them as they were goes unseen.

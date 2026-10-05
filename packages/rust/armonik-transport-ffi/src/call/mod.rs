@@ -18,7 +18,7 @@ mod lent;
 mod start;
 mod turn;
 
-use lent::{arena, LENT_TAG};
+use lent::{arena, slack, LENT_TAG};
 pub(crate) use lent::{keep, take_lent, take_payload, Lent};
 pub(crate) use start::{start_on, Shape};
 use turn::ReadTurn;
@@ -281,13 +281,33 @@ impl CallState {
         // request has the gRPC prefix kept ahead of what the host writes, and its commit frames
         // the request there.
         let prefix = if one_request { FRAME_PREFIX } else { 0 };
-        let data = match arena(prefix, len) {
+        let mut data = match arena(prefix, len, Some(&self.channel.spares)) {
             Ok(data) => data,
             Err(status) => {
                 self.ledger.release_bytes(len);
                 return Err(status);
             }
         };
+        // A lend is charged what backs it: a spare's slack beside the request, or, when the
+        // ceiling has no room for that, an arena of its own.
+        let mut charged = len;
+        let extra = slack(&data, prefix, len);
+        if extra > 0 {
+            if self.ledger.hold_more(extra) {
+                charged += extra;
+            } else {
+                // Freed before the new one is allocated, so the two are never held at once. Only
+                // a charge made between the trim and this one leaves no room for the slack.
+                drop(std::mem::take(&mut data));
+                data = match arena(prefix, len, None) {
+                    Ok(data) => data,
+                    Err(status) => {
+                        self.ledger.release_bytes(len);
+                        return Err(status);
+                    }
+                };
+            }
+        }
 
         // Forgotten, not dropped: the permit is spent for as long as the host holds the buffer, and
         // it is the WRITE_DONE that gives it back once the message has left.
@@ -299,6 +319,7 @@ impl CallState {
             data,
             prefix,
             len,
+            charged,
         });
         // SAFETY: `arena` reserved `prefix + len` bytes and more.
         let ptr = unsafe { lent.data.as_mut_ptr().add(prefix) };
@@ -349,8 +370,8 @@ impl CallState {
         };
         self.handed_over();
         slot.send(Command::Send {
-            charged: lent.len,
-            message: Bytes::from(lent.data),
+            charged: lent.charged,
+            message: self.channel.spares.message(lent.data),
         });
         ak_status::AK_STATUS_OK
     }
@@ -405,10 +426,14 @@ impl CallState {
             return refused(lent);
         }
 
-        let charged = lent.as_ref().map(|lent| lent.len);
+        let charged = lent.as_ref().map(|lent| lent.charged);
         let mut lent = lent;
         let given = request.give(|| match lent.take() {
-            Some(lent) => FramedRequest::in_place(lent.data).expect("lent with its prefix ahead"),
+            Some(lent) => self
+                .channel
+                .spares
+                .request(lent.data)
+                .expect("lent with its prefix ahead"),
             None => FramedRequest::empty(),
         });
         if !given {
@@ -426,7 +451,7 @@ impl CallState {
 
     #[allow(clippy::boxed_local)]
     pub(crate) fn give_back(&self, lent: Box<Lent>) {
-        self.took_back(lent.len);
+        self.took_back(lent.charged);
         self.window.add_permits(1);
     }
 

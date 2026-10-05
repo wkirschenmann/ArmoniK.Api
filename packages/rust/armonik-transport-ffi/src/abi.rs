@@ -318,7 +318,9 @@ pub enum ak_channel_state {
 pub struct ak_memory_usage {
     /// The buffers lent and the messages received and not yet given back, atomic snapshot. Past
     /// `ceiling` by up to a message per call admitted to read, and never past the second
-    /// threshold.
+    /// threshold. The spare arenas channels keep to lend again are not in it: they fit under
+    /// `ceiling` beside it, give their room to any charge that needs it, and are kept until then
+    /// or until their channel closes.
     pub bytes_used: u64,
     /// The limit in force, which is what was configured or this library's own where that is
     /// smaller. Never zero.

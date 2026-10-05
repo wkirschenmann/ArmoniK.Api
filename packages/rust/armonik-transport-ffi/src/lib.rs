@@ -16,6 +16,7 @@ pub mod options;
 mod refusal;
 mod registry;
 mod runtime;
+mod spares;
 mod tables;
 mod tagged;
 
@@ -423,7 +424,8 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
 
 /// Lends a buffer out of the call's arena to serialize into, of `len` bytes at most: the host
 /// writes from its start and says how many bytes it wrote when it commits it. The buffer holds
-/// whatever the allocator left there, never read: only the bytes the host says it wrote are sent.
+/// whatever the allocator, or the last message the channel lent it for, left there, never read:
+/// only the bytes the host says it wrote are sent.
 /// Writing past `len` is an overrun, which the commit or the return may detect by the bytes this
 /// library put after the end: a write that changes them is AK_STATUS_CORRUPTED, and the runtime
 /// shuts down. A write that leaves them as they were goes unseen.

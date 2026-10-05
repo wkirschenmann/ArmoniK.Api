@@ -11,15 +11,32 @@ pub const FRAME_PREFIX: usize = 5;
 #[derive(Debug)]
 pub struct FramedRequest(Bytes);
 
+/// Writes the prefix of the message after it; None when there is no room for it or the message
+/// no four-byte length carries.
+fn prefixed(buffer: &mut [u8]) -> Option<()> {
+    let len = u32::try_from(buffer.len().checked_sub(FRAME_PREFIX)?).ok()?;
+    buffer[0] = 0;
+    buffer[1..FRAME_PREFIX].copy_from_slice(&len.to_be_bytes());
+    Some(())
+}
+
 impl FramedRequest {
     /// `buffer` holds the message after [`FRAME_PREFIX`] bytes kept for the prefix, which this
     /// writes. None when the buffer has no room for the prefix or the message no four-byte length
     /// carries.
     pub fn in_place(mut buffer: Vec<u8>) -> Option<Self> {
-        let len = u32::try_from(buffer.len().checked_sub(FRAME_PREFIX)?).ok()?;
-        buffer[0] = 0;
-        buffer[1..FRAME_PREFIX].copy_from_slice(&len.to_be_bytes());
+        prefixed(&mut buffer)?;
         Some(Self(Bytes::from(buffer)))
+    }
+
+    /// As [`FramedRequest::in_place`], with `buffer` the owner of the request's bytes until the
+    /// last of them is dropped: what it does then is its own, such as going back to a pool.
+    pub fn in_place_owned<B>(mut buffer: B) -> Option<Self>
+    where
+        B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static,
+    {
+        prefixed(buffer.as_mut())?;
+        Some(Self(Bytes::from_owner(buffer)))
     }
 
     /// A message the caller holds elsewhere, framed by a copy.
@@ -147,6 +164,40 @@ mod tests {
 
         assert_eq!(&FramedRequest::empty().body()[..], &[0; FRAME_PREFIX]);
         assert!(FramedRequest::in_place(vec![0; FRAME_PREFIX - 1]).is_none());
+    }
+
+    /// An owner holds the request's bytes until the last of them is dropped, and is dropped then.
+    #[test]
+    fn an_owned_request_is_dropped_with_its_last_bytes() {
+        struct Owner(Vec<u8>, Arc<std::sync::atomic::AtomicBool>);
+        impl AsRef<[u8]> for Owner {
+            fn as_ref(&self) -> &[u8] {
+                &self.0
+            }
+        }
+        impl AsMut<[u8]> for Owner {
+            fn as_mut(&mut self) -> &mut [u8] {
+                &mut self.0
+            }
+        }
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut buffer = vec![0xff; FRAME_PREFIX];
+        buffer.extend_from_slice(b"abc");
+        let framed = FramedRequest::in_place_owned(Owner(buffer, Arc::clone(&dropped)))
+            .expect("room for the prefix");
+        let body = framed.body();
+        assert_eq!(&body[..], &[0, 0, 0, 0, 3, b'a', b'b', b'c']);
+
+        drop(framed);
+        assert!(!dropped.load(std::sync::atomic::Ordering::SeqCst));
+        drop(body);
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     /// The buffer stays the giver's when the call no longer takes a request: `make` never runs.

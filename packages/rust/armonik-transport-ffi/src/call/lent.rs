@@ -7,6 +7,7 @@ use bytes::Bytes;
 use super::CallState;
 use crate::abi::{ak_bytes, ak_status};
 use crate::ledger::Received;
+use crate::spares::Spares;
 use crate::tagged::take_tagged;
 
 // Written into the boxes the host is given a pointer to, and checked before either is read back:
@@ -34,6 +35,8 @@ pub(crate) struct Lent {
     pub(super) data: Vec<u8>,
     pub(super) prefix: usize,
     pub(super) len: usize,
+    /// What the lend is charged: `len`, and the slack of a spare arena it took.
+    pub(super) charged: usize,
 }
 
 /// The host wrote past the buffer it was lent, or says it wrote more than that.
@@ -59,10 +62,13 @@ impl Lent {
     #[allow(clippy::boxed_local)]
     pub(crate) fn abandon(self: Box<Self>) -> (Arc<CallState>, usize) {
         let Lent {
-            call, data, len, ..
+            call,
+            data,
+            charged,
+            ..
         } = *self;
         std::mem::forget(data);
-        (call, len)
+        (call, charged)
     }
 }
 
@@ -117,18 +123,37 @@ pub(crate) unsafe fn take_payload(owner: *mut c_void) -> Option<Box<Payload>> {
     unsafe { take_tagged(owner, PAYLOAD_TAG) }
 }
 
-/// Room for `len` bytes after `prefix` zeroed ones, with the sentinel after them. The `len` bytes
-/// are left as the allocator gives them: only what the host says it wrote is ever read.
-pub(super) fn arena(prefix: usize, len: usize) -> Result<Vec<u8>, ak_status> {
+/// What an arena of `prefix` and `len` bytes holds past them and the sentinel: a spare's slack.
+pub(super) fn slack(data: &Vec<u8>, prefix: usize, len: usize) -> usize {
+    data.capacity() - (prefix + len + SENTINEL.len())
+}
+
+/// Room for `len` bytes after `prefix` zeroed ones, with the sentinel after them: a spare of the
+/// channel's if one fits and `spares` is given, else a new allocation. The `len` bytes are left
+/// as they are, a spare's as its last message left them: only what the host says it wrote is
+/// ever read.
+pub(super) fn arena(
+    prefix: usize,
+    len: usize,
+    spares: Option<&Spares>,
+) -> Result<Vec<u8>, ak_status> {
     let total = prefix
         .checked_add(len)
         .and_then(|bytes| bytes.checked_add(SENTINEL.len()))
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;
-    let mut data = Vec::new();
-    data.try_reserve_exact(total)
-        .map_err(|_| ak_status::AK_STATUS_INTERNAL)?;
+    let mut data = match spares.and_then(|spares| spares.take(total)) {
+        Some(spare) => spare,
+        None => {
+            let mut data = Vec::new();
+            data.try_reserve_exact(total)
+                .map_err(|_| ak_status::AK_STATUS_INTERNAL)?;
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::count_new_arena();
+            data
+        }
+    };
     data.resize(prefix, 0);
-    // SAFETY: `prefix + len + SENTINEL.len()` bytes were reserved.
+    // SAFETY: the arena holds at least `prefix + len + SENTINEL.len()` bytes.
     unsafe {
         data.as_mut_ptr()
             .add(prefix + len)
@@ -165,6 +190,10 @@ pub(super) fn lend_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn arena(prefix: usize, len: usize) -> Result<Vec<u8>, ak_status> {
+        super::arena(prefix, len, None)
+    }
 
     /// A message is what the host says it wrote, up to what it was lent.
     #[test]
