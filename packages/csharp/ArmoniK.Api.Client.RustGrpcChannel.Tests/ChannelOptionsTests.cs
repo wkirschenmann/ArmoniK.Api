@@ -51,7 +51,7 @@ public class ChannelOptionsTests
                              DeliveryCredits = 4,
                              UserAgent       = "test",
                            }),
-                   Is.EqualTo(@"{""DeliveryCredits"":4,""UserAgent"":""test""}"));
+                   Is.EqualTo(@"{""UserAgent"":""test"",""DeliveryCredits"":4}"));
 
   /// <summary>A group is an object, because the document is typed and structured.</summary>
   [Test]
@@ -240,7 +240,7 @@ public class ChannelOptionsTests
 
       // The document, because an option bound but not serialized is one the engine never sees.
       Assert.That(Encoded(options),
-                  Is.EqualTo(@"{""MaxSendsInFlight"":7,""Transport"":{""ConnectTimeoutSeconds"":2.5}}"));
+                  Is.EqualTo(@"{""Transport"":{""ConnectTimeoutSeconds"":2.5},""MaxSendsInFlight"":7}"));
     }
     finally
     {
@@ -343,5 +343,5 @@ public class ChannelOptionsTests
                              DeliveryCredits  = 1,
                              MaxSendsInFlight = 536870910,
                            }),
-                   Is.EqualTo(@"{""DeliveryCredits"":1,""MaxSendsInFlight"":536870910}"));
+                   Is.EqualTo(@"{""MaxSendsInFlight"":536870910,""DeliveryCredits"":1}"));
 }

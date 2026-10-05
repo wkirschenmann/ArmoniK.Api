@@ -49,7 +49,9 @@ prost-types = "0.14"
 rcgen = { version = "0.14", default-features = false }
 rustls = { version = "0.23", default-features = false }
 schannel = "0.1"
-schemars = "1"
+# `preserve_order`: a schema lists properties as the type declares them, and the C# options
+# generator takes member order from it.
+schemars = { version = "1", features = ["preserve_order"] }
 secrecy = "0.10"
 # `std` as well as `derive`: without it `String` implements neither `Serialize` nor `Deserialize`, so
 # the `serde` feature would not compile.

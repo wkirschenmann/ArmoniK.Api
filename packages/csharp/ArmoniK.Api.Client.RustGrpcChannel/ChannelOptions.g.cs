@@ -57,33 +57,45 @@ public sealed class ChannelOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    ConnectEagerly = other.ConnectEagerly;
-    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
-    DeliveryCoalescingBytes = other.DeliveryCoalescingBytes;
-    DeliveryCredits = other.DeliveryCredits;
-    Http2 = other.Http2 is null
-              ? null
-              : new Http2Options(other.Http2);
-    MaxReceiveMessageSize = other.MaxReceiveMessageSize;
-    MaxSendsInFlight = other.MaxSendsInFlight;
-    Retry = other.Retry is null
-              ? null
-              : new RetryOptions(other.Retry);
     Transport = other.Transport is null
                   ? null
                   : new TransportOptions(other.Transport);
     UserAgent = other.UserAgent;
+    MaxReceiveMessageSize = other.MaxReceiveMessageSize;
+    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
+    MaxSendsInFlight = other.MaxSendsInFlight;
+    DeliveryCredits = other.DeliveryCredits;
+    DeliveryCoalescingBytes = other.DeliveryCoalescingBytes;
+    Http2 = other.Http2 is null
+              ? null
+              : new Http2Options(other.Http2);
+    Retry = other.Retry is null
+              ? null
+              : new RetryOptions(other.Retry);
+    ConnectEagerly = other.ConnectEagerly;
   }
 
-  /// <summary>
-  ///   Whether the channel starts dialling its endpoint as it is created rather than at its first
-  ///   call, which then finds the session open or joins the dial under way. A dial that fails is
-  ///   not reported: the first call dials again and reports what it meets.
-  /// </summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("ConnectEagerly")]
+  /// <summary>What the transport does, beyond reaching the endpoint.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Transport")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? ConnectEagerly { get; set; }
+  public TransportOptions? Transport { get; set; }
+
+  /// <summary>What this client calls itself in <c>user-agent</c>.</summary>
+  /// <remarks>Defaults to <c>armonik-transport/</c> followed by the engine's version.</remarks>
+  [JsonPropertyName("UserAgent")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? UserAgent { get; set; }
+
+  /// <summary>The largest message this client will accept, in bytes.</summary>
+  /// <remarks>
+  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
+  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
+  ///   at all.
+  /// </remarks>
+  [JsonPropertyName("MaxReceiveMessageSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxReceiveMessageSize { get; set; }
 
   /// <summary>
   ///   The deadline of a call that states none, counted from its start: the call ends
@@ -99,14 +111,11 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? DefaultDeadlineSeconds { get; set; }
 
-  /// <summary>
-  ///   How many bytes of a response a delivery to the host may wait to gather, so that a unary
-  ///   answer's head, message and status reach it in one callback. 0 delivers each read at once.
-  /// </summary>
-  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
-  [JsonPropertyName("DeliveryCoalescingBytes")]
+  /// <summary>How many messages a call may have sent and unacquitted at once.</summary>
+  /// <remarks>Defaults to 1.</remarks>
+  [JsonPropertyName("MaxSendsInFlight")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? DeliveryCoalescingBytes { get; set; }
+  public int? MaxSendsInFlight { get; set; }
 
   /// <summary>
   ///   How many of a call's payloads the host may hold at once, delivered and not yet given back.
@@ -117,27 +126,20 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? DeliveryCredits { get; set; }
 
+  /// <summary>
+  ///   How many bytes of a response a delivery to the host may wait to gather, so that a unary
+  ///   answer's head, message and status reach it in one callback. 0 delivers each read at once.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
+  [JsonPropertyName("DeliveryCoalescingBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? DeliveryCoalescingBytes { get; set; }
+
   /// <summary>The HTTP/2 session the channel's calls share.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Http2")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public Http2Options? Http2 { get; set; }
-
-  /// <summary>The largest message this client will accept, in bytes.</summary>
-  /// <remarks>
-  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-  ///   at all.
-  /// </remarks>
-  [JsonPropertyName("MaxReceiveMessageSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxReceiveMessageSize { get; set; }
-
-  /// <summary>How many messages a call may have sent and unacquitted at once.</summary>
-  /// <remarks>Defaults to 1.</remarks>
-  [JsonPropertyName("MaxSendsInFlight")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxSendsInFlight { get; set; }
 
   /// <summary>When a failed call is sent again.</summary>
   /// <remarks>
@@ -149,41 +151,25 @@ public sealed class ChannelOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryOptions? Retry { get; set; }
 
-  /// <summary>What the transport does, beyond reaching the endpoint.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
-  [JsonPropertyName("Transport")]
+  /// <summary>
+  ///   Whether the channel starts dialling its endpoint as it is created rather than at its first
+  ///   call, which then finds the session open or joins the dial under way. A dial that fails is
+  ///   not reported: the first call dials again and reports what it meets.
+  /// </summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("ConnectEagerly")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public TransportOptions? Transport { get; set; }
-
-  /// <summary>What this client calls itself in <c>user-agent</c>.</summary>
-  /// <remarks>Defaults to <c>armonik-transport/</c> followed by the engine's version.</remarks>
-  [JsonPropertyName("UserAgent")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? UserAgent { get; set; }
+  public bool? ConnectEagerly { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
+    if (UserAgent is string userAgent && userAgent.Length < 1)
     {
-      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
-                                            defaultDeadlineSeconds,
-                                            "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (DeliveryCoalescingBytes is int deliveryCoalescingBytes && deliveryCoalescingBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(DeliveryCoalescingBytes),
-                                            deliveryCoalescingBytes,
-                                            "DeliveryCoalescingBytes has to be at least 0.");
-    }
-
-    if (DeliveryCredits is int deliveryCredits && (deliveryCredits < 1 || deliveryCredits > 536870910))
-    {
-      throw new ArgumentOutOfRangeException(nameof(DeliveryCredits),
-                                            deliveryCredits,
-                                            "DeliveryCredits has to be at least 1 and at most 536870910.");
+      throw new ArgumentOutOfRangeException(nameof(UserAgent),
+                                            userAgent,
+                                            "UserAgent has to be at least 1 character long.");
     }
 
     if (MaxReceiveMessageSize is int maxReceiveMessageSize && maxReceiveMessageSize < 1)
@@ -193,6 +179,13 @@ public sealed class ChannelOptions
                                             "MaxReceiveMessageSize has to be at least 1.");
     }
 
+    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
+                                            defaultDeadlineSeconds,
+                                            "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
     if (MaxSendsInFlight is int maxSendsInFlight && (maxSendsInFlight < 1 || maxSendsInFlight > 536870910))
     {
       throw new ArgumentOutOfRangeException(nameof(MaxSendsInFlight),
@@ -200,16 +193,23 @@ public sealed class ChannelOptions
                                             "MaxSendsInFlight has to be at least 1 and at most 536870910.");
     }
 
-    if (UserAgent is string userAgent && userAgent.Length < 1)
+    if (DeliveryCredits is int deliveryCredits && (deliveryCredits < 1 || deliveryCredits > 536870910))
     {
-      throw new ArgumentOutOfRangeException(nameof(UserAgent),
-                                            userAgent,
-                                            "UserAgent has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(DeliveryCredits),
+                                            deliveryCredits,
+                                            "DeliveryCredits has to be at least 1 and at most 536870910.");
     }
 
+    if (DeliveryCoalescingBytes is int deliveryCoalescingBytes && deliveryCoalescingBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(DeliveryCoalescingBytes),
+                                            deliveryCoalescingBytes,
+                                            "DeliveryCoalescingBytes has to be at least 0.");
+    }
+
+    Transport?.Validate();
     Http2?.Validate();
     Retry?.Validate();
-    Transport?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
@@ -223,47 +223,7 @@ public sealed class ChannelOptions
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "ConnectEagerly"))
-      {
-        bound.ConnectEagerly = ChannelOptionsConfiguration.Boolean(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "DefaultDeadlineSeconds"))
-      {
-        bound.DefaultDeadlineSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "DeliveryCoalescingBytes"))
-      {
-        bound.DeliveryCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "DeliveryCredits"))
-      {
-        bound.DeliveryCredits = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Http2"))
-      {
-        bound.Http2 = ChannelOptionsConfiguration.Holds(entry) ? Http2Options.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxReceiveMessageSize"))
-      {
-        bound.MaxReceiveMessageSize = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxSendsInFlight"))
-      {
-        bound.MaxSendsInFlight = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Retry"))
-      {
-        bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Transport"))
+                                         "Transport"))
       {
         bound.Transport = ChannelOptionsConfiguration.Holds(entry) ? TransportOptions.Bind(entry) : null;
       }
@@ -271,6 +231,46 @@ public sealed class ChannelOptions
                                               "UserAgent"))
       {
         bound.UserAgent = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxReceiveMessageSize"))
+      {
+        bound.MaxReceiveMessageSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DefaultDeadlineSeconds"))
+      {
+        bound.DefaultDeadlineSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxSendsInFlight"))
+      {
+        bound.MaxSendsInFlight = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DeliveryCredits"))
+      {
+        bound.DeliveryCredits = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "DeliveryCoalescingBytes"))
+      {
+        bound.DeliveryCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Http2"))
+      {
+        bound.Http2 = ChannelOptionsConfiguration.Holds(entry) ? Http2Options.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Retry"))
+      {
+        bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "ConnectEagerly"))
+      {
+        bound.ConnectEagerly = ChannelOptionsConfiguration.Boolean(entry);
       }
       else
       {
@@ -298,363 +298,6 @@ public sealed class ChannelOptions
   }
 }
 
-/// <summary>
-///   The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
-///   it lets the peer send ahead of what is read.
-/// </summary>
-public sealed class Http2Options
-{
-  /// <summary>Options nobody has set.</summary>
-  public Http2Options()
-  {
-  }
-
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public Http2Options(Http2Options other)
-  {
-    if (other is null)
-    {
-      throw new ArgumentNullException(nameof(other));
-    }
-
-    ConnectionWindowSize = other.ConnectionWindowSize;
-    IdleTimeoutSeconds = other.IdleTimeoutSeconds;
-    KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
-    KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
-    KeepAliveWhileIdle = other.KeepAliveWhileIdle;
-    StreamWindowSize = other.StreamWindowSize;
-    WriteCoalescingBytes = other.WriteCoalescingBytes;
-  }
-
-  /// <summary>
-  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
-  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
-  ///   the others receiving. At least 65535, the window every connection starts with.
-  /// </summary>
-  /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
-  [JsonPropertyName("ConnectionWindowSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? ConnectionWindowSize { get; set; }
-
-  /// <summary>
-  ///   How long the session stays open with no call on it before it is closed, the next call
-  ///   dialling a new one. A call holds the session from its dial to the end of its response.
-  /// </summary>
-  /// <remarks>Defaults to none: an idle session stays open.</remarks>
-  [JsonPropertyName("IdleTimeoutSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? IdleTimeoutSeconds { get; set; }
-
-  /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
-  [JsonPropertyName("KeepAliveIntervalSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? KeepAliveIntervalSeconds { get; set; }
-
-  /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
-  /// <remarks>Defaults to 20.</remarks>
-  [JsonPropertyName("KeepAliveTimeoutSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? KeepAliveTimeoutSeconds { get; set; }
-
-  /// <summary>Whether a PING is also sent while no call is open.</summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("KeepAliveWhileIdle")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? KeepAliveWhileIdle { get; set; }
-
-  /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
-  /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
-  [JsonPropertyName("StreamWindowSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? StreamWindowSize { get; set; }
-
-  /// <summary>
-  ///   How many bytes a write to the connection may gather before it goes. A write waits while
-  ///   the work already ready adds frames to it, one round of the runtime at a time, and goes once
-  ///   a round adds none or it holds this many bytes: a request's message handed over while its
-  ///   headers wait then goes out with them, in one write rather than two. 0 writes at once.
-  /// </summary>
-  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
-  [JsonPropertyName("WriteCoalescingBytes")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? WriteCoalescingBytes { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
-  {
-    if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
-    {
-      throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
-                                            connectionWindowSize,
-                                            "ConnectionWindowSize has to be at least 65535.");
-    }
-
-    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 1E-09 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
-                                            idleTimeoutSeconds,
-                                            "IdleTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 1E-09 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeepAliveIntervalSeconds),
-                                            keepAliveIntervalSeconds,
-                                            "KeepAliveIntervalSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (KeepAliveTimeoutSeconds is double keepAliveTimeoutSeconds && (keepAliveTimeoutSeconds < 1E-09 || keepAliveTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveTimeoutSeconds) || double.IsInfinity(keepAliveTimeoutSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeepAliveTimeoutSeconds),
-                                            keepAliveTimeoutSeconds,
-                                            "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
-                                            streamWindowSize,
-                                            "StreamWindowSize has to be at least 1.");
-    }
-
-    if (WriteCoalescingBytes is int writeCoalescingBytes && writeCoalescingBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(WriteCoalescingBytes),
-                                            writeCoalescingBytes,
-                                            "WriteCoalescingBytes has to be at least 0.");
-    }
-  }
-
-  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
-  /// <param name="section">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static Http2Options Bind(IConfigurationSection section)
-  {
-    var bound = new Http2Options();
-
-    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
-    {
-      if (ChannelOptionsConfiguration.Is(entry,
-                                         "ConnectionWindowSize"))
-      {
-        bound.ConnectionWindowSize = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "IdleTimeoutSeconds"))
-      {
-        bound.IdleTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "KeepAliveIntervalSeconds"))
-      {
-        bound.KeepAliveIntervalSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "KeepAliveTimeoutSeconds"))
-      {
-        bound.KeepAliveTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "KeepAliveWhileIdle"))
-      {
-        bound.KeepAliveWhileIdle = ChannelOptionsConfiguration.Boolean(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "StreamWindowSize"))
-      {
-        bound.StreamWindowSize = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "WriteCoalescingBytes"))
-      {
-        bound.WriteCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else
-      {
-        throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "Http2Options");
-      }
-    }
-
-    return bound;
-  }
-}
-
-/// <summary>
-///   When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
-///   that starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to
-///   <c>MaxBackoffSeconds</c>, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
-///   the reader and what the call sent is still kept for the replay.
-/// </summary>
-public sealed class RetryOptions
-{
-  /// <summary>Options nobody has set.</summary>
-  public RetryOptions()
-  {
-  }
-
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public RetryOptions(RetryOptions other)
-  {
-    if (other is null)
-    {
-      throw new ArgumentNullException(nameof(other));
-    }
-
-    BackoffMultiplier = other.BackoffMultiplier;
-    CallReplayBytes = other.CallReplayBytes;
-    ChannelReplayBytes = other.ChannelReplayBytes;
-    InitialBackoffSeconds = other.InitialBackoffSeconds;
-    MaxAttempts = other.MaxAttempts;
-    MaxBackoffSeconds = other.MaxBackoffSeconds;
-  }
-
-  /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
-  /// <remarks>Defaults to 1.5.</remarks>
-  [JsonPropertyName("BackoffMultiplier")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? BackoffMultiplier { get; set; }
-
-  /// <summary>The bytes one call may keep for a replay; a call that sends more is not tried again.</summary>
-  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
-  [JsonPropertyName("CallReplayBytes")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? CallReplayBytes { get; set; }
-
-  /// <summary>
-  ///   The bytes all of the channel's calls may keep for a replay together; a call whose message
-  ///   would pass it is not tried again.
-  /// </summary>
-  /// <remarks>Defaults to 16777216, 16 MiB.</remarks>
-  [JsonPropertyName("ChannelReplayBytes")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? ChannelReplayBytes { get; set; }
-
-  /// <summary>The bound of the first backoff.</summary>
-  /// <remarks>Defaults to 1.</remarks>
-  [JsonPropertyName("InitialBackoffSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? InitialBackoffSeconds { get; set; }
-
-  /// <summary>
-  ///   Attempts in all, the first included; 1 retries nothing. A call its peer never processed
-  ///   goes again besides, whatever this is, while every message it sent is kept.
-  /// </summary>
-  /// <remarks>Defaults to 5.</remarks>
-  [JsonPropertyName("MaxAttempts")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxAttempts { get; set; }
-
-  /// <summary>What the bound grows to and no further; refused below <c>InitialBackoffSeconds</c>.</summary>
-  /// <remarks>Defaults to 5.</remarks>
-  [JsonPropertyName("MaxBackoffSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? MaxBackoffSeconds { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
-  {
-    if (BackoffMultiplier is double backoffMultiplier && (backoffMultiplier < 1 || double.IsNaN(backoffMultiplier) || double.IsInfinity(backoffMultiplier)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(BackoffMultiplier),
-                                            backoffMultiplier,
-                                            "BackoffMultiplier has to be at least 1 and finite.");
-    }
-
-    if (CallReplayBytes is int callReplayBytes && callReplayBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CallReplayBytes),
-                                            callReplayBytes,
-                                            "CallReplayBytes has to be at least 0.");
-    }
-
-    if (ChannelReplayBytes is int channelReplayBytes && channelReplayBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(ChannelReplayBytes),
-                                            channelReplayBytes,
-                                            "ChannelReplayBytes has to be at least 0.");
-    }
-
-    if (InitialBackoffSeconds is double initialBackoffSeconds && (initialBackoffSeconds < 1E-09 || initialBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(initialBackoffSeconds) || double.IsInfinity(initialBackoffSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(InitialBackoffSeconds),
-                                            initialBackoffSeconds,
-                                            "InitialBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (MaxAttempts is int maxAttempts && maxAttempts < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxAttempts),
-                                            maxAttempts,
-                                            "MaxAttempts has to be at least 1.");
-    }
-
-    if (MaxBackoffSeconds is double maxBackoffSeconds && (maxBackoffSeconds < 1E-09 || maxBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(maxBackoffSeconds) || double.IsInfinity(maxBackoffSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxBackoffSeconds),
-                                            maxBackoffSeconds,
-                                            "MaxBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-  }
-
-  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
-  /// <param name="section">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static RetryOptions Bind(IConfigurationSection section)
-  {
-    var bound = new RetryOptions();
-
-    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
-    {
-      if (ChannelOptionsConfiguration.Is(entry,
-                                         "BackoffMultiplier"))
-      {
-        bound.BackoffMultiplier = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CallReplayBytes"))
-      {
-        bound.CallReplayBytes = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "ChannelReplayBytes"))
-      {
-        bound.ChannelReplayBytes = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "InitialBackoffSeconds"))
-      {
-        bound.InitialBackoffSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxAttempts"))
-      {
-        bound.MaxAttempts = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxBackoffSeconds"))
-      {
-        bound.MaxBackoffSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else
-      {
-        throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "RetryOptions");
-      }
-    }
-
-    return bound;
-  }
-}
-
 /// <summary>What the transport does, beyond reaching the endpoint it was given.</summary>
 /// <remarks>
 ///   The endpoint is not here: it is the one value a channel cannot be created without, so it is
@@ -679,15 +322,15 @@ public sealed class TransportOptions
     }
 
     ConnectTimeoutSeconds = other.ConnectTimeoutSeconds;
-    Proxy = other.Proxy is null
-              ? null
-              : new ProxyOptions(other.Proxy);
-    TcpKeepalive = other.TcpKeepalive is null
-                     ? null
-                     : new TcpKeepaliveOptions(other.TcpKeepalive);
     Tls = other.Tls is null
             ? null
             : new TlsOptions(other.Tls);
+    TcpKeepalive = other.TcpKeepalive is null
+                     ? null
+                     : new TcpKeepaliveOptions(other.TcpKeepalive);
+    Proxy = other.Proxy is null
+              ? null
+              : new ProxyOptions(other.Proxy);
   }
 
   /// <summary>How long a dial may take before it is given up on.</summary>
@@ -699,18 +342,6 @@ public sealed class TransportOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? ConnectTimeoutSeconds { get; set; }
 
-  /// <summary>The HTTP proxy every dial tunnels through.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which tunnels through the proxy the environment names, if any.</remarks>
-  [JsonPropertyName("Proxy")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public ProxyOptions? Proxy { get; set; }
-
-  /// <summary>The socket's keepalive.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets none.</remarks>
-  [JsonPropertyName("TcpKeepalive")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public TcpKeepaliveOptions? TcpKeepalive { get; set; }
-
   /// <summary>How an <c>https://</c> endpoint is secured.</summary>
   /// <remarks>
   ///   Defaults to <c>{}</c>: the server verified against the system's roots under the endpoint's
@@ -719,6 +350,18 @@ public sealed class TransportOptions
   [JsonPropertyName("Tls")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public TlsOptions? Tls { get; set; }
+
+  /// <summary>The socket's keepalive.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets none.</remarks>
+  [JsonPropertyName("TcpKeepalive")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public TcpKeepaliveOptions? TcpKeepalive { get; set; }
+
+  /// <summary>The HTTP proxy every dial tunnels through.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which tunnels through the proxy the environment names, if any.</remarks>
+  [JsonPropertyName("Proxy")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public ProxyOptions? Proxy { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -731,9 +374,9 @@ public sealed class TransportOptions
                                             "ConnectTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
-    Proxy?.Validate();
-    TcpKeepalive?.Validate();
     Tls?.Validate();
+    TcpKeepalive?.Validate();
+    Proxy?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
@@ -752,9 +395,9 @@ public sealed class TransportOptions
         bound.ConnectTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Proxy"))
+                                              "Tls"))
       {
-        bound.Proxy = ChannelOptionsConfiguration.Holds(entry) ? ProxyOptions.Bind(entry) : null;
+        bound.Tls = ChannelOptionsConfiguration.Holds(entry) ? TlsOptions.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "TcpKeepalive"))
@@ -762,9 +405,9 @@ public sealed class TransportOptions
         bound.TcpKeepalive = ChannelOptionsConfiguration.Holds(entry) ? TcpKeepaliveOptions.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Tls"))
+                                              "Proxy"))
       {
-        bound.Tls = ChannelOptionsConfiguration.Holds(entry) ? TlsOptions.Bind(entry) : null;
+        bound.Proxy = ChannelOptionsConfiguration.Holds(entry) ? ProxyOptions.Bind(entry) : null;
       }
       else
       {
@@ -778,85 +421,313 @@ public sealed class TransportOptions
 }
 
 /// <summary>
-///   An HTTP proxy, which a dial tunnels through with <c>CONNECT</c>, so TLS stays end to end with the
-///   server.
+///   How an <c>https://</c> endpoint is secured. Each file is read when the channel is created, so a
+///   path that names nothing usable is refused then, by its option's name.
 /// </summary>
-public sealed class ProxyOptions
+public sealed class TlsOptions
 {
   /// <summary>Options nobody has set.</summary>
-  public ProxyOptions()
+  public TlsOptions()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public ProxyOptions(ProxyOptions other)
+  public TlsOptions(TlsOptions other)
   {
     if (other is null)
     {
       throw new ArgumentNullException(nameof(other));
     }
 
-    Address = other.Address;
-    Password = other.Password;
-    Username = other.Username;
+    CaCertPath = other.CaCertPath;
+    CertPem = other.CertPem;
+    KeyPem = other.KeyPem;
+    CertP12 = other.CertP12;
+    CertP12Password = other.CertP12Password;
+    CertStore = other.CertStore is null
+                  ? null
+                  : new StoreCertificate(other.CertStore);
+    CaStore = other.CaStore is null
+                ? null
+                : new StoreCertificate(other.CaStore);
+    AllowUnsafeConnection = other.AllowUnsafeConnection;
+    OverrideTargetName = other.OverrideTargetName;
   }
 
   /// <summary>
-  ///   <c>none</c> for no proxy, <c>system</c> for the one the system names, or the proxy's <c>http://</c> URL,
-  ///   with no path; <c>http://</c> is assumed when no scheme is written. The URL may carry <c>user:password@</c>,
-  ///   percent-encoded, when <c>Username</c> and <c>Password</c> are not set - which a serialized document
-  ///   then carries too.
+  ///   Path to a PEM file of the roots the server certificate is verified against, in place of
+  ///   the system's. Every certificate the file holds is a root.
   /// </summary>
-  /// <remarks>
-  ///   The environment's proxy is <c>ALL_PROXY</c>, <c>HTTPS_PROXY</c> or <c>HTTP_PROXY</c>, in either case and
-  ///   by the endpoint's scheme, unless <c>NO_PROXY</c> names the endpoint's host; it is read when the
-  ///   channel is created. An <c>https://</c> or <c>socks</c> one is refused when the channel is created,
-  ///   and any other value the environment cannot read as a proxy is ignored.
-  ///   On Windows, when the environment names no proxy, the system's is the one the current
-  ///   user's network settings name: a PAC script, detected or at the configured address, which
-  ///   WinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and
-  ///   its bypass list. Those settings are read when the channel is created, and an <c>https://</c> or
-  ///   <c>socks</c> proxy they name is refused at each dial - except a script's <c>SOCKS</c> answer, which
-  ///   WinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried
-  ///   again for two minutes.
-  ///   The system's proxy is never used for a loopback endpoint.
-  ///   Defaults to <c>system</c>.
-  /// </remarks>
-  [JsonPropertyName("Address")]
+  /// <remarks>Refused together with <c>AllowUnsafeConnection</c>, which verifies nothing.</remarks>
+  [JsonPropertyName("CaCertPath")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Address { get; set; }
+  public string? CaCertPath { get; set; }
 
-  /// <summary>The password that goes with <c>Username</c>.</summary>
-  /// <remarks>
-  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
-  ///   system names no proxy. Beside the environment's proxy, it takes the place of the password
-  ///   that proxy's URL carries; beside the one Windows' settings name, it is the password.
-  /// </remarks>
-  [JsonPropertyName("Password")]
+  /// <summary>Path to a PEM file of the client's certificate, then each issuer the server may not hold.</summary>
+  /// <remarks>Set together with <c>KeyPem</c>.</remarks>
+  [JsonPropertyName("CertPem")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Password { get; set; }
+  public string? CertPem { get; set; }
 
-  /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
-  /// <remarks>
-  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
-  ///   system names no proxy. Beside the environment's proxy, it takes the place of the username
-  ///   that proxy's URL carries; beside the one Windows' settings name, it is the username.
-  /// </remarks>
-  [JsonPropertyName("Username")]
+  /// <summary>Path to a PEM file of the key of the client's certificate.</summary>
+  /// <remarks>Set together with <c>CertPem</c>.</remarks>
+  [JsonPropertyName("KeyPem")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Username { get; set; }
+  public string? KeyPem { get; set; }
+
+  /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
+  /// <remarks>Refused together with <c>CertPem</c> or <c>KeyPem</c>, which name an identity too.</remarks>
+  [JsonPropertyName("CertP12")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? CertP12 { get; set; }
+
+  /// <summary>The password <c>CertP12</c> is protected by. Defaults to the empty one.</summary>
+  /// <remarks>Refused without <c>CertP12</c>.</remarks>
+  [JsonPropertyName("CertP12Password")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? CertP12Password { get; set; }
+
+  /// <summary>
+  ///   The client's certificate and key from a Windows certificate store, <c>My</c> unless <c>Name</c>
+  ///   says otherwise, with the issuers the store's <c>CA</c> holds. Its key has to be exportable.
+  /// </summary>
+  /// <remarks>Refused together with <c>CertPem</c>, <c>KeyPem</c> or <c>CertP12</c>, and off Windows.</remarks>
+  [JsonPropertyName("CertStore")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public StoreCertificate? CertStore { get; set; }
+
+  /// <summary>
+  ///   The root the server certificate is verified against, from a Windows certificate store,
+  ///   <c>Root</c> unless <c>Name</c> says otherwise, in place of the system's.
+  /// </summary>
+  /// <remarks>Refused together with <c>CaCertPath</c> or <c>AllowUnsafeConnection</c>, and off Windows.</remarks>
+  [JsonPropertyName("CaStore")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public StoreCertificate? CaStore { get; set; }
+
+  /// <summary>Accept any server certificate. The connection is still encrypted, to whoever answers.</summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("AllowUnsafeConnection")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public bool? AllowUnsafeConnection { get; set; }
+
+  /// <summary>
+  ///   The host the server certificate is verified against, and sent as SNI, in place of the
+  ///   endpoint's: a DNS name or an IP address, <c>[::1]</c> for IPv6, with an optional port that is
+  ///   not read.
+  /// </summary>
+  [JsonPropertyName("OverrideTargetName")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? OverrideTargetName { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (Address is string address && address.Length < 1)
+    if (CaCertPath is string caCertPath && caCertPath.Length < 1)
     {
-      throw new ArgumentOutOfRangeException(nameof(Address),
-                                            address,
-                                            "Address has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(CaCertPath),
+                                            caCertPath,
+                                            "CaCertPath has to be at least 1 character long.");
+    }
+
+    if (CertPem is string certPem && certPem.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CertPem),
+                                            certPem,
+                                            "CertPem has to be at least 1 character long.");
+    }
+
+    if (KeyPem is string keyPem && keyPem.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(KeyPem),
+                                            keyPem,
+                                            "KeyPem has to be at least 1 character long.");
+    }
+
+    if (CertP12 is string certP12 && certP12.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CertP12),
+                                            certP12,
+                                            "CertP12 has to be at least 1 character long.");
+    }
+
+    if (OverrideTargetName is string overrideTargetName && overrideTargetName.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
+                                            overrideTargetName,
+                                            "OverrideTargetName has to be at least 1 character long.");
+    }
+
+    CertStore?.Validate();
+    CaStore?.Validate();
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static TlsOptions Bind(IConfigurationSection section)
+  {
+    var bound = new TlsOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "CaCertPath"))
+      {
+        bound.CaCertPath = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertPem"))
+      {
+        bound.CertPem = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "KeyPem"))
+      {
+        bound.KeyPem = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertP12"))
+      {
+        bound.CertP12 = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertP12Password"))
+      {
+        bound.CertP12Password = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CertStore"))
+      {
+        bound.CertStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CaStore"))
+      {
+        bound.CaStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "AllowUnsafeConnection"))
+      {
+        bound.AllowUnsafeConnection = ChannelOptionsConfiguration.Boolean(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "OverrideTargetName"))
+      {
+        bound.OverrideTargetName = ChannelOptionsConfiguration.Text(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "TlsOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>
+///   A certificate of a Windows certificate store, named by exactly one of <c>Thumbprint</c>,
+///   <c>SubjectName</c> and <c>FriendlyName</c>.
+/// </summary>
+public sealed class StoreCertificate
+{
+  /// <summary>Options nobody has set.</summary>
+  public StoreCertificate()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public StoreCertificate(StoreCertificate other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Location = other.Location;
+    Name = other.Name;
+    Thumbprint = other.Thumbprint;
+    SubjectName = other.SubjectName;
+    FriendlyName = other.FriendlyName;
+  }
+
+  /// <summary><c>CurrentUser</c> or <c>LocalMachine</c>.</summary>
+  /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
+  [JsonPropertyName("Location")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Location { get; set; }
+
+  /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
+  [JsonPropertyName("Name")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Name { get; set; }
+
+  /// <summary>
+  ///   The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between
+  ///   them are ignored.
+  /// </summary>
+  [JsonPropertyName("Thumbprint")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Thumbprint { get; set; }
+
+  /// <summary>
+  ///   A text the certificate's subject contains, compared without case, as .NET's
+  ///   <c>FindBySubjectName</c> compares it.
+  /// </summary>
+  [JsonPropertyName("SubjectName")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? SubjectName { get; set; }
+
+  /// <summary>The certificate's friendly name, exactly.</summary>
+  [JsonPropertyName("FriendlyName")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? FriendlyName { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (Location is string location && location.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Location),
+                                            location,
+                                            "Location has to be at least 1 character long.");
+    }
+
+    if (Name is string name && name.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Name),
+                                            name,
+                                            "Name has to be at least 1 character long.");
+    }
+
+    if (Thumbprint is string thumbprint && thumbprint.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Thumbprint),
+                                            thumbprint,
+                                            "Thumbprint has to be at least 1 character long.");
+    }
+
+    if (SubjectName is string subjectName && subjectName.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(SubjectName),
+                                            subjectName,
+                                            "SubjectName has to be at least 1 character long.");
+    }
+
+    if (FriendlyName is string friendlyName && friendlyName.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(FriendlyName),
+                                            friendlyName,
+                                            "FriendlyName has to be at least 1 character long.");
     }
   }
 
@@ -864,31 +735,41 @@ public sealed class ProxyOptions
   /// <param name="section">The section, whose every key has to name an option.</param>
   /// <returns>The options, unset where the section states nothing.</returns>
   /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static ProxyOptions Bind(IConfigurationSection section)
+  internal static StoreCertificate Bind(IConfigurationSection section)
   {
-    var bound = new ProxyOptions();
+    var bound = new StoreCertificate();
 
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "Address"))
+                                         "Location"))
       {
-        bound.Address = ChannelOptionsConfiguration.Text(entry);
+        bound.Location = ChannelOptionsConfiguration.Text(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Password"))
+                                              "Name"))
       {
-        bound.Password = ChannelOptionsConfiguration.Text(entry);
+        bound.Name = ChannelOptionsConfiguration.Text(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Username"))
+                                              "Thumbprint"))
       {
-        bound.Username = ChannelOptionsConfiguration.Text(entry);
+        bound.Thumbprint = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "SubjectName"))
+      {
+        bound.SubjectName = ChannelOptionsConfiguration.Text(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "FriendlyName"))
+      {
+        bound.FriendlyName = ChannelOptionsConfiguration.Text(entry);
       }
       else
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "ProxyOptions");
+                                                  "StoreCertificate");
       }
     }
 
@@ -1006,209 +887,117 @@ public sealed class TcpKeepaliveOptions
 }
 
 /// <summary>
-///   How an <c>https://</c> endpoint is secured. Each file is read when the channel is created, so a
-///   path that names nothing usable is refused then, by its option's name.
+///   An HTTP proxy, which a dial tunnels through with <c>CONNECT</c>, so TLS stays end to end with the
+///   server.
 /// </summary>
-public sealed class TlsOptions
+public sealed class ProxyOptions
 {
   /// <summary>Options nobody has set.</summary>
-  public TlsOptions()
+  public ProxyOptions()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public TlsOptions(TlsOptions other)
+  public ProxyOptions(ProxyOptions other)
   {
     if (other is null)
     {
       throw new ArgumentNullException(nameof(other));
     }
 
-    AllowUnsafeConnection = other.AllowUnsafeConnection;
-    CaCertPath = other.CaCertPath;
-    CaStore = other.CaStore is null
-                ? null
-                : new StoreCertificate(other.CaStore);
-    CertP12 = other.CertP12;
-    CertP12Password = other.CertP12Password;
-    CertPem = other.CertPem;
-    CertStore = other.CertStore is null
-                  ? null
-                  : new StoreCertificate(other.CertStore);
-    KeyPem = other.KeyPem;
-    OverrideTargetName = other.OverrideTargetName;
+    Address = other.Address;
+    Username = other.Username;
+    Password = other.Password;
   }
 
-  /// <summary>Accept any server certificate. The connection is still encrypted, to whoever answers.</summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("AllowUnsafeConnection")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? AllowUnsafeConnection { get; set; }
-
   /// <summary>
-  ///   Path to a PEM file of the roots the server certificate is verified against, in place of
-  ///   the system's. Every certificate the file holds is a root.
+  ///   <c>none</c> for no proxy, <c>system</c> for the one the system names, or the proxy's <c>http://</c> URL,
+  ///   with no path; <c>http://</c> is assumed when no scheme is written. The URL may carry <c>user:password@</c>,
+  ///   percent-encoded, when <c>Username</c> and <c>Password</c> are not set - which a serialized document
+  ///   then carries too.
   /// </summary>
-  /// <remarks>Refused together with <c>AllowUnsafeConnection</c>, which verifies nothing.</remarks>
-  [JsonPropertyName("CaCertPath")]
+  /// <remarks>
+  ///   The environment's proxy is <c>ALL_PROXY</c>, <c>HTTPS_PROXY</c> or <c>HTTP_PROXY</c>, in either case and
+  ///   by the endpoint's scheme, unless <c>NO_PROXY</c> names the endpoint's host; it is read when the
+  ///   channel is created. An <c>https://</c> or <c>socks</c> one is refused when the channel is created,
+  ///   and any other value the environment cannot read as a proxy is ignored.
+  ///   On Windows, when the environment names no proxy, the system's is the one the current
+  ///   user's network settings name: a PAC script, detected or at the configured address, which
+  ///   WinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and
+  ///   its bypass list. Those settings are read when the channel is created, and an <c>https://</c> or
+  ///   <c>socks</c> proxy they name is refused at each dial - except a script's <c>SOCKS</c> answer, which
+  ///   WinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried
+  ///   again for two minutes.
+  ///   The system's proxy is never used for a loopback endpoint.
+  ///   Defaults to <c>system</c>.
+  /// </remarks>
+  [JsonPropertyName("Address")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CaCertPath { get; set; }
+  public string? Address { get; set; }
 
-  /// <summary>
-  ///   The root the server certificate is verified against, from a Windows certificate store,
-  ///   <c>Root</c> unless <c>Name</c> says otherwise, in place of the system's.
-  /// </summary>
-  /// <remarks>Refused together with <c>CaCertPath</c> or <c>AllowUnsafeConnection</c>, and off Windows.</remarks>
-  [JsonPropertyName("CaStore")]
+  /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
+  /// <remarks>
+  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
+  ///   system names no proxy. Beside the environment's proxy, it takes the place of the username
+  ///   that proxy's URL carries; beside the one Windows' settings name, it is the username.
+  /// </remarks>
+  [JsonPropertyName("Username")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public StoreCertificate? CaStore { get; set; }
+  public string? Username { get; set; }
 
-  /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
-  /// <remarks>Refused together with <c>CertPem</c> or <c>KeyPem</c>, which name an identity too.</remarks>
-  [JsonPropertyName("CertP12")]
+  /// <summary>The password that goes with <c>Username</c>.</summary>
+  /// <remarks>
+  ///   Refused beside credentials the <c>Address</c> URL carries; ignored beside <c>none</c>, and when the
+  ///   system names no proxy. Beside the environment's proxy, it takes the place of the password
+  ///   that proxy's URL carries; beside the one Windows' settings name, it is the password.
+  /// </remarks>
+  [JsonPropertyName("Password")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CertP12 { get; set; }
-
-  /// <summary>The password <c>CertP12</c> is protected by. Defaults to the empty one.</summary>
-  /// <remarks>Refused without <c>CertP12</c>.</remarks>
-  [JsonPropertyName("CertP12Password")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CertP12Password { get; set; }
-
-  /// <summary>Path to a PEM file of the client's certificate, then each issuer the server may not hold.</summary>
-  /// <remarks>Set together with <c>KeyPem</c>.</remarks>
-  [JsonPropertyName("CertPem")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? CertPem { get; set; }
-
-  /// <summary>
-  ///   The client's certificate and key from a Windows certificate store, <c>My</c> unless <c>Name</c>
-  ///   says otherwise, with the issuers the store's <c>CA</c> holds. Its key has to be exportable.
-  /// </summary>
-  /// <remarks>Refused together with <c>CertPem</c>, <c>KeyPem</c> or <c>CertP12</c>, and off Windows.</remarks>
-  [JsonPropertyName("CertStore")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public StoreCertificate? CertStore { get; set; }
-
-  /// <summary>Path to a PEM file of the key of the client's certificate.</summary>
-  /// <remarks>Set together with <c>CertPem</c>.</remarks>
-  [JsonPropertyName("KeyPem")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? KeyPem { get; set; }
-
-  /// <summary>
-  ///   The host the server certificate is verified against, and sent as SNI, in place of the
-  ///   endpoint's: a DNS name or an IP address, <c>[::1]</c> for IPv6, with an optional port that is
-  ///   not read.
-  /// </summary>
-  [JsonPropertyName("OverrideTargetName")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? OverrideTargetName { get; set; }
+  public string? Password { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (CaCertPath is string caCertPath && caCertPath.Length < 1)
+    if (Address is string address && address.Length < 1)
     {
-      throw new ArgumentOutOfRangeException(nameof(CaCertPath),
-                                            caCertPath,
-                                            "CaCertPath has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(Address),
+                                            address,
+                                            "Address has to be at least 1 character long.");
     }
-
-    if (CertP12 is string certP12 && certP12.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CertP12),
-                                            certP12,
-                                            "CertP12 has to be at least 1 character long.");
-    }
-
-    if (CertPem is string certPem && certPem.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CertPem),
-                                            certPem,
-                                            "CertPem has to be at least 1 character long.");
-    }
-
-    if (KeyPem is string keyPem && keyPem.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeyPem),
-                                            keyPem,
-                                            "KeyPem has to be at least 1 character long.");
-    }
-
-    if (OverrideTargetName is string overrideTargetName && overrideTargetName.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
-                                            overrideTargetName,
-                                            "OverrideTargetName has to be at least 1 character long.");
-    }
-
-    CaStore?.Validate();
-    CertStore?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
   /// <param name="section">The section, whose every key has to name an option.</param>
   /// <returns>The options, unset where the section states nothing.</returns>
   /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static TlsOptions Bind(IConfigurationSection section)
+  internal static ProxyOptions Bind(IConfigurationSection section)
   {
-    var bound = new TlsOptions();
+    var bound = new ProxyOptions();
 
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "AllowUnsafeConnection"))
+                                         "Address"))
       {
-        bound.AllowUnsafeConnection = ChannelOptionsConfiguration.Boolean(entry);
+        bound.Address = ChannelOptionsConfiguration.Text(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CaCertPath"))
+                                              "Username"))
       {
-        bound.CaCertPath = ChannelOptionsConfiguration.Text(entry);
+        bound.Username = ChannelOptionsConfiguration.Text(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CaStore"))
+                                              "Password"))
       {
-        bound.CaStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertP12"))
-      {
-        bound.CertP12 = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertP12Password"))
-      {
-        bound.CertP12Password = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertPem"))
-      {
-        bound.CertPem = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "CertStore"))
-      {
-        bound.CertStore = ChannelOptionsConfiguration.Holds(entry) ? StoreCertificate.Bind(entry) : null;
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "KeyPem"))
-      {
-        bound.KeyPem = ChannelOptionsConfiguration.Text(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "OverrideTargetName"))
-      {
-        bound.OverrideTargetName = ChannelOptionsConfiguration.Text(entry);
+        bound.Password = ChannelOptionsConfiguration.Text(entry);
       }
       else
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "TlsOptions");
+                                                  "ProxyOptions");
       }
     }
 
@@ -1217,102 +1006,132 @@ public sealed class TlsOptions
 }
 
 /// <summary>
-///   A certificate of a Windows certificate store, named by exactly one of <c>Thumbprint</c>,
-///   <c>SubjectName</c> and <c>FriendlyName</c>.
+///   The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
+///   it lets the peer send ahead of what is read.
 /// </summary>
-public sealed class StoreCertificate
+public sealed class Http2Options
 {
   /// <summary>Options nobody has set.</summary>
-  public StoreCertificate()
+  public Http2Options()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public StoreCertificate(StoreCertificate other)
+  public Http2Options(Http2Options other)
   {
     if (other is null)
     {
       throw new ArgumentNullException(nameof(other));
     }
 
-    FriendlyName = other.FriendlyName;
-    Location = other.Location;
-    Name = other.Name;
-    SubjectName = other.SubjectName;
-    Thumbprint = other.Thumbprint;
+    KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
+    KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
+    KeepAliveWhileIdle = other.KeepAliveWhileIdle;
+    StreamWindowSize = other.StreamWindowSize;
+    ConnectionWindowSize = other.ConnectionWindowSize;
+    IdleTimeoutSeconds = other.IdleTimeoutSeconds;
+    WriteCoalescingBytes = other.WriteCoalescingBytes;
   }
 
-  /// <summary>The certificate's friendly name, exactly.</summary>
-  [JsonPropertyName("FriendlyName")]
+  /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
+  [JsonPropertyName("KeepAliveIntervalSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? FriendlyName { get; set; }
+  public double? KeepAliveIntervalSeconds { get; set; }
 
-  /// <summary><c>CurrentUser</c> or <c>LocalMachine</c>.</summary>
-  /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
-  [JsonPropertyName("Location")]
+  /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
+  /// <remarks>Defaults to 20.</remarks>
+  [JsonPropertyName("KeepAliveTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Location { get; set; }
+  public double? KeepAliveTimeoutSeconds { get; set; }
 
-  /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
-  [JsonPropertyName("Name")]
+  /// <summary>Whether a PING is also sent while no call is open.</summary>
+  /// <remarks>Defaults to false.</remarks>
+  [JsonPropertyName("KeepAliveWhileIdle")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Name { get; set; }
+  public bool? KeepAliveWhileIdle { get; set; }
+
+  /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
+  /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
+  [JsonPropertyName("StreamWindowSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? StreamWindowSize { get; set; }
 
   /// <summary>
-  ///   A text the certificate's subject contains, compared without case, as .NET's
-  ///   <c>FindBySubjectName</c> compares it.
+  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
+  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
+  ///   the others receiving. At least 65535, the window every connection starts with.
   /// </summary>
-  [JsonPropertyName("SubjectName")]
+  /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
+  [JsonPropertyName("ConnectionWindowSize")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? SubjectName { get; set; }
+  public int? ConnectionWindowSize { get; set; }
 
   /// <summary>
-  ///   The certificate's SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between
-  ///   them are ignored.
+  ///   How long the session stays open with no call on it before it is closed, the next call
+  ///   dialling a new one. A call holds the session from its dial to the end of its response.
   /// </summary>
-  [JsonPropertyName("Thumbprint")]
+  /// <remarks>Defaults to none: an idle session stays open.</remarks>
+  [JsonPropertyName("IdleTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? Thumbprint { get; set; }
+  public double? IdleTimeoutSeconds { get; set; }
+
+  /// <summary>
+  ///   How many bytes a write to the connection may gather before it goes. A write waits while
+  ///   the work already ready adds frames to it, one round of the runtime at a time, and goes once
+  ///   a round adds none or it holds this many bytes: a request's message handed over while its
+  ///   headers wait then goes out with them, in one write rather than two. 0 writes at once.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
+  [JsonPropertyName("WriteCoalescingBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? WriteCoalescingBytes { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (FriendlyName is string friendlyName && friendlyName.Length < 1)
+    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 1E-09 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
     {
-      throw new ArgumentOutOfRangeException(nameof(FriendlyName),
-                                            friendlyName,
-                                            "FriendlyName has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(KeepAliveIntervalSeconds),
+                                            keepAliveIntervalSeconds,
+                                            "KeepAliveIntervalSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
-    if (Location is string location && location.Length < 1)
+    if (KeepAliveTimeoutSeconds is double keepAliveTimeoutSeconds && (keepAliveTimeoutSeconds < 1E-09 || keepAliveTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveTimeoutSeconds) || double.IsInfinity(keepAliveTimeoutSeconds)))
     {
-      throw new ArgumentOutOfRangeException(nameof(Location),
-                                            location,
-                                            "Location has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(KeepAliveTimeoutSeconds),
+                                            keepAliveTimeoutSeconds,
+                                            "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
-    if (Name is string name && name.Length < 1)
+    if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
     {
-      throw new ArgumentOutOfRangeException(nameof(Name),
-                                            name,
-                                            "Name has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
+                                            streamWindowSize,
+                                            "StreamWindowSize has to be at least 1.");
     }
 
-    if (SubjectName is string subjectName && subjectName.Length < 1)
+    if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
     {
-      throw new ArgumentOutOfRangeException(nameof(SubjectName),
-                                            subjectName,
-                                            "SubjectName has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
+                                            connectionWindowSize,
+                                            "ConnectionWindowSize has to be at least 65535.");
     }
 
-    if (Thumbprint is string thumbprint && thumbprint.Length < 1)
+    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 1E-09 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
     {
-      throw new ArgumentOutOfRangeException(nameof(Thumbprint),
-                                            thumbprint,
-                                            "Thumbprint has to be at least 1 character long.");
+      throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
+                                            idleTimeoutSeconds,
+                                            "IdleTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (WriteCoalescingBytes is int writeCoalescingBytes && writeCoalescingBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(WriteCoalescingBytes),
+                                            writeCoalescingBytes,
+                                            "WriteCoalescingBytes has to be at least 0.");
     }
   }
 
@@ -1320,41 +1139,222 @@ public sealed class StoreCertificate
   /// <param name="section">The section, whose every key has to name an option.</param>
   /// <returns>The options, unset where the section states nothing.</returns>
   /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static StoreCertificate Bind(IConfigurationSection section)
+  internal static Http2Options Bind(IConfigurationSection section)
   {
-    var bound = new StoreCertificate();
+    var bound = new Http2Options();
 
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "FriendlyName"))
+                                         "KeepAliveIntervalSeconds"))
       {
-        bound.FriendlyName = ChannelOptionsConfiguration.Text(entry);
+        bound.KeepAliveIntervalSeconds = ChannelOptionsConfiguration.Double(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Location"))
+                                              "KeepAliveTimeoutSeconds"))
       {
-        bound.Location = ChannelOptionsConfiguration.Text(entry);
+        bound.KeepAliveTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Name"))
+                                              "KeepAliveWhileIdle"))
       {
-        bound.Name = ChannelOptionsConfiguration.Text(entry);
+        bound.KeepAliveWhileIdle = ChannelOptionsConfiguration.Boolean(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "SubjectName"))
+                                              "StreamWindowSize"))
       {
-        bound.SubjectName = ChannelOptionsConfiguration.Text(entry);
+        bound.StreamWindowSize = ChannelOptionsConfiguration.Int32(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "Thumbprint"))
+                                              "ConnectionWindowSize"))
       {
-        bound.Thumbprint = ChannelOptionsConfiguration.Text(entry);
+        bound.ConnectionWindowSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "IdleTimeoutSeconds"))
+      {
+        bound.IdleTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "WriteCoalescingBytes"))
+      {
+        bound.WriteCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
       }
       else
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "StoreCertificate");
+                                                  "Http2Options");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>
+///   When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
+///   that starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to
+///   <c>MaxBackoffSeconds</c>, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
+///   the reader and what the call sent is still kept for the replay.
+/// </summary>
+public sealed class RetryOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public RetryOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public RetryOptions(RetryOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    MaxAttempts = other.MaxAttempts;
+    InitialBackoffSeconds = other.InitialBackoffSeconds;
+    MaxBackoffSeconds = other.MaxBackoffSeconds;
+    BackoffMultiplier = other.BackoffMultiplier;
+    CallReplayBytes = other.CallReplayBytes;
+    ChannelReplayBytes = other.ChannelReplayBytes;
+  }
+
+  /// <summary>
+  ///   Attempts in all, the first included; 1 retries nothing. A call its peer never processed
+  ///   goes again besides, whatever this is, while every message it sent is kept.
+  /// </summary>
+  /// <remarks>Defaults to 5.</remarks>
+  [JsonPropertyName("MaxAttempts")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxAttempts { get; set; }
+
+  /// <summary>The bound of the first backoff.</summary>
+  /// <remarks>Defaults to 1.</remarks>
+  [JsonPropertyName("InitialBackoffSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? InitialBackoffSeconds { get; set; }
+
+  /// <summary>What the bound grows to and no further; refused below <c>InitialBackoffSeconds</c>.</summary>
+  /// <remarks>Defaults to 5.</remarks>
+  [JsonPropertyName("MaxBackoffSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? MaxBackoffSeconds { get; set; }
+
+  /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
+  /// <remarks>Defaults to 1.5.</remarks>
+  [JsonPropertyName("BackoffMultiplier")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? BackoffMultiplier { get; set; }
+
+  /// <summary>The bytes one call may keep for a replay; a call that sends more is not tried again.</summary>
+  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
+  [JsonPropertyName("CallReplayBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? CallReplayBytes { get; set; }
+
+  /// <summary>
+  ///   The bytes all of the channel's calls may keep for a replay together; a call whose message
+  ///   would pass it is not tried again.
+  /// </summary>
+  /// <remarks>Defaults to 16777216, 16 MiB.</remarks>
+  [JsonPropertyName("ChannelReplayBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? ChannelReplayBytes { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (MaxAttempts is int maxAttempts && maxAttempts < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxAttempts),
+                                            maxAttempts,
+                                            "MaxAttempts has to be at least 1.");
+    }
+
+    if (InitialBackoffSeconds is double initialBackoffSeconds && (initialBackoffSeconds < 1E-09 || initialBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(initialBackoffSeconds) || double.IsInfinity(initialBackoffSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(InitialBackoffSeconds),
+                                            initialBackoffSeconds,
+                                            "InitialBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (MaxBackoffSeconds is double maxBackoffSeconds && (maxBackoffSeconds < 1E-09 || maxBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(maxBackoffSeconds) || double.IsInfinity(maxBackoffSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxBackoffSeconds),
+                                            maxBackoffSeconds,
+                                            "MaxBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+    }
+
+    if (BackoffMultiplier is double backoffMultiplier && (backoffMultiplier < 1 || double.IsNaN(backoffMultiplier) || double.IsInfinity(backoffMultiplier)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(BackoffMultiplier),
+                                            backoffMultiplier,
+                                            "BackoffMultiplier has to be at least 1 and finite.");
+    }
+
+    if (CallReplayBytes is int callReplayBytes && callReplayBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CallReplayBytes),
+                                            callReplayBytes,
+                                            "CallReplayBytes has to be at least 0.");
+    }
+
+    if (ChannelReplayBytes is int channelReplayBytes && channelReplayBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(ChannelReplayBytes),
+                                            channelReplayBytes,
+                                            "ChannelReplayBytes has to be at least 0.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static RetryOptions Bind(IConfigurationSection section)
+  {
+    var bound = new RetryOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "MaxAttempts"))
+      {
+        bound.MaxAttempts = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "InitialBackoffSeconds"))
+      {
+        bound.InitialBackoffSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "MaxBackoffSeconds"))
+      {
+        bound.MaxBackoffSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "BackoffMultiplier"))
+      {
+        bound.BackoffMultiplier = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "CallReplayBytes"))
+      {
+        bound.CallReplayBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "ChannelReplayBytes"))
+      {
+        bound.ChannelReplayBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "RetryOptions");
       }
     }
 
