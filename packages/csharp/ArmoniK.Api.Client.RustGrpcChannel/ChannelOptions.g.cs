@@ -1591,6 +1591,7 @@ public sealed class Http2Options
     KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
     KeepAliveWhileIdle = other.KeepAliveWhileIdle;
     IdleTimeoutSeconds = other.IdleTimeoutSeconds;
+    SimultaneousCallsPerConnection = other.SimultaneousCallsPerConnection;
     Send = other.Send is null
              ? null
              : new Http2SendOptions(other.Send);
@@ -1615,13 +1616,26 @@ public sealed class Http2Options
   public bool? KeepAliveWhileIdle { get; set; }
 
   /// <summary>
-  ///   How long the session stays open with no call on it before it is closed, the next call
-  ///   dialling a new one. A call holds the session from its dial to the end of its response.
+  ///   How long a connection stays open with no call on it before it is closed, the next call
+  ///   dialling a new one. Each connection has its own. A call holds its connection to the end of
+  ///   its response, and of its request too when SimultaneousCallsPerConnection is set.
   /// </summary>
-  /// <remarks>Defaults to none: an idle session stays open.</remarks>
+  /// <remarks>Defaults to none: an idle connection stays open.</remarks>
   [JsonPropertyName("IdleTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? IdleTimeoutSeconds { get; set; }
+
+  /// <summary>
+  ///   How many calls one connection carries at once. A call that finds every connection full
+  ///   opens another, as many as the calls in flight need, and each closes on its own idle
+  ///   timeout when IdleTimeoutSeconds is set. At 1, calls follow one another on a connection but
+  ///   never share it, so that a GOAWAY a server sends because of one call - nginx's
+  ///   ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  /// </summary>
+  /// <remarks>Defaults to none: one connection carries every call.</remarks>
+  [JsonPropertyName("SimultaneousCallsPerConnection")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? SimultaneousCallsPerConnection { get; set; }
 
   /// <summary>What the session sends.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
@@ -1660,6 +1674,13 @@ public sealed class Http2Options
                                             "IdleTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
+    if (SimultaneousCallsPerConnection is int simultaneousCallsPerConnection && simultaneousCallsPerConnection < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(SimultaneousCallsPerConnection),
+                                            simultaneousCallsPerConnection,
+                                            "SimultaneousCallsPerConnection has to be at least 1.");
+    }
+
     Send?.Validate();
     Receive?.Validate();
   }
@@ -1693,6 +1714,11 @@ public sealed class Http2Options
                                               "IdleTimeoutSeconds"))
       {
         bound.IdleTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "SimultaneousCallsPerConnection"))
+      {
+        bound.SimultaneousCallsPerConnection = ChannelOptionsConfiguration.Int32(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "Send"))

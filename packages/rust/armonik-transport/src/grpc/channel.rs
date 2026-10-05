@@ -11,7 +11,7 @@ use http::{StatusCode, Uri};
 use http_body_util::BodyExt;
 use hyper::body::{Body, Frame, Incoming, SizeHint};
 use hyper::client::conn::http2::SendRequest;
-use tokio::sync::{broadcast, watch, Mutex};
+use tokio::sync::{broadcast, watch};
 use tonic::metadata::MetadataMap;
 use tower_service::Service;
 
@@ -127,6 +127,11 @@ impl GrpcChannel {
 
         let endpoint = config.transport.endpoint.clone();
         let idle_timeout = config.transport.http2.idle_timeout;
+        let calls_per_session = config
+            .transport
+            .http2
+            .simultaneous_calls_per_connection
+            .unwrap_or(usize::MAX);
         let connector = TransportConnector::new(config.transport)?;
 
         Ok(Self {
@@ -143,8 +148,8 @@ impl GrpcChannel {
                 retry: config.retry,
                 replay,
                 idle_timeout,
-                holds: std::sync::Mutex::new(Holds::default()),
-                connection: Mutex::new(Session::default()),
+                calls_per_session,
+                sessions: std::sync::Mutex::new(Sessions::default()),
                 closed: watch::channel(false).0,
             }),
         })
@@ -270,10 +275,8 @@ impl GrpcChannel {
             return;
         }
 
-        let inner = self.inner.clone();
-        self.inner.spawner.spawn(async move {
-            inner.connection.lock().await.sender.take();
-        });
+        // Each call holds a sender of its own, so a session closes once its calls are done.
+        self.inner.sessions().open.clear();
     }
 }
 
@@ -333,74 +336,71 @@ pub(crate) struct Inner {
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
-    holds: std::sync::Mutex<Holds>,
-    connection: Mutex<Session>,
+    /// How many calls one session carries at once; `usize::MAX` when one session carries all.
+    calls_per_session: usize,
+    sessions: std::sync::Mutex<Sessions>,
     closed: watch::Sender<bool>,
 }
 
-/// What holds the session: how many calls and dials, when the last of them let go, and whether
-/// the idle timer is running.
+/// The channel's HTTP/2 sessions, and the dials that open more.
 #[derive(Default)]
-struct Holds {
-    active: usize,
-    idle_since: Option<tokio::time::Instant>,
+struct Sessions {
+    next: u64,
+    open: Vec<Session>,
+    dials: Vec<Dial>,
+}
+
+struct Session {
+    id: u64,
+    sender: SendRequest<tonic::body::Body>,
+    /// The calls it carries.
+    calls: usize,
+    /// When it last carried no call.
+    idle_since: tokio::time::Instant,
+    /// Whether its idle timer is running.
     timing: bool,
 }
 
-/// A claim on the session, taken by a call from its service's call to the end of its response,
-/// and by a dial for as long as it runs.
+/// A dial in flight, how many calls wait on it, and how its outcome reaches them.
 ///
-/// The last one let go starts the idle timer, if the channel has one and it is not already
-/// running; the session is closed once it has been idle for the timeout.
-pub(crate) struct Hold(Arc<Inner>);
-
-impl Hold {
-    fn new(inner: &Arc<Inner>) -> Self {
-        inner
-            .holds
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .active += 1;
-        Self(Arc::clone(inner))
-    }
+/// A dial opens a connection of the channel's, so it belongs to the channel and not to whichever
+/// call reached it first. Run inside that call's future it would be the call's: ending the call -
+/// a deadline, a cancel, its channel closing - would drop the future and the dial with it, and the
+/// calls waiting on it would start again from nothing. Under a stream of calls whose deadline is
+/// shorter than a dial, none of them would ever complete one, though a single call left alone
+/// would.
+struct Dial {
+    id: u64,
+    waiting: usize,
+    outcome: broadcast::Sender<Result<(), ChannelError>>,
 }
 
-impl Drop for Hold {
+/// A call's claim on its session: from the request's dispatch to the end of its response, and,
+/// when sessions carry a limited number of calls, to the end of its request too.
+///
+/// The last claim on a session let go starts its idle timer, if the channel has one and it is not
+/// already running; the session is closed once it has been idle for the timeout.
+#[derive(Clone)]
+pub(crate) struct Lease {
+    _claim: Arc<Claim>,
+}
+
+struct Claim {
+    inner: Arc<Inner>,
+    session: u64,
+}
+
+impl Drop for Claim {
     fn drop(&mut self) {
-        let inner = &self.0;
-        let Some(idle_timeout) = inner.idle_timeout else {
-            inner
-                .holds
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .active -= 1;
-            return;
-        };
-        let since = {
-            let mut holds = inner.holds.lock().unwrap_or_else(PoisonError::into_inner);
-            holds.active -= 1;
-            if holds.active > 0 {
-                return;
-            }
-            let since = tokio::time::Instant::now();
-            holds.idle_since = Some(since);
-            if std::mem::replace(&mut holds.timing, true) {
-                return;
-            }
-            since
-        };
-        // Weak, so a timer does not keep a channel nobody holds, nor its session, alive.
-        let weak = Arc::downgrade(inner);
-        inner
-            .spawner
-            .spawn(close_when_idle(weak, since, idle_timeout));
+        self.inner.release(self.session);
     }
 }
 
-/// The idle timer: one per channel, sleeping until the session has been idle for the timeout
-/// since the last hold was let go, and closing it then unless a hold is taken.
+/// The idle timer of one session, sleeping until it has been idle for the timeout since its last
+/// claim was let go, and closing it then unless a claim is taken.
 async fn close_when_idle(
     weak: std::sync::Weak<Inner>,
+    id: u64,
     since: tokio::time::Instant,
     idle_timeout: Duration,
 ) {
@@ -412,49 +412,36 @@ async fn close_when_idle(
             // Past what the clock holds: a session never idle for that long.
             None => std::future::pending().await,
         }
+        // Weak, so a timer does not keep a channel nobody holds, nor its sessions, alive.
         let Some(inner) = weak.upgrade() else {
             return;
         };
-        // The session's lock first: a `sender()` that runs after the check below waits for it,
-        // then finds no session and dials.
-        let mut slot = inner.connection.lock().await;
-        let mut holds = inner.holds.lock().unwrap_or_else(PoisonError::into_inner);
-        match holds.idle_since {
-            // Held again: the hold that is let go last starts the timer anew.
-            _ if holds.active > 0 => {
-                holds.timing = false;
+        let mut sessions = inner.sessions();
+        let Some(at) = sessions.open.iter().position(|session| session.id == id) else {
+            return;
+        };
+        let session = &mut sessions.open[at];
+        match session.idle_since {
+            // Claimed again: the claim that is let go last starts the timer anew.
+            _ if session.calls > 0 => {
+                session.timing = false;
                 return;
             }
-            // Held and let go since: idle for less than the timeout yet.
-            Some(later) if later > since => since = later,
+            // Claimed and let go since: idle for less than the timeout yet.
+            later if later > since => since = later,
             // A sleep tokio cut short of a deadline years away.
             _ if deadline.is_some_and(|deadline| tokio::time::Instant::now() < deadline) => {}
             _ => {
-                holds.timing = false;
-                slot.sender.take();
+                sessions.open.swap_remove(at);
                 return;
             }
         }
     }
 }
 
-#[derive(Default)]
-struct Session {
-    sender: Option<SendRequest<tonic::body::Body>>,
-    /// The dial in flight, if one is, and how its outcome reaches whoever waits for it.
-    ///
-    /// A dial opens the channel's connection, so it belongs to the channel and not to whichever
-    /// call reached it first. Run inside that call's future it would be the call's: ending the
-    /// call - a deadline, a cancel, its channel closing - would drop the future and the dial with
-    /// it, and the calls queued behind the lock would start again from nothing.
-    /// Under a stream of calls whose deadline is shorter than a dial, none of them would ever
-    /// complete one, though a single call left alone would.
-    dialling: Option<broadcast::Sender<Result<SendRequest<tonic::body::Body>, ChannelError>>>,
-}
-
 impl Inner {
-    /// A tonic client over this channel's session. One per call, and cheap: it holds the
-    /// session's handle and its configuration, not a connection of its own - and the call's
+    /// A tonic client over this channel's sessions. One per call, and cheap: it holds the
+    /// channel's handle and its configuration, not a connection of its own - and the call's
     /// marker, which it sets once the peer's response is in.
     pub(crate) fn client(
         self: &Arc<Self>,
@@ -474,61 +461,96 @@ impl Inner {
         .max_decoding_message_size(addressable(self.max_recv_message_size))
     }
 
-    /// The channel's connection, dialling it if there is none.
+    /// The sessions, locked. Never held across an await.
+    fn sessions(&self) -> std::sync::MutexGuard<'_, Sessions> {
+        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A session with room for one more call, and the call's claim on it, dialling one if none
+    /// has room.
     ///
-    /// A caller either takes the cached session, joins the dial already in flight, or starts one -
-    /// and starting one means spawning it, not running it here. Going away then detaches this
-    /// caller from the dial instead of cancelling it for everyone waiting.
-    async fn sender(self: &Arc<Self>) -> Result<SendRequest<tonic::body::Body>, ChannelError> {
-        let mut waiting = {
-            let mut slot = self.connection.lock().await;
-            if *self.closed.borrow() {
-                return Err(ChannelError::Closed);
-            }
-
-            if let Some(sender) = slot.sender.as_ref() {
-                if !sender.is_closed() {
-                    return Ok(sender.clone());
+    /// The session taken is the fullest that has room, then the one idle most recently, so that
+    /// the others go idle and close. With none, a caller joins a dial in flight that has room for
+    /// it, or starts one - and starting one means spawning it, not running it here. Going away
+    /// then detaches this caller from the dial instead of cancelling it for everyone waiting. A
+    /// dial that ends opens a session its callers then take like any other, so one that finds it
+    /// full by then looks again.
+    async fn sender(
+        self: &Arc<Self>,
+    ) -> Result<(SendRequest<tonic::body::Body>, Lease), ChannelError> {
+        loop {
+            let mut waiting = {
+                let mut sessions = self.sessions();
+                if *self.closed.borrow() {
+                    return Err(ChannelError::Closed);
                 }
-            }
 
-            match slot.dialling.as_ref() {
-                Some(dialling) => dialling.subscribe(),
-                None => {
-                    // One, because one outcome is sent and every waiter subscribed before it was.
-                    let (outcome, waiting) = broadcast::channel(1);
-                    slot.dialling = Some(outcome);
-                    let inner = Arc::clone(self);
-                    // Held by the dial itself, so a dial whose caller went away is still
-                    // counted until it ends.
-                    let hold = Hold::new(self);
-                    self.spawner.spawn(async move {
-                        let _hold = hold;
-                        inner.dial().await
-                    });
-                    waiting
+                sessions.open.retain(|session| !session.sender.is_closed());
+                let roomy = sessions
+                    .open
+                    .iter_mut()
+                    .filter(|session| session.calls < self.calls_per_session)
+                    .max_by_key(|session| (session.calls, session.idle_since));
+                if let Some(session) = roomy {
+                    session.calls += 1;
+                    let lease = Lease {
+                        _claim: Arc::new(Claim {
+                            inner: Arc::clone(self),
+                            session: session.id,
+                        }),
+                    };
+                    return Ok((session.sender.clone(), lease));
                 }
-            }
-        };
 
-        // The lock is released, so the dial is free to take it when it is done. A caller dropped
-        // here drops only its receiver.
-        match waiting.recv().await {
-            Ok(outcome) => outcome,
-            // The dial task went away without an outcome, which happens when the runtime it was
-            // spawned on is shutting down.
-            Err(_) => Err(ChannelError::Closed),
+                let calls_per_session = self.calls_per_session;
+                match sessions
+                    .dials
+                    .iter_mut()
+                    .find(|dial| dial.waiting < calls_per_session)
+                {
+                    Some(dial) => {
+                        dial.waiting += 1;
+                        dial.outcome.subscribe()
+                    }
+                    None => {
+                        // One, because one outcome is sent and every waiter subscribed before it
+                        // was.
+                        let (outcome, waiting) = broadcast::channel(1);
+                        let id = sessions.next;
+                        sessions.next += 1;
+                        sessions.dials.push(Dial {
+                            id,
+                            waiting: 1,
+                            outcome,
+                        });
+                        let inner = Arc::clone(self);
+                        self.spawner.spawn(async move { inner.dial(id).await });
+                        waiting
+                    }
+                }
+            };
+
+            // The lock is released, so the dial is free to take it when it is done. A caller
+            // dropped here drops only its receiver.
+            match waiting.recv().await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => return Err(error),
+                // The dial task went away without an outcome, which happens when the runtime it
+                // was spawned on is shutting down.
+                Err(_) => return Err(ChannelError::Closed),
+            }
         }
     }
 
-    /// Opens the connection and tells whoever waited.
+    /// Opens a session and tells whoever waited.
     ///
-    /// Its own task, so no caller owns it. The order at the end matters: the slot is updated and
+    /// Its own task, so no caller owns it. The order at the end matters: the session is added and
     /// the dial cleared before the outcome goes out, so a caller that arrives after the send finds
-    /// the session rather than a dial that is no longer running.
-    async fn dial(&self) {
-        // Contained, because a panic here would leave `dialling` set with no task behind it, and
-        // every caller waiting on it, and every caller after them, would wait for good.
+    /// the session rather than a dial that is no longer running. The session starts idle, its
+    /// timer running, so that one whose callers all went away is closed too.
+    async fn dial(self: Arc<Self>, id: u64) {
+        // Contained, because a panic here would leave the dial listed with no task behind it, and
+        // every caller waiting on it would wait for good.
         let dialled = contained(async {
             #[cfg(feature = "test-hooks")]
             crate::hooks::run_in_dial();
@@ -542,16 +564,13 @@ impl Inner {
         })
         .await;
 
-        let mut slot = self.connection.lock().await;
-        let outcome = slot.dialling.take();
-
-        let outcome = match outcome {
-            Some(outcome) => outcome,
-            None => return,
+        let mut sessions = self.sessions();
+        let Some(at) = sessions.dials.iter().position(|dial| dial.id == id) else {
+            return;
         };
-
+        let outcome = sessions.dials.swap_remove(at).outcome;
         let told = |result| {
-            // Every waiter may have gone; the slot above is what the next caller reads.
+            // Every waiter may have gone; the sessions are what the next caller reads.
             let _ = outcome.send(result);
         };
 
@@ -576,8 +595,53 @@ impl Inner {
             }
         });
 
-        slot.sender = Some(sender.clone());
-        told(Ok(sender));
+        let since = tokio::time::Instant::now();
+        sessions.open.push(Session {
+            id,
+            sender,
+            calls: 0,
+            idle_since: since,
+            timing: self.idle_timeout.is_some(),
+        });
+        drop(sessions);
+        if let Some(idle_timeout) = self.idle_timeout {
+            self.spawner.spawn(close_when_idle(
+                Arc::downgrade(&self),
+                id,
+                since,
+                idle_timeout,
+            ));
+        }
+        told(Ok(()));
+    }
+
+    /// Lets go of a call's claim on session `id`, starting its idle timer if that was the last.
+    fn release(self: &Arc<Self>, id: u64) {
+        let (since, idle_timeout) = {
+            let mut sessions = self.sessions();
+            let Some(session) = sessions.open.iter_mut().find(|session| session.id == id) else {
+                return;
+            };
+            session.calls -= 1;
+            if session.calls > 0 {
+                return;
+            }
+            let since = tokio::time::Instant::now();
+            session.idle_since = since;
+            let Some(idle_timeout) = self.idle_timeout else {
+                return;
+            };
+            if std::mem::replace(&mut session.timing, true) {
+                return;
+            }
+            (since, idle_timeout)
+        };
+        self.spawner.spawn(close_when_idle(
+            Arc::downgrade(self),
+            id,
+            since,
+            idle_timeout,
+        ));
     }
 }
 
@@ -626,13 +690,12 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         if let Some(body) = &self.body {
             *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body.clone()));
         }
-        let hold = Hold::new(&inner);
         Box::pin(async move {
             request
                 .headers_mut()
                 .extend(engine_headers(&inner.user_agent));
 
-            let mut sender = inner.sender().await.map_err(|error| match error {
+            let (mut sender, lease) = inner.sender().await.map_err(|error| match error {
                 ChannelError::Closed => worded(GrpcStatus::cancelled()),
                 // A fault on this side, as the driver's own panic is, and not a peer out of
                 // reach: UNAVAILABLE would tell a caller the connection or the server failed.
@@ -641,6 +704,21 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 }
                 error => worded(GrpcStatus::unreachable(error)),
             })?;
+            // A session that carries a limited number of calls counts one until hyper is done
+            // with its request too. A call whose response ends first has its request reset, and a
+            // call that took the session before that reset would share whatever the peer answers
+            // it with - a GOAWAY, behind nginx.
+            let request = if inner.calls_per_session == usize::MAX {
+                request
+            } else {
+                let lease = lease.clone();
+                request.map(|body| {
+                    tonic::body::Body::new(LeasedBody {
+                        body,
+                        _lease: lease,
+                    })
+                })
+            };
             let mut response = sender.send_request(request).await.map_err(|error| {
                 let mut status = worded(GrpcStatus::request_lost(&error));
                 if let Some(unprocessed) = Unprocessed::of(&error) {
@@ -653,8 +731,35 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             refuse_what_is_not_grpc(&response)?;
             let response = refuse_a_message_behind_a_stated_status(response).await?;
 
-            Ok(response.map(|body| ResponseBody::new(body, hold, one_response)))
+            Ok(response.map(|body| ResponseBody::new(body, lease, one_response)))
         })
+    }
+}
+
+/// A request's body, holding its call's claim on its session until hyper has sent it or let it
+/// go.
+struct LeasedBody {
+    body: tonic::body::Body,
+    _lease: Lease,
+}
+
+impl Body for LeasedBody {
+    type Data = Bytes;
+    type Error = tonic::Status;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut self.get_mut().body).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.body.size_hint()
     }
 }
 
@@ -685,17 +790,17 @@ pub(crate) struct ResponseBody {
     one_response: bool,
     /// The refusal of a second message, owed once the first's last bytes have gone up.
     refused: Option<tonic::Status>,
-    _hold: Hold,
+    _lease: Lease,
 }
 
 impl ResponseBody {
-    fn new(inner: Incoming, hold: Hold, one_response: bool) -> Self {
+    fn new(inner: Incoming, lease: Lease, one_response: bool) -> Self {
         Self {
             inner,
             framing: Framing::default(),
             one_response,
             refused: None,
-            _hold: hold,
+            _lease: lease,
         }
     }
 

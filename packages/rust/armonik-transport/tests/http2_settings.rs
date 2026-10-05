@@ -273,7 +273,7 @@ async fn a_peer_that_answers_no_ping_ends_the_session_and_the_call_on_it() {
 #[tokio::test]
 async fn a_setting_no_session_could_use_is_refused() {
     let endpoint = "http://127.0.0.1:1";
-    let changes: [fn(&mut Http2Config); 9] = [
+    let changes: [fn(&mut Http2Config); 10] = [
         |http2| http2.receive_windows = fixed(0, 65_535),
         |http2| http2.receive_windows = fixed(1, 1 << 31),
         |http2| http2.receive_windows = fixed(1, 65_534),
@@ -283,6 +283,7 @@ async fn a_setting_no_session_could_use_is_refused() {
         |http2| http2.send_buffer = 0,
         |http2| http2.frames_per_write = 0,
         |http2| http2.frames_per_write = 257,
+        |http2| http2.simultaneous_calls_per_connection = Some(0),
     ];
     let refusals = changes.map(|change| {
         let mut http2 = Http2Config::default();

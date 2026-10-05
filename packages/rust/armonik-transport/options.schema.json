@@ -437,9 +437,15 @@
           "type": "boolean"
         },
         "IdleTimeoutSeconds": {
-          "description": "How long the session stays open with no call on it before it is closed, the next call\ndialling a new one. A call holds the session from its dial to the end of its response.\n\nDefaults to none: an idle session stays open.",
+          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response, and of its request too when SimultaneousCallsPerConnection is set.\n\nDefaults to none: an idle connection stays open.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
+        },
+        "SimultaneousCallsPerConnection": {
+          "description": "How many calls one connection carries at once. A call that finds every connection full\nopens another, as many as the calls in flight need, and each closes on its own idle\ntimeout when IdleTimeoutSeconds is set. At 1, calls follow one another on a connection but\nnever share it, so that a GOAWAY a server sends because of one call - nginx's\nENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.\n\nDefaults to none: one connection carries every call.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
         },
         "Send": {
           "description": "What the session sends.\n\nDefaults to `{}`, which leaves each of its options at its own default.",

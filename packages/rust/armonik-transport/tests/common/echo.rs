@@ -27,6 +27,8 @@ use super::codec::BytesCodec;
 pub const ECHO: &str = "/armonik_transport.test.Echo/Echo";
 pub const FAIL: &str = "/armonik_transport.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
+/// Answers OK at once, its response whole, and goes on reading the request to its end.
+pub const ANSWER_EARLY: &str = "/armonik_transport.test.Echo/AnswerEarly";
 pub const COLLECT: &str = "/armonik_transport.test.Echo/Collect";
 pub const FAN: &str = "/armonik_transport.test.Echo/Fan";
 pub const CHAT: &str = "/armonik_transport.test.Echo/Chat";
@@ -343,6 +345,19 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
     let path = request.uri().path().to_owned();
     if let Some(raw) = path.strip_prefix("/raw/") {
         return canned(raw, request.headers());
+    }
+
+    if path == ANSWER_EARLY {
+        let mut body = request.into_body();
+        tokio::spawn(async move {
+            while let Some(Ok(_)) =
+                std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await
+            {}
+        });
+        return grpc_head()
+            .header("grpc-status", "0")
+            .body(TonicBody::empty())
+            .expect("a response");
     }
 
     if path == CHAT {

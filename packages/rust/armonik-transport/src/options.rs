@@ -1027,10 +1027,11 @@ pub struct Http2Options {
     #[cfg_attr(feature = "schema", schemars(with = "bool"))]
     pub keep_alive_while_idle: Option<bool>,
 
-    /// How long the session stays open with no call on it before it is closed, the next call
-    /// dialling a new one. A call holds the session from its dial to the end of its response.
+    /// How long a connection stays open with no call on it before it is closed, the next call
+    /// dialling a new one. Each connection has its own. A call holds its connection to the end of
+    /// its response, and of its request too when SimultaneousCallsPerConnection is set.
     ///
-    /// Defaults to none: an idle session stays open.
+    /// Defaults to none: an idle connection stays open.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
@@ -1040,6 +1041,20 @@ pub struct Http2Options {
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
     pub idle_timeout_seconds: Option<Seconds>,
+
+    /// How many calls one connection carries at once. A call that finds every connection full
+    /// opens another, as many as the calls in flight need, and each closes on its own idle
+    /// timeout when IdleTimeoutSeconds is set. At 1, calls follow one another on a connection but
+    /// never share it, so that a GOAWAY a server sends because of one call - nginx's
+    /// ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+    ///
+    /// Defaults to none: one connection carries every call.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub simultaneous_calls_per_connection: Option<i32>,
 
     /// What the session sends.
     ///
@@ -1591,6 +1606,16 @@ impl Http2Options {
                 Some(Http2ReceiveOptions::Adaptive(Chosen)) => ReceiveWindows::Adaptive,
             },
             idle_timeout: duration("IdleTimeoutSeconds", self.idle_timeout_seconds, 1e-9, None)?,
+            simultaneous_calls_per_connection: match self.simultaneous_calls_per_connection {
+                None => defaults.simultaneous_calls_per_connection,
+                Some(calls) if calls < 1 => {
+                    return Err(OptionRefusal::new(
+                        "SimultaneousCallsPerConnection",
+                        format!("{calls} has to be at least 1"),
+                    ))
+                }
+                Some(calls) => Some(calls as usize),
+            },
             write_coalescing: match self.send.coalescing_bytes {
                 None => defaults.write_coalescing,
                 Some(bytes) if bytes < 0 => {
@@ -1994,6 +2019,7 @@ over_fields!(Http2Options {
     keep_alive_timeout_seconds,
     keep_alive_while_idle,
     idle_timeout_seconds,
+    simultaneous_calls_per_connection,
     send,
     receive,
 });
@@ -2765,6 +2791,7 @@ mod tests {
             keep_alive_timeout_seconds: Some(Seconds(2.5)),
             keep_alive_while_idle: Some(true),
             idle_timeout_seconds: Some(Seconds(300.0)),
+            simultaneous_calls_per_connection: Some(1),
             send: Http2SendOptions {
                 coalescing_bytes: Some(0),
                 stream_buffer_size: Some(4096),
@@ -2778,6 +2805,7 @@ mod tests {
         .to_config()
         .expect("admissible");
         assert_eq!(config.idle_timeout, Some(Duration::from_secs(300)));
+        assert_eq!(config.simultaneous_calls_per_connection, Some(1));
         assert_eq!(config.write_coalescing, 0);
         assert_eq!(config.send_buffer, 4096);
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
@@ -2828,6 +2856,14 @@ mod tests {
         .to_config()
         .expect_err("a buffer that never takes a byte");
         assert_eq!(refused.key(), "Send.StreamBufferSize");
+
+        let refused = Http2Options {
+            simultaneous_calls_per_connection: Some(0),
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("a connection that carries no call");
+        assert_eq!(refused.key(), "SimultaneousCallsPerConnection");
 
         for (frames, why) in [(0, "between 1 and"), (257, "between 1 and")] {
             let refused = Http2Options {

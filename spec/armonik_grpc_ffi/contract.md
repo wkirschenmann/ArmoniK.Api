@@ -88,9 +88,16 @@ pub struct Http2Config {
     /// announced - or `Adaptive`, hyper's windows that start at 65535 and
     /// grow with the bandwidth-delay product its PINGs measure, up to 16 MiB.
     pub receive_windows: ReceiveWindows,
-    /// How long the session stays open with no call or dial holding it
-    /// before the channel closes it; none keeps it open.
+    /// How long a session stays open with no call on it before the channel
+    /// closes it; none keeps it open. Each session has its own.
     pub idle_timeout: Option<Duration>,
+    /// How many calls one session carries at once: a call that finds every
+    /// session full opens another, as many as the calls in flight need,
+    /// taking the fullest with room first. A call counts from its dispatch to
+    /// the end of its response and of its request, so that calls follow one
+    /// another on a session but never share it beyond the limit. None has
+    /// one session carry every call.
+    pub simultaneous_calls_per_connection: Option<usize>,
     /// How many bytes a write to the connection may gather while the work
     /// already ready adds to it; 0 writes at once.
     pub write_coalescing: usize,
@@ -105,8 +112,8 @@ pub struct Http2Config {
     pub frames_per_write: usize,
     // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
     // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,
-    // server pushes. It is not a cap on outgoing calls; that one is
-    // max_calls_in_flight, and it lives in PoolConfig.
+    // server pushes. It is not a cap on outgoing calls; simultaneous_calls_per_connection
+    // bounds those per session.
 }
 
 pub struct ProxyConfig {
@@ -169,7 +176,6 @@ pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
     pub retry: Option<RetryConfig>,
     pub default_deadline: Option<Duration>,
-    pub pool: Option<PoolConfig>,
     pub user_agent: Option<String>,
     /// The largest message the engine reassembles, refused on the length the
     /// peer announces. It is what bounds the reassembly buffer: the HTTP/2
@@ -193,14 +199,6 @@ pub struct RetryConfig {
     pub retryable_codes: Vec<GrpcStatusCode>,
     pub call_replay_bytes: usize,    // what one call keeps for a replay, whatever it sends
     pub channel_replay_bytes: usize, // what every call of the channel keeps together
-}
-
-pub struct PoolConfig {
-    pub max_connections: Option<usize>,
-    /// Local cap on calls this channel may have open at once, enforced by
-    /// refusing start_call. Distinct from the HTTP/2 SETTINGS value above,
-    /// which bounds what the peer may open.
-    pub max_calls_in_flight: Option<u32>,
 }
 ```
 

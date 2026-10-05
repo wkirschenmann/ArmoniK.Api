@@ -264,9 +264,12 @@ pub struct Http2Config {
     pub keep_alive_while_idle: bool,
     /// How much the peer may send ahead of what is read.
     pub receive_windows: ReceiveWindows,
-    /// How long the session stays open with no call on it before the channel closes it; none
+    /// How long a session stays open with no call on it before the channel closes it; none
     /// keeps it open.
     pub idle_timeout: Option<Duration>,
+    /// How many calls one session carries at once, a call that finds every session full opening
+    /// another; none has one session carry every call. At least 1.
+    pub simultaneous_calls_per_connection: Option<usize>,
     /// How many bytes a write to the connection may gather while the work already ready adds to
     /// it; 0 writes at once.
     pub write_coalescing: usize,
@@ -336,6 +339,7 @@ impl Default for Http2Config {
             keep_alive_while_idle: false,
             receive_windows: ReceiveWindows::default(),
             idle_timeout: None,
+            simultaneous_calls_per_connection: None,
             write_coalescing: 16 * 1024,
             send_buffer: 1024 * 1024,
             frames_per_write: 1,
@@ -362,6 +366,9 @@ impl Http2Config {
         }
         if self.idle_timeout.is_some_and(|after| after.is_zero()) {
             return refuse("an idle timeout of zero closes the session after every call");
+        }
+        if self.simultaneous_calls_per_connection == Some(0) {
+            return refuse("a session that carries no call never carries one");
         }
         // hyper panics past `u32::MAX`, and a buffer of zero never takes a byte to send.
         if !(1..=u32::MAX as usize).contains(&self.send_buffer) {
