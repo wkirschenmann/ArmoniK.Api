@@ -91,11 +91,11 @@ public class OptionVocabularyTests
   private static readonly IReadOnlyDictionary<string, string> Ours = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                      {
                                                                        ["Transport.ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
-                                                                       ["Grpc.Host.Receive.Credits"] = "the delivery window, which only this ABI has",
+                                                                       ["Grpc.Host.Receive.Window"] = "the delivery window, which only this ABI has",
                                                                        ["Grpc.Host.Receive.CoalescingBytes"] = "the delivery to the host, which only this ABI has",
                                                                        ["Grpc.Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
                                                                        ["Grpc.Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
-                                                                       ["Grpc.Host.Sends.MaxInFlight"] = "the send window, which only this ABI has",
+                                                                       ["Grpc.Host.Sends.Window"] = "the send window, which only this ABI has",
                                                                        ["Grpc.MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",

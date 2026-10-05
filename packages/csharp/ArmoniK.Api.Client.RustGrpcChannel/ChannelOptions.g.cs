@@ -2171,24 +2171,24 @@ public sealed class SendOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    MaxInFlight = other.MaxInFlight;
+    Window = other.Window;
   }
 
   /// <summary>How many messages a call may have sent and unacquitted at once.</summary>
   /// <remarks>Defaults to 1.</remarks>
-  [JsonPropertyName("MaxInFlight")]
+  [JsonPropertyName("Window")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxInFlight { get; set; }
+  public int? Window { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (MaxInFlight is int maxInFlight && (maxInFlight < 1 || maxInFlight > 536870910))
+    if (Window is int window && (window < 1 || window > 536870910))
     {
-      throw new ArgumentOutOfRangeException(nameof(MaxInFlight),
-                                            maxInFlight,
-                                            "MaxInFlight has to be at least 1 and at most 536870910.");
+      throw new ArgumentOutOfRangeException(nameof(Window),
+                                            window,
+                                            "Window has to be at least 1 and at most 536870910.");
     }
   }
 
@@ -2203,9 +2203,9 @@ public sealed class SendOptions
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "MaxInFlight"))
+                                         "Window"))
       {
-        bound.MaxInFlight = ChannelOptionsConfiguration.Int32(entry);
+        bound.Window = ChannelOptionsConfiguration.Int32(entry);
       }
       else
       {
@@ -2236,7 +2236,7 @@ public sealed class ReceiveOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    Credits = other.Credits;
+    Window = other.Window;
     CoalescingBytes = other.CoalescingBytes;
   }
 
@@ -2245,9 +2245,9 @@ public sealed class ReceiveOptions
   ///   The terminal status takes none, so a host holds at most one more.
   /// </summary>
   /// <remarks>Defaults to 4.</remarks>
-  [JsonPropertyName("Credits")]
+  [JsonPropertyName("Window")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? Credits { get; set; }
+  public int? Window { get; set; }
 
   /// <summary>
   ///   How many bytes of a response a delivery to the host may wait to gather, so that a unary
@@ -2262,11 +2262,11 @@ public sealed class ReceiveOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (Credits is int credits && (credits < 1 || credits > 536870910))
+    if (Window is int window && (window < 1 || window > 536870910))
     {
-      throw new ArgumentOutOfRangeException(nameof(Credits),
-                                            credits,
-                                            "Credits has to be at least 1 and at most 536870910.");
+      throw new ArgumentOutOfRangeException(nameof(Window),
+                                            window,
+                                            "Window has to be at least 1 and at most 536870910.");
     }
 
     if (CoalescingBytes is int coalescingBytes && coalescingBytes < 0)
@@ -2288,9 +2288,9 @@ public sealed class ReceiveOptions
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "Credits"))
+                                         "Window"))
       {
-        bound.Credits = ChannelOptionsConfiguration.Int32(entry);
+        bound.Window = ChannelOptionsConfiguration.Int32(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "CoalescingBytes"))

@@ -1647,7 +1647,7 @@ pub struct SendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
-    pub max_in_flight: Option<i32>,
+    pub window: Option<i32>,
 }
 
 /// What the engine delivers to a call's host: its payloads and its status.
@@ -1672,7 +1672,7 @@ pub struct ReceiveOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
-    pub credits: Option<i32>,
+    pub window: Option<i32>,
 
     /// How many bytes of a response a delivery to the host may wait to gather, so that a unary
     /// answer's head, message and status reach it in one callback. 0 delivers each read at once.
@@ -1800,9 +1800,9 @@ over_fields!(GrpcOptions {
     host,
 });
 over_fields!(HostOptions { sends, receive });
-over_fields!(SendOptions { max_in_flight });
+over_fields!(SendOptions { window });
 over_fields!(ReceiveOptions {
-    credits,
+    window,
     coalescing_bytes,
 });
 over_fields!(TlsOptions {
@@ -2627,7 +2627,7 @@ mod tests {
         let credits = |credits| GrpcOptions {
             host: HostOptions {
                 receive: ReceiveOptions {
-                    credits: Some(credits),
+                    window: Some(credits),
                     ..ReceiveOptions::default()
                 },
                 ..HostOptions::default()
@@ -2657,7 +2657,7 @@ mod tests {
         .over(&defaults);
 
         assert_eq!(merged.grpc.user_agent.as_deref(), Some("default"));
-        assert_eq!(merged.grpc.host.receive.credits, Some(3));
+        assert_eq!(merged.grpc.host.receive.window, Some(3));
         assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
         assert_eq!(merged.http2.stream_window_size, Some(80_000));
     }

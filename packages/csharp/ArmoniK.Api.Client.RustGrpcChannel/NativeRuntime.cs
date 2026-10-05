@@ -243,7 +243,7 @@ public sealed class NativeRuntime : IAsyncDisposable
     // Zero is the ABI's spelling of the default and Validate refuses it, so an option left out is
     // the only way to ask for the default.
     options.Validate();
-    RefuseAWindowNoRingCanHold(options.ChannelDefaults?.Grpc?.Host?.Receive?.Credits);
+    RefuseAWindowNoRingCanHold(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window);
 
     return Create((ulong)(options.MemoryCeiling ?? 0),
                   (ulong)(options.MemoryHardCeiling ?? 0),
@@ -329,7 +329,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                                  {
                                    Receive = new ReceiveOptions
                                              {
-                                               Credits = deliveryCredits,
+                                               Window = deliveryCredits,
                                              },
                                  },
                         },
@@ -356,11 +356,11 @@ public sealed class NativeRuntime : IAsyncDisposable
     // One read of the caller's instance: what a channel sizes its rings from and what it sends
     // the engine are the same number only if nothing can set it in between.
     var settled = new ChannelOptions(options);
-    var credits = settled.Grpc?.Host?.Receive?.Credits ?? channelDefaults_?.Grpc?.Host?.Receive?.Credits ?? DefaultDeliveryCredits;
+    var credits = settled.Grpc?.Host?.Receive?.Window ?? channelDefaults_?.Grpc?.Host?.Receive?.Window ?? DefaultDeliveryCredits;
     settled.Grpc                ??= new GrpcOptions();
     settled.Grpc.Host           ??= new HostOptions();
     settled.Grpc.Host.Receive   ??= new ReceiveOptions();
-    settled.Grpc.Host.Receive.Credits = credits;
+    settled.Grpc.Host.Receive.Window = credits;
 
     // The schema's bounds, then this binding's own tighter one. Both are checked here rather
     // than left to the engine, which answers a bad document with a status naming no option.
@@ -466,7 +466,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   {
     if (deliveryCredits > MaxDeliveryCredits)
     {
-      throw new ArgumentOutOfRangeException("Grpc.Host.Receive.Credits",
+      throw new ArgumentOutOfRangeException("Grpc.Host.Receive.Window",
                                             deliveryCredits,
                                             $"a delivery window is at most {MaxDeliveryCredits} here: every call of the channel allocates a ring of the next power of two above it");
     }

@@ -42,7 +42,7 @@ public class RuntimeOptionsTests : RuntimeFixture
                 {
                   Receive = new ReceiveOptions
                             {
-                              Credits = credits,
+                              Window = credits,
                             },
                 },
        };
@@ -71,14 +71,14 @@ public class RuntimeOptionsTests : RuntimeFixture
   {
     var options = NativeRuntime.RuntimeOptionsFrom(Configuration(new Dictionary<string, string?>
                                                                  {
-                                                                   ["RustGrpcRuntime:ChannelDefaults:Grpc:Host:Receive:Credits"] = "2",
+                                                                   ["RustGrpcRuntime:ChannelDefaults:Grpc:Host:Receive:Window"] = "2",
                                                                    ["RustGrpcRuntime:ChannelDefaults:Http2:KeepAliveWhileIdle"] = "true",
                                                                    ["RustGrpcRuntime:ChannelDefaults:Transport:Proxy:None"]     = "true",
                                                                  }));
 
     Assert.Multiple(() =>
                     {
-                      Assert.That(options.ChannelDefaults?.Grpc?.Host?.Receive?.Credits,
+                      Assert.That(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window,
                                   Is.EqualTo(2));
                       Assert.That(options.ChannelDefaults?.Http2?.KeepAliveWhileIdle,
                                   Is.True);

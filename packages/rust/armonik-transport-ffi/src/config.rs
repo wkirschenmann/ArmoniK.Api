@@ -35,7 +35,7 @@ impl ChannelSettings {
             .grpc
             .host
             .receive
-            .credits
+            .window
             .unwrap_or(DELIVERY_CREDITS) as usize
     }
 
@@ -48,7 +48,7 @@ impl ChannelSettings {
             .grpc
             .host
             .sends
-            .max_in_flight
+            .window
             .unwrap_or(MAX_SENDS_IN_FLIGHT) as usize
     }
 
@@ -213,8 +213,8 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
         _ => Ok(()),
     };
     let grpc = &options.grpc;
-    window("Grpc.Host.Receive.Credits", grpc.host.receive.credits)?;
-    window("Grpc.Host.Sends.MaxInFlight", grpc.host.sends.max_in_flight)?;
+    window("Grpc.Host.Receive.Window", grpc.host.receive.window)?;
+    window("Grpc.Host.Sends.Window", grpc.host.sends.window)?;
 
     // Zero is refused: it is a channel that can receive no message at all.
     if let Some(value) = grpc.max_receive_message_size.filter(|max| *max < 1) {
@@ -335,11 +335,11 @@ mod tests {
 
         let settings = parse(b"{}").expect("an empty document is valid");
         assert_eq!(
-            stated("/$defs/ReceiveOptions/properties/Credits/description"),
+            stated("/$defs/ReceiveOptions/properties/Window/description"),
             settings.delivery_credits() as f64
         );
         assert_eq!(
-            stated("/$defs/SendOptions/properties/MaxInFlight/description"),
+            stated("/$defs/SendOptions/properties/Window/description"),
             settings.max_sends_in_flight() as f64
         );
 
@@ -413,12 +413,12 @@ mod tests {
         };
         for (option, path) in [
             (
-                "/$defs/ReceiveOptions/properties/Credits",
-                &["Grpc", "Host", "Receive", "Credits"][..],
+                "/$defs/ReceiveOptions/properties/Window",
+                &["Grpc", "Host", "Receive", "Window"][..],
             ),
             (
-                "/$defs/SendOptions/properties/MaxInFlight",
-                &["Grpc", "Host", "Sends", "MaxInFlight"][..],
+                "/$defs/SendOptions/properties/Window",
+                &["Grpc", "Host", "Sends", "Window"][..],
             ),
             (
                 "/$defs/GrpcOptions/properties/MaxReceiveMessageSize",
@@ -718,8 +718,8 @@ mod tests {
     fn an_option_spelled_as_the_wrong_type_is_refused() {
         // The schema says a number, so a string spelled like one is not the same document. A
         // reader that took it would make the schema a suggestion.
-        assert!(parse(br#"{"Grpc":{"Host":{"Receive":{"Credits":"2"}}}}"#).is_err());
-        assert!(parse(br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}}}"#).is_ok());
+        assert!(parse(br#"{"Grpc":{"Host":{"Receive":{"Window":"2"}}}}"#).is_err());
+        assert!(parse(br#"{"Grpc":{"Host":{"Receive":{"Window":2}}}}"#).is_ok());
     }
 
     #[test]
@@ -760,8 +760,8 @@ mod tests {
     #[test]
     fn a_bound_the_schema_states_is_a_bound_this_refuses() {
         for refused in [
-            &br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#[..],
-            &br#"{"Grpc":{"Host":{"Sends":{"MaxInFlight":0}}}}"#[..],
+            &br#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#[..],
+            &br#"{"Grpc":{"Host":{"Sends":{"Window":0}}}}"#[..],
             &br#"{"Grpc":{"UserAgent":""}}"#[..],
             &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
         ] {
@@ -778,16 +778,16 @@ mod tests {
         for (document, key) in [
             (&br#"{"UserAgnt":"typo"}"#[..], "UserAgnt"),
             (
-                &br#"{"Grpc":{"Host":{"Receive":{"Credits":"2"}}}}"#[..],
-                "Grpc.Host.Receive.Credits",
+                &br#"{"Grpc":{"Host":{"Receive":{"Window":"2"}}}}"#[..],
+                "Grpc.Host.Receive.Window",
             ),
             (
-                &br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#[..],
-                "Grpc.Host.Receive.Credits",
+                &br#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#[..],
+                "Grpc.Host.Receive.Window",
             ),
             (
-                &br#"{"Grpc":{"Host":{"Sends":{"MaxInFlight":0}}}}"#[..],
-                "Grpc.Host.Sends.MaxInFlight",
+                &br#"{"Grpc":{"Host":{"Sends":{"Window":0}}}}"#[..],
+                "Grpc.Host.Sends.Window",
             ),
             (
                 &br#"{"Grpc":{"MaxReceiveMessageSize":0}}"#[..],
@@ -885,7 +885,7 @@ mod tests {
     #[test]
     fn a_window_past_what_the_schema_admits_is_refused() {
         let past = format!(
-            r#"{{"Grpc":{{"Host":{{"Receive":{{"Credits":{}}}}}}}}}"#,
+            r#"{{"Grpc":{{"Host":{{"Receive":{{"Window":{}}}}}}}}}"#,
             LARGEST_WINDOW as i64 + 1
         );
         assert!(parse(past.as_bytes()).is_err());
@@ -896,7 +896,7 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}},"Http2":{"KeepAliveWhileIdle":true,"StreamWindowSize":70000}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"StreamWindowSize":70000}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(
@@ -918,7 +918,7 @@ mod tests {
     fn defaults_are_read_as_a_channel_document() {
         assert!(defaults(b"").expect("empty is none").is_none());
         for document in [
-            &br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#[..],
+            &br#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#[..],
             &br#"{"NoSuchOption":1}"#[..],
             &b"not json"[..],
         ] {
@@ -934,10 +934,10 @@ mod tests {
     #[test]
     fn a_null_in_a_channel_document_leaves_the_default() {
         let defaults =
-            defaults(br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}}}"#).expect("valid defaults");
+            defaults(br#"{"Grpc":{"Host":{"Receive":{"Window":2}}}}"#).expect("valid defaults");
         let settings = parse_over(
             defaults.as_ref(),
-            br#"{"Grpc":{"Host":{"Receive":{"Credits":null}}}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":null}}}}"#,
         )
         .expect("a valid merge");
         assert_eq!(settings.delivery_credits(), 2);
@@ -1012,10 +1012,10 @@ mod tests {
     #[test]
     fn a_channel_document_is_refused_over_the_defaults_as_alone() {
         let defaults =
-            defaults(br#"{"Grpc":{"Host":{"Receive":{"Credits":2}}}}"#).expect("valid defaults");
+            defaults(br#"{"Grpc":{"Host":{"Receive":{"Window":2}}}}"#).expect("valid defaults");
         assert!(parse_over(
             defaults.as_ref(),
-            br#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#
+            br#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#
         )
         .is_err());
         assert!(parse_over(defaults.as_ref(), b"not json").is_err());

@@ -576,7 +576,7 @@
       "description": "What a call's host sends: the messages it hands the engine.",
       "type": "object",
       "properties": {
-        "MaxInFlight": {
+        "Window": {
           "description": "How many messages a call may have sent and unacquitted at once.\n\nDefaults to 1.",
           "type": "integer",
           "format": "int32",
@@ -590,7 +590,7 @@
       "description": "What the engine delivers to a call's host: its payloads and its status.",
       "type": "object",
       "properties": {
-        "Credits": {
+        "Window": {
           "description": "How many of a call's payloads the host may hold at once, delivered and not yet given back.\nThe terminal status takes none, so a host holds at most one more.\n\nDefaults to 4.",
           "type": "integer",
           "format": "int32",

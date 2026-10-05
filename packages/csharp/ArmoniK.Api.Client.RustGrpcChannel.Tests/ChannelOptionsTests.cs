@@ -48,13 +48,13 @@ public class ChannelOptionsTests
                             ? null
                             : new SendOptions
                               {
-                                MaxInFlight = sends,
+                                Window = sends,
                               },
                   Receive = credits is null
                               ? null
                               : new ReceiveOptions
                                 {
-                                  Credits = credits,
+                                  Window = credits,
                                 },
                 },
        };
@@ -80,7 +80,7 @@ public class ChannelOptionsTests
                                       Host      = Windows(4).Host,
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""UserAgent"":""test"",""Host"":{""Receive"":{""Credits"":4}}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""UserAgent"":""test"",""Host"":{""Receive"":{""Window"":4}}}}"));
 
   /// <summary>A group is an object, because the document is typed and structured.</summary>
   [Test]
@@ -106,7 +106,7 @@ public class ChannelOptionsTests
                            Grpc = Windows(0),
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("Credits has to be at least 1 and at most 536870910"));
+                         .With.Message.Contains("Window has to be at least 1 and at most 536870910"));
 
   [Test]
   public void AnEmptyUserAgentIsRefusedBeforeItIsSent()
@@ -210,12 +210,12 @@ public class ChannelOptionsTests
 
     var copy = new ChannelOptions(original);
 
-    original.Grpc!.Host!.Receive!.Credits     = 8;
+    original.Grpc!.Host!.Receive!.Window      = 8;
     original.Transport!.ConnectTimeoutSeconds = 30;
 
     Assert.Multiple(() =>
                     {
-                      Assert.That(copy.Grpc!.Host!.Receive!.Credits,
+                      Assert.That(copy.Grpc!.Host!.Receive!.Window,
                                   Is.EqualTo(4),
                                   "groups three deep are copied too");
                       Assert.That(copy.Transport!.ConnectTimeoutSeconds,
@@ -236,8 +236,8 @@ public class ChannelOptionsTests
   {
     var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
                                                                          {
-                                                                           ["Section:Grpc:Host:Receive:Credits"] = "4",
-                                                                           ["Section:Grpc:UserAgent"]            = "first",
+                                                                           ["Section:Grpc:Host:Receive:Window"] = "4",
+                                                                           ["Section:Grpc:UserAgent"]           = "first",
                                                                          })
                                                   .AddInMemoryCollection(new Dictionary<string, string?>
                                                                          {
@@ -252,7 +252,7 @@ public class ChannelOptionsTests
                       Assert.That(options.Grpc?.UserAgent,
                                   Is.EqualTo("second"),
                                   "the later layer wins");
-                      Assert.That(options.Grpc?.Host?.Receive?.Credits,
+                      Assert.That(options.Grpc?.Host?.Receive?.Window,
                                   Is.EqualTo(4),
                                   "and an option only the earlier layer names still arrives");
                     });
@@ -265,7 +265,7 @@ public class ChannelOptionsTests
   {
     const string prefix = "AKRUSTTEST_";
 
-    Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Sends__MaxInFlight",
+    Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Sends__Window",
                                        "7");
     Environment.SetEnvironmentVariable(prefix + "Section__Transport__ConnectTimeoutSeconds",
                                        "2.5");
@@ -279,11 +279,11 @@ public class ChannelOptionsTests
 
       // The document, because an option bound but not serialized is one the engine never sees.
       Assert.That(Encoded(options),
-                  Is.EqualTo(@"{""Transport"":{""ConnectTimeoutSeconds"":2.5},""Grpc"":{""Host"":{""Sends"":{""MaxInFlight"":7}}}}"));
+                  Is.EqualTo(@"{""Transport"":{""ConnectTimeoutSeconds"":2.5},""Grpc"":{""Host"":{""Sends"":{""Window"":7}}}}"));
     }
     finally
     {
-      Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Sends__MaxInFlight",
+      Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Sends__Window",
                                          null);
       Environment.SetEnvironmentVariable(prefix + "Section__Transport__ConnectTimeoutSeconds",
                                          null);
@@ -297,14 +297,14 @@ public class ChannelOptionsTests
   {
     var options = NativeRuntime.OptionsFrom(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
                                                                                              {
-                                                                                               ["Section:Grpc:UserAgent"]            = null,
-                                                                                               ["Section:Grpc:Host:Receive:Credits"] = "4",
+                                                                                               ["Section:Grpc:UserAgent"]           = null,
+                                                                                               ["Section:Grpc:Host:Receive:Window"] = "4",
                                                                                              })
                                                                       .Build(),
                                             "Section");
 
     Assert.That(Encoded(options),
-                Is.EqualTo(@"{""Grpc"":{""Host"":{""Receive"":{""Credits"":4}}}}"));
+                Is.EqualTo(@"{""Grpc"":{""Host"":{""Receive"":{""Window"":4}}}}"));
   }
 
   /// <summary>A group left empty is unset, as it is to .NET's binder.</summary>
@@ -313,8 +313,8 @@ public class ChannelOptionsTests
   {
     var options = NativeRuntime.OptionsFrom(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
                                                                                              {
-                                                                                               ["Section:Transport"]       = string.Empty,
-                                                                                               ["Section:Grpc:Host:Receive:Credits"] = "4",
+                                                                                               ["Section:Transport"]                = string.Empty,
+                                                                                               ["Section:Grpc:Host:Receive:Window"] = "4",
                                                                                              })
                                                                       .Build(),
                                             "Section");
@@ -382,7 +382,7 @@ public class ChannelOptionsTests
                              Grpc = Windows(1,
                                             536870910),
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""Host"":{""Sends"":{""MaxInFlight"":536870910},""Receive"":{""Credits"":1}}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Host"":{""Sends"":{""Window"":536870910},""Receive"":{""Window"":1}}}}"));
 
   /// <summary>An alternative is an object whose one key names it, as the engine reads a Rust enum.</summary>
   /// <remarks>A field left unset is absent, as an option is; one carrying nothing is `true`.</remarks>
@@ -535,8 +535,8 @@ public class ChannelOptionsTests
                       }, "Section:Transport:Tls:Server:CaStore:Location has to be one of"),
                      (new Dictionary<string, string?>
                       {
-                        ["Section:Grpc:Host:Sends:MaxInFlight"] = "s3cret",
-                      }, "Section:Grpc:Host:Sends:MaxInFlight has to be an integer"),
+                        ["Section:Grpc:Host:Sends:Window"] = "s3cret",
+                      }, "Section:Grpc:Host:Sends:Window has to be an integer"),
                    };
 
     foreach (var (values, said) in refusals)

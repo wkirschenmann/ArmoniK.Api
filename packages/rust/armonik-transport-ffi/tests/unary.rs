@@ -148,7 +148,7 @@ fn a_default_channel_delivers_the_message_while_the_head_is_held() {
 }
 
 /// A window of one, so that a call whose head is held is parked before its message.
-const ONE_CREDIT: &str = r#"{"Grpc":{"Host":{"Receive":{"Credits":1}}}}"#;
+const ONE_CREDIT: &str = r#"{"Grpc":{"Host":{"Receive":{"Window":1}}}}"#;
 
 #[test]
 fn releasing_a_channel_drains_a_call_parked_on_a_delivery_credit() {
@@ -1277,7 +1277,7 @@ fn consuming_an_unowned_payload_is_a_no_op() {
 #[test]
 fn channel_defaults_the_engine_refuses_leave_no_runtime() {
     assert_eq!(
-        refused_over(r#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#),
+        refused_over(r#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#),
         ak_status::AK_STATUS_INVALID_ARG
     );
     assert_eq!(
@@ -1292,7 +1292,7 @@ fn channel_defaults_the_engine_refuses_leave_no_runtime() {
 fn a_record_that_ends_before_the_defaults_reads_as_none() {
     let server = TestServer::start();
     // Defaults the engine refuses, so that reading past the record would refuse the runtime.
-    let host = Host::with_record_size(32, r#"{"Grpc":{"Host":{"Receive":{"Credits":0}}}}"#);
+    let host = Host::with_record_size(32, r#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#);
     let channel = host.channel(&server.endpoint);
     send_one(start_call(channel, ECHO, &[]), b"hello");
     host.recorder.await_terminals(1);

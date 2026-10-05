@@ -62,7 +62,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   {
     runtime_ = runtime;
     // Resolved by the runtime, so this and the engine size from one number.
-    deliveryCredits_ = options.Grpc!.Host!.Receive!.Credits!.Value;
+    deliveryCredits_ = options.Grpc!.Host!.Receive!.Window!.Value;
 
     // The endpoint is its own argument and never an option: it is the one value a channel cannot
     // be created without, so every option of the document has a default and `{}` would do.

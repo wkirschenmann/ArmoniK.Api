@@ -71,7 +71,7 @@ fn counted<T>(body: impl FnOnce() -> T) -> (T, Counts) {
 }
 
 /// Refused over its value's type, which serde's own message does not name the key of.
-const REFUSED: &str = r#"{"Grpc":{"Host":{"Receive":{"Credits":"2"}}}}"#;
+const REFUSED: &str = r#"{"Grpc":{"Host":{"Receive":{"Window":"2"}}}}"#;
 
 fn create_channel(host: &Host, json: &str, out_error: *mut ak_error) -> ak_status {
     let endpoint = "http://localhost:1";
@@ -140,7 +140,7 @@ fn a_refused_document_names_its_key() {
     assert_eq!(error.kind, ak_error_kind::AK_ERROR_CONFIG);
     assert!(!error.detail.owner.is_null(), "a rendered message is owned");
     let said = text(&error.detail);
-    assert!(said.contains("Grpc.Host.Receive.Credits"), "{said}");
+    assert!(said.contains("Grpc.Host.Receive.Window"), "{said}");
     assert!(
         !said.contains(".rs:"),
         "a source location crosses the ABI: {said}"

@@ -63,9 +63,9 @@ public class UnaryTests : EchoServerFixture
 
     var variables = new[]
                     {
-                      ("Grpc__Host__Receive__Credits", "1"),
+                      ("Grpc__Host__Receive__Window", "1"),
                       ("Grpc__MaxReceiveMessageSize", "65536"),
-                      ("Grpc__Host__Sends__MaxInFlight", "2"),
+                      ("Grpc__Host__Sends__Window", "2"),
                       ("Transport__ConnectTimeoutSeconds", "2.5"),
                       ("Transport__Proxy__None", "true"),
                       ("Grpc__UserAgent", "unary-tests"),
@@ -1015,7 +1015,7 @@ public class UnaryTests : EchoServerFixture
   public unsafe void ARefusedDocumentNamesItsKey()
   {
     var       endpoint = Encoding.UTF8.GetBytes("http://127.0.0.1:1");
-    var       json     = Encoding.UTF8.GetBytes("{\"Grpc\":{\"Host\":{\"Receive\":{\"Credits\":\"2\"}}}}");
+    var       json     = Encoding.UTF8.GetBytes("{\"Grpc\":{\"Host\":{\"Receive\":{\"Window\":\"2\"}}}}");
     ak_status status;
     ak_error  error   = default;
     ulong     channel = 0;
@@ -1041,7 +1041,7 @@ public class UnaryTests : EchoServerFixture
                       Assert.That(kind,
                                   Is.EqualTo(ak_error_kind.AK_ERROR_CONFIG));
                       Assert.That(why,
-                                  Does.Contain("Grpc.Host.Receive.Credits"));
+                                  Does.Contain("Grpc.Host.Receive.Window"));
                       Assert.That(created,
                                   Is.Zero);
                     });
