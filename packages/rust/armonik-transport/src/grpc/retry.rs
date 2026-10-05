@@ -471,7 +471,7 @@ mod tests {
     #[tokio::test]
     async fn a_second_attempt_replays_what_the_first_sent() {
         let (_closed, closed) = watch::channel(false);
-        let (call, live, _driving) = create(4, closed);
+        let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
         let replay = Replay::new(live, Some(64), Arc::clone(&channel));
@@ -503,7 +503,7 @@ mod tests {
     #[tokio::test]
     async fn a_replay_keeps_the_message_rather_than_a_copy() {
         let (_closed, closed) = watch::channel(false);
-        let (call, live, _driving) = create(4, closed);
+        let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let replay = Replay::new(live, Some(64), Arc::new(ChannelReplay::new(1024)));
 
@@ -528,7 +528,7 @@ mod tests {
     #[tokio::test]
     async fn a_commit_during_a_replay_lets_the_replay_finish() {
         let (_closed, closed) = watch::channel(false);
-        let (call, live, _driving) = create(4, closed);
+        let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
         let replay = Replay::new(live, Some(64), Arc::clone(&channel));
@@ -560,7 +560,7 @@ mod tests {
     #[tokio::test]
     async fn a_superseded_attempt_waiting_for_a_message_ends() {
         let (_closed, closed) = watch::channel(false);
-        let (call, live, _driving) = create(4, closed);
+        let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
         let replay = Replay::new(live, Some(64), Arc::clone(&channel));
@@ -589,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn a_replay_dropped_gives_its_bytes_back() {
         let (_closed, closed) = watch::channel(false);
-        let (call, live, _driving) = create(4, closed);
+        let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
         let replay = Replay::new(live, Some(64), Arc::clone(&channel));
@@ -609,7 +609,7 @@ mod tests {
     async fn a_call_past_its_ceiling_or_the_channels_is_committed() {
         for (call_limit, channel_limit) in [(4, 1024), (64, 4)] {
             let (_closed, closed) = watch::channel(false);
-            let (call, live, _driving) = create(4, closed);
+            let (call, live, _driving) = create(4, None, closed);
             let (mut send, _recv, _control) = call.split();
             let channel = Arc::new(ChannelReplay::new(channel_limit));
             let replay = Replay::new(live, Some(call_limit), Arc::clone(&channel));
@@ -630,7 +630,7 @@ mod tests {
     #[tokio::test]
     async fn a_call_with_no_policy_is_whole_until_it_sends() {
         let (_closed, closed) = watch::channel(false);
-        let (call, live, _driving) = create(4, closed);
+        let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
         let replay = Replay::new(live, None, Arc::clone(&channel));

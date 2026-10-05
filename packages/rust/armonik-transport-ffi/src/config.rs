@@ -67,6 +67,7 @@ impl ChannelSettings {
         config.max_sends_in_flight = max_sends_in_flight;
         let grpc = self.options.grpc;
         config.user_agent = grpc.user_agent;
+        config.max_send_message_size = grpc.send.max_message_size.map(|max| max as usize);
         if let Some(max) = grpc.receive.max_message_size {
             config.max_recv_message_size = max as usize;
         }
@@ -87,8 +88,8 @@ pub(crate) enum ConfigRefusal {
     Document(serde_path_to_error::Error<serde_json::Error>),
     /// A window outside what the schema admits.
     Window { key: &'static str, value: i32 },
-    /// A receive limit that admits no message at all.
-    NoMessage { value: i32 },
+    /// A message size limit that admits only empty messages.
+    NoMessage { key: &'static str, value: i32 },
     /// A count of bytes below zero.
     Bytes { key: &'static str, value: i32 },
     /// An empty user agent.
@@ -120,10 +121,9 @@ impl fmt::Display for ConfigRefusal {
                 f,
                 "{key} is {value}, and has to be between 1 and {LARGEST_WINDOW}"
             ),
-            Self::NoMessage { value } => write!(
+            Self::NoMessage { key, value } => write!(
                 f,
-                "Grpc.Receive.MaxMessageSize is {value}, and has to be at least 1 - a channel that \
-                 receives no message at all"
+                "{key} is {value}, and has to be at least 1 - zero admits only empty messages"
             ),
             Self::Bytes { key, value } => write!(f, "{key} is {value}, and has to be at least 0"),
             Self::EmptyUserAgent => {
@@ -216,9 +216,14 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
     window("Grpc.Host.Receive.Window", grpc.host.receive.window)?;
     window("Grpc.Host.Send.Window", grpc.host.send.window)?;
 
-    // Zero is refused: it is a channel that can receive no message at all.
-    if let Some(value) = grpc.receive.max_message_size.filter(|max| *max < 1) {
-        return Err(ConfigRefusal::NoMessage { value });
+    // Zero is refused: it admits only empty messages, which is a channel with no use.
+    for (key, max) in [
+        ("Grpc.Send.MaxMessageSize", grpc.send.max_message_size),
+        ("Grpc.Receive.MaxMessageSize", grpc.receive.max_message_size),
+    ] {
+        if let Some(value) = max.filter(|max| *max < 1) {
+            return Err(ConfigRefusal::NoMessage { key, value });
+        }
     }
 
     if let Some(value) = grpc
@@ -348,6 +353,7 @@ mod tests {
             stated("/$defs/GrpcReceiveOptions/properties/MaxMessageSize/description"),
             config.max_recv_message_size as f64
         );
+        assert_eq!(config.max_send_message_size, None);
         assert_eq!(
             stated("/$defs/HostReceiveOptions/properties/CoalescingBytes/description"),
             config.delivery_coalescing as f64
@@ -421,6 +427,10 @@ mod tests {
                 &["Grpc", "Host", "Send", "Window"][..],
             ),
             (
+                "/$defs/GrpcSendOptions/properties/MaxMessageSize",
+                &["Grpc", "Send", "MaxMessageSize"][..],
+            ),
+            (
                 "/$defs/GrpcReceiveOptions/properties/MaxMessageSize",
                 &["Grpc", "Receive", "MaxMessageSize"][..],
             ),
@@ -440,7 +450,7 @@ mod tests {
                 "{option} is refused at the minimum the schema states"
             );
 
-            // Absent for the receive size, whose largest value is a channel refusing nothing.
+            // Absent for the message sizes, whose largest value is a channel refusing nothing.
             if let Some(maximum) = stated(&format!("{option}/maximum")) {
                 assert!(
                     admits(document(path, maximum)),
@@ -688,11 +698,19 @@ mod tests {
     }
 
     #[test]
-    fn a_channel_that_could_receive_no_message_is_refused() {
-        // Every other size is a channel that refuses some messages; zero refuses all of them,
-        // which is a configuration with no use and a call that can only ever fail.
-        assert!(parse(br#"{"Grpc":{"Receive":{"MaxMessageSize":0}}}"#).is_err());
-        assert!(parse(br#"{"Grpc":{"Receive":{"MaxMessageSize":1}}}"#).is_ok());
+    fn a_channel_that_could_send_or_receive_no_message_is_refused() {
+        // Every other size is a channel that refuses some messages; zero refuses all but the
+        // empty ones, which is a configuration with no use.
+        for way in ["Send", "Receive"] {
+            let document =
+                |max: i32| format!(r#"{{"Grpc":{{"{way}":{{"MaxMessageSize":{max}}}}}}}"#);
+            assert!(parse(document(0).as_bytes()).is_err(), "{way}");
+            assert!(parse(document(1).as_bytes()).is_ok(), "{way}");
+        }
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Send":{"MaxMessageSize":7}}}"#).max_send_message_size,
+            Some(7)
+        );
     }
 
     #[test]
@@ -787,6 +805,10 @@ mod tests {
             (
                 &br#"{"Grpc":{"Host":{"Send":{"Window":0}}}}"#[..],
                 "Grpc.Host.Send.Window",
+            ),
+            (
+                &br#"{"Grpc":{"Send":{"MaxMessageSize":0}}}"#[..],
+                "Grpc.Send.MaxMessageSize",
             ),
             (
                 &br#"{"Grpc":{"Receive":{"MaxMessageSize":0}}}"#[..],

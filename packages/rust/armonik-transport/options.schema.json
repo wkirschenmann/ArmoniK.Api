@@ -502,6 +502,10 @@
           "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
           "$ref": "#/$defs/RetryOptions"
         },
+        "Send": {
+          "description": "What a call sends to the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/GrpcSendOptions"
+        },
         "Receive": {
           "description": "What a call accepts from the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
           "$ref": "#/$defs/GrpcReceiveOptions"
@@ -550,6 +554,19 @@
           "type": "integer",
           "format": "int32",
           "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "GrpcSendOptions": {
+      "description": "What a call sends to the server.",
+      "type": "object",
+      "properties": {
+        "MaxMessageSize": {
+          "description": "The largest message this client will send, in bytes. A larger one ends its call\n`RESOURCE_EXHAUSTED`, and none of it is sent.\n\nDefaults to none, any message a call is given going out. Zero is refused: it admits only\nempty messages.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
         }
       },
       "additionalProperties": false

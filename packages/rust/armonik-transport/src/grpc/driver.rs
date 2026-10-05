@@ -19,7 +19,7 @@ use super::call::{
 use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
-use super::request::RequestSlot;
+use super::request::{RequestSlot, FRAME_PREFIX};
 use super::retry::{jittered, Attempt, OneReplay, Replay, Sent};
 use super::status::GrpcStatusCode;
 use super::status::{GrpcStatus, Unprocessed};
@@ -111,6 +111,11 @@ pub(crate) async fn drive<S: ResponseSink>(
     ))
     .await
     .unwrap_or_else(|| GrpcStatus::new(Code::Internal, "the task driving the call panicked"));
+    // A refusal stops the call as a cancellation does, and is what the call ends with.
+    let status = match control.refusal() {
+        Some(refused) if status.code == GrpcStatusCode::Cancelled => refused,
+        _ => status,
+    };
 
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.
@@ -309,11 +314,21 @@ async fn run<S: ResponseSink>(
         // Nothing goes out, not even the request's head, until the request is in: a call that ends
         // first has sent nothing its peer could act on.
         Sending::One(slot) => match until_stopped(stop, slot.taken()).await {
-            Some(Some(request)) => Sent::One(OneReplay::new(
-                request.body(),
-                replay_limit,
-                Arc::clone(&inner.replay),
-            )),
+            Some(Some(request)) => {
+                let body = request.body();
+                let len = body.len() - FRAME_PREFIX;
+                if let Some(max) = inner.max_send_message_size.filter(|max| len > *max) {
+                    return GrpcStatus::new(
+                        GrpcStatusCode::ResourceExhausted,
+                        format!("a message of {len} bytes is past the {max} the channel sends"),
+                    );
+                }
+                Sent::One(OneReplay::new(
+                    body,
+                    replay_limit,
+                    Arc::clone(&inner.replay),
+                ))
+            }
             None | Some(None) => return GrpcStatus::cancelled(),
         },
     };
@@ -675,7 +690,7 @@ mod tests {
     #[tokio::test]
     async fn a_status_the_peer_gave_outlives_the_channel_that_carried_it() {
         let (closed, closed_rx) = watch::channel(false);
-        let (call, _messages, driving) = create(1, closed_rx);
+        let (call, _messages, driving) = create(1, None, closed_rx);
         let (_send, mut recv, _control) = call.split();
 
         let Driving {

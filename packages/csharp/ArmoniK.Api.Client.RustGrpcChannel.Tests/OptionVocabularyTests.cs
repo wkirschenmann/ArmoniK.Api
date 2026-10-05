@@ -96,6 +96,7 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
                                                                        ["Grpc.Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
                                                                        ["Grpc.Host.Send.Window"] = "the send window, which only this ABI has",
+                                                                       ["Grpc.Send.MaxMessageSize"] = "grpc-dotnet's MaxSendMessageSize, which GrpcClient does not set",
                                                                        ["Grpc.Receive.MaxMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",

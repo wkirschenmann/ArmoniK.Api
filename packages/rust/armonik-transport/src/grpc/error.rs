@@ -23,6 +23,10 @@ pub enum GrpcChannelConfigError {
          means by `no limit`"
     ))]
     ZeroMaxRecvMessageSize,
+    #[snafu(display(
+        "`max_send_message_size` of zero admits only empty messages, and no limit is `None`"
+    ))]
+    ZeroMaxSendMessageSize,
     #[snafu(display("`{value}` is not a value a `user-agent` header can carry"))]
     InvalidUserAgent { value: String },
     #[snafu(display("the retry policy is refused: {why}"))]
@@ -51,6 +55,11 @@ pub enum ChannelError {
 pub enum CallError {
     #[snafu(display("a message of {len} bytes does not fit the four-byte gRPC length prefix"))]
     MessageTooLong { len: usize },
+    #[snafu(display(
+        "a message of {len} bytes is past the {max} the channel sends; the call ends \
+         RESOURCE_EXHAUSTED"
+    ))]
+    MessageTooLarge { len: usize, max: usize },
     #[snafu(display("the call has already reached its terminal status"))]
     Ended,
     #[snafu(display("the task driving the call ended without a terminal status"))]

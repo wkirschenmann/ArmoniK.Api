@@ -1618,6 +1618,12 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "serde", serde(default))]
     pub retry: RetryOptions,
 
+    /// What a call sends to the server.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub send: GrpcSendOptions,
+
     /// What a call accepts from the server.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
@@ -1629,6 +1635,29 @@ pub struct GrpcOptions {
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
     pub host: HostOptions,
+}
+
+/// What a call sends to the server.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct GrpcSendOptions {
+    /// The largest message this client will send, in bytes. A larger one ends its call
+    /// `RESOURCE_EXHAUSTED`, and none of it is sent.
+    ///
+    /// Defaults to none, any message a call is given going out. Zero is refused: it admits only
+    /// empty messages.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub max_message_size: Option<i32>,
 }
 
 /// What a call accepts from the server.
@@ -1847,9 +1876,11 @@ over_fields!(GrpcOptions {
     user_agent,
     default_deadline_seconds,
     retry,
+    send,
     receive,
     host,
 });
+over_fields!(GrpcSendOptions { max_message_size });
 over_fields!(GrpcReceiveOptions { max_message_size });
 over_fields!(HostOptions { send, receive });
 over_fields!(HostSendOptions { window });

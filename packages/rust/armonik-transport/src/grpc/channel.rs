@@ -46,6 +46,9 @@ pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
     pub user_agent: Option<String>,
     pub max_sends_in_flight: usize,
+    /// The largest message a call sends; a larger one ends its call `RESOURCE_EXHAUSTED` and none
+    /// of it is sent. None sends any message a four-byte length carries.
+    pub max_send_message_size: Option<usize>,
     pub max_recv_message_size: usize,
     /// How many bytes of a response's messages a delivery to a sink that gathers may wait to
     /// gather. 0 delivers each read at once.
@@ -63,6 +66,7 @@ impl GrpcChannelConfig {
             transport,
             user_agent: None,
             max_sends_in_flight: 1,
+            max_send_message_size: None,
             max_recv_message_size: DEFAULT_MAX_RECV_MESSAGE_SIZE,
             delivery_coalescing: DEFAULT_DELIVERY_COALESCING,
             default_deadline: None,
@@ -92,6 +96,10 @@ impl GrpcChannel {
             return Err(GrpcChannelConfigError::SendWindowTooLarge {
                 value: config.max_sends_in_flight,
             });
+        }
+
+        if config.max_send_message_size == Some(0) {
+            return Err(GrpcChannelConfigError::ZeroMaxSendMessageSize);
         }
 
         if config.max_recv_message_size == 0 {
@@ -128,6 +136,7 @@ impl GrpcChannel {
                 spawner,
                 user_agent,
                 max_sends_in_flight: config.max_sends_in_flight,
+                max_send_message_size: config.max_send_message_size,
                 max_recv_message_size: config.max_recv_message_size,
                 delivery_coalescing: config.delivery_coalescing,
                 default_deadline: config.default_deadline,
@@ -149,6 +158,7 @@ impl GrpcChannel {
         let (path, metadata, deadline) = self.addressed(&options)?;
         let (grpc_call, messages, driving) = call::create(
             self.inner.max_sends_in_flight,
+            self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
         let outgoing = Outgoing {
@@ -175,6 +185,7 @@ impl GrpcChannel {
         let (path, metadata, deadline) = self.addressed(&options)?;
         let (send, control, messages, driving) = call::create_with(
             self.inner.max_sends_in_flight,
+            self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
         let outgoing = Outgoing {
@@ -314,6 +325,7 @@ pub(crate) struct Inner {
     spawner: tokio::runtime::Handle,
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
+    pub(crate) max_send_message_size: Option<usize>,
     max_recv_message_size: usize,
     pub(crate) delivery_coalescing: usize,
     default_deadline: Option<Duration>,
@@ -945,6 +957,25 @@ mod tests {
             refused(LARGEST_WINDOW as usize).is_none(),
             "the deepest window the options admit is one this door takes"
         );
+    }
+
+    /// Zero is refused, as the receive limit's zero is: it admits only empty messages.
+    #[tokio::test]
+    async fn a_send_limit_of_zero_is_refused() {
+        let refused = |max_send_message_size| {
+            let mut config = GrpcChannelConfig::new(TransportConfig::new(Uri::from_static(
+                "http://127.0.0.1:1234",
+            )));
+            config.max_send_message_size = max_send_message_size;
+            GrpcChannel::new(config, tokio::runtime::Handle::current()).err()
+        };
+
+        assert!(matches!(
+            refused(Some(0)),
+            Some(GrpcChannelConfigError::ZeroMaxSendMessageSize)
+        ));
+        assert!(refused(Some(1)).is_none());
+        assert!(refused(None).is_none());
     }
 
     /// Nothing is dialed: the driver is dropped before anything polls it, and the sink with it.

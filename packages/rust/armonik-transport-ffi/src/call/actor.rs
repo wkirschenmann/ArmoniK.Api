@@ -171,20 +171,27 @@ async fn write_until_closed(
             Command::Send(bytes) => {
                 let charged = bytes.len();
                 if let Some(half) = send.as_mut() {
-                    // `Ended` is the one refusal a message that came through the ABI can meet, and
-                    // it changes nothing below: WRITE_DONE settles an accepted send and says
+                    // `Ended` is a refusal a message that came through the ABI can meet, and it
+                    // changes nothing below: WRITE_DONE settles an accepted send and says
                     // nothing about the network, so a message abandoned because the call ended is
                     // acquitted like one written and the terminal is what reports the end.
                     // Withholding it instead would break the header's "exactly once per accepted
                     // send" and hang a host waiting for its acquittal.
                     //
-                    // The other refusal, a length no four-byte prefix can carry, is refused at the
+                    // `MessageTooLarge`, a message past `Grpc.Send.MaxMessageSize`, is the same: the
+                    // call ends RESOURCE_EXHAUSTED, which its terminal reports. The lend cannot
+                    // refuse it, since the host may write less than it asks for.
+                    //
+                    // `MessageTooLong`, a length no four-byte prefix can carry, is refused at the
                     // lend: `LARGEST_LENDABLE` caps the ceiling itself, so it cannot reach here to
                     // be lost behind an acquittal. Asserted rather than argued, because the day
                     // that stops being true is the day a message goes missing in silence.
                     let sent = half.send_message(bytes).await;
                     debug_assert!(
-                        matches!(sent, Ok(()) | Err(CallError::Ended)),
+                        matches!(
+                            sent,
+                            Ok(()) | Err(CallError::Ended | CallError::MessageTooLarge { .. })
+                        ),
                         "a send accepted at the lend was refused by the transport: {sent:?}"
                     );
                 }

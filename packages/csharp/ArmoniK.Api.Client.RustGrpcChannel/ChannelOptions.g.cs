@@ -1901,6 +1901,9 @@ public sealed class GrpcOptions
     Retry = other.Retry is null
               ? null
               : new RetryOptions(other.Retry);
+    Send = other.Send is null
+             ? null
+             : new GrpcSendOptions(other.Send);
     Receive = other.Receive is null
                 ? null
                 : new GrpcReceiveOptions(other.Receive);
@@ -1939,6 +1942,12 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryOptions? Retry { get; set; }
 
+  /// <summary>What a call sends to the server.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Send")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public GrpcSendOptions? Send { get; set; }
+
   /// <summary>What a call accepts from the server.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Receive")]
@@ -1970,6 +1979,7 @@ public sealed class GrpcOptions
     }
 
     Retry?.Validate();
+    Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
   }
@@ -1998,6 +2008,11 @@ public sealed class GrpcOptions
                                               "Retry"))
       {
         bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Send"))
+      {
+        bound.Send = ChannelOptionsConfiguration.Holds(entry) ? GrpcSendOptions.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "Receive"))
@@ -2184,6 +2199,77 @@ public sealed class RetryOptions
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
                                                   "RetryOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>What a call sends to the server.</summary>
+public sealed class GrpcSendOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public GrpcSendOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public GrpcSendOptions(GrpcSendOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    MaxMessageSize = other.MaxMessageSize;
+  }
+
+  /// <summary>
+  ///   The largest message this client will send, in bytes. A larger one ends its call
+  ///   <c>RESOURCE_EXHAUSTED</c>, and none of it is sent.
+  /// </summary>
+  /// <remarks>
+  ///   Defaults to none, any message a call is given going out. Zero is refused: it admits only
+  ///   empty messages.
+  /// </remarks>
+  [JsonPropertyName("MaxMessageSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxMessageSize { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (MaxMessageSize is int maxMessageSize && maxMessageSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxMessageSize),
+                                            maxMessageSize,
+                                            "MaxMessageSize has to be at least 1.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static GrpcSendOptions Bind(IConfigurationSection section)
+  {
+    var bound = new GrpcSendOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "MaxMessageSize"))
+      {
+        bound.MaxMessageSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "GrpcSendOptions");
       }
     }
 

@@ -2,7 +2,7 @@ mod common;
 
 use armonik_transport::grpc::{
     CallError, CallStartOptions, ChannelError, FramedRequest, GrpcChannelConfig, GrpcStatus,
-    GrpcStatusCode, HeadOrigin, MetadataValue, ResponseHead, ResponseSink,
+    GrpcStatusCode, HeadOrigin, MetadataValue, ResponseHead, ResponseSink, RetryConfig,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
 use bytes::Bytes;
@@ -686,6 +686,70 @@ async fn a_reply_past_the_maximum_is_refused_and_a_raised_maximum_carries_it() {
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].len(), SIZE);
     assert!(messages[0].iter().all(|byte| *byte == 0x27));
+}
+
+/// A channel that sends at most `max` bytes a message, with a policy that would retry the
+/// refusal's code, and the cancellation it stops the call with, at once: a test then shows that
+/// a refused call is not tried again.
+fn sending_at_most(server: &TestServer, max: usize) -> armonik_transport::grpc::GrpcChannel {
+    let uri = Uri::try_from(server.endpoint.as_str()).expect("the test server's endpoint");
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
+    config.max_send_message_size = Some(max);
+    let mut retry = RetryConfig::default();
+    retry.initial_backoff = std::time::Duration::from_millis(1);
+    retry.max_backoff = std::time::Duration::from_millis(1);
+    retry.retryable_codes = vec![GrpcStatusCode::ResourceExhausted, GrpcStatusCode::Cancelled];
+    config.retry = Some(retry);
+    common::echo::channel_with(config).expect("a plain endpoint")
+}
+
+/// A message past the send limit is refused at the send that gives it, and the call ends
+/// RESOURCE_EXHAUSTED, as the gRPC status table has it, rather than CANCELLED - and is not tried
+/// again, though the policy names both codes.
+#[tokio::test]
+async fn a_message_past_the_send_limit_ends_the_call_resource_exhausted() {
+    let server = TestServer::start().await;
+    let channel = sending_at_most(&server, 4);
+
+    let (mut send, mut recv, _control) = channel
+        .start_call(CallStartOptions::new(COLLECT))
+        .expect("an open channel")
+        .split();
+    send.send_message(Bytes::from_static(b"four"))
+        .await
+        .expect("a message at the limit is sent");
+    assert_eq!(
+        send.send_message(Bytes::from_static(b"fives")).await,
+        Err(CallError::MessageTooLarge { len: 5, max: 4 })
+    );
+
+    let (_, messages, status) = read_to_terminal(&mut recv).await;
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+    assert!(status.message.contains("past the 4"), "{status}");
+    assert!(messages.is_empty(), "{messages:?}");
+}
+
+/// A request past the send limit ends its call before anything is sent, and is not tried again:
+/// no connection is dialled.
+#[tokio::test]
+async fn a_request_past_the_send_limit_sends_nothing() {
+    let server = TestServer::start().await;
+    let channel = sending_at_most(&server, 4);
+
+    let (request, _control, driver) = channel
+        .prepare_one_request_call(CallStartOptions::new(ECHO))
+        .expect("an open channel");
+    assert!(request.give(|| FramedRequest::copy_of(b"fives").expect("a message of five bytes")));
+    let (sink, heard) = Recording::new();
+    driver.drive(sink).await;
+
+    let heard = heard.await.expect("the sink heard the end");
+    assert_eq!(
+        heard.last().map(String::as_str),
+        Some("end ResourceExhausted, head Some(NoResponse)"),
+        "{heard:?}"
+    );
+    assert_eq!(server.connections(), 0);
 }
 
 #[tokio::test]

@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,7 @@ use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
 use super::request::{self, OneRequest, RequestSlot};
-use super::status::GrpcStatus;
+use super::status::{GrpcStatus, GrpcStatusCode};
 
 /// Where a call's response head came from. The head's metadata is empty unless it is `Wire`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -164,6 +164,8 @@ impl GrpcCall {
 pub struct SendHalf {
     messages: mpsc::Sender<Bytes>,
     over: watch::Receiver<bool>,
+    max_message_size: Option<usize>,
+    control: CallControl,
 }
 
 impl SendHalf {
@@ -176,10 +178,30 @@ impl SendHalf {
         if u32::try_from(message.len()).is_err() {
             return Err(CallError::MessageTooLong { len: message.len() });
         }
-        let Self { messages, over } = self;
+        let Self {
+            messages,
+            over,
+            max_message_size,
+            control,
+        } = self;
 
         if *over.borrow() {
             return Err(CallError::Ended);
+        }
+        // Before the queue, so none of it is sent: the call ends with the refusal, as the gRPC
+        // status table has a message past the configured limit end.
+        if let Some(max) = max_message_size.filter(|max| message.len() > *max) {
+            control.refuse(GrpcStatus::new(
+                GrpcStatusCode::ResourceExhausted,
+                format!(
+                    "a message of {} bytes is past the {max} the channel sends",
+                    message.len()
+                ),
+            ));
+            return Err(CallError::MessageTooLarge {
+                len: message.len(),
+                max,
+            });
         }
 
         let message = match messages.try_send(message) {
@@ -269,9 +291,22 @@ pub struct CallControl {
     /// call ended - and hyper keeps a reference to the HTTP/2 stream for as long as the body they
     /// feed is unfinished. This is what makes the stream go back.
     body_over: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    /// Why the call stopped when it is this side that refused what it was given, which is the
+    /// status it ends with rather than `CANCELLED`.
+    refused: Arc<OnceLock<GrpcStatus>>,
 }
 
 impl CallControl {
+    /// Ends the call with `status`; the first refusal is the one that stands.
+    pub(crate) fn refuse(&self, status: GrpcStatus) {
+        let _ = self.refused.set(status);
+        self.cancel();
+    }
+
+    pub(crate) fn refusal(&self) -> Option<GrpcStatus> {
+        self.refused.get().cloned()
+    }
+
     pub fn cancel(&self) {
         self.over.send_replace(true);
         if let Some(told) = self
@@ -323,6 +358,7 @@ impl Stream for RequestMessages {
 /// its response goes to.
 pub(crate) fn create_with(
     send_window: usize,
+    max_message_size: Option<usize>,
     channel_closed: watch::Receiver<bool>,
 ) -> (SendHalf, CallControl, RequestMessages, Driving<()>) {
     let (message_tx, message_rx) = mpsc::channel(send_window);
@@ -332,10 +368,13 @@ pub(crate) fn create_with(
     let control = CallControl {
         over: Arc::new(over_tx),
         body_over: Arc::new(Mutex::new(Some(body_over_tx))),
+        refused: Arc::default(),
     };
     let send = SendHalf {
         messages: message_tx,
         over: over_rx.clone(),
+        max_message_size,
+        control: control.clone(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());
 
@@ -361,6 +400,7 @@ pub(crate) fn create_one(
     let control = CallControl {
         over: Arc::new(over_tx),
         body_over: Arc::new(Mutex::new(None)),
+        refused: Arc::default(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());
     (request, control, slot, driving)
@@ -368,6 +408,7 @@ pub(crate) fn create_one(
 
 pub(crate) fn create(
     send_window: usize,
+    max_message_size: Option<usize>,
     channel_closed: watch::Receiver<bool>,
 ) -> (GrpcCall, RequestMessages, Driving<Delivery>) {
     let (head_tx, head_rx) = oneshot::channel();
@@ -376,7 +417,8 @@ pub(crate) fn create(
     let (recv_tx, recv_rx) = mpsc::channel(1);
     let (terminal_tx, terminal_rx) = oneshot::channel();
 
-    let (send, control, messages, driving) = create_with(send_window, channel_closed);
+    let (send, control, messages, driving) =
+        create_with(send_window, max_message_size, channel_closed);
     let driving = driving.with_sink(Delivery::new(head_tx, recv_tx, terminal_tx));
     let call = GrpcCall {
         send,
@@ -403,7 +445,7 @@ mod tests {
     /// not whether the transport happens to be able to take the bytes.
     #[tokio::test]
     async fn a_call_that_is_over_refuses_a_send_though_its_queue_has_room() {
-        let (call, _messages, _driving) = create(4, watch::channel(false).1);
+        let (call, _messages, _driving) = create(4, None, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -426,7 +468,7 @@ mod tests {
     /// client keeps the stream for the life of its client.
     #[tokio::test]
     async fn the_request_messages_end_when_the_call_does_and_not_when_their_sender_drops() {
-        let (call, mut messages, _driving) = create(1, watch::channel(false).1);
+        let (call, mut messages, _driving) = create(1, None, watch::channel(false).1);
         let (_send, _recv, control) = call.split();
 
         let parked = tokio::spawn(async move {
@@ -445,7 +487,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_send_waiting_on_a_full_window_is_refused_when_the_call_ends() {
-        let (call, _messages, _driving) = create(1, watch::channel(false).1);
+        let (call, _messages, _driving) = create(1, None, watch::channel(false).1);
         let (mut send, _recv, control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))
@@ -471,7 +513,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn the_send_window_holds_the_next_message_until_the_last_is_taken() {
-        let (call, mut messages, _driving) = create(1, watch::channel(false).1);
+        let (call, mut messages, _driving) = create(1, None, watch::channel(false).1);
         let (mut send, _recv, _control) = call.split();
 
         send.send_message(Bytes::from_static(b"first"))

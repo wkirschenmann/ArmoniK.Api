@@ -119,6 +119,54 @@ fn a_send_the_transport_abandoned_is_acquitted_like_one_it_wrote() {
     fixture.close();
 }
 
+/// A message past `Grpc.Send.MaxMessageSize` is accepted at the ABI and acquitted like any other,
+/// and the call ends RESOURCE_EXHAUSTED: the refusal is the transport's, and the terminal reports
+/// it.
+#[test]
+fn a_message_past_the_send_limit_ends_the_call_resource_exhausted() {
+    const RESOURCE_EXHAUSTED: i32 = 8;
+
+    let server = support::TestServer::start();
+    let host = Host::start();
+    let channel = host.channel_with(
+        &server.endpoint,
+        r#"{"Grpc":{"Send":{"MaxMessageSize":3}}}"#,
+    );
+    let call = start_call(channel, COLLECT, &[]);
+
+    write_one(&host, call, b"one", 1);
+    let (status, buffer) = lend(call, ABANDONED.len());
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    unsafe { std::ptr::copy_nonoverlapping(ABANDONED.as_ptr(), buffer.ptr, ABANDONED.len()) };
+    assert_eq!(
+        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK,
+        "the ABI accepts it: the limit is the transport's"
+    );
+
+    let seen = host.recorder.await_terminal();
+    let kinds = seen.kinds();
+    assert_eq!(
+        acquittals(&kinds).len(),
+        2,
+        "the refused send is acquitted too: {kinds:?}"
+    );
+    assert!(
+        acquittals(&kinds).iter().all(|at| *at < terminal(&kinds)),
+        "and before the terminal: {kinds:?}"
+    );
+    assert_eq!(
+        seen.status_code(),
+        Some(RESOURCE_EXHAUSTED),
+        "{}",
+        seen.status_message()
+    );
+    assert!(seen.message_payloads().is_empty());
+
+    ak_channel_release(channel);
+    host.stop();
+}
+
 /// Where each acquittal sits in the sequence the host was handed.
 fn acquittals(kinds: &[ak_event_kind]) -> Vec<usize> {
     kinds
