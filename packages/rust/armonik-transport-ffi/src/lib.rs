@@ -132,6 +132,7 @@ pub unsafe extern "C" fn ak_runtime_create(
             return Err(NULL_ARGUMENT);
         };
         let config = unsafe { read_versioned(config) }?;
+        let defaults = unsafe { config.channel_defaults_json.as_slice() }.ok_or(NULL_SLICE)?;
 
         unsafe {
             hand_over(
@@ -139,6 +140,7 @@ pub unsafe extern "C" fn ak_runtime_create(
                 lifecycle::create_runtime(
                     config.memory_ceiling,
                     config.memory_hard_ceiling,
+                    defaults,
                     Host::new(callback, runtime_ctx),
                 ),
             )

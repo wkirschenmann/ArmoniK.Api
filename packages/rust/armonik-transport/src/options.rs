@@ -1571,6 +1571,91 @@ pub struct ChannelOptions {
     pub connect_eagerly: Option<bool>,
 }
 
+/// Options stated over their defaults: a struct field by field, recursively, and an option the
+/// stated one if it is stated. An alternative is an enum held in an option, so it is taken whole:
+/// two alternatives are never combined into one neither stated.
+trait Over {
+    fn over(self, defaults: &Self) -> Self;
+}
+
+impl<T: Clone> Over for Option<T> {
+    fn over(self, defaults: &Self) -> Self {
+        self.or_else(|| defaults.clone())
+    }
+}
+
+/// `Over` for a struct of options, every field merged. The fields are destructured without `..`,
+/// so a field the struct gains and this does not list fails to compile.
+macro_rules! over_fields {
+    ($type:ident { $($field:ident),+ $(,)? }) => {
+        impl Over for $type {
+            fn over(self, defaults: &Self) -> Self {
+                let Self { $($field),+ } = self;
+                Self {
+                    $($field: $field.over(&defaults.$field)),+
+                }
+            }
+        }
+    };
+}
+
+over_fields!(ChannelOptions {
+    transport,
+    user_agent,
+    max_receive_message_size,
+    default_deadline_seconds,
+    max_sends_in_flight,
+    delivery_credits,
+    delivery_coalescing_bytes,
+    http2,
+    retry,
+    connect_eagerly,
+});
+over_fields!(TransportOptions {
+    connect_timeout_seconds,
+    tls,
+    tcp_keepalive,
+    proxy,
+});
+over_fields!(TlsOptions {
+    server,
+    client,
+    override_target_name,
+});
+over_fields!(TcpKeepaliveOptions {
+    idle_seconds,
+    interval_seconds,
+    retries,
+});
+over_fields!(Http2Options {
+    keep_alive_interval_seconds,
+    keep_alive_timeout_seconds,
+    keep_alive_while_idle,
+    stream_window_size,
+    connection_window_size,
+    idle_timeout_seconds,
+    write_coalescing_bytes,
+});
+over_fields!(RetryOptions {
+    max_attempts,
+    initial_backoff_seconds,
+    max_backoff_seconds,
+    backoff_multiplier,
+    call_replay_bytes,
+    channel_replay_bytes,
+});
+
+impl ChannelOptions {
+    /// These options over `defaults`: field by field, recursively, an option stated here winning
+    /// and one left out the default's. An alternative - how the server is verified, who the client
+    /// is, which proxy - is taken whole. Options that only bound one another, such as the two
+    /// backoff bounds, merge as any option, and a merge where they disagree is refused as a
+    /// document stating both would be.
+    pub fn over(self, defaults: &Self) -> Self {
+        Over::over(self, defaults)
+    }
+}
+
 /// The schema of [`ChannelOptions`], as the committed file holds it.
 ///
 /// Rendered here rather than by whoever asks, so the file, the test that checks it and any
@@ -2215,6 +2300,88 @@ mod tests {
         .to_config()
         .expect_err("a negative size");
         assert_eq!(refused.key(), "WriteCoalescingBytes");
+    }
+
+    /// An option stated over a default wins, one left out is the default's, and a struct merges
+    /// the same way within it.
+    #[test]
+    fn a_stated_option_wins_over_its_default() {
+        let defaults = ChannelOptions {
+            user_agent: Some("default".to_owned()),
+            delivery_credits: Some(2),
+            http2: Http2Options {
+                keep_alive_while_idle: Some(true),
+                stream_window_size: Some(70_000),
+                ..Http2Options::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let merged = ChannelOptions {
+            delivery_credits: Some(3),
+            http2: Http2Options {
+                stream_window_size: Some(80_000),
+                ..Http2Options::default()
+            },
+            ..ChannelOptions::default()
+        }
+        .over(&defaults);
+
+        assert_eq!(merged.user_agent.as_deref(), Some("default"));
+        assert_eq!(merged.delivery_credits, Some(3));
+        assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
+        assert_eq!(merged.http2.stream_window_size, Some(80_000));
+    }
+
+    /// An alternative is taken whole, the stated one's: nothing of the default's is combined into
+    /// it. Beside it, every other option cumulates, the two backoff bounds included.
+    #[test]
+    fn a_stated_alternative_replaces_the_default_whole() {
+        let mut url = ProxyUrl::new("http://proxy.test:3128");
+        url.username = Some("someone".to_owned());
+        let defaults = ChannelOptions {
+            transport: TransportOptions {
+                tls: TlsOptions {
+                    server: Some(ServerVerification::CaPem("ca.pem".to_owned())),
+                    client: Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
+                    override_target_name: Some("server".to_owned()),
+                },
+                proxy: Some(ProxyOptions::Url(url)),
+                ..TransportOptions::default()
+            },
+            retry: RetryOptions {
+                max_backoff_seconds: Some(Seconds(5.0)),
+                ..RetryOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let merged = ChannelOptions {
+            transport: TransportOptions {
+                tls: TlsOptions {
+                    server: Some(ServerVerification::Unverified(Chosen)),
+                    ..TlsOptions::default()
+                },
+                proxy: Some(ProxyOptions::None(Chosen)),
+                ..TransportOptions::default()
+            },
+            retry: RetryOptions {
+                initial_backoff_seconds: Some(Seconds(10.0)),
+                ..RetryOptions::default()
+            },
+            ..ChannelOptions::default()
+        }
+        .over(&defaults);
+
+        let tls = &merged.transport.tls;
+        assert_eq!(tls.server, Some(ServerVerification::Unverified(Chosen)));
+        assert_eq!(
+            tls.client,
+            Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
+            "the identity is another alternative, which the channel leaves to its default"
+        );
+        assert_eq!(tls.override_target_name.as_deref(), Some("server"));
+        assert_eq!(merged.transport.proxy, Some(ProxyOptions::None(Chosen)));
+        assert_eq!(merged.retry.initial_backoff_seconds, Some(Seconds(10.0)));
+        assert_eq!(merged.retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
     /// The committed schema is what generates the C# class, so it has to be what these types

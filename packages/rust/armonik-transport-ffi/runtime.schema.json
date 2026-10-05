@@ -15,7 +15,533 @@
       "type": "integer",
       "format": "int64",
       "minimum": 1
+    },
+    "ChannelDefaults": {
+      "description": "Channel options every channel of the runtime takes where its own options state none: the\ntwo are merged option by option, a struct's options within it, and the channel's win; an\nalternative - how the server is verified, who the client is, which proxy - is taken whole.\n\nDefaults to none.",
+      "$ref": "#/$defs/ChannelOptions"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "ChannelOptions": {
+      "description": "What a caller may set on one channel.",
+      "type": "object",
+      "properties": {
+        "Transport": {
+          "description": "What the transport does, beyond reaching the endpoint.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/TransportOptions"
+        },
+        "UserAgent": {
+          "description": "What this client calls itself in `user-agent`.\n\nDefaults to `armonik-transport/` followed by the engine's version.",
+          "type": "string",
+          "minLength": 1
+        },
+        "MaxReceiveMessageSize": {
+          "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        },
+        "DefaultDeadlineSeconds": {
+          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. A call's own deadline takes its place, and a call that\nstates none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "MaxSendsInFlight": {
+          "description": "How many messages a call may have sent and unacquitted at once.\n\nDefaults to 1.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 536870910
+        },
+        "DeliveryCredits": {
+          "description": "How many of a call's payloads the host may hold at once, delivered and not yet given back.\nThe terminal status takes none, so a host holds at most one more.\n\nDefaults to 4.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 536870910
+        },
+        "DeliveryCoalescingBytes": {
+          "description": "How many bytes of a response a delivery to the host may wait to gather, so that a unary\nanswer's head, message and status reach it in one callback. 0 delivers each read at once.\n\nDefaults to 16384, 16 KiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        },
+        "Http2": {
+          "description": "The HTTP/2 session the channel's calls share.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/Http2Options"
+        },
+        "Retry": {
+          "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
+          "$ref": "#/$defs/RetryOptions"
+        },
+        "ConnectEagerly": {
+          "description": "Whether the channel starts dialling its endpoint as it is created rather than at its first\ncall, which then finds the session open or joins the dial under way. A dial that fails is\nnot reported: the first call dials again and reports what it meets.\n\nDefaults to false.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TransportOptions": {
+      "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it is\npassed when the channel is opened rather than set as an option that happens to be mandatory.\nEvery option has a default, so naming none of them is a valid configuration.",
+      "type": "object",
+      "properties": {
+        "ConnectTimeoutSeconds": {
+          "description": "How long a dial may take before it is given up on.\n\nDefaults to 60, and at least a nanosecond, the finest duration the engine holds: a shorter\none could round to zero, which no dial could beat.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "Tls": {
+          "description": "How an `https://` endpoint is secured.\n\nDefaults to `{}`: the server verified against the system's roots under the endpoint's\nhost, and no client certificate. Refused for an `http://` endpoint unless it sets nothing.",
+          "$ref": "#/$defs/TlsOptions"
+        },
+        "TcpKeepalive": {
+          "description": "The socket's keepalive.\n\nDefaults to `{}`, which sets none.",
+          "$ref": "#/$defs/TcpKeepaliveOptions"
+        },
+        "Proxy": {
+          "description": "The HTTP proxy every dial tunnels through.\n\nDefaults to `{\"System\": {}}`: the proxy the system names, if any, with no credentials of\nits own.",
+          "$ref": "#/$defs/ProxyOptions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Seconds": {
+      "description": "A duration, in seconds.\n\nSeconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory\nlayout rather than anything a document would write. A number carries no unit, so every\noption of this type names one: `connect_timeout_seconds`, not `connect_timeout`.\n\nThe ceiling is the type's own and not any one option's: every `Seconds` becomes a `Duration`,\nand `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here\nrather than left to the conversion, which refuses correctly but names no option when it does -\na caller then reads that their configuration was refused and not which line of it.",
+      "type": "number",
+      "format": "double",
+      "exclusiveMaximum": 1.8446744073709552e+19
+    },
+    "TlsOptions": {
+      "description": "How an `https://` endpoint is secured. Each file is read when the channel is created, so a\npath that names nothing usable is refused then, by its option's name.",
+      "type": "object",
+      "properties": {
+        "Server": {
+          "description": "How the server certificate is verified.\n\nDefaults to the system's roots.",
+          "$ref": "#/$defs/ServerVerification"
+        },
+        "Client": {
+          "description": "The certificate the client presents, and its key.\n\nDefaults to none.",
+          "$ref": "#/$defs/ClientCertificate"
+        },
+        "OverrideTargetName": {
+          "description": "The host the server certificate is verified against, and sent as SNI, in place of the\nendpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is\nnot read.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "ServerVerification": {
+      "description": "How the server certificate is verified.",
+      "oneOf": [
+        {
+          "description": "Against the roots of a PEM file, named by its path, in place of the system's. Every\ncertificate the file holds is a root.",
+          "type": "object",
+          "properties": {
+            "CaPem": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "CaPem"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Against a root from a Windows certificate store, `Root` unless `Name` says otherwise, in\nplace of the system's.\n\nRefused off Windows.",
+          "type": "object",
+          "properties": {
+            "CaStore": {
+              "$ref": "#/$defs/StoreCertificate"
+            }
+          },
+          "required": [
+            "CaStore"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Not at all: any server certificate is accepted. The connection is still encrypted, to\nwhoever answers.",
+          "type": "object",
+          "properties": {
+            "Unverified": {
+              "const": true
+            }
+          },
+          "required": [
+            "Unverified"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StoreCertificate": {
+      "description": "A certificate of a Windows certificate store.",
+      "type": "object",
+      "properties": {
+        "Location": {
+          "description": "Where the store is.\n\nDefaults to `CurrentUser`.",
+          "$ref": "#/$defs/StoreLocation"
+        },
+        "Name": {
+          "description": "The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Find": {
+          "description": "How the certificate is found in the store.",
+          "$ref": "#/$defs/StoreSearch"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Find"
+      ]
+    },
+    "StoreLocation": {
+      "description": "Where a Windows certificate store is.",
+      "oneOf": [
+        {
+          "description": "The current user's stores.",
+          "type": "string",
+          "const": "CurrentUser"
+        },
+        {
+          "description": "The machine's stores, which every user shares.",
+          "type": "string",
+          "const": "LocalMachine"
+        }
+      ]
+    },
+    "StoreSearch": {
+      "description": "How a certificate is found in its store.",
+      "oneOf": [
+        {
+          "description": "By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are\nignored.",
+          "type": "object",
+          "properties": {
+            "Thumbprint": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "Thumbprint"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "By a text its subject contains, compared without case, as .NET's `FindBySubjectName`\ncompares it.",
+          "type": "object",
+          "properties": {
+            "SubjectName": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "SubjectName"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "By its friendly name, exactly.",
+          "type": "object",
+          "properties": {
+            "FriendlyName": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "FriendlyName"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ClientCertificate": {
+      "description": "The certificate the client presents, and its key.",
+      "oneOf": [
+        {
+          "description": "From PEM files.",
+          "type": "object",
+          "properties": {
+            "Pem": {
+              "$ref": "#/$defs/PemCertificate"
+            }
+          },
+          "required": [
+            "Pem"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "From a PKCS#12 bundle.",
+          "type": "object",
+          "properties": {
+            "P12": {
+              "$ref": "#/$defs/P12Certificate"
+            }
+          },
+          "required": [
+            "P12"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "From a Windows certificate store, `My` unless `Name` says otherwise, with the issuers the\nstore's `CA` holds. Its key has to be exportable.\n\nRefused off Windows.",
+          "type": "object",
+          "properties": {
+            "Store": {
+              "$ref": "#/$defs/StoreCertificate"
+            }
+          },
+          "required": [
+            "Store"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PemCertificate": {
+      "description": "A client certificate and its key, from PEM files.",
+      "type": "object",
+      "properties": {
+        "Certificate": {
+          "description": "Path to a PEM file of the client's certificate, then each issuer the server may not hold.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Key": {
+          "description": "Path to a PEM file of the certificate's key.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Certificate",
+        "Key"
+      ]
+    },
+    "P12Certificate": {
+      "description": "A client certificate and its key, from a PKCS#12 bundle.",
+      "type": "object",
+      "properties": {
+        "Path": {
+          "description": "Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "Password": {
+          "description": "The password the bundle is protected by.\n\nDefaults to the empty one.",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Path"
+      ]
+    },
+    "TcpKeepaliveOptions": {
+      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.",
+      "type": "object",
+      "properties": {
+        "IdleSeconds": {
+          "description": "How long the connection may be idle before the first probe, from a second to 32767, the\nmost Linux holds.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1.0,
+          "maximum": 32767.0
+        },
+        "IntervalSeconds": {
+          "description": "How long between two probes, from a second to 32767. Defaults to the operating system's.\n\nRefused without `IdleSeconds`.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1.0,
+          "maximum": 32767.0
+        },
+        "Retries": {
+          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nRefused without `IdleSeconds`.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 127
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProxyOptions": {
+      "description": "An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the\nserver.",
+      "oneOf": [
+        {
+          "description": "No proxy: every dial goes to the endpoint itself.",
+          "type": "object",
+          "properties": {
+            "None": {
+              "const": true
+            }
+          },
+          "required": [
+            "None"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The proxy the system names for the endpoint, if any.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused when the channel is created,\nand any other value the environment cannot read as a proxy is ignored.\n\nOn Windows, when the environment names no proxy, the system's is the one the current\nuser's network settings name: a PAC script, detected or at the configured address, which\nWinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and\nits bypass list. Those settings are read when the channel is created, and an `https://` or\n`socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which\nWinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried\nagain for two minutes.\n\nThe system's proxy is never used for a loopback endpoint.",
+          "type": "object",
+          "properties": {
+            "System": {
+              "$ref": "#/$defs/ProxyCredentials"
+            }
+          },
+          "required": [
+            "System"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The proxy at an address.",
+          "type": "object",
+          "properties": {
+            "Url": {
+              "$ref": "#/$defs/ProxyUrl"
+            }
+          },
+          "required": [
+            "Url"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProxyCredentials": {
+      "description": "The credentials the system's proxy is authenticated to with, by `Basic`.",
+      "type": "object",
+      "properties": {
+        "Username": {
+          "description": "The username, which `Basic` forbids a `:` in.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the username that proxy's URL carries; beside the one Windows' settings name, it is the\nusername.",
+          "type": "string"
+        },
+        "Password": {
+          "description": "The password that goes with `Username`.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the password that proxy's URL carries; beside the one Windows' settings name, it is the\npassword.",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProxyUrl": {
+      "description": "A proxy named by its address.",
+      "type": "object",
+      "properties": {
+        "Address": {
+          "description": "The proxy's `http://` URL, with no path; `http://` is assumed when no scheme is written.\n\nIt may carry `user:password@`, percent-encoded, when `Username` and `Password` are not\nset, which a serialized document then carries too.",
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true
+        },
+        "Username": {
+          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nRefused beside credentials the `Address` URL carries.",
+          "type": "string"
+        },
+        "Password": {
+          "description": "The password that goes with `Username`.\n\nRefused beside credentials the `Address` URL carries.",
+          "type": "string",
+          "writeOnly": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "Address"
+      ]
+    },
+    "Http2Options": {
+      "description": "The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much\nit lets the peer send ahead of what is read.",
+      "type": "object",
+      "properties": {
+        "KeepAliveIntervalSeconds": {
+          "description": "How often a PING is sent to the peer. Defaults to none sent.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "KeepAliveTimeoutSeconds": {
+          "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "KeepAliveWhileIdle": {
+          "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
+          "type": "boolean"
+        },
+        "StreamWindowSize": {
+          "description": "How many bytes of one call the peer may send ahead of what is read.\n\nDefaults to 2097152, 2 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        },
+        "ConnectionWindowSize": {
+          "description": "How many bytes the peer may send ahead of what is read, across every call of the channel.\nA call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop\nthe others receiving. At least 65535, the window every connection starts with.\n\nDefaults to 5242880, 5 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 65535
+        },
+        "IdleTimeoutSeconds": {
+          "description": "How long the session stays open with no call on it before it is closed, the next call\ndialling a new one. A call holds the session from its dial to the end of its response.\n\nDefaults to none: an idle session stays open.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "WriteCoalescingBytes": {
+          "description": "How many bytes a write to the connection may gather before it goes. A write waits while\nthe work already ready adds frames to it, one round of the runtime at a time, and goes once\na round adds none or it holds this many bytes: a request's message handed over while its\nheaders wait then goes out with them, in one write rather than two. 0 writes at once.\n\nDefaults to 16384, 16 KiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetryOptions": {
+      "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached\nthe reader and what the call sent is still kept for the replay.",
+      "type": "object",
+      "properties": {
+        "MaxAttempts": {
+          "description": "Attempts in all, the first included; 1 retries nothing. A call its peer never processed\ngoes again besides, whatever this is, while every message it sent is kept.\n\nDefaults to 5.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        },
+        "InitialBackoffSeconds": {
+          "description": "The bound of the first backoff.\n\nDefaults to 1.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "MaxBackoffSeconds": {
+          "description": "What the bound grows to and no further; refused below `InitialBackoffSeconds`.\n\nDefaults to 5.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "BackoffMultiplier": {
+          "description": "What each bound is multiplied by; 1 retries at a fixed bound.\n\nDefaults to 1.5.",
+          "type": "number",
+          "format": "double",
+          "minimum": 1.0
+        },
+        "CallReplayBytes": {
+          "description": "The bytes one call may keep for a replay; a call that sends more is not tried again.\n\nDefaults to 1048576, 1 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        },
+        "ChannelReplayBytes": {
+          "description": "The bytes all of the channel's calls may keep for a replay together; a call whose message\nwould pass it is not tried again.\n\nDefaults to 16777216, 16 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

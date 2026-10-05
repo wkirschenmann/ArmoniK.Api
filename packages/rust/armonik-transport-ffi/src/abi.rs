@@ -284,6 +284,12 @@ pub struct ak_runtime_config {
     /// threshold in force, memory_ceiling or this library's own; a value below that threshold is
     /// AK_STATUS_INVALID_ARG.
     pub memory_hard_ceiling: u64,
+    /// A channel document, in the vocabulary of ak_channel_create's config_json, whose options
+    /// every channel of the runtime takes where its own document states none: the two are merged
+    /// option by option, a struct's options within it, and the channel's win; an alternative - how
+    /// the server is verified, who the client is, which proxy - is taken whole. Empty states none.
+    /// Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
+    pub channel_defaults_json: ak_bytes_in,
 }
 
 /// How far along a channel's closing is. A handle this library no longer knows reads as NONE,
@@ -428,7 +434,7 @@ pub(crate) unsafe trait Record: Copy {
     const FLAG_FIELDS: &'static [(u32, usize)];
 }
 
-// SAFETY: integers only.
+// SAFETY: integers, and a view whose null pointer and zero length are an empty slice.
 unsafe impl Record for ak_runtime_config {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, memory_hard_ceiling);
     const FLAGS: u32 = 0;

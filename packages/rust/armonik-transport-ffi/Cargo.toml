@@ -34,7 +34,7 @@ schemars = { workspace = true, optional = true }
 # and the transport's own hooks. Off unless a test asks for it; no shipped build enables it.
 test-hooks = ["armonik-transport/test-hooks"]
 # A JSON schema of the runtime options, for generating an options class in another language.
-schema = ["dep:schemars"]
+schema = ["dep:schemars", "armonik-transport/schema"]
 
 # The schema is what the options type exists to produce, so an example prints it.
 [[example]]

@@ -51,6 +51,9 @@ public sealed class RuntimeOptions
 
     MemoryCeiling = other.MemoryCeiling;
     MemoryHardCeiling = other.MemoryHardCeiling;
+    ChannelDefaults = other.ChannelDefaults is null
+                        ? null
+                        : new ChannelOptions(other.ChannelDefaults);
   }
 
   /// <summary>
@@ -77,6 +80,16 @@ public sealed class RuntimeOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public long? MemoryHardCeiling { get; set; }
 
+  /// <summary>
+  ///   Channel options every channel of the runtime takes where its own options state none: the
+  ///   two are merged option by option, a struct's options within it, and the channel's win; an
+  ///   alternative - how the server is verified, who the client is, which proxy - is taken whole.
+  /// </summary>
+  /// <remarks>Defaults to none.</remarks>
+  [JsonPropertyName("ChannelDefaults")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public ChannelOptions? ChannelDefaults { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -94,6 +107,8 @@ public sealed class RuntimeOptions
                                             memoryHardCeiling,
                                             "MemoryHardCeiling has to be at least 1.");
     }
+
+    ChannelDefaults?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
@@ -115,6 +130,11 @@ public sealed class RuntimeOptions
                                               "MemoryHardCeiling"))
       {
         bound.MemoryHardCeiling = RuntimeOptionsConfiguration.Int64(entry);
+      }
+      else if (RuntimeOptionsConfiguration.Is(entry,
+                                              "ChannelDefaults"))
+      {
+        bound.ChannelDefaults = RuntimeOptionsConfiguration.Holds(entry) ? ChannelOptions.Bind(entry) : null;
       }
       else
       {
@@ -146,6 +166,11 @@ internal static class RuntimeOptionsConfiguration
                                                                   .Any())
                   .ToArray()
          : throw new InvalidOperationException($"{section.Path} holds a value, and it names options.");
+
+  /// <summary>Whether a key names anything, an empty one leaving its group or choice unset.</summary>
+  internal static bool Holds(IConfigurationSection section)
+    => !string.IsNullOrEmpty(section.Value) || section.GetChildren()
+                                                      .Any();
 
   /// <summary>The text of a key that holds a value.</summary>
   /// <exception cref="InvalidOperationException">It holds options instead.</exception>

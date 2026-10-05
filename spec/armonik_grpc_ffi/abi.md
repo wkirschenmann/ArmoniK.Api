@@ -72,7 +72,15 @@ The runtime's options have a schema of their own, `runtime.schema.json`, generat
 `armonik-transport-ffi`'s `options::RuntimeOptions` under its `schema` feature. It names the
 fields of `ak_runtime_config` a host reads from its configuration - the .NET binding from the
 section `RustGrpcRuntime` - and `RuntimeOptions.g.cs` is generated from it without an encoding,
-since `ak_runtime_create` takes the fields and no document.
+since `ak_runtime_create` takes the fields and no document. One field is a document:
+`ChannelDefaults`, a channel document every channel of the runtime is merged over, option by
+option and the channel's winning, which `ak_runtime_config` carries as `channel_defaults_json`.
+A struct merges field by field; an alternative - how the server is verified, who the client is,
+which proxy - is an enum, taken whole, so no merge combines two alternatives into one neither
+stated. Options that only bound one another, such as the two backoff bounds, merge as any option,
+and a merge where they disagree is refused as a document stating both would be. Its
+schema is the channel's, so the generator renders `RuntimeOptions.g.cs` with `--reuse` of the
+channel schema and refers to the classes `ChannelOptions.g.cs` declares.
 
 Note: `RetryConfig` appears both in `GrpcChannelConfig` (channel default) and, post-V1, as a
 per-call override. Only the type is shared with the schema; the per-call override travels as

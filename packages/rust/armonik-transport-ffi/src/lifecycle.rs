@@ -11,10 +11,13 @@ use crate::tables;
 pub(crate) fn create_runtime(
     memory_ceiling: u64,
     memory_hard_ceiling: u64,
+    channel_defaults: &[u8],
     host: Host,
 ) -> Result<ak_handle, Refusal> {
     let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
-    let runtime = AkRuntime::new(memory_ceiling, memory_hard_ceiling, host)?;
+    // After the claim, so a second runtime is refused as one whatever its defaults say.
+    let channel_defaults = crate::config::defaults(channel_defaults).map_err(Refusal::config)?;
+    let runtime = AkRuntime::new(memory_ceiling, memory_hard_ceiling, channel_defaults, host)?;
     let handle = tables::runtimes()
         .insert(runtime)
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;

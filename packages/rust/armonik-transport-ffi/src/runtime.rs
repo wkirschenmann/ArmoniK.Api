@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 use std::time::Duration;
 
+use armonik_transport::options::ChannelOptions;
 use tokio::sync::{oneshot, watch};
 
 use crate::abi::{ak_error_kind, ak_event_kind, ak_host_debt, ak_runtime_state, ak_status};
@@ -33,6 +34,8 @@ pub(crate) struct AkRuntime {
     stop_channels: watch::Sender<bool>,
     /// Numbers the channels' threads, so that each is told apart by its name.
     channels_started: AtomicU64,
+    /// The options every channel's own are merged over, if the host gave any.
+    channel_defaults: Option<ChannelOptions>,
 }
 
 /// A channel's thread, from the channel's side: where its work runs, and what stops it when the
@@ -102,6 +105,7 @@ impl AkRuntime {
     pub(crate) fn new(
         memory_ceiling: u64,
         memory_hard_ceiling: u64,
+        channel_defaults: Option<ChannelOptions>,
         host: Host,
     ) -> Result<Arc<Self>, Refusal> {
         let ledger =
@@ -128,7 +132,12 @@ impl AkRuntime {
             channel_threads: Mutex::new(Vec::new()),
             stop_channels: watch::channel(false).0,
             channels_started: AtomicU64::new(0),
+            channel_defaults,
         }))
+    }
+
+    pub(crate) fn channel_defaults(&self) -> Option<&ChannelOptions> {
+        self.channel_defaults.as_ref()
     }
 
     /// Starts a channel's thread: a current-thread runtime that runs until the channel drops the
@@ -361,7 +370,7 @@ mod tests {
 
     #[test]
     fn a_second_threshold_below_the_first_is_refused_with_its_reason() {
-        let refused = AkRuntime::new(64, 32, Host::new(never_called, std::ptr::null_mut()))
+        let refused = AkRuntime::new(64, 32, None, Host::new(never_called, std::ptr::null_mut()))
             .err()
             .expect("a second threshold below the first is refused");
 

@@ -88,6 +88,11 @@ pub(crate) enum ConfigRefusal {
     Seconds { key: &'static str, seconds: f64 },
     /// An option of a unit the engine converts, a file it names included.
     Option(OptionRefusal),
+    /// A refusal of the runtime's channel defaults, read alone.
+    Defaults(Box<ConfigRefusal>),
+    /// A refusal of a channel's options merged over the runtime's channel defaults, which the
+    /// channel's options alone do not earn.
+    Merged(Box<ConfigRefusal>),
 }
 
 impl fmt::Display for ConfigRefusal {
@@ -118,12 +123,21 @@ impl fmt::Display for ConfigRefusal {
                 "{key} is {seconds}, and has to be at least 1e-9 and less than 2^64"
             ),
             Self::Option(refused) => refused.fmt(f),
+            Self::Defaults(refused) => write!(f, "ChannelDefaults: {refused}"),
+            Self::Merged(refused) => {
+                write!(
+                    f,
+                    "{refused}, once merged over the runtime's ChannelDefaults"
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for ConfigRefusal {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        // Not the refusal Defaults and Merged wrap: their text says it already, and a source is
+        // said again after it.
         match self {
             Self::Document(error) => Some(error.inner()),
             _ => None,
@@ -131,17 +145,53 @@ impl std::error::Error for ConfigRefusal {
     }
 }
 
-/// Reads the document, refusing exactly what the schema refuses, and saying over which key.
+/// Reads a runtime's channel defaults: a channel document, refused as a channel's own is, and
+/// kept as the options each channel's own are merged over. Empty is none.
+pub(crate) fn defaults(json: &[u8]) -> Result<Option<ChannelOptions>, ConfigRefusal> {
+    if json.is_empty() {
+        return Ok(None);
+    }
+    let refused = |refused| ConfigRefusal::Defaults(Box::new(refused));
+    let options = read(json).map_err(refused)?;
+    settle(options.clone()).map_err(refused)?;
+    Ok(Some(options))
+}
+
+/// Reads a channel's document over the runtime's defaults, as `ChannelOptions::over` merges
+/// them. A refusal the channel's document earns alone is the one reported, in its own terms;
+/// only one it does not is the merge's.
+pub(crate) fn parse_over(
+    defaults: Option<&ChannelOptions>,
+    json: &[u8],
+) -> Result<ChannelSettings, ConfigRefusal> {
+    let own = read(json)?;
+    let Some(defaults) = defaults else {
+        return settle(own);
+    };
+    settle(own.clone().over(defaults)).map_err(|merged| match settle(own) {
+        Err(alone) => alone,
+        Ok(_) => ConfigRefusal::Merged(Box::new(merged)),
+    })
+}
+
+/// A document read alone, as a channel with no runtime defaults reads it.
+#[cfg(test)]
+pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
+    settle(read(json)?)
+}
+
+fn read(json: &[u8]) -> Result<ChannelOptions, ConfigRefusal> {
+    serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(json))
+        .map_err(ConfigRefusal::Document)
+}
+
+/// Settles the options, refusing exactly what the schema refuses, and saying over which key.
 ///
 /// Every bound checked here is stated in the schema the options type derives - a minimum, a
 /// maximum, a minimum length - so a document a validator would reject is one this refuses too.
 /// They are checked again rather than trusted: nothing obliges a host to have validated, and the
 /// engine is what a bad value would break.
-pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
-    let options: ChannelOptions =
-        serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(json))
-            .map_err(ConfigRefusal::Document)?;
-
+fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
     let window = |key: &'static str, asked: Option<i32>| match asked {
         Some(value) if !(1..=LARGEST_WINDOW).contains(&value) => {
             Err(ConfigRefusal::Window { key, value })
@@ -784,5 +834,105 @@ mod tests {
     fn a_window_past_what_the_schema_admits_is_refused() {
         let past = format!(r#"{{"DeliveryCredits":{}}}"#, LARGEST_WINDOW as i64 + 1);
         assert!(parse(past.as_bytes()).is_err());
+    }
+
+    /// A channel's document is merged over the runtime's defaults option by option, a struct's
+    /// options within it: what the channel states wins, and what it leaves out is the default's.
+    #[test]
+    fn a_channel_document_is_merged_over_the_defaults() {
+        let defaults = defaults(
+            br#"{"DeliveryCredits":2,"Http2":{"KeepAliveWhileIdle":true,"StreamWindowSize":70000}}"#,
+        )
+        .expect("valid defaults");
+        let settings = parse_over(
+            defaults.as_ref(),
+            br#"{"Http2":{"StreamWindowSize":80000}}"#,
+        )
+        .expect("a valid merge");
+        assert_eq!(settings.delivery_credits(), 2);
+        let http2 = settings
+            .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
+            .transport
+            .http2;
+        assert!(http2.keep_alive_while_idle);
+        assert_eq!(http2.stream_window, 80_000);
+    }
+
+    /// Defaults are refused as a channel's document is, and empty ones are none.
+    #[test]
+    fn defaults_are_read_as_a_channel_document() {
+        assert!(defaults(b"").expect("empty is none").is_none());
+        for document in [
+            &br#"{"DeliveryCredits":0}"#[..],
+            &br#"{"NoSuchOption":1}"#[..],
+            &b"not json"[..],
+        ] {
+            let Err(refused) = defaults(document) else {
+                panic!("{} is admitted", String::from_utf8_lossy(document));
+            };
+            let said = refused.to_string();
+            assert!(said.starts_with("ChannelDefaults: "), "{said}");
+        }
+    }
+
+    /// A key a channel states as null states nothing, as serde reads it, so the default stands.
+    #[test]
+    fn a_null_in_a_channel_document_leaves_the_default() {
+        let defaults = defaults(br#"{"DeliveryCredits":2}"#).expect("valid defaults");
+        let settings =
+            parse_over(defaults.as_ref(), br#"{"DeliveryCredits":null}"#).expect("a valid merge");
+        assert_eq!(settings.delivery_credits(), 2);
+    }
+
+    /// Bounds the defaults and the channel each state half of cumulate, and a merge where they
+    /// disagree is refused as the merge's, the channel's own document being admitted alone.
+    #[test]
+    fn bounds_that_disagree_once_merged_refuse_the_merge() {
+        let defaults = defaults(br#"{"Retry":{"MaxBackoffSeconds":2}}"#).expect("valid defaults");
+        let own = br#"{"Retry":{"InitialBackoffSeconds":3}}"#;
+        assert!(
+            parse(own).is_ok(),
+            "the channel's document alone is admitted"
+        );
+        let Err(refused) = parse_over(defaults.as_ref(), own) else {
+            panic!("a merge whose backoff cannot grow is admitted");
+        };
+        let said = refused.to_string();
+        assert!(said.contains("Retry"), "{said}");
+        assert!(
+            said.ends_with("once merged over the runtime's ChannelDefaults"),
+            "{said}"
+        );
+    }
+
+    /// An alternative the channel states replaces the default's whole.
+    #[test]
+    fn an_alternative_the_channel_states_replaces_the_defaults() {
+        let defaults = defaults(
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+        )
+        .expect("valid defaults");
+        let settings = parse_over(
+            defaults.as_ref(),
+            br#"{"Transport":{"Proxy":{"None":true}}}"#,
+        )
+        .expect("a valid merge");
+        let proxy = settings
+            .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
+            .transport
+            .proxy;
+        assert_eq!(
+            proxy.source,
+            armonik_transport::http2::ProxySource::Disabled
+        );
+        assert_eq!(proxy.username, "");
+    }
+
+    /// A channel's own document is refused over the defaults as it would be alone.
+    #[test]
+    fn a_channel_document_is_refused_over_the_defaults_as_alone() {
+        let defaults = defaults(br#"{"DeliveryCredits":2}"#).expect("valid defaults");
+        assert!(parse_over(defaults.as_ref(), br#"{"DeliveryCredits":0}"#).is_err());
+        assert!(parse_over(defaults.as_ref(), b"not json").is_err());
     }
 }

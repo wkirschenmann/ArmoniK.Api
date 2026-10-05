@@ -58,6 +58,33 @@ fn a_unary_answer_reaches_the_host_in_one_callback() {
     assert!(rounds > 0, "no delivery waited a round");
 }
 
+/// The runtime's channel defaults reach a channel that states nothing, and a channel's own option
+/// wins over them.
+#[test]
+fn a_channel_takes_the_runtime_defaults_under_its_own_options() {
+    let rounds = |defaults: &str, json: &str| {
+        let server = TestServer::start();
+        let host = Host::with_channel_defaults(defaults);
+        let channel = host.channel_with(&server.endpoint, json);
+        let before = hooks::delivery_rounds();
+        for call in 1..=CALLS {
+            send_one(start_call(channel, PACED, &[]), b"hello");
+            host.recorder.await_terminals(call);
+        }
+        let rounds = hooks::delivery_rounds() - before;
+        ak_channel_release(channel);
+        host.stop();
+        rounds
+    };
+    assert_eq!(rounds(r#"{"DeliveryCoalescingBytes":0}"#, "{}"), 0);
+    assert!(
+        rounds(
+            r#"{"DeliveryCoalescingBytes":0}"#,
+            r#"{"DeliveryCoalescingBytes":16384}"#
+        ) > 0
+    );
+}
+
 /// With no gathering, a delivery waits no round: each read goes to the host as it comes, and
 /// whether an answer's parts come together is the server's pacing alone.
 #[test]

@@ -367,6 +367,14 @@ typedef int32_t ak_head_origin;
 #endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
+/**
+ * Bytes the host lends this library for the duration of one downcall.
+ */
+typedef struct {
+    const uint8_t *ptr;
+    size_t len;
+} ak_bytes_in;
+
 typedef struct {
     uint32_t struct_size;
     /**
@@ -398,6 +406,14 @@ typedef struct {
      * AK_STATUS_INVALID_ARG.
      */
     uint64_t memory_hard_ceiling;
+    /**
+     * A channel document, in the vocabulary of ak_channel_create's config_json, whose options
+     * every channel of the runtime takes where its own document states none: the two are merged
+     * option by option, a struct's options within it, and the channel's win; an alternative - how
+     * the server is verified, who the client is, which proxy - is taken whole. Empty states none.
+     * Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
+     */
+    ak_bytes_in channel_defaults_json;
 } ak_runtime_config;
 
 /**
@@ -500,14 +516,6 @@ typedef struct {
      */
     uint64_t ceiling;
 } ak_memory_usage;
-
-/**
- * Bytes the host lends this library for the duration of one downcall.
- */
-typedef struct {
-    const uint8_t *ptr;
-    size_t len;
-} ak_bytes_in;
 
 typedef struct {
     /**

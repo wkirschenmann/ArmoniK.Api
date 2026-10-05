@@ -61,11 +61,36 @@ impl Host {
 
     /// A runtime with both thresholds set: where work waits, and where the engine stops.
     pub fn with_ceilings(memory_ceiling: u64, memory_hard_ceiling: u64) -> Self {
+        Self::with(memory_ceiling, memory_hard_ceiling, "", FULL_RECORD)
+    }
+
+    /// A runtime whose channels take `channel_defaults` where their own document states nothing.
+    pub fn with_channel_defaults(channel_defaults: &str) -> Self {
+        Self::with(0, 0, channel_defaults, FULL_RECORD)
+    }
+
+    /// A runtime started from a record of `struct_size` bytes, as a host built against an older
+    /// header hands it, with `channel_defaults` past its end.
+    pub fn with_record_size(struct_size: u32, channel_defaults: &str) -> Self {
+        Self::with(0, 0, channel_defaults, struct_size)
+    }
+
+    fn with(
+        memory_ceiling: u64,
+        memory_hard_ceiling: u64,
+        channel_defaults: &str,
+        struct_size: u32,
+    ) -> Self {
         let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
         let recorder = Arc::new(Recorder::default());
         let lent = Arc::into_raw(Arc::clone(&recorder));
-        let (status, runtime) =
-            try_create_runtime_with(memory_ceiling, memory_hard_ceiling, lent as *mut c_void);
+        let (status, runtime) = try_create_runtime_record(
+            struct_size,
+            memory_ceiling,
+            memory_hard_ceiling,
+            channel_defaults.as_bytes(),
+            lent as *mut c_void,
+        );
         if status != ak_status::AK_STATUS_OK {
             // No runtime, so no callback, and the reference it would have held is this one's.
             drop(unsafe { Arc::from_raw(lent) });
@@ -253,13 +278,55 @@ pub fn try_create_runtime_with(
     memory_hard_ceiling: u64,
     runtime_ctx: *mut c_void,
 ) -> (ak_status, ak_handle) {
+    try_create_runtime_over(memory_ceiling, memory_hard_ceiling, b"", runtime_ctx)
+}
+
+const FULL_RECORD: u32 = std::mem::size_of::<ak_runtime_config>() as u32;
+
+/// A runtime whose channels take `channel_defaults` where their own document states nothing.
+pub fn try_create_runtime_over(
+    memory_ceiling: u64,
+    memory_hard_ceiling: u64,
+    channel_defaults: &[u8],
+    runtime_ctx: *mut c_void,
+) -> (ak_status, ak_handle) {
+    try_create_runtime_record(
+        FULL_RECORD,
+        memory_ceiling,
+        memory_hard_ceiling,
+        channel_defaults,
+        runtime_ctx,
+    )
+}
+
+/// What `ak_runtime_create` answers to channel defaults it refuses, in this process's one
+/// runtime turn so that no other test's runtime is what it refuses.
+pub fn refused_over(channel_defaults: &str) -> ak_status {
+    let _turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
+    let (status, runtime) =
+        try_create_runtime_over(0, 0, channel_defaults.as_bytes(), std::ptr::null_mut());
+    assert_eq!(runtime, AK_HANDLE_NONE, "refused defaults made a runtime");
+    status
+}
+
+fn try_create_runtime_record(
+    struct_size: u32,
+    memory_ceiling: u64,
+    memory_hard_ceiling: u64,
+    channel_defaults: &[u8],
+    runtime_ctx: *mut c_void,
+) -> (ak_status, ak_handle) {
     let config = ak_runtime_config {
-        struct_size: std::mem::size_of::<ak_runtime_config>() as u32,
+        struct_size,
         version: 0,
         flags: 0,
         reserved: 0,
         memory_ceiling,
         memory_hard_ceiling,
+        channel_defaults_json: ak_bytes_in {
+            ptr: channel_defaults.as_ptr(),
+            len: channel_defaults.len(),
+        },
     };
     let mut runtime = AK_HANDLE_NONE;
     let status = unsafe {

@@ -253,6 +253,25 @@ impl fmt::Debug for Refusal {
 mod tests {
     use super::*;
 
+    /// A refusal of the runtime's defaults, or of a merge over them, says so once and says the
+    /// refusal it wraps once.
+    #[test]
+    fn a_refusal_of_the_defaults_or_the_merge_is_said_once() {
+        let inner = ConfigRefusal::EmptyUserAgent.to_string();
+        assert_eq!(
+            flattened(&ConfigRefusal::Defaults(Box::new(
+                ConfigRefusal::EmptyUserAgent
+            ))),
+            format!("ChannelDefaults: {inner}")
+        );
+        assert_eq!(
+            flattened(&ConfigRefusal::Merged(Box::new(
+                ConfigRefusal::EmptyUserAgent
+            ))),
+            format!("{inner}, once merged over the runtime's ChannelDefaults")
+        );
+    }
+
     #[test]
     fn a_source_location_is_taken_out_of_the_message() {
         assert_eq!(

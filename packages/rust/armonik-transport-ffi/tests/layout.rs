@@ -65,6 +65,7 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_runtime_config) -> &u32 = |config| &config.reserved;
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_ceiling;
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_hard_ceiling;
+    let _: fn(&ak_runtime_config) -> &ak_bytes_in = |config| &config.channel_defaults_json;
 
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.struct_size;
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.version;
@@ -105,7 +106,8 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_runtime_config, reserved), 12);
     assert_eq!(offset_of!(ak_runtime_config, memory_ceiling), 16);
     assert_eq!(offset_of!(ak_runtime_config, memory_hard_ceiling), 24);
-    assert_eq!(size_of::<ak_runtime_config>(), 32);
+    assert_eq!(offset_of!(ak_runtime_config, channel_defaults_json), 32);
+    assert_eq!(size_of::<ak_runtime_config>(), 32 + 2 * PTR);
 
     assert_eq!(offset_of!(ak_call_start_options, struct_size), 0);
     assert_eq!(offset_of!(ak_call_start_options, version), 4);

@@ -51,6 +51,10 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   private int disposing_;
   private volatile ChannelDisposeState state_ = ChannelDisposeState.Active;
 
+  /// <summary>The delivery window every call of the channel sizes its ring from.</summary>
+  internal int DeliveryCredits
+    => deliveryCredits_;
+
   internal NativeChannel(NativeRuntime runtime,
                          string endpoint,
                          ChannelOptions options)

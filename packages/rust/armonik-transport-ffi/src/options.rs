@@ -2,8 +2,7 @@
 //!
 //! `ak_runtime_create` takes them as `ak_runtime_config`, where zero asks for the default. A host
 //! reads them from its configuration instead, where an option left out is the default, so the
-//! schema names the same two fields and refuses the zero a configuration has no reason to
-//! write.
+//! schema names the same fields and refuses the zero a configuration has no reason to write.
 
 /// What a caller may set on the runtime.
 #[derive(Default, schemars::JsonSchema)]
@@ -26,6 +25,14 @@ pub struct RuntimeOptions {
     /// Defaults to a quarter above MemoryCeiling.
     #[schemars(with = "i64", range(min = 1), default)]
     pub memory_hard_ceiling: Option<u64>,
+
+    /// Channel options every channel of the runtime takes where its own options state none: the
+    /// two are merged option by option, a struct's options within it, and the channel's win; an
+    /// alternative - how the server is verified, who the client is, which proxy - is taken whole.
+    ///
+    /// Defaults to none.
+    #[schemars(with = "armonik_transport::options::ChannelOptions", default)]
+    pub channel_defaults: Option<armonik_transport::options::ChannelOptions>,
 }
 
 /// The JSON schema of [`RuntimeOptions`], as committed beside this crate.
@@ -83,8 +90,19 @@ mod tests {
             reserved: 0,
             memory_ceiling: 0,
             memory_hard_ceiling: 0,
+            channel_defaults_json: crate::abi::ak_bytes_in {
+                ptr: std::ptr::null(),
+                len: 0,
+            },
         };
-        let _ = (config.memory_ceiling, config.memory_hard_ceiling);
-        assert_eq!(names, ["MemoryCeiling", "MemoryHardCeiling"]);
+        let _ = (
+            config.memory_ceiling,
+            config.memory_hard_ceiling,
+            config.channel_defaults_json,
+        );
+        assert_eq!(
+            names,
+            ["ChannelDefaults", "MemoryCeiling", "MemoryHardCeiling"]
+        );
     }
 }

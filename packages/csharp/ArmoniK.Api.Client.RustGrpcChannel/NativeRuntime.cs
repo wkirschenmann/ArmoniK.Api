@@ -67,29 +67,41 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   private bool disposing_;
 
+  // What every channel's options are merged over, the engine's side and this one's alike: the
+  // delivery window this side sizes rings from has to be the one the engine grants.
+  private readonly ChannelOptions? channelDefaults_;
+
   /// <summary>What the runtime says about its own shutdown, as a wake-up and not as news.</summary>
   /// <remarks>The two events a runtime carries rather than a call - SHUTDOWN_COMPLETE and
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
   private readonly ArrivalSignal announced_ = new();
 
-  private NativeRuntime(ulong memoryCeiling,
-                        ulong memoryHardCeiling)
+  private NativeRuntime(ulong           memoryCeiling,
+                        ulong           memoryHardCeiling,
+                        ChannelOptions? channelDefaults)
   {
-    self_ = GCHandle.Alloc(this);
+    channelDefaults_ = channelDefaults is null
+                         ? null
+                         : new ChannelOptions(channelDefaults);
+    var defaults = channelDefaults_?.Encode() ?? Array.Empty<byte>();
 
-    var config = new ak_runtime_config
-                 {
-                   struct_size         = (uint)Marshal.SizeOf<ak_runtime_config>(),
-                   memory_ceiling      = memoryCeiling,
-                   memory_hard_ceiling = memoryHardCeiling,
-                 };
+    self_ = GCHandle.Alloc(this);
 
     unsafe
     {
       ak_status status;
       ak_error  error = default;
+      fixed (byte* defaultsPinned = defaults)
       fixed (ulong* created = &handle_)
       {
+        var config = new ak_runtime_config
+                     {
+                       struct_size           = (uint)Marshal.SizeOf<ak_runtime_config>(),
+                       memory_ceiling        = memoryCeiling,
+                       memory_hard_ceiling   = memoryHardCeiling,
+                       channel_defaults_json = ak_bytes_in.Borrow(defaultsPinned,
+                                                                  defaults.Length),
+                     };
         status = NativeMethods.ak_runtime_create(&config,
                                                  Trampoline,
                                                  (void*)GCHandle.ToIntPtr(self_),
@@ -116,7 +128,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// the binding's.</remarks>
   public const int MaxDeliveryCredits = 1 << 15;
 
-  /// <summary>The delivery window a channel gets when its options name none.</summary>
+  /// <summary>The delivery window a channel gets when neither its options nor the runtime's channel defaults name one.</summary>
   /// <remarks>
   ///   Resolved into the document a channel sends, so the engine is never left to apply its own -
   ///   which is what keeps the ring this side sizes and the credits that side grants the same
@@ -146,6 +158,13 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// </exception>
   public static NativeRuntime Create(ulong memoryCeiling     = 0,
                                      ulong memoryHardCeiling = 0)
+    => Create(memoryCeiling,
+              memoryHardCeiling,
+              null);
+
+  private static NativeRuntime Create(ulong           memoryCeiling,
+                                      ulong           memoryHardCeiling,
+                                      ChannelOptions? channelDefaults)
   {
     int found;
     try
@@ -163,7 +182,8 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
 
     return new NativeRuntime(memoryCeiling,
-                             memoryHardCeiling);
+                             memoryHardCeiling,
+                             channelDefaults);
   }
 
   /// <summary>The section a runtime's options are read from when a caller names none.</summary>
@@ -223,9 +243,11 @@ public sealed class NativeRuntime : IAsyncDisposable
     // Zero is the ABI's spelling of the default and Validate refuses it, so an option left out is
     // the only way to ask for the default.
     options.Validate();
+    RefuseAWindowNoRingCanHold(options.ChannelDefaults?.DeliveryCredits);
 
     return Create((ulong)(options.MemoryCeiling ?? 0),
-                  (ulong)(options.MemoryHardCeiling ?? 0));
+                  (ulong)(options.MemoryHardCeiling ?? 0),
+                  options.ChannelDefaults);
   }
 
   /// <summary>Opens a channel with the options a configuration carries.</summary>
@@ -280,7 +302,16 @@ public sealed class NativeRuntime : IAsyncDisposable
              : throw new InvalidOperationException($"{key} carries no options");
   }
 
-  /// <summary>Opens a channel with a delivery window, and the engine's defaults elsewhere.</summary>
+  /// <summary>Opens a channel with the runtime's channel defaults, and the engine's elsewhere.</summary>
+  /// <param name="endpoint">Where the channel connects.</param>
+  /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
+  /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
+  /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
+  public NativeChannel Channel(string endpoint)
+    => Channel(endpoint,
+               new ChannelOptions());
+
+  /// <summary>Opens a channel with a delivery window, and the runtime's channel defaults elsewhere.</summary>
   /// <param name="endpoint">Where the channel connects.</param>
   /// <param name="deliveryCredits">How many of a call's payloads the host may hold at once, the terminal status aside.</param>
   /// <exception cref="ArgumentOutOfRangeException">The window is outside what is admitted.</exception>
@@ -317,7 +348,7 @@ public sealed class NativeRuntime : IAsyncDisposable
     // the engine are the same number only if nothing can set it in between.
     var settled = new ChannelOptions(options)
                   {
-                    DeliveryCredits = options.DeliveryCredits ?? DefaultDeliveryCredits,
+                    DeliveryCredits = options.DeliveryCredits ?? channelDefaults_?.DeliveryCredits ?? DefaultDeliveryCredits,
                   };
 
     // The schema's bounds, then this binding's own tighter one. Both are checked here rather

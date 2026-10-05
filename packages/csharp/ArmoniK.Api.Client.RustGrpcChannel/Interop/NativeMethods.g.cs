@@ -471,6 +471,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  AK_STATUS_INVALID_ARG.
         /// </summary>
         public ulong memory_hard_ceiling;
+        /// <summary>
+        ///  A channel document, in the vocabulary of ak_channel_create's config_json, whose options
+        ///  every channel of the runtime takes where its own document states none: the two are merged
+        ///  option by option, a struct's options within it, and the channel's win; an alternative - how
+        ///  the server is verified, who the client is, which proxy - is taken whole. Empty states none.
+        ///  Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
+        /// </summary>
+        public ak_bytes_in channel_defaults_json;
     }
 
     [StructLayout(LayoutKind.Sequential)]

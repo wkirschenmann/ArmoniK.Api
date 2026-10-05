@@ -1099,6 +1099,10 @@ fn a_runtime_config_carries_the_same_head_as_call_options() {
         reserved: 0,
         memory_ceiling: 0,
         memory_hard_ceiling: 0,
+        channel_defaults_json: ak_bytes_in {
+            ptr: std::ptr::null(),
+            len: 0,
+        },
     };
     let mut runtime = AK_HANDLE_NONE;
     let status = unsafe {
@@ -1263,6 +1267,34 @@ fn consuming_an_unowned_payload_is_a_no_op() {
             owner: std::ptr::null_mut(),
         })
     };
+}
+
+/// Channel defaults the engine refuses leave no runtime behind: the create answers INVALID_ARG,
+/// and the next one starts.
+#[test]
+fn channel_defaults_the_engine_refuses_leave_no_runtime() {
+    assert_eq!(
+        refused_over(r#"{"DeliveryCredits":0}"#),
+        ak_status::AK_STATUS_INVALID_ARG
+    );
+    assert_eq!(
+        refused_over("not a document"),
+        ak_status::AK_STATUS_INVALID_ARG
+    );
+    Host::start().stop();
+}
+
+/// A host built before the defaults hands a record that ends before them, which reads as none.
+#[test]
+fn a_record_that_ends_before_the_defaults_reads_as_none() {
+    let server = TestServer::start();
+    // Defaults the engine refuses, so that reading past the record would refuse the runtime.
+    let host = Host::with_record_size(32, r#"{"DeliveryCredits":0}"#);
+    let channel = host.channel(&server.endpoint);
+    send_one(start_call(channel, ECHO, &[]), b"hello");
+    host.recorder.await_terminals(1);
+    ak_channel_release(channel);
+    host.stop();
 }
 
 /// The downcall that pays an ended call's last debt reclaims it: once the host has given back
