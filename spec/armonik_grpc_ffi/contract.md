@@ -98,6 +98,11 @@ pub struct Http2Config {
     /// waiting to be written, before its next part is handed over, whole. At
     /// least 1, and at most u32::MAX: hyper panics past it.
     pub send_buffer: usize,
+    /// How many DATA frames of the peer's largest size one queued part of a
+    /// request may span, written one after the other in one write. At 1 a
+    /// part is one frame, as in stock h2; more needs the engine built against
+    /// h2-batch's patch, and is refused otherwise. At most 256.
+    pub frames_per_write: usize,
     // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
     // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,
     // server pushes. It is not a cap on outgoing calls; that one is

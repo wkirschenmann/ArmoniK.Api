@@ -124,6 +124,7 @@ public class OptionVocabularyTests
                                                                        ["Http2.Receive.Adaptive"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.CoalescingBytes"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.StreamBufferSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Send.FramesPerWrite"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                      };
 
   /// <summary>A `GrpcClient__` name the Rust reader knows and the .NET options do not declare.</summary>

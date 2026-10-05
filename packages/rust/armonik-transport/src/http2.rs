@@ -274,7 +274,15 @@ pub struct Http2Config {
     /// written, before its next part is handed over, whole. At least 1, and at most `u32::MAX`:
     /// hyper panics past it.
     pub send_buffer: usize,
+    /// How many DATA frames of the peer's largest size one queued part of a request may span,
+    /// written one after the other in one write. At 1 a part is one frame, as in stock h2; more
+    /// needs the engine built against h2-batch's patch, and is refused otherwise. At most
+    /// `LARGEST_FRAMES_PER_WRITE`.
+    pub frames_per_write: usize,
 }
+
+/// The most DATA frames one queued part may span: 4 MiB at h2's default frame size.
+pub const LARGEST_FRAMES_PER_WRITE: usize = 256;
 
 /// How much the session lets its peer send ahead of what is read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -330,6 +338,7 @@ impl Default for Http2Config {
             idle_timeout: None,
             write_coalescing: 16 * 1024,
             send_buffer: 1024 * 1024,
+            frames_per_write: 1,
         }
     }
 }
@@ -361,6 +370,24 @@ impl Http2Config {
                     "an HTTP/2 send buffer of {} bytes is outside 1 to {}",
                     self.send_buffer,
                     u32::MAX
+                ),
+            }
+            .fail();
+        }
+        if !(1..=LARGEST_FRAMES_PER_WRITE).contains(&self.frames_per_write) {
+            return ConfigurationSnafu {
+                message: format!(
+                    "{} DATA frames per write is outside 1 to {LARGEST_FRAMES_PER_WRITE}",
+                    self.frames_per_write
+                ),
+            }
+            .fail();
+        }
+        if !cfg!(h2_batch) && self.frames_per_write > 1 {
+            return ConfigurationSnafu {
+                message: format!(
+                    "{} DATA frames per write needs an engine built against packages/rust/patches/h2-batch",
+                    self.frames_per_write
                 ),
             }
             .fail();
@@ -590,16 +617,18 @@ where
                 builder.adaptive_window(true);
             }
         }
-        builder
-            .handshake(Coalescing::new(io, http2.write_coalescing))
-            .await
-            .map_err(|error| {
-                Http2HandshakeSnafu {
-                    endpoint: safe_endpoint(endpoint),
-                    cause: chain(&error, ": "),
-                }
-                .build()
-            })
+        let handshake = builder.handshake(Coalescing::new(io, http2.write_coalescing));
+        // The patched h2 takes the connection's frames per write from the poll that makes its
+        // codec, which is one of this handshake's.
+        #[cfg(h2_batch)]
+        let handshake = h2::with_frames_per_write(http2.frames_per_write, handshake);
+        handshake.await.map_err(|error| {
+            Http2HandshakeSnafu {
+                endpoint: safe_endpoint(endpoint),
+                cause: chain(&error, ": "),
+            }
+            .build()
+        })
     };
 
     match tokio::time::timeout(deadline, opening).await {

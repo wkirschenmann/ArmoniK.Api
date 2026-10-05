@@ -16,7 +16,7 @@ use secrecy::ExposeSecret;
 use crate::grpc::RetryConfig;
 use crate::http2::{
     ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
-    TlsConfig,
+    TlsConfig, LARGEST_FRAMES_PER_WRITE,
 };
 
 /// The largest window either side of a call may be given.
@@ -1092,6 +1092,25 @@ pub struct Http2SendOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub stream_buffer_size: Option<i32>,
+
+    /// How many DATA frames of the peer's largest size one queued part of a request may span,
+    /// written one after the other in one write: a large message then goes out in fewer, larger
+    /// writes. Above 1, a call reset while its part is being written can still send up to this
+    /// many frames less one before its reset, and a PING or a SETTINGS acknowledgement queued
+    /// behind DATA waits for this many times more of it. Above 1 needs an engine built against
+    /// the h2-batch patch (`packages/rust/patches/h2-batch`), and is refused otherwise. At most
+    /// 256.
+    ///
+    /// Defaults to 1.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "i32", range(min = 1, max = LARGEST_FRAMES_PER_WRITE))
+    )]
+    pub frames_per_write: Option<i32>,
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
@@ -1592,6 +1611,24 @@ impl Http2Options {
                 }
                 Some(size) => size as usize,
             },
+            frames_per_write: match self.send.frames_per_write {
+                None => defaults.frames_per_write,
+                Some(frames) if !(1..=LARGEST_FRAMES_PER_WRITE as i32).contains(&frames) => {
+                    return Err(OptionRefusal::new(
+                        "Send.FramesPerWrite",
+                        format!("{frames} has to be between 1 and {LARGEST_FRAMES_PER_WRITE}"),
+                    ))
+                }
+                Some(frames) if !cfg!(h2_batch) && frames > 1 => {
+                    return Err(OptionRefusal::new(
+                        "Send.FramesPerWrite",
+                        format!(
+                            "{frames} needs an engine built against packages/rust/patches/h2-batch"
+                        ),
+                    ))
+                }
+                Some(frames) => frames as usize,
+            },
         })
     }
 }
@@ -1963,6 +2000,7 @@ over_fields!(Http2Options {
 over_fields!(Http2SendOptions {
     coalescing_bytes,
     stream_buffer_size,
+    frames_per_write,
 });
 over_fields!(Http2FixedWindows {
     stream_window_size,
@@ -2730,6 +2768,7 @@ mod tests {
             send: Http2SendOptions {
                 coalescing_bytes: Some(0),
                 stream_buffer_size: Some(4096),
+                frames_per_write: Some(1),
             },
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                 stream_window_size: Some(1024),
@@ -2789,6 +2828,34 @@ mod tests {
         .to_config()
         .expect_err("a buffer that never takes a byte");
         assert_eq!(refused.key(), "Send.StreamBufferSize");
+
+        for (frames, why) in [(0, "between 1 and"), (257, "between 1 and")] {
+            let refused = Http2Options {
+                send: Http2SendOptions {
+                    frames_per_write: Some(frames),
+                    ..Http2SendOptions::default()
+                },
+                ..Http2Options::default()
+            }
+            .to_config()
+            .expect_err("frames per write out of range");
+            assert_eq!(refused.key(), "Send.FramesPerWrite");
+            assert!(refused.to_string().contains(why), "{refused}");
+        }
+        let sixteen = Http2Options {
+            send: Http2SendOptions {
+                frames_per_write: Some(16),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config();
+        if cfg!(h2_batch) {
+            assert_eq!(sixteen.expect("the patched build").frames_per_write, 16);
+        } else {
+            let refused = sixteen.expect_err("a build without the patch");
+            assert!(refused.to_string().contains("h2-batch"), "{refused}");
+        }
     }
 
     /// An option stated over a default wins, one left out is the default's, and a struct merges

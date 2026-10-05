@@ -404,6 +404,20 @@ jobs:
         working-directory: packages/rust
         run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi --features armonik-transport/test-hooks,armonik-transport-ffi/test-hooks
 
+  # The engine built against h2-batch's patch, through its recipe: what nothing else builds, and
+  # what a new h2 in Cargo.lock would stop building.
+  test-rust-h2-batch:
+    name: Test the Rust engine against h2-batch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Test
+        working-directory: packages/rust
+        run: patches/h2-batch/build.sh test -p armonik-transport -p armonik-transport-ffi --all-features
+
   # The binding ships netstandard2.0, net8.0 and net10.0 and loads a native engine of one
   # architecture, so what has to be exercised is the pairing: four client runtimes against two
   # architectures. Its own job rather than a row in the matrix above, because it needs a Rust

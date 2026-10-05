@@ -273,7 +273,7 @@ async fn a_peer_that_answers_no_ping_ends_the_session_and_the_call_on_it() {
 #[tokio::test]
 async fn a_setting_no_session_could_use_is_refused() {
     let endpoint = "http://127.0.0.1:1";
-    let changes: [fn(&mut Http2Config); 7] = [
+    let changes: [fn(&mut Http2Config); 9] = [
         |http2| http2.receive_windows = fixed(0, 65_535),
         |http2| http2.receive_windows = fixed(1, 1 << 31),
         |http2| http2.receive_windows = fixed(1, 65_534),
@@ -281,6 +281,8 @@ async fn a_setting_no_session_could_use_is_refused() {
         |http2| http2.keep_alive_timeout = Duration::ZERO,
         |http2| http2.idle_timeout = Some(Duration::ZERO),
         |http2| http2.send_buffer = 0,
+        |http2| http2.frames_per_write = 0,
+        |http2| http2.frames_per_write = 257,
     ];
     let refusals = changes.map(|change| {
         let mut http2 = Http2Config::default();
@@ -346,6 +348,17 @@ async fn the_largest_send_buffer_opens_a_session() {
     let mut http2 = Http2Config::default();
     http2.send_buffer = u32::MAX as usize;
     announced(http2).await;
+}
+
+/// More than one frame per write needs the build against h2-batch's patch.
+#[cfg(not(h2_batch))]
+#[tokio::test]
+async fn frames_per_write_need_the_patched_build() {
+    let mut http2 = Http2Config::default();
+    http2.frames_per_write = 2;
+    let refused =
+        channel_with(config("http://127.0.0.1:1", http2)).expect_err("a build without the patch");
+    assert!(refused.to_string().contains("h2-batch"), "{refused}");
 }
 
 /// Past `u32::MAX`, where hyper would panic, which only a 64-bit `usize` can name.

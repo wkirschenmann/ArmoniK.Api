@@ -387,6 +387,10 @@ mod tests {
             stated("/$defs/Http2SendOptions/properties/StreamBufferSize/description"),
             http2.send_buffer as f64
         );
+        assert_eq!(
+            stated("/$defs/Http2SendOptions/properties/FramesPerWrite/description"),
+            http2.frames_per_write as f64
+        );
         let retry = config.retry.expect("a retry policy by default");
         for (option, applied) in [
             ("MaxAttempts", f64::from(retry.max_attempts)),

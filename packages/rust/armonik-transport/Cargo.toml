@@ -28,6 +28,11 @@ test-hooks = []
 name = "panics"
 required-features = ["test-hooks"]
 
+# Compiled by the build against h2-batch's patch only; it counts writes with the test hooks.
+[[test]]
+name = "h2_batch"
+required-features = ["test-hooks"]
+
 [dependencies]
 # `channel` for `tonic::transport::Endpoint`, which is what `connect` builds; `codegen` for the
 # `http`/`tokio_stream` re-exports a dependent reaches through this crate.

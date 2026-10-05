@@ -8,6 +8,10 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
+# A patch's context lines are what they patch, trailing spaces included.
+[*.patch]
+trim_trailing_whitespace = false
+
 [{packages/python/**,examples/python/**}]
 indent_size = 4
 max_line_length = off

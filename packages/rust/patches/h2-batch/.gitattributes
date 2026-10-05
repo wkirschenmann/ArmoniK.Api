@@ -1,0 +1,4 @@
+# The patch applies to h2 as crates.io ships it, with LF line endings, and bash reads its script
+# with LF only: neither may be converted on checkout.
+*.patch -text -whitespace
+*.sh text eol=lf

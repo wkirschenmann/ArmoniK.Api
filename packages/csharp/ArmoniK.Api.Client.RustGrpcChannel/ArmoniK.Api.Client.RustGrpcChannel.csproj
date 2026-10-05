@@ -111,6 +111,11 @@
          not have, and a routine build should not spend minutes on engines nobody is about to run.
          CI and packing pass the identifiers they want, separated by `;` or `,`. -->
     <NativeEngineRids Condition="'$(NativeEngineRids)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeEngineRids>
+    <!-- NativeEngineH2Batch `true` builds the engine against h2-batch's patch of h2, through its
+         recipe, which needs bash: packages/rust/patches/h2-batch/README.md. -->
+    <NativeEngineCargo>cargo</NativeEngineCargo>
+    <NativeEngineCargo Condition="'$(NativeEngineH2Batch)' == 'true'">bash patches/h2-batch/build.sh</NativeEngineCargo>
+    <_NativeEngineCargoNeeds Condition="'$(NativeEngineH2Batch)' == 'true'"> The h2-batch recipe also needs the bash of Git for Windows first on PATH, not WSL's.</_NativeEngineCargoNeeds>
   </PropertyGroup>
 
   <Import Project="$(MSBuildThisFileDirectory)..\RustTargets.props" />
@@ -191,7 +196,7 @@
     </PropertyGroup>
 
     <Exec Condition="'$(RustTargetWanted)' == 'true'"
-          Command="cargo build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
+          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoExitCode" />
@@ -200,7 +205,7 @@
          PATH, and a 32-bit engine needs the x64_x86 one rather than the x64 one, so a plain shell
          fails here rather than in anything a reader would connect to the C toolchain. -->
     <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(CargoExitCode)' != '0'"
-           Text="cargo build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86." />
+           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86.$(_NativeEngineCargoNeeds)" />
   </Target>
 
 </Project>

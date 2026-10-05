@@ -1735,6 +1735,7 @@ public sealed class Http2SendOptions
 
     CoalescingBytes = other.CoalescingBytes;
     StreamBufferSize = other.StreamBufferSize;
+    FramesPerWrite = other.FramesPerWrite;
   }
 
   /// <summary>
@@ -1758,6 +1759,20 @@ public sealed class Http2SendOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? StreamBufferSize { get; set; }
 
+  /// <summary>
+  ///   How many DATA frames of the peer's largest size one queued part of a request may span,
+  ///   written one after the other in one write: a large message then goes out in fewer, larger
+  ///   writes. Above 1, a call reset while its part is being written can still send up to this
+  ///   many frames less one before its reset, and a PING or a SETTINGS acknowledgement queued
+  ///   behind DATA waits for this many times more of it. Above 1 needs an engine built against
+  ///   the h2-batch patch (<c>packages/rust/patches/h2-batch</c>), and is refused otherwise. At most
+  ///   256.
+  /// </summary>
+  /// <remarks>Defaults to 1.</remarks>
+  [JsonPropertyName("FramesPerWrite")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? FramesPerWrite { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -1774,6 +1789,13 @@ public sealed class Http2SendOptions
       throw new ArgumentOutOfRangeException(nameof(StreamBufferSize),
                                             streamBufferSize,
                                             "StreamBufferSize has to be at least 1.");
+    }
+
+    if (FramesPerWrite is int framesPerWrite && (framesPerWrite < 1 || framesPerWrite > 256))
+    {
+      throw new ArgumentOutOfRangeException(nameof(FramesPerWrite),
+                                            framesPerWrite,
+                                            "FramesPerWrite has to be at least 1 and at most 256.");
     }
   }
 
@@ -1796,6 +1818,11 @@ public sealed class Http2SendOptions
                                               "StreamBufferSize"))
       {
         bound.StreamBufferSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "FramesPerWrite"))
+      {
+        bound.FramesPerWrite = ChannelOptionsConfiguration.Int32(entry);
       }
       else
       {

@@ -490,6 +490,13 @@
           "type": "integer",
           "format": "int32",
           "minimum": 1
+        },
+        "FramesPerWrite": {
+          "description": "How many DATA frames of the peer's largest size one queued part of a request may span,\nwritten one after the other in one write: a large message then goes out in fewer, larger\nwrites. Above 1, a call reset while its part is being written can still send up to this\nmany frames less one before its reset, and a PING or a SETTINGS acknowledgement queued\nbehind DATA waits for this many times more of it. Above 1 needs an engine built against\nthe h2-batch patch (`packages/rust/patches/h2-batch`), and is refused otherwise. At most\n256.\n\nDefaults to 1.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 256
         }
       },
       "additionalProperties": false
