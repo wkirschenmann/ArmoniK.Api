@@ -16,7 +16,7 @@ fn commit(call: ak_handle, message: &[u8]) -> ak_status {
     let (status, buffer) = lend(call, message.len());
     assert_eq!(status, ak_status::AK_STATUS_OK);
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
-    unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) }
+    unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) }
 }
 
 fn end_send(call: ak_handle) -> ak_status {
@@ -65,7 +65,7 @@ fn the_empty_request_is_sent_with_no_buffer() {
 
     let call = start_call_flagged(channel, ECHO, &[], AK_CALL_ONE_REQUEST);
     assert_eq!(
-        unsafe { ak_call_send_message(call, support::empty_buffer(), std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, support::empty_buffer(), 0, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
 
@@ -93,7 +93,7 @@ fn a_call_cancelled_before_its_commit_ends_and_refuses_the_commit() {
     let seen = host.recorder.await_terminal();
     assert_eq!(seen.status_code(), Some(CANCELLED));
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_INVALID_STATE
     );
     unsafe { ak_return_call_buffer(buffer) };

@@ -44,7 +44,11 @@ pub(crate) struct CallTask {
 }
 
 pub(crate) enum Command {
-    Send(Bytes),
+    /// A message, and the bytes its lend was charged, which it may not have filled.
+    Send {
+        message: Bytes,
+        charged: usize,
+    },
     EndSend,
 }
 
@@ -277,7 +281,7 @@ impl CallState {
         // request has the gRPC prefix kept ahead of what the host writes, and its commit frames
         // the request there.
         let prefix = if one_request { FRAME_PREFIX } else { 0 };
-        let data = match arena(prefix + len) {
+        let data = match arena(prefix, len) {
             Ok(data) => data,
             Err(status) => {
                 self.ledger.release_bytes(len);
@@ -294,8 +298,10 @@ impl CallState {
             call: Arc::clone(self),
             data,
             prefix,
+            len,
         });
-        let ptr = lent.data[prefix..].as_mut_ptr();
+        // SAFETY: `arena` reserved `prefix + len` bytes and more.
+        let ptr = unsafe { lent.data.as_mut_ptr().add(prefix) };
         Ok(ak_buffer {
             ptr,
             len,
@@ -342,7 +348,10 @@ impl CallState {
             return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
         };
         self.handed_over();
-        slot.send(Command::Send(Bytes::from(lent.data)));
+        slot.send(Command::Send {
+            charged: lent.len,
+            message: Bytes::from(lent.data),
+        });
         ak_status::AK_STATUS_OK
     }
 
@@ -370,7 +379,10 @@ impl CallState {
         };
         self.ledger.hold();
         window.forget();
-        slot.send(Command::Send(Bytes::new()));
+        slot.send(Command::Send {
+            message: Bytes::new(),
+            charged: 0,
+        });
         ak_status::AK_STATUS_OK
     }
 
@@ -393,7 +405,7 @@ impl CallState {
             return refused(lent);
         }
 
-        let charged = lent.as_ref().map(|lent| lent.data.len() - lent.prefix);
+        let charged = lent.as_ref().map(|lent| lent.len);
         let mut lent = lent;
         let given = request.give(|| match lent.take() {
             Some(lent) => FramedRequest::in_place(lent.data).expect("lent with its prefix ahead"),
@@ -414,8 +426,19 @@ impl CallState {
 
     #[allow(clippy::boxed_local)]
     pub(crate) fn give_back(&self, lent: Box<Lent>) {
-        self.took_back(lent.data.len() - lent.prefix);
+        self.took_back(lent.len);
         self.window.add_permits(1);
+    }
+
+    /// Takes back a buffer the host overran, without freeing it, and shuts the runtime down: the
+    /// memory around it may be corrupted, and nothing this library does in it can be trusted.
+    pub(crate) fn overrun(&self, lent: Box<Lent>) {
+        let (_, len) = lent.abandon();
+        self.took_back(len);
+        self.window.add_permits(1);
+        if let Some(runtime) = crate::tables::runtimes().get(self.channel.runtime) {
+            crate::lifecycle::begin_shutdown(&runtime);
+        }
     }
 
     pub(crate) fn end_send(&self) -> ak_status {

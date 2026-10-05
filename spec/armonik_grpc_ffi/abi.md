@@ -280,9 +280,14 @@ was last.
 
 `ak_call_start` emits no callback for a `call_ctx` whose start it refused.
 
-`ak_get_call_buffer` takes the exact length, because it is known before the first byte is
-written - the generated marshaller calls `SetPayloadLength(CalculateSize())` - so no growable
-writer is needed. The lend is refused with `AK_STATUS_INVALID_STATE` once the call is over or its cancellation
+`ak_get_call_buffer` takes the most the host will write, which the generated marshaller knows
+before the first byte - it calls `SetPayloadLength(CalculateSize())` - so no growable writer is
+needed. The host says how many bytes it wrote when it commits, `ak_call_send_message(handle,
+buf, written)`, and only those are sent: the buffer is not zeroed, and nothing of it past
+`written` is read, and the host must have written those. A commit of more than the lend, or a
+write past its end that changed the bytes the library put after it, which the commit and
+`ak_return_call_buffer` check, is `AK_STATUS_CORRUPTED`: the memory around the buffer may be
+corrupted, so the buffer is taken back without being freed and the runtime shuts down. The lend is refused with `AK_STATUS_INVALID_STATE` once the call is over or its cancellation
 requested, and its handle is stale once it is reclaimed; being refused on a call that has just ended is normal
 and not an error, and the same race exists on `ak_call_send_message`. Lending only on a live call
 is also what makes destruction sound: a released runtime has no live call, so nothing can hand
@@ -467,7 +472,7 @@ ak_call_start(channel, opts,       -> validates channel, creates GrpcCall,
                                      returns handle
 ak_get_call_buffer(handle, n, &buf) -> lends n bytes out of the call arena
 serialize into buf.ptr             // protobuf writes straight into native memory
-ak_call_send_message(handle, buf)  -> ownership of buf passes back to Rust
+ak_call_send_message(handle, buf, n) -> the n bytes written; buf passes back to Rust
                                    ... network: Rust sends over HTTP/2 ...
                           callback(runtime_ctx, gcHandle, &evt_w, 1) <-
                             evt_w.kind = WRITE_DONE     [slot free]

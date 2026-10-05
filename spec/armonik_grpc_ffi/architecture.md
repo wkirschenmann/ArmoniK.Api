@@ -325,16 +325,19 @@ may still be reading.
 
 **Send (host → Rust)**:
 - `ak_get_call_buffer(handle, len, &buf)` — Rust lends writable native memory
-- the host serializes into it and commits with `ak_call_send_message(handle, buf)`, or gives
-  it back unused with `ak_return_call_buffer(buf)`
+- the host serializes into it and commits the bytes it wrote with
+  `ak_call_send_message(handle, buf, written)`, or gives it back unused with
+  `ak_return_call_buffer(buf)`
 - at most `Grpc.Host.Send.Window` buffers out of one arena (natural backpressure, on top of HTTP/2
   flow control)
 - nothing to pin on the .NET side: no `GCHandle`, no pinned object heap, no fragmentation of
   the collected generations
 
-The exact length is known before the first byte, so a plain `len` suffices and no growable
-writer is needed: the generated marshaller calls `context.SetPayloadLength(message.CalculateSize())`
-and only then writes.
+The length is known before the first byte, so a plain `len` suffices and no growable writer is
+needed: the generated marshaller calls `context.SetPayloadLength(message.CalculateSize())` and
+only then writes. The commit says how many bytes were written, so the arena is not zeroed and only
+those bytes are sent; a sentinel after the lent bytes may catch a write past them, and that, or a
+commit of more than was lent, shuts the runtime down.
 
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
 the writer it wakes can act on it straight away. The bytes leave the arena once, when tonic's
@@ -456,8 +459,10 @@ apply, and the host ends it by giving back what it holds or by cancelling.
 **What a buffer charges against the budget** is the capacity of the allocation that backs it,
 not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
 `len` is the request it must cover, and `bytes_used` is the sum of `charge(b)` over every buffer
-lent and not yet freed, plus the length of every message received and not yet given back. Each lend gets a fresh allocation of exactly `len`, so today the charge
-is the request; a pooled arena would charge the capacity of the buffer it hands out.
+lent and not yet freed, plus the length of every message received and not yet given back. Each
+lend gets a fresh allocation of `len` and a few bytes more, the gRPC prefix of a one-request call
+and the sentinel after it, and is charged `len`, the request; a pooled arena would charge the
+capacity of the buffer it hands out.
 The two refusals are then
 
 ```

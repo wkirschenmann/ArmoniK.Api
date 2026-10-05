@@ -122,6 +122,10 @@ impl From<ak_status> for Refusal {
             AK_STATUS_MESSAGE_TOO_LARGE => {
                 (NONE, "the length exceeds the runtime-wide ceiling itself")
             }
+            AK_STATUS_CORRUPTED => (
+                USAGE,
+                "a lent buffer was overrun: memory may be corrupted, and the runtime is shutting down",
+            ),
         };
         Self::fixed(status, kind, why)
     }

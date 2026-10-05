@@ -105,10 +105,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     => this;
 
   /// <summary>Ends the serialization, and checks the announced length was written.</summary>
-  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract - the
-  /// engine lends a buffer of exactly that size and sends exactly that many bytes - so a
-  /// serializer that announces more than it writes ships whatever the arena held as message
-  /// bytes. Refused here, where it can still be told apart from a transport failure.</remarks>
+  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract: a
+  /// serializer that announces one length and writes another is one whose size and writes
+  /// disagree, and what it wrote is not the message it meant. Refused here, where it can still be
+  /// told apart from a transport failure.</remarks>
   public override void Complete()
   {
     if (written_ != Capacity)
@@ -142,16 +142,18 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     written_ = payload.Length;
   }
 
-  /// <summary>Hands the buffer to the engine, which sends it.</summary>
+  /// <summary>Hands the buffer to the engine, which sends the bytes written.</summary>
   /// <remarks>What the engine takes back this stops naming, so a view a serializer kept is a
-  /// disposed view rather than an arena lent to the next call. A refusal leaves the buffer here,
-  /// and disposal returns it.</remarks>
+  /// disposed view rather than an arena lent to the next call. An overrun is taken back too, and
+  /// shuts the runtime down. Any other refusal leaves the buffer here, and disposal returns
+  /// it.</remarks>
   internal unsafe ak_status Commit()
   {
     var status = NativeMethods.ak_call_send_message(call_,
                                                     buffer_,
+                                                    (nuint)written_,
                                                     null);
-    if (status == ak_status.AK_STATUS_OK)
+    if (status is ak_status.AK_STATUS_OK or ak_status.AK_STATUS_CORRUPTED)
     {
       ReleaseBlock();
       buffer_ = default;

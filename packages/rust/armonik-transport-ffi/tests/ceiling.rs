@@ -261,7 +261,7 @@ fn an_empty_message_is_sent_with_no_buffer() {
 
     assert_eq!(lend(call, 0).0, ak_status::AK_STATUS_INVALID_ARG);
     assert_eq!(
-        unsafe { ak_call_send_message(call, empty_buffer(), std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, empty_buffer(), 0, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
     assert_eq!(

@@ -168,8 +168,7 @@ async fn write_until_closed(
 
         let Some(command) = command else { break };
         match command {
-            Command::Send(bytes) => {
-                let charged = bytes.len();
+            Command::Send { message, charged } => {
                 if let Some(half) = send.as_mut() {
                     // `Ended` is a refusal a message that came through the ABI can meet, and it
                     // changes nothing below: WRITE_DONE settles an accepted send and says
@@ -186,7 +185,7 @@ async fn write_until_closed(
                     // lend: `LARGEST_LENDABLE` caps the ceiling itself, so it cannot reach here to
                     // be lost behind an acquittal. Asserted rather than argued, because the day
                     // that stops being true is the day a message goes missing in silence.
-                    let sent = half.send_message(bytes).await;
+                    let sent = half.send_message(message).await;
                     debug_assert!(
                         matches!(
                             sent,

@@ -78,7 +78,7 @@ fn an_end_of_the_sending_does_not_overtake_a_send_being_queued() {
         let (status, buffer) = lend(call, 5);
         assert_eq!(status, ak_status::AK_STATUS_OK);
         unsafe { std::ptr::copy_nonoverlapping(b"hello".as_ptr(), buffer.ptr, 5) };
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) }
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) }
     });
     reaching
         .recv_timeout(Duration::from_secs(10))

@@ -178,6 +178,8 @@ public class AbiLayoutTests
                                      Is.EqualTo(6));
                          Assert.That((int)ak_status.AK_STATUS_MESSAGE_TOO_LARGE,
                                      Is.EqualTo(7));
+                         Assert.That((int)ak_status.AK_STATUS_CORRUPTED,
+                                     Is.EqualTo(8));
 
                          Assert.That((int)ak_runtime_state.AK_RUNTIME_NONE,
                                      Is.EqualTo(0));

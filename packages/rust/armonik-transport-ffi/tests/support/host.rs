@@ -246,7 +246,7 @@ pub fn write_one(host: &Host, call: ak_handle, message: &[u8], acquitted: usize)
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
     host.recorder.await_write_dones(acquitted);
@@ -260,7 +260,7 @@ pub fn send_one(call: ak_handle, message: &[u8]) {
     unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
     assert_eq!(

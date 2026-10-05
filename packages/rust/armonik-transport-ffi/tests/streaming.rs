@@ -94,7 +94,7 @@ fn a_send_the_transport_abandoned_is_acquitted_like_one_it_wrote() {
     assert_eq!(status, ak_status::AK_STATUS_OK);
     unsafe { std::ptr::copy_nonoverlapping(ABANDONED.as_ptr(), buffer.ptr, ABANDONED.len()) };
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK,
         "the send is accepted while the call is live"
     );
@@ -139,7 +139,7 @@ fn a_message_past_the_send_limit_ends_the_call_resource_exhausted() {
     assert_eq!(status, ak_status::AK_STATUS_OK);
     unsafe { std::ptr::copy_nonoverlapping(ABANDONED.as_ptr(), buffer.ptr, ABANDONED.len()) };
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK,
         "the ABI accepts it: the limit is the transport's"
     );

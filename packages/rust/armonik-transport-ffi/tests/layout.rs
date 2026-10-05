@@ -259,6 +259,7 @@ fn every_enum_value_is_the_one_the_header_gives_it() {
             "AK_STATUS_MESSAGE_TOO_LARGE",
             ak_status::AK_STATUS_MESSAGE_TOO_LARGE as i32,
         ),
+        ("AK_STATUS_CORRUPTED", ak_status::AK_STATUS_CORRUPTED as i32),
         ("AK_RUNTIME_NONE", ak_runtime_state::AK_RUNTIME_NONE as i32),
         (
             "AK_RUNTIME_RUNNING",
@@ -424,7 +425,7 @@ fn every_entry_point_has_the_signature_the_header_declares() {
     ) -> ak_status = ak_call_start;
     let _: unsafe extern "C" fn(ak_handle, usize, *mut ak_buffer, *mut ak_error) -> ak_status =
         ak_get_call_buffer;
-    let _: unsafe extern "C" fn(ak_handle, ak_buffer, *mut ak_error) -> ak_status =
+    let _: unsafe extern "C" fn(ak_handle, ak_buffer, usize, *mut ak_error) -> ak_status =
         ak_call_send_message;
     let _: unsafe extern "C" fn(ak_buffer) = ak_return_call_buffer;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_call_end_send;
@@ -554,7 +555,7 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
         ),
         (
             "ak_call_send_message",
-            &["ak_handle", "ak_buffer", "ak_error *"],
+            &["ak_handle", "ak_buffer", "size_t", "ak_error *"],
         ),
         ("ak_return_call_buffer", &["ak_buffer"]),
         ("ak_call_end_send", &["ak_handle", "ak_error *"]),

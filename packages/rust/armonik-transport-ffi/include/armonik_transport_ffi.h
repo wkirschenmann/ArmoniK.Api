@@ -131,6 +131,12 @@ enum ak_status
      * Permanent; do not retry.
      */
     AK_STATUS_MESSAGE_TOO_LARGE = 7,
+    /**
+     * The host wrote past a buffer it was lent, or committed more bytes than it was lent. The
+     * memory around the buffer may be corrupted: the buffer is taken back without being freed,
+     * and the runtime shuts down. Permanent.
+     */
+    AK_STATUS_CORRUPTED = 8,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -556,8 +562,9 @@ typedef struct {
 } ak_call_start_options;
 
 /**
- * Lent by ak_get_call_buffer out of the call's arena. The host writes len bytes and gives it back
- * exactly once, by ak_call_send_message or ak_return_call_buffer. This library never reclaims a
+ * Lent by ak_get_call_buffer out of the call's arena. The host writes at most len bytes from its
+ * start and gives it back exactly once, by ak_call_send_message, which says how many it wrote,
+ * or ak_return_call_buffer. This library never reclaims a
  * lent buffer on its own - not on cancellation, not on channel close - which is what removes the
  * race between a writing thread and a cancelling one.
  */
@@ -746,8 +753,12 @@ ak_status ak_call_start(ak_handle channel,
                         ak_error *out_error);
 
 /**
- * Lends a buffer out of the call's arena to serialize into. The exact length is known before the
- * first byte is written, so no growable writer is needed.
+ * Lends a buffer out of the call's arena to serialize into, of `len` bytes at most: the host
+ * writes from its start and says how many bytes it wrote when it commits it. The buffer holds
+ * whatever the allocator left there, never read: only the bytes the host says it wrote are sent.
+ * Writing past `len` is an overrun, which the commit or the return may detect by the bytes this
+ * library put after the end: a write that changes them is AK_STATUS_CORRUPTED, and the runtime
+ * shuts down. A write that leaves them as they were goes unseen.
  *
  * One unfilled buffer at a time, whatever Grpc.Host.Send.Window says: asking for a second while
  * still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
@@ -773,12 +784,18 @@ ak_status ak_get_call_buffer(ak_handle call,
                              ak_error *out_error);
 
 /**
- * Commits a lent buffer as the next message. Ownership passes back to this library.
+ * Commits a lent buffer as the next message, the `written` bytes the host wrote from its start.
+ * Ownership passes back to this library.
  *
- * An empty message takes no buffer: `buffer` is then the empty one, owner NULL and len 0, and the
- * send takes a slot of the window as any other, AK_STATUS_SLOT_BUSY when there is none. A zeroed
- * `ak_buffer` is that empty one, so committing the zeroed `*out` of a refused
- * ak_get_call_buffer, which the refusal leaves untouched, sends an empty message.
+ * More than the buffer's length, or a write past its end that changed the bytes after it, is
+ * AK_STATUS_CORRUPTED: the memory around the buffer may be corrupted, so the buffer is taken
+ * back without being freed, nothing of it is sent, and the runtime shuts down. The buffer is then
+ * this library's: giving it back again is a use of memory the host no longer owns.
+ *
+ * An empty message takes no buffer: `buffer` is then the empty one, owner NULL and len 0, with
+ * `written` 0, and the send takes a slot of the window as any other, AK_STATUS_SLOT_BUSY when
+ * there is none. A zeroed `ak_buffer` is that empty one, so committing the zeroed `*out` of a
+ * refused ak_get_call_buffer, which the refusal leaves untouched, sends an empty message.
  *
  * AK_EVENT_WRITE_DONE settles an accepted send and frees its slot from the moment the event is
  * emitted, not when the callback returns - so a host woken by it may ask for a buffer from inside
@@ -793,17 +810,23 @@ ak_status ak_get_call_buffer(ak_handle call,
  *
  * # Safety
  *
- * `buffer` must be one this call lent and the host has not given back.
+ * `buffer` must be one this call lent and the host has not given back, and the host must have
+ * written its first `written` bytes: they are sent as they are.
  * `out_error` must be null or writable for an `ak_error`.
  */
-ak_status ak_call_send_message(ak_handle call, ak_buffer buffer, ak_error *out_error);
+ak_status ak_call_send_message(ak_handle call,
+                               ak_buffer buffer,
+                               size_t written,
+                               ak_error *out_error);
 
 /**
  * Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only exit for
  * a buffer whose send is refused, and the call is not reclaimed until it happens.
  *
  * Takes no call handle: the buffer determines its call. A refused ak_call_send_message therefore
- * leaves the buffer with the host, exactly as it was lent.
+ * leaves the buffer with the host, but AK_STATUS_CORRUPTED, which takes it back. A buffer given
+ * back with the bytes after its end changed is an overrun, as at the commit: it is taken back
+ * without being freed and the runtime shuts down, with no status to say so but the shutdown.
  *
  * # Safety
  *

@@ -282,7 +282,7 @@ fn nothing_is_sent_after_the_sending_has_ended() {
     let (status, buffer) = lend(call, 1);
     assert_eq!(status, ak_status::AK_STATUS_OK, "the call is still live");
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_INVALID_STATE
     );
     unsafe { ak_return_call_buffer(buffer) };
@@ -580,7 +580,7 @@ fn the_send_window_refuses_a_second_buffer_until_a_write_is_acquitted() {
     assert_eq!(lend(call, 4).0, ak_status::AK_STATUS_INVALID_STATE);
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, first, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, first, first.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK
     );
 
@@ -645,7 +645,7 @@ fn a_buffer_a_refused_send_hands_back_is_the_host_to_return() {
     );
 
     assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, std::ptr::null_mut()) },
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_INVALID_STATE
     );
     unsafe { ak_return_call_buffer(buffer) };

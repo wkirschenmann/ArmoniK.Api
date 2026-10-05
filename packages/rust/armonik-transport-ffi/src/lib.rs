@@ -421,8 +421,12 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
     "the metadata is not a blob of the layout the header states",
 );
 
-/// Lends a buffer out of the call's arena to serialize into. The exact length is known before the
-/// first byte is written, so no growable writer is needed.
+/// Lends a buffer out of the call's arena to serialize into, of `len` bytes at most: the host
+/// writes from its start and says how many bytes it wrote when it commits it. The buffer holds
+/// whatever the allocator left there, never read: only the bytes the host says it wrote are sent.
+/// Writing past `len` is an overrun, which the commit or the return may detect by the bytes this
+/// library put after the end: a write that changes them is AK_STATUS_CORRUPTED, and the runtime
+/// shuts down. A write that leaves them as they were goes unseen.
 ///
 /// One unfilled buffer at a time, whatever Grpc.Host.Send.Window says: asking for a second while
 /// still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
@@ -463,12 +467,18 @@ const EMPTY_LEND: Refusal = Refusal::fixed(
     "a lend of no bytes: an empty message is sent with no buffer",
 );
 
-/// Commits a lent buffer as the next message. Ownership passes back to this library.
+/// Commits a lent buffer as the next message, the `written` bytes the host wrote from its start.
+/// Ownership passes back to this library.
 ///
-/// An empty message takes no buffer: `buffer` is then the empty one, owner NULL and len 0, and the
-/// send takes a slot of the window as any other, AK_STATUS_SLOT_BUSY when there is none. A zeroed
-/// `ak_buffer` is that empty one, so committing the zeroed `*out` of a refused
-/// ak_get_call_buffer, which the refusal leaves untouched, sends an empty message.
+/// More than the buffer's length, or a write past its end that changed the bytes after it, is
+/// AK_STATUS_CORRUPTED: the memory around the buffer may be corrupted, so the buffer is taken
+/// back without being freed, nothing of it is sent, and the runtime shuts down. The buffer is then
+/// this library's: giving it back again is a use of memory the host no longer owns.
+///
+/// An empty message takes no buffer: `buffer` is then the empty one, owner NULL and len 0, with
+/// `written` 0, and the send takes a slot of the window as any other, AK_STATUS_SLOT_BUSY when
+/// there is none. A zeroed `ak_buffer` is that empty one, so committing the zeroed `*out` of a
+/// refused ak_get_call_buffer, which the refusal leaves untouched, sends an empty message.
 ///
 /// AK_EVENT_WRITE_DONE settles an accepted send and frees its slot from the moment the event is
 /// emitted, not when the callback returns - so a host woken by it may ask for a buffer from inside
@@ -483,22 +493,29 @@ const EMPTY_LEND: Refusal = Refusal::fixed(
 ///
 /// # Safety
 ///
-/// `buffer` must be one this call lent and the host has not given back.
+/// `buffer` must be one this call lent and the host has not given back, and the host must have
+/// written its first `written` bytes: they are sent as they are.
 /// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_call_send_message(
     call: ak_handle,
     buffer: ak_buffer,
+    written: usize,
     out_error: *mut ak_error,
 ) -> ak_status {
     let answered = guard(|| {
-        if buffer.owner.is_null() && buffer.len == 0 {
+        if buffer.owner.is_null() && buffer.len == 0 && written == 0 {
             let found = tables::calls()
                 .get(call)
                 .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
             return done(found.commit_empty());
         }
-        let lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
+        let mut lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
+        // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
+        if lent.seal(written).is_err() {
+            Arc::clone(lent.call()).overrun(lent);
+            return Err(OVERRUN);
+        }
         let Some(found) = tables::calls().get(call) else {
             return done(call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE));
         };
@@ -518,6 +535,12 @@ const NOT_LENT: Refusal = Refusal::fixed(
     ak_error_kind::AK_ERROR_USAGE,
     "the buffer is not one this library lent",
 );
+const OVERRUN: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_CORRUPTED,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the buffer was written past its end, or committed longer than it was lent: memory may be \
+     corrupted, and the runtime is shutting down",
+);
 const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
@@ -528,7 +551,9 @@ const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
 /// a buffer whose send is refused, and the call is not reclaimed until it happens.
 ///
 /// Takes no call handle: the buffer determines its call. A refused ak_call_send_message therefore
-/// leaves the buffer with the host, exactly as it was lent.
+/// leaves the buffer with the host, but AK_STATUS_CORRUPTED, which takes it back. A buffer given
+/// back with the bytes after its end changed is an overrun, as at the commit: it is taken back
+/// without being freed and the runtime shuts down, with no status to say so but the shutdown.
 ///
 /// # Safety
 ///
@@ -539,7 +564,11 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
         let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
             return;
         };
-        Arc::clone(lent.call()).give_back(lent);
+        if lent.intact() {
+            Arc::clone(lent.call()).give_back(lent);
+        } else {
+            Arc::clone(lent.call()).overrun(lent);
+        }
     });
 }
 
