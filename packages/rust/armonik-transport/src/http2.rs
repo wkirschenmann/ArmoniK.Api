@@ -262,11 +262,8 @@ pub struct Http2Config {
     pub keep_alive_timeout: Duration,
     /// Whether a PING is sent while no call is open, and not only while one is.
     pub keep_alive_while_idle: bool,
-    /// The flow-control window of each stream, in bytes.
-    pub stream_window: u32,
-    /// The flow-control window of the connection, shared by every stream of the channel. At least
-    /// 65535, the window every connection starts with, since only an increase is announced.
-    pub connection_window: u32,
+    /// How much the peer may send ahead of what is read.
+    pub receive_windows: ReceiveWindows,
     /// How long the session stays open with no call on it before the channel closes it; none
     /// keeps it open.
     pub idle_timeout: Option<Duration>,
@@ -277,6 +274,43 @@ pub struct Http2Config {
     /// written, before its next part is handed over, whole. At least 1, and at most `u32::MAX`:
     /// hyper panics past it.
     pub send_buffer: usize,
+}
+
+/// How much the session lets its peer send ahead of what is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReceiveWindows {
+    /// Windows of these sizes, announced as the session opens and kept.
+    Fixed(FixedWindows),
+    /// hyper's adaptive flow control: both windows start at 65535, the size every connection
+    /// starts with, and grow with the bandwidth-delay product its PINGs measure, up to 16 MiB.
+    /// Neither shrinks.
+    Adaptive,
+}
+
+impl Default for ReceiveWindows {
+    fn default() -> Self {
+        Self::Fixed(FixedWindows::default())
+    }
+}
+
+/// Flow-control windows of fixed sizes, in bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FixedWindows {
+    /// Each stream's.
+    pub stream: u32,
+    /// The connection's, shared by every stream of the channel. At least 65535, the window every
+    /// connection starts with, since only an increase is announced.
+    pub connection: u32,
+}
+
+impl Default for FixedWindows {
+    fn default() -> Self {
+        Self {
+            stream: 2 * 1024 * 1024,
+            connection: 5 * 1024 * 1024,
+        }
+    }
 }
 
 /// The largest window RFC 9113 admits, 2^31 - 1.
@@ -292,8 +326,7 @@ impl Default for Http2Config {
             keep_alive_interval: None,
             keep_alive_timeout: Duration::from_secs(20),
             keep_alive_while_idle: false,
-            stream_window: 2 * 1024 * 1024,
-            connection_window: 5 * 1024 * 1024,
+            receive_windows: ReceiveWindows::default(),
             idle_timeout: None,
             write_coalescing: 16 * 1024,
             send_buffer: 1024 * 1024,
@@ -332,18 +365,20 @@ impl Http2Config {
             }
             .fail();
         }
-        for (window, what, least) in [
-            (self.stream_window, "stream", 1),
-            (self.connection_window, "connection", INITIAL_HTTP2_WINDOW),
-        ] {
-            if !(least..=LARGEST_HTTP2_WINDOW).contains(&window) {
-                return ConfigurationSnafu {
-                    message: format!(
-                        "an HTTP/2 {what} window of {window} bytes is outside {least} to \
-                         {LARGEST_HTTP2_WINDOW}"
-                    ),
+        if let ReceiveWindows::Fixed(windows) = self.receive_windows {
+            for (window, what, least) in [
+                (windows.stream, "stream", 1),
+                (windows.connection, "connection", INITIAL_HTTP2_WINDOW),
+            ] {
+                if !(least..=LARGEST_HTTP2_WINDOW).contains(&window) {
+                    return ConfigurationSnafu {
+                        message: format!(
+                            "an HTTP/2 {what} window of {window} bytes is outside {least} to \
+                             {LARGEST_HTTP2_WINDOW}"
+                        ),
+                    }
+                    .fail();
                 }
-                .fail();
             }
         }
         Ok(())
@@ -537,15 +572,25 @@ where
         std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
         let io = connector.call(endpoint.clone()).await?;
         let http2 = connector.http2;
-        hyper::client::conn::http2::Builder::new(executor)
+        let mut builder = hyper::client::conn::http2::Builder::new(executor);
+        builder
             // The keepalive's clock: hyper keeps no time of its own.
             .timer(hyper_util::rt::TokioTimer::new())
             .keep_alive_interval(http2.keep_alive_interval)
             .keep_alive_timeout(http2.keep_alive_timeout)
             .keep_alive_while_idle(http2.keep_alive_while_idle)
-            .initial_stream_window_size(http2.stream_window)
-            .initial_connection_window_size(http2.connection_window)
-            .max_send_buf_size(http2.send_buffer)
+            .max_send_buf_size(http2.send_buffer);
+        match http2.receive_windows {
+            ReceiveWindows::Fixed(windows) => {
+                builder
+                    .initial_stream_window_size(windows.stream)
+                    .initial_connection_window_size(windows.connection);
+            }
+            ReceiveWindows::Adaptive => {
+                builder.adaptive_window(true);
+            }
+        }
+        builder
             .handshake(Coalescing::new(io, http2.write_coalescing))
             .await
             .map_err(|error| {

@@ -1594,9 +1594,7 @@ public sealed class Http2Options
     Send = other.Send is null
              ? null
              : new Http2SendOptions(other.Send);
-    Receive = other.Receive is null
-                ? null
-                : new Http2ReceiveOptions(other.Receive);
+    Receive = other.Receive;
   }
 
   /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
@@ -1632,7 +1630,7 @@ public sealed class Http2Options
   public Http2SendOptions? Send { get; set; }
 
   /// <summary>What the session lets the peer send.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  /// <remarks>Defaults to <c>{"Fixed": {}}</c>: windows of 2 MiB per call and 5 MiB for the connection.</remarks>
   [JsonPropertyName("Receive")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public Http2ReceiveOptions? Receive { get; set; }
@@ -1810,91 +1808,177 @@ public sealed class Http2SendOptions
   }
 }
 
-/// <summary>What an HTTP/2 session lets its peer send ahead of what is read.</summary>
-public sealed class Http2ReceiveOptions
+/// <summary>
+///   What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
+///   windows that grow with what the link carries.
+/// </summary>
+[JsonConverter(typeof(Http2ReceiveOptionsJsonConverter))]
+public abstract record Http2ReceiveOptions
 {
-  /// <summary>Options nobody has set.</summary>
-  public Http2ReceiveOptions()
+  private Http2ReceiveOptions()
   {
   }
 
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public Http2ReceiveOptions(Http2ReceiveOptions other)
-  {
-    if (other is null)
-    {
-      throw new ArgumentNullException(nameof(other));
-    }
-
-    StreamWindowSize = other.StreamWindowSize;
-    ConnectionWindowSize = other.ConnectionWindowSize;
-  }
-
-  /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
-  /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
-  [JsonPropertyName("StreamWindowSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? StreamWindowSize { get; set; }
-
-  /// <summary>
+  /// <summary>Windows of fixed sizes, announced as the session opens.</summary>
+  /// <param name="StreamWindowSize">
+  ///   How many bytes of one call the peer may send ahead of what is read.
+  ///   Defaults to 2097152, 2 MiB.
+  /// </param>
+  /// <param name="ConnectionWindowSize">
   ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
   ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
   ///   the others receiving. At least 65535, the window every connection starts with.
-  /// </summary>
-  /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
-  [JsonPropertyName("ConnectionWindowSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? ConnectionWindowSize { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
+  ///   Defaults to 5242880, 5 MiB.
+  /// </param>
+  public sealed record Fixed(int? StreamWindowSize = null,
+                             int? ConnectionWindowSize = null) : Http2ReceiveOptions
   {
-    if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
-                                            streamWindowSize,
-                                            "StreamWindowSize has to be at least 1.");
-    }
+      if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
+                                              streamWindowSize,
+                                              "StreamWindowSize has to be at least 1.");
+      }
 
-    if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
-    {
-      throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
-                                            connectionWindowSize,
-                                            "ConnectionWindowSize has to be at least 65535.");
+      if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
+      {
+        throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
+                                              connectionWindowSize,
+                                              "ConnectionWindowSize has to be at least 65535.");
+      }
     }
   }
 
-  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
-  /// <param name="section">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  /// <summary>
+  ///   Windows that grow with the link: both start at 65535, the size every connection starts
+  ///   with, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.
+  ///   Neither shrinks.
+  /// </summary>
+  public sealed record Adaptive : Http2ReceiveOptions
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+
+  /// <summary>The alternative <paramref name="section" /> names by its one key, matched without case.</summary>
+  /// <param name="section">The section, which has to hold one key.</param>
+  /// <returns>The alternative, with the fields its key states.</returns>
+  /// <exception cref="InvalidOperationException">
+  ///   The section names no alternative or two, or one with a field it does not admit.
+  /// </exception>
   internal static Http2ReceiveOptions Bind(IConfigurationSection section)
   {
-    var bound = new Http2ReceiveOptions();
+    var alternative = ChannelOptionsConfiguration.Alternative(section,
+                                                              "Http2ReceiveOptions");
 
-    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Fixed"))
     {
-      if (ChannelOptionsConfiguration.Is(entry,
-                                         "StreamWindowSize"))
+      int? streamWindowSize = null;
+      int? connectionWindowSize = null;
+
+      foreach (var entry in ChannelOptionsConfiguration.Entries(alternative))
       {
-        bound.StreamWindowSize = ChannelOptionsConfiguration.Int32(entry);
+        if (ChannelOptionsConfiguration.Is(entry,
+                                           "StreamWindowSize"))
+        {
+          streamWindowSize = ChannelOptionsConfiguration.Int32(entry);
+        }
+        else if (ChannelOptionsConfiguration.Is(entry,
+                                                "ConnectionWindowSize"))
+        {
+          connectionWindowSize = ChannelOptionsConfiguration.Int32(entry);
+        }
+        else
+        {
+          throw ChannelOptionsConfiguration.Unknown(entry,
+                                                    "Http2ReceiveOptions.Fixed");
+        }
       }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "ConnectionWindowSize"))
+
+      return new Fixed(streamWindowSize,
+                       connectionWindowSize);
+    }
+
+    if (ChannelOptionsConfiguration.Is(alternative,
+                                       "Adaptive"))
+    {
+      ChannelOptionsConfiguration.Chosen(alternative);
+
+      return new Adaptive();
+    }
+
+    throw ChannelOptionsConfiguration.Unknown(alternative,
+                                              "Http2ReceiveOptions");
+  }
+}
+
+/// <summary>Writes a <see cref="Http2ReceiveOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2ReceiveOptions>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Http2ReceiveOptions? Read(ref Utf8JsonReader reader,
+                                            Type typeToConvert,
+                                            JsonSerializerOptions options)
+    => throw new NotSupportedException("Http2ReceiveOptions is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Http2ReceiveOptions value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Http2ReceiveOptions written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case Http2ReceiveOptions.Fixed @fixed:
       {
-        bound.ConnectionWindowSize = ChannelOptionsConfiguration.Int32(entry);
+        writer.WriteStartObject("Fixed");
+
+        if (@fixed.StreamWindowSize is int streamWindowSize)
+        {
+          writer.WriteNumber("StreamWindowSize",
+                             streamWindowSize);
+        }
+
+        if (@fixed.ConnectionWindowSize is int connectionWindowSize)
+        {
+          writer.WriteNumber("ConnectionWindowSize",
+                             connectionWindowSize);
+        }
+
+        writer.WriteEndObject();
+        break;
       }
-      else
+
+      case Http2ReceiveOptions.Adaptive:
       {
-        throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "Http2ReceiveOptions");
+        writer.WriteBoolean("Adaptive",
+                            true);
+        break;
       }
     }
 
-    return bound;
+    writer.WriteEndObject();
   }
 }
 

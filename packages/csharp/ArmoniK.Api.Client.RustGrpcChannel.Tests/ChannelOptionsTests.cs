@@ -510,6 +510,34 @@ public class ChannelOptionsTests
                     });
   }
 
+  /// <summary>The receive windows are an alternative too: fixed sizes, or adaptive ones.</summary>
+  [Test]
+  public void TheReceiveWindowsAreBoundAndWrittenAsAnAlternative()
+  {
+    var adaptive = NativeRuntime.OptionsFrom(Configuration(new Dictionary<string, string?>
+                                                           {
+                                                             ["Section:Http2:Receive:Adaptive"] = "true",
+                                                           }),
+                                             "Section");
+    var fixedWindows = NativeRuntime.OptionsFrom(Configuration(new Dictionary<string, string?>
+                                                               {
+                                                                 ["Section:Http2:Receive:Fixed:StreamWindowSize"] = "70000",
+                                                               }),
+                                                 "Section");
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(adaptive.Http2?.Receive,
+                                  Is.EqualTo(new Http2ReceiveOptions.Adaptive()));
+                      Assert.That(Encoded(adaptive),
+                                  Is.EqualTo(@"{""Http2"":{""Receive"":{""Adaptive"":true}}}"));
+                      Assert.That(fixedWindows.Http2?.Receive,
+                                  Is.EqualTo(new Http2ReceiveOptions.Fixed(70000)));
+                      Assert.That(Encoded(fixedWindows),
+                                  Is.EqualTo(@"{""Http2"":{""Receive"":{""Fixed"":{""StreamWindowSize"":70000}}}}"));
+                    });
+  }
+
   /// <summary>What a section cannot be is refused by the key at fault, and its value never quoted.</summary>
   /// <remarks>Not quoted, because a value may be a password.</remarks>
   [Test]

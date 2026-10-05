@@ -14,7 +14,10 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret;
 
 use crate::grpc::RetryConfig;
-use crate::http2::{ClientIdentity, Http2Config, ProxyConfig, ProxySource, TcpConfig, TlsConfig};
+use crate::http2::{
+    ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
+    TlsConfig,
+};
 
 /// The largest window either side of a call may be given.
 ///
@@ -1046,9 +1049,13 @@ pub struct Http2Options {
 
     /// What the session lets the peer send.
     ///
-    /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub receive: Http2ReceiveOptions,
+    /// Defaults to `{"Fixed": {}}`: windows of 2 MiB per call and 5 MiB for the connection.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "Http2ReceiveOptions"))]
+    pub receive: Option<Http2ReceiveOptions>,
 }
 
 /// What an HTTP/2 session sends.
@@ -1087,7 +1094,23 @@ pub struct Http2SendOptions {
     pub stream_buffer_size: Option<i32>,
 }
 
-/// What an HTTP/2 session lets its peer send ahead of what is read.
+/// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
+/// windows that grow with what the link carries.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Http2ReceiveOptions {
+    /// Windows of fixed sizes, announced as the session opens.
+    Fixed(Http2FixedWindows),
+
+    /// Windows that grow with the link: both start at 65535, the size every connection starts
+    /// with, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.
+    /// Neither shrinks.
+    Adaptive(Chosen),
+}
+
+/// HTTP/2 flow-control windows of fixed sizes.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -1096,7 +1119,7 @@ pub struct Http2SendOptions {
 )]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct Http2ReceiveOptions {
+pub struct Http2FixedWindows {
     /// How many bytes of one call the peer may send ahead of what is read.
     ///
     /// Defaults to 2097152, 2 MiB.
@@ -1527,18 +1550,27 @@ impl Http2Options {
             keep_alive_while_idle: self
                 .keep_alive_while_idle
                 .unwrap_or(defaults.keep_alive_while_idle),
-            stream_window: window(
-                "Receive.StreamWindowSize",
-                self.receive.stream_window_size,
-                1,
-                defaults.stream_window,
-            )?,
-            connection_window: window(
-                "Receive.ConnectionWindowSize",
-                self.receive.connection_window_size,
-                65_535,
-                defaults.connection_window,
-            )?,
+            receive_windows: match &self.receive {
+                None => defaults.receive_windows,
+                Some(Http2ReceiveOptions::Fixed(windows)) => {
+                    let fixed = FixedWindows::default();
+                    ReceiveWindows::Fixed(FixedWindows {
+                        stream: window(
+                            "Receive.Fixed.StreamWindowSize",
+                            windows.stream_window_size,
+                            1,
+                            fixed.stream,
+                        )?,
+                        connection: window(
+                            "Receive.Fixed.ConnectionWindowSize",
+                            windows.connection_window_size,
+                            65_535,
+                            fixed.connection,
+                        )?,
+                    })
+                }
+                Some(Http2ReceiveOptions::Adaptive(Chosen)) => ReceiveWindows::Adaptive,
+            },
             idle_timeout: duration("IdleTimeoutSeconds", self.idle_timeout_seconds, 1e-9, None)?,
             write_coalescing: match self.send.coalescing_bytes {
                 None => defaults.write_coalescing,
@@ -1932,10 +1964,11 @@ over_fields!(Http2SendOptions {
     coalescing_bytes,
     stream_buffer_size,
 });
-over_fields!(Http2ReceiveOptions {
+over_fields!(Http2FixedWindows {
     stream_window_size,
     connection_window_size,
 });
+over_variants!(Http2ReceiveOptions { Fixed, Adaptive });
 over_fields!(RetryOptions {
     max_attempts,
     initial_backoff_seconds,
@@ -2698,10 +2731,10 @@ mod tests {
                 coalescing_bytes: Some(0),
                 stream_buffer_size: Some(4096),
             },
-            receive: Http2ReceiveOptions {
+            receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                 stream_window_size: Some(1024),
                 connection_window_size: Some(65_535),
-            },
+            })),
         }
         .to_config()
         .expect("admissible");
@@ -2712,8 +2745,11 @@ mod tests {
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
         assert!(config.keep_alive_while_idle);
         assert_eq!(
-            (config.stream_window, config.connection_window),
-            (1024, 65_535)
+            config.receive_windows,
+            ReceiveWindows::Fixed(FixedWindows {
+                stream: 1024,
+                connection: 65_535
+            })
         );
 
         assert_eq!(
@@ -2722,15 +2758,15 @@ mod tests {
         );
 
         let refused = Http2Options {
-            receive: Http2ReceiveOptions {
+            receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                 connection_window_size: Some(65_534),
-                ..Http2ReceiveOptions::default()
-            },
+                ..Http2FixedWindows::default()
+            })),
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("below the window every connection starts with");
-        assert_eq!(refused.key(), "Receive.ConnectionWindowSize");
+        assert_eq!(refused.key(), "Receive.Fixed.ConnectionWindowSize");
 
         let refused = Http2Options {
             send: Http2SendOptions {
@@ -2776,10 +2812,10 @@ mod tests {
             },
             http2: Http2Options {
                 keep_alive_while_idle: Some(true),
-                receive: Http2ReceiveOptions {
+                receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                     stream_window_size: Some(70_000),
-                    ..Http2ReceiveOptions::default()
-                },
+                    ..Http2FixedWindows::default()
+                })),
                 ..Http2Options::default()
             },
             ..ChannelOptions::default()
@@ -2787,10 +2823,10 @@ mod tests {
         let merged = ChannelOptions {
             grpc: credits(3),
             http2: Http2Options {
-                receive: Http2ReceiveOptions {
+                receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                     stream_window_size: Some(80_000),
-                    ..Http2ReceiveOptions::default()
-                },
+                    ..Http2FixedWindows::default()
+                })),
                 ..Http2Options::default()
             },
             ..ChannelOptions::default()
@@ -2800,7 +2836,46 @@ mod tests {
         assert_eq!(merged.grpc.user_agent.as_deref(), Some("default"));
         assert_eq!(merged.grpc.host.receive.window, Some(3));
         assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
-        assert_eq!(merged.http2.receive.stream_window_size, Some(80_000));
+        assert_eq!(
+            merged.http2.receive,
+            Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
+                stream_window_size: Some(80_000),
+                ..Http2FixedWindows::default()
+            }))
+        );
+    }
+
+    /// The adaptive windows are an alternative to the fixed ones: either, stated over the other,
+    /// replaces it, and a session that states neither keeps the default's.
+    #[test]
+    fn adaptive_windows_are_an_alternative_to_fixed_ones() {
+        let adaptive = Http2Options {
+            receive: Some(Http2ReceiveOptions::Adaptive(Chosen)),
+            ..Http2Options::default()
+        };
+        let fixed = Http2Options {
+            receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
+                stream_window_size: Some(70_000),
+                ..Http2FixedWindows::default()
+            })),
+            ..Http2Options::default()
+        };
+        let unstated = Http2Options {
+            keep_alive_while_idle: Some(true),
+            ..Http2Options::default()
+        };
+
+        assert_eq!(
+            adaptive.to_config().expect("admissible").receive_windows,
+            ReceiveWindows::Adaptive
+        );
+        assert_eq!(adaptive.clone().over(&fixed).receive, adaptive.receive);
+        assert_eq!(fixed.clone().over(&adaptive).receive, fixed.receive);
+        assert_eq!(unstated.clone().over(&adaptive).receive, adaptive.receive);
+        assert_eq!(
+            unstated.to_config().expect("admissible").receive_windows,
+            ReceiveWindows::default()
+        );
     }
 
     /// An alternative stated over another is taken whole: nothing of the default's is combined

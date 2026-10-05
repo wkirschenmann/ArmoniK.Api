@@ -308,6 +308,7 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use armonik_transport::http2::{FixedWindows, ReceiveWindows};
 
     fn config_of(json: &[u8]) -> GrpcChannelConfig {
         let settings = parse(json).expect("valid");
@@ -367,13 +368,16 @@ mod tests {
             stated("/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/description"),
             http2.keep_alive_timeout.as_secs_f64()
         );
+        let ReceiveWindows::Fixed(windows) = http2.receive_windows else {
+            panic!("fixed windows by default: {:?}", http2.receive_windows);
+        };
         assert_eq!(
-            stated("/$defs/Http2ReceiveOptions/properties/StreamWindowSize/description"),
-            http2.stream_window as f64
+            stated("/$defs/Http2FixedWindows/properties/StreamWindowSize/description"),
+            windows.stream as f64
         );
         assert_eq!(
-            stated("/$defs/Http2ReceiveOptions/properties/ConnectionWindowSize/description"),
-            http2.connection_window as f64
+            stated("/$defs/Http2FixedWindows/properties/ConnectionWindowSize/description"),
+            windows.connection as f64
         );
         assert_eq!(
             stated("/$defs/Http2SendOptions/properties/CoalescingBytes/description"),
@@ -548,12 +552,12 @@ mod tests {
                 r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
             ),
             (
-                "/$defs/Http2ReceiveOptions/properties/StreamWindowSize/minimum",
-                r#"{"Http2":{"Receive":{"StreamWindowSize":N}}}"#,
+                "/$defs/Http2FixedWindows/properties/StreamWindowSize/minimum",
+                r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":N}}}}"#,
             ),
             (
-                "/$defs/Http2ReceiveOptions/properties/ConnectionWindowSize/minimum",
-                r#"{"Http2":{"Receive":{"ConnectionWindowSize":N}}}"#,
+                "/$defs/Http2FixedWindows/properties/ConnectionWindowSize/minimum",
+                r#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":N}}}}"#,
             ),
             (
                 "/$defs/Http2SendOptions/properties/CoalescingBytes/minimum",
@@ -666,7 +670,7 @@ mod tests {
                     "KeepAliveIntervalSeconds": 10,
                     "KeepAliveTimeoutSeconds": 2.5,
                     "KeepAliveWhileIdle": true,
-                    "Receive": {{ "StreamWindowSize": 1048576, "ConnectionWindowSize": 3145728 }}
+                    "Receive": {{ "Fixed": {{ "StreamWindowSize": 1048576, "ConnectionWindowSize": 3145728 }} }}
                 }}
             }}"#
         );
@@ -695,8 +699,13 @@ mod tests {
         assert_eq!(http2.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(http2.keep_alive_timeout, Duration::from_millis(2500));
         assert!(http2.keep_alive_while_idle);
-        assert_eq!(http2.stream_window, 1_048_576);
-        assert_eq!(http2.connection_window, 3_145_728);
+        assert_eq!(
+            http2.receive_windows,
+            ReceiveWindows::Fixed(FixedWindows {
+                stream: 1_048_576,
+                connection: 3_145_728
+            })
+        );
 
         let unsafe_document = br#"{"Transport":{"Tls":{"Server":{"Unverified":true}}}}"#;
         let config = parse(unsafe_document)
@@ -848,8 +857,8 @@ mod tests {
                 "Transport.TcpKeepalive.Retries",
             ),
             (
-                &br#"{"Http2":{"Receive":{"ConnectionWindowSize":65534}}}"#[..],
-                "Http2.Receive.ConnectionWindowSize",
+                &br#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":65534}}}}"#[..],
+                "Http2.Receive.Fixed.ConnectionWindowSize",
             ),
             (
                 &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
@@ -925,12 +934,12 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"Receive":{"StreamWindowSize":70000}}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"Receive":{"Fixed":{"StreamWindowSize":70000}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(
             defaults.as_ref(),
-            br#"{"Http2":{"Receive":{"StreamWindowSize":80000}}}"#,
+            br#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":80000}}}}"#,
         )
         .expect("a valid merge");
         assert_eq!(settings.delivery_credits(), 2);
@@ -939,7 +948,25 @@ mod tests {
             .transport
             .http2;
         assert!(http2.keep_alive_while_idle);
-        assert_eq!(http2.stream_window, 80_000);
+        assert_eq!(
+            http2.receive_windows,
+            ReceiveWindows::Fixed(FixedWindows {
+                stream: 80_000,
+                ..FixedWindows::default()
+            })
+        );
+
+        // An alternative over the defaults' other one replaces it.
+        let settings = parse_over(
+            defaults.as_ref(),
+            br#"{"Http2":{"Receive":{"Adaptive":true}}}"#,
+        )
+        .expect("a valid merge");
+        let http2 = settings
+            .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
+            .transport
+            .http2;
+        assert_eq!(http2.receive_windows, ReceiveWindows::Adaptive);
     }
 
     /// Defaults are refused as a channel's document is, and empty ones are none.

@@ -81,12 +81,13 @@ pub struct Http2Config {
     pub keep_alive_interval: Option<Duration>,
     pub keep_alive_timeout: Duration,
     pub keep_alive_while_idle: bool,
-    /// What one stream may have unread.
-    pub stream_window: u32,
-    /// What the connection may have unread, shared by every stream of the
-    /// channel: a call its host does not read holds up to its stream window
-    /// of it. At least 65535, since only an increase is announced.
-    pub connection_window: u32,
+    /// What the peer may send ahead of what is read: `Fixed { stream,
+    /// connection }`, what one stream and the whole connection may have
+    /// unread - a call its host does not read holds up to its stream window,
+    /// and the connection's is at least 65535, since only an increase is
+    /// announced - or `Adaptive`, hyper's windows that start at 65535 and
+    /// grow with the bandwidth-delay product its PINGs measure, up to 16 MiB.
+    pub receive_windows: ReceiveWindows,
     /// How long the session stays open with no call or dial holding it
     /// before the channel closes it; none keeps it open.
     pub idle_timeout: Option<Duration>,

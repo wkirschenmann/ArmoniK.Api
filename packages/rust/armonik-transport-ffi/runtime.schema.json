@@ -469,7 +469,7 @@
           "$ref": "#/$defs/Http2SendOptions"
         },
         "Receive": {
-          "description": "What the session lets the peer send.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "description": "What the session lets the peer send.\n\nDefaults to `{\"Fixed\": {}}`: windows of 2 MiB per call and 5 MiB for the connection.",
           "$ref": "#/$defs/Http2ReceiveOptions"
         }
       },
@@ -495,7 +495,38 @@
       "additionalProperties": false
     },
     "Http2ReceiveOptions": {
-      "description": "What an HTTP/2 session lets its peer send ahead of what is read.",
+      "description": "What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or\nwindows that grow with what the link carries.",
+      "oneOf": [
+        {
+          "description": "Windows of fixed sizes, announced as the session opens.",
+          "type": "object",
+          "properties": {
+            "Fixed": {
+              "$ref": "#/$defs/Http2FixedWindows"
+            }
+          },
+          "required": [
+            "Fixed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Windows that grow with the link: both start at 65535, the size every connection starts\nwith, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.\nNeither shrinks.",
+          "type": "object",
+          "properties": {
+            "Adaptive": {
+              "const": true
+            }
+          },
+          "required": [
+            "Adaptive"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Http2FixedWindows": {
+      "description": "HTTP/2 flow-control windows of fixed sizes.",
       "type": "object",
       "properties": {
         "StreamWindowSize": {

@@ -119,8 +119,9 @@ public class OptionVocabularyTests
                                                                        ["Http2.KeepAliveIntervalSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveTimeoutSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveWhileIdle"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
-                                                                       ["Http2.Receive.StreamWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
-                                                                       ["Http2.Receive.ConnectionWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Receive.Fixed.StreamWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Receive.Fixed.ConnectionWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Receive.Adaptive"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.CoalescingBytes"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.StreamBufferSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                      };

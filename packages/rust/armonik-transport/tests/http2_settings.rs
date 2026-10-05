@@ -6,7 +6,7 @@ mod common;
 use std::time::Duration;
 
 use armonik_transport::grpc::{CallStartOptions, GrpcChannelConfig, GrpcStatusCode};
-use armonik_transport::http2::{Http2Config, TransportConfig};
+use armonik_transport::http2::{FixedWindows, Http2Config, ReceiveWindows, TransportConfig};
 use bytes::Bytes;
 use common::echo::{channel_with, loopback, unary, ECHO};
 use http::Uri;
@@ -17,7 +17,9 @@ const SETTINGS: u8 = 0x4;
 const PING: u8 = 0x6;
 const WINDOW_UPDATE: u8 = 0x8;
 const HEADERS: u8 = 0x1;
+const DATA: u8 = 0x0;
 const ACK: u8 = 0x1;
+const END_HEADERS: u8 = 0x4;
 const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
 /// RFC 9113's initial window, which a WINDOW_UPDATE on stream 0 grows the connection's from.
 const INITIAL_WINDOW: u32 = 65_535;
@@ -97,6 +99,10 @@ fn config(endpoint: &str, http2: Http2Config) -> GrpcChannelConfig {
     GrpcChannelConfig::new(transport)
 }
 
+fn fixed(stream: u32, connection: u32) -> ReceiveWindows {
+    ReceiveWindows::Fixed(FixedWindows { stream, connection })
+}
+
 /// The windows the client announces when its configuration is `http2`.
 async fn announced(http2: Http2Config) -> Announced {
     let (heard, hearing) = oneshot::channel();
@@ -123,8 +129,10 @@ async fn announced(http2: Http2Config) -> Announced {
 #[tokio::test]
 async fn the_windows_a_channel_is_given_are_the_ones_it_announces() {
     let mut http2 = Http2Config::default();
-    http2.stream_window = 1024 * 1024;
-    http2.connection_window = 3 * 1024 * 1024;
+    http2.receive_windows = ReceiveWindows::Fixed(FixedWindows {
+        stream: 1024 * 1024,
+        connection: 3 * 1024 * 1024,
+    });
 
     let announced = announced(http2).await;
     assert_eq!(announced.stream_window, Some(1024 * 1024), "{announced:?}");
@@ -148,6 +156,93 @@ async fn the_default_windows_are_two_and_five_mebibytes() {
         Some(5 * 1024 * 1024),
         "{announced:?}"
     );
+}
+
+/// Adaptive windows start where every connection does: nothing past 65535 is announced, which
+/// hyper raises as its PINGs measure the link.
+#[tokio::test]
+async fn adaptive_windows_start_at_the_initial_window() {
+    let mut http2 = Http2Config::default();
+    http2.receive_windows = ReceiveWindows::Adaptive;
+
+    let announced = announced(http2).await;
+    assert_eq!(
+        announced.stream_window.unwrap_or(INITIAL_WINDOW),
+        INITIAL_WINDOW,
+        "{announced:?}"
+    );
+    assert_eq!(announced.connection_window, None, "{announced:?}");
+}
+
+/// Whether the client sends a PING once a response's data reaches it, from a server that answers
+/// the first request with a gRPC head and one message, leaves the stream open, and acknowledges
+/// nothing.
+async fn pings_once_data_arrives(http2: Http2Config) -> bool {
+    let (listener, endpoint) = loopback().await;
+    let (pinged, ping) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("the client connects");
+        let mut preface = [0; 24];
+        socket.read_exact(&mut preface).await.expect("the preface");
+        let mut pinged = Some(pinged);
+        loop {
+            let mut head = [0; 9];
+            if socket.read_exact(&mut head).await.is_err() {
+                return;
+            }
+            let length = u32::from_be_bytes([0, head[0], head[1], head[2]]) as usize;
+            let (kind, flags) = (head[3], head[4]);
+            let mut payload = vec![0; length];
+            if socket.read_exact(&mut payload).await.is_err() {
+                return;
+            }
+            match kind {
+                HEADERS => {
+                    // `:status: 200` and `content-type: application/grpc`, then one message of
+                    // 1019 bytes, a DATA frame of 1 KiB, on stream 1.
+                    let mut answer = EMPTY_SETTINGS.to_vec();
+                    answer.extend_from_slice(&[0, 0, 20, HEADERS, END_HEADERS, 0, 0, 0, 1]);
+                    answer.extend_from_slice(&[0x88, 0x0f, 0x10, 16]);
+                    answer.extend_from_slice(b"application/grpc");
+                    answer.extend_from_slice(&[0, 4, 0, DATA, 0, 0, 0, 0, 1]);
+                    answer.extend_from_slice(&[0, 0, 0, 0x03, 0xfb]);
+                    answer.extend_from_slice(&[0; 1019]);
+                    let _ = socket.write_all(&answer).await;
+                }
+                PING if flags & ACK == 0 => {
+                    if let Some(pinged) = pinged.take() {
+                        let _ = pinged.send(());
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let channel = channel_with(config(&endpoint, http2)).expect("a channel");
+    let call = tokio::spawn(async move {
+        unary(
+            &channel,
+            CallStartOptions::new(ECHO),
+            Bytes::from_static(b"x"),
+        )
+        .await
+    });
+    let pinged = tokio::time::timeout(Duration::from_secs(2), ping)
+        .await
+        .is_ok_and(|heard| heard.is_ok());
+    call.abort();
+    pinged
+}
+
+/// Adaptive windows measure the link: data that arrives is answered with a PING, which fixed
+/// windows with no keepalive never send.
+#[tokio::test]
+async fn adaptive_windows_measure_the_link_as_data_arrives() {
+    let mut adaptive = Http2Config::default();
+    adaptive.receive_windows = ReceiveWindows::Adaptive;
+    assert!(pings_once_data_arrives(adaptive).await);
+    assert!(!pings_once_data_arrives(Http2Config::default()).await);
 }
 
 #[tokio::test]
@@ -179,9 +274,9 @@ async fn a_peer_that_answers_no_ping_ends_the_session_and_the_call_on_it() {
 async fn a_setting_no_session_could_use_is_refused() {
     let endpoint = "http://127.0.0.1:1";
     let changes: [fn(&mut Http2Config); 7] = [
-        |http2| http2.stream_window = 0,
-        |http2| http2.connection_window = 1 << 31,
-        |http2| http2.connection_window = 65_534,
+        |http2| http2.receive_windows = fixed(0, 65_535),
+        |http2| http2.receive_windows = fixed(1, 1 << 31),
+        |http2| http2.receive_windows = fixed(1, 65_534),
         |http2| http2.keep_alive_interval = Some(Duration::ZERO),
         |http2| http2.keep_alive_timeout = Duration::ZERO,
         |http2| http2.idle_timeout = Some(Duration::ZERO),
@@ -236,8 +331,7 @@ async fn settings_at_their_bounds_are_admitted() {
     transport.tcp.keepalive = Some(Duration::from_secs(30));
     transport.tcp.keepalive_interval = Some(Duration::from_secs(1));
     transport.tcp.keepalive_retries = Some(3);
-    transport.http2.stream_window = 1;
-    transport.http2.connection_window = 65_535;
+    transport.http2.receive_windows = fixed(1, 65_535);
     transport.http2.keep_alive_interval = Some(Duration::from_millis(1));
     transport.http2.send_buffer = u32::MAX as usize;
     channel_with(GrpcChannelConfig::new(transport.clone())).expect("every setting is in bounds");
