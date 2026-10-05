@@ -327,7 +327,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                         {
                           Host = new HostOptions
                                  {
-                                   Receive = new ReceiveOptions
+                                   Receive = new HostReceiveOptions
                                              {
                                                Window = deliveryCredits,
                                              },
@@ -359,7 +359,7 @@ public sealed class NativeRuntime : IAsyncDisposable
     var credits = settled.Grpc?.Host?.Receive?.Window ?? channelDefaults_?.Grpc?.Host?.Receive?.Window ?? DefaultDeliveryCredits;
     settled.Grpc                ??= new GrpcOptions();
     settled.Grpc.Host           ??= new HostOptions();
-    settled.Grpc.Host.Receive   ??= new ReceiveOptions();
+    settled.Grpc.Host.Receive   ??= new HostReceiveOptions();
     settled.Grpc.Host.Receive.Window = credits;
 
     // The schema's bounds, then this binding's own tighter one. Both are checked here rather

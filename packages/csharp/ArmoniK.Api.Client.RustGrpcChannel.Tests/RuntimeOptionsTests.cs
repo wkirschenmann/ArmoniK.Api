@@ -40,7 +40,7 @@ public class RuntimeOptionsTests : RuntimeFixture
        {
          Host = new HostOptions
                 {
-                  Receive = new ReceiveOptions
+                  Receive = new HostReceiveOptions
                             {
                               Window = credits,
                             },

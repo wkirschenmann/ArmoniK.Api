@@ -47,7 +47,7 @@ impl ChannelSettings {
         self.options
             .grpc
             .host
-            .sends
+            .send
             .window
             .unwrap_or(MAX_SENDS_IN_FLIGHT) as usize
     }
@@ -67,7 +67,7 @@ impl ChannelSettings {
         config.max_sends_in_flight = max_sends_in_flight;
         let grpc = self.options.grpc;
         config.user_agent = grpc.user_agent;
-        if let Some(max) = grpc.max_receive_message_size {
+        if let Some(max) = grpc.receive.max_message_size {
             config.max_recv_message_size = max as usize;
         }
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
@@ -122,7 +122,7 @@ impl fmt::Display for ConfigRefusal {
             ),
             Self::NoMessage { value } => write!(
                 f,
-                "Grpc.MaxReceiveMessageSize is {value}, and has to be at least 1 - a channel that \
+                "Grpc.Receive.MaxMessageSize is {value}, and has to be at least 1 - a channel that \
                  receives no message at all"
             ),
             Self::Bytes { key, value } => write!(f, "{key} is {value}, and has to be at least 0"),
@@ -214,10 +214,10 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
     };
     let grpc = &options.grpc;
     window("Grpc.Host.Receive.Window", grpc.host.receive.window)?;
-    window("Grpc.Host.Sends.Window", grpc.host.sends.window)?;
+    window("Grpc.Host.Send.Window", grpc.host.send.window)?;
 
     // Zero is refused: it is a channel that can receive no message at all.
-    if let Some(value) = grpc.max_receive_message_size.filter(|max| *max < 1) {
+    if let Some(value) = grpc.receive.max_message_size.filter(|max| *max < 1) {
         return Err(ConfigRefusal::NoMessage { value });
     }
 
@@ -335,21 +335,21 @@ mod tests {
 
         let settings = parse(b"{}").expect("an empty document is valid");
         assert_eq!(
-            stated("/$defs/ReceiveOptions/properties/Window/description"),
+            stated("/$defs/HostReceiveOptions/properties/Window/description"),
             settings.delivery_credits() as f64
         );
         assert_eq!(
-            stated("/$defs/SendOptions/properties/Window/description"),
+            stated("/$defs/HostSendOptions/properties/Window/description"),
             settings.max_sends_in_flight() as f64
         );
 
         let config = config_of(b"{}");
         assert_eq!(
-            stated("/$defs/GrpcOptions/properties/MaxReceiveMessageSize/description"),
+            stated("/$defs/GrpcReceiveOptions/properties/MaxMessageSize/description"),
             config.max_recv_message_size as f64
         );
         assert_eq!(
-            stated("/$defs/ReceiveOptions/properties/CoalescingBytes/description"),
+            stated("/$defs/HostReceiveOptions/properties/CoalescingBytes/description"),
             config.delivery_coalescing as f64
         );
         assert_eq!(
@@ -362,15 +362,15 @@ mod tests {
             http2.keep_alive_timeout.as_secs_f64()
         );
         assert_eq!(
-            stated("/$defs/Http2Options/properties/StreamWindowSize/description"),
+            stated("/$defs/Http2ReceiveOptions/properties/StreamWindowSize/description"),
             http2.stream_window as f64
         );
         assert_eq!(
-            stated("/$defs/Http2Options/properties/ConnectionWindowSize/description"),
+            stated("/$defs/Http2ReceiveOptions/properties/ConnectionWindowSize/description"),
             http2.connection_window as f64
         );
         assert_eq!(
-            stated("/$defs/Http2Options/properties/WriteCoalescingBytes/description"),
+            stated("/$defs/Http2SendOptions/properties/CoalescingBytes/description"),
             http2.write_coalescing as f64
         );
         let retry = config.retry.expect("a retry policy by default");
@@ -413,19 +413,19 @@ mod tests {
         };
         for (option, path) in [
             (
-                "/$defs/ReceiveOptions/properties/Window",
+                "/$defs/HostReceiveOptions/properties/Window",
                 &["Grpc", "Host", "Receive", "Window"][..],
             ),
             (
-                "/$defs/SendOptions/properties/Window",
-                &["Grpc", "Host", "Sends", "Window"][..],
+                "/$defs/HostSendOptions/properties/Window",
+                &["Grpc", "Host", "Send", "Window"][..],
             ),
             (
-                "/$defs/GrpcOptions/properties/MaxReceiveMessageSize",
-                &["Grpc", "MaxReceiveMessageSize"][..],
+                "/$defs/GrpcReceiveOptions/properties/MaxMessageSize",
+                &["Grpc", "Receive", "MaxMessageSize"][..],
             ),
             (
-                "/$defs/ReceiveOptions/properties/CoalescingBytes",
+                "/$defs/HostReceiveOptions/properties/CoalescingBytes",
                 &["Grpc", "Host", "Receive", "CoalescingBytes"][..],
             ),
         ] {
@@ -534,16 +534,16 @@ mod tests {
                 r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
             ),
             (
-                "/$defs/Http2Options/properties/StreamWindowSize/minimum",
-                r#"{"Http2":{"StreamWindowSize":N}}"#,
+                "/$defs/Http2ReceiveOptions/properties/StreamWindowSize/minimum",
+                r#"{"Http2":{"Receive":{"StreamWindowSize":N}}}"#,
             ),
             (
-                "/$defs/Http2Options/properties/ConnectionWindowSize/minimum",
-                r#"{"Http2":{"ConnectionWindowSize":N}}"#,
+                "/$defs/Http2ReceiveOptions/properties/ConnectionWindowSize/minimum",
+                r#"{"Http2":{"Receive":{"ConnectionWindowSize":N}}}"#,
             ),
             (
-                "/$defs/Http2Options/properties/WriteCoalescingBytes/minimum",
-                r#"{"Http2":{"WriteCoalescingBytes":N}}"#,
+                "/$defs/Http2SendOptions/properties/CoalescingBytes/minimum",
+                r#"{"Http2":{"Send":{"CoalescingBytes":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/MaxAttempts/minimum",
@@ -648,8 +648,7 @@ mod tests {
                     "KeepAliveIntervalSeconds": 10,
                     "KeepAliveTimeoutSeconds": 2.5,
                     "KeepAliveWhileIdle": true,
-                    "StreamWindowSize": 1048576,
-                    "ConnectionWindowSize": 3145728
+                    "Receive": {{ "StreamWindowSize": 1048576, "ConnectionWindowSize": 3145728 }}
                 }}
             }}"#
         );
@@ -692,8 +691,8 @@ mod tests {
     fn a_channel_that_could_receive_no_message_is_refused() {
         // Every other size is a channel that refuses some messages; zero refuses all of them,
         // which is a configuration with no use and a call that can only ever fail.
-        assert!(parse(br#"{"Grpc":{"MaxReceiveMessageSize":0}}"#).is_err());
-        assert!(parse(br#"{"Grpc":{"MaxReceiveMessageSize":1}}"#).is_ok());
+        assert!(parse(br#"{"Grpc":{"Receive":{"MaxMessageSize":0}}}"#).is_err());
+        assert!(parse(br#"{"Grpc":{"Receive":{"MaxMessageSize":1}}}"#).is_ok());
     }
 
     #[test]
@@ -761,7 +760,7 @@ mod tests {
     fn a_bound_the_schema_states_is_a_bound_this_refuses() {
         for refused in [
             &br#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#[..],
-            &br#"{"Grpc":{"Host":{"Sends":{"Window":0}}}}"#[..],
+            &br#"{"Grpc":{"Host":{"Send":{"Window":0}}}}"#[..],
             &br#"{"Grpc":{"UserAgent":""}}"#[..],
             &br#"{"Transport":{"ConnectTimeoutSeconds":0.0}}"#[..],
         ] {
@@ -786,12 +785,12 @@ mod tests {
                 "Grpc.Host.Receive.Window",
             ),
             (
-                &br#"{"Grpc":{"Host":{"Sends":{"Window":0}}}}"#[..],
-                "Grpc.Host.Sends.Window",
+                &br#"{"Grpc":{"Host":{"Send":{"Window":0}}}}"#[..],
+                "Grpc.Host.Send.Window",
             ),
             (
-                &br#"{"Grpc":{"MaxReceiveMessageSize":0}}"#[..],
-                "Grpc.MaxReceiveMessageSize",
+                &br#"{"Grpc":{"Receive":{"MaxMessageSize":0}}}"#[..],
+                "Grpc.Receive.MaxMessageSize",
             ),
             (
                 &br#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":-1}}}}"#[..],
@@ -819,8 +818,8 @@ mod tests {
                 "Transport.TcpKeepalive.Retries",
             ),
             (
-                &br#"{"Http2":{"ConnectionWindowSize":65534}}"#[..],
-                "Http2.ConnectionWindowSize",
+                &br#"{"Http2":{"Receive":{"ConnectionWindowSize":65534}}}"#[..],
+                "Http2.Receive.ConnectionWindowSize",
             ),
             (
                 &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
@@ -896,12 +895,12 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"StreamWindowSize":70000}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"Receive":{"StreamWindowSize":70000}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(
             defaults.as_ref(),
-            br#"{"Http2":{"StreamWindowSize":80000}}"#,
+            br#"{"Http2":{"Receive":{"StreamWindowSize":80000}}}"#,
         )
         .expect("a valid merge");
         assert_eq!(settings.delivery_credits(), 2);

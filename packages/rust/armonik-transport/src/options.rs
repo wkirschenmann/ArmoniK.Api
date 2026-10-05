@@ -1024,6 +1024,67 @@ pub struct Http2Options {
     #[cfg_attr(feature = "schema", schemars(with = "bool"))]
     pub keep_alive_while_idle: Option<bool>,
 
+    /// How long the session stays open with no call on it before it is closed, the next call
+    /// dialling a new one. A call holds the session from its dial to the end of its response.
+    ///
+    /// Defaults to none: an idle session stays open.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub idle_timeout_seconds: Option<Seconds>,
+
+    /// What the session sends.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub send: Http2SendOptions,
+
+    /// What the session lets the peer send.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub receive: Http2ReceiveOptions,
+}
+
+/// What an HTTP/2 session sends.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct Http2SendOptions {
+    /// How many bytes a write to the connection may gather before it goes. A write waits while
+    /// the work already ready adds frames to it, one round of the runtime at a time, and goes once
+    /// a round adds none or it holds this many bytes: a request's message handed over while its
+    /// headers wait then goes out with them, in one write rather than two. 0 writes at once.
+    ///
+    /// Defaults to 16384, 16 KiB.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub coalescing_bytes: Option<i32>,
+}
+
+/// What an HTTP/2 session lets its peer send ahead of what is read.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct Http2ReceiveOptions {
     /// How many bytes of one call the peer may send ahead of what is read.
     ///
     /// Defaults to 2097152, 2 MiB.
@@ -1045,33 +1106,6 @@ pub struct Http2Options {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
     pub connection_window_size: Option<i32>,
-
-    /// How long the session stays open with no call on it before it is closed, the next call
-    /// dialling a new one. A call holds the session from its dial to the end of its response.
-    ///
-    /// Defaults to none: an idle session stays open.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
-    )]
-    pub idle_timeout_seconds: Option<Seconds>,
-
-    /// How many bytes a write to the connection may gather before it goes. A write waits while
-    /// the work already ready adds frames to it, one round of the runtime at a time, and goes once
-    /// a round adds none or it holds this many bytes: a request's message handed over while its
-    /// headers wait then goes out with them, in one write rather than two. 0 writes at once.
-    ///
-    /// Defaults to 16384, 16 KiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
-    pub write_coalescing_bytes: Option<i32>,
 }
 
 /// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
@@ -1482,23 +1516,23 @@ impl Http2Options {
                 .keep_alive_while_idle
                 .unwrap_or(defaults.keep_alive_while_idle),
             stream_window: window(
-                "StreamWindowSize",
-                self.stream_window_size,
+                "Receive.StreamWindowSize",
+                self.receive.stream_window_size,
                 1,
                 defaults.stream_window,
             )?,
             connection_window: window(
-                "ConnectionWindowSize",
-                self.connection_window_size,
+                "Receive.ConnectionWindowSize",
+                self.receive.connection_window_size,
                 65_535,
                 defaults.connection_window,
             )?,
             idle_timeout: duration("IdleTimeoutSeconds", self.idle_timeout_seconds, 1e-9, None)?,
-            write_coalescing: match self.write_coalescing_bytes {
+            write_coalescing: match self.send.coalescing_bytes {
                 None => defaults.write_coalescing,
                 Some(bytes) if bytes < 0 => {
                     return Err(OptionRefusal::new(
-                        "WriteCoalescingBytes",
+                        "Send.CoalescingBytes",
                         format!("{bytes} has to be at least 0"),
                     ))
                 }
@@ -1559,18 +1593,6 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub user_agent: Option<String>,
 
-    /// The largest message this client will accept, in bytes.
-    ///
-    /// Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-    /// channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-    /// at all.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_receive_message_size: Option<i32>,
-
     /// The deadline of a call that states none, counted from its start: the call ends
     /// `DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the
     /// call started as `grpc-timeout`. A call's own deadline takes its place, and a call that
@@ -1596,11 +1618,40 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "serde", serde(default))]
     pub retry: RetryOptions,
 
+    /// What a call accepts from the server.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub receive: GrpcReceiveOptions,
+
     /// What crosses between the host and the engine on each call.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
     pub host: HostOptions,
+}
+
+/// What a call accepts from the server.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct GrpcReceiveOptions {
+    /// The largest message this client will accept, in bytes.
+    ///
+    /// Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
+    /// channel that refuses nothing. Zero is refused: it is a channel that can receive no message
+    /// at all.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub max_message_size: Option<i32>,
 }
 
 /// What crosses between the host and the engine on each call, one way and the other.
@@ -1617,13 +1668,13 @@ pub struct HostOptions {
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub sends: SendOptions,
+    pub send: HostSendOptions,
 
     /// What the engine delivers to the host.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[cfg_attr(feature = "serde", serde(default))]
-    pub receive: ReceiveOptions,
+    pub receive: HostReceiveOptions,
 }
 
 /// What a call's host sends: the messages it hands the engine.
@@ -1635,7 +1686,7 @@ pub struct HostOptions {
 )]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct SendOptions {
+pub struct HostSendOptions {
     /// How many messages a call may have sent and unacquitted at once.
     ///
     /// Defaults to 1.
@@ -1659,7 +1710,7 @@ pub struct SendOptions {
 )]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub struct ReceiveOptions {
+pub struct HostReceiveOptions {
     /// How many of a call's payloads the host may hold at once, delivered and not yet given back.
     /// The terminal status takes none, so a host holds at most one more.
     ///
@@ -1794,14 +1845,15 @@ over_fields!(TransportOptions {
 });
 over_fields!(GrpcOptions {
     user_agent,
-    max_receive_message_size,
     default_deadline_seconds,
     retry,
+    receive,
     host,
 });
-over_fields!(HostOptions { sends, receive });
-over_fields!(SendOptions { window });
-over_fields!(ReceiveOptions {
+over_fields!(GrpcReceiveOptions { max_message_size });
+over_fields!(HostOptions { send, receive });
+over_fields!(HostSendOptions { window });
+over_fields!(HostReceiveOptions {
     window,
     coalescing_bytes,
 });
@@ -1819,10 +1871,14 @@ over_fields!(Http2Options {
     keep_alive_interval_seconds,
     keep_alive_timeout_seconds,
     keep_alive_while_idle,
+    idle_timeout_seconds,
+    send,
+    receive,
+});
+over_fields!(Http2SendOptions { coalescing_bytes });
+over_fields!(Http2ReceiveOptions {
     stream_window_size,
     connection_window_size,
-    idle_timeout_seconds,
-    write_coalescing_bytes,
 });
 over_fields!(RetryOptions {
     max_attempts,
@@ -2581,10 +2637,14 @@ mod tests {
             keep_alive_interval_seconds: Some(Seconds(10.0)),
             keep_alive_timeout_seconds: Some(Seconds(2.5)),
             keep_alive_while_idle: Some(true),
-            stream_window_size: Some(1024),
-            connection_window_size: Some(65_535),
             idle_timeout_seconds: Some(Seconds(300.0)),
-            write_coalescing_bytes: Some(0),
+            send: Http2SendOptions {
+                coalescing_bytes: Some(0),
+            },
+            receive: Http2ReceiveOptions {
+                stream_window_size: Some(1024),
+                connection_window_size: Some(65_535),
+            },
         }
         .to_config()
         .expect("admissible");
@@ -2604,20 +2664,25 @@ mod tests {
         );
 
         let refused = Http2Options {
-            connection_window_size: Some(65_534),
+            receive: Http2ReceiveOptions {
+                connection_window_size: Some(65_534),
+                ..Http2ReceiveOptions::default()
+            },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("below the window every connection starts with");
-        assert_eq!(refused.key(), "ConnectionWindowSize");
+        assert_eq!(refused.key(), "Receive.ConnectionWindowSize");
 
         let refused = Http2Options {
-            write_coalescing_bytes: Some(-1),
+            send: Http2SendOptions {
+                coalescing_bytes: Some(-1),
+            },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a negative size");
-        assert_eq!(refused.key(), "WriteCoalescingBytes");
+        assert_eq!(refused.key(), "Send.CoalescingBytes");
     }
 
     /// An option stated over a default wins, one left out is the default's, and a struct merges
@@ -2626,9 +2691,9 @@ mod tests {
     fn a_stated_option_wins_over_its_default() {
         let credits = |credits| GrpcOptions {
             host: HostOptions {
-                receive: ReceiveOptions {
+                receive: HostReceiveOptions {
                     window: Some(credits),
-                    ..ReceiveOptions::default()
+                    ..HostReceiveOptions::default()
                 },
                 ..HostOptions::default()
             },
@@ -2641,7 +2706,10 @@ mod tests {
             },
             http2: Http2Options {
                 keep_alive_while_idle: Some(true),
-                stream_window_size: Some(70_000),
+                receive: Http2ReceiveOptions {
+                    stream_window_size: Some(70_000),
+                    ..Http2ReceiveOptions::default()
+                },
                 ..Http2Options::default()
             },
             ..ChannelOptions::default()
@@ -2649,7 +2717,10 @@ mod tests {
         let merged = ChannelOptions {
             grpc: credits(3),
             http2: Http2Options {
-                stream_window_size: Some(80_000),
+                receive: Http2ReceiveOptions {
+                    stream_window_size: Some(80_000),
+                    ..Http2ReceiveOptions::default()
+                },
                 ..Http2Options::default()
             },
             ..ChannelOptions::default()
@@ -2659,7 +2730,7 @@ mod tests {
         assert_eq!(merged.grpc.user_agent.as_deref(), Some("default"));
         assert_eq!(merged.grpc.host.receive.window, Some(3));
         assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
-        assert_eq!(merged.http2.stream_window_size, Some(80_000));
+        assert_eq!(merged.http2.receive.stream_window_size, Some(80_000));
     }
 
     /// An alternative stated over another is taken whole: nothing of the default's is combined

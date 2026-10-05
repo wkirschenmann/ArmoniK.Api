@@ -64,8 +64,8 @@ public class UnaryTests : EchoServerFixture
     var variables = new[]
                     {
                       ("Grpc__Host__Receive__Window", "1"),
-                      ("Grpc__MaxReceiveMessageSize", "65536"),
-                      ("Grpc__Host__Sends__Window", "2"),
+                      ("Grpc__Receive__MaxMessageSize", "65536"),
+                      ("Grpc__Host__Send__Window", "2"),
                       ("Transport__ConnectTimeoutSeconds", "2.5"),
                       ("Transport__Proxy__None", "true"),
                       ("Grpc__UserAgent", "unary-tests"),

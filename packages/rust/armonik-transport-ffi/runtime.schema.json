@@ -459,6 +459,39 @@
           "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
           "type": "boolean"
         },
+        "IdleTimeoutSeconds": {
+          "description": "How long the session stays open with no call on it before it is closed, the next call\ndialling a new one. A call holds the session from its dial to the end of its response.\n\nDefaults to none: an idle session stays open.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "Send": {
+          "description": "What the session sends.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/Http2SendOptions"
+        },
+        "Receive": {
+          "description": "What the session lets the peer send.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/Http2ReceiveOptions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Http2SendOptions": {
+      "description": "What an HTTP/2 session sends.",
+      "type": "object",
+      "properties": {
+        "CoalescingBytes": {
+          "description": "How many bytes a write to the connection may gather before it goes. A write waits while\nthe work already ready adds frames to it, one round of the runtime at a time, and goes once\na round adds none or it holds this many bytes: a request's message handed over while its\nheaders wait then goes out with them, in one write rather than two. 0 writes at once.\n\nDefaults to 16384, 16 KiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "Http2ReceiveOptions": {
+      "description": "What an HTTP/2 session lets its peer send ahead of what is read.",
+      "type": "object",
+      "properties": {
         "StreamWindowSize": {
           "description": "How many bytes of one call the peer may send ahead of what is read.\n\nDefaults to 2097152, 2 MiB.",
           "type": "integer",
@@ -470,17 +503,6 @@
           "type": "integer",
           "format": "int32",
           "minimum": 65535
-        },
-        "IdleTimeoutSeconds": {
-          "description": "How long the session stays open with no call on it before it is closed, the next call\ndialling a new one. A call holds the session from its dial to the end of its response.\n\nDefaults to none: an idle session stays open.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
-        },
-        "WriteCoalescingBytes": {
-          "description": "How many bytes a write to the connection may gather before it goes. A write waits while\nthe work already ready adds frames to it, one round of the runtime at a time, and goes once\na round adds none or it holds this many bytes: a request's message handed over while its\nheaders wait then goes out with them, in one write rather than two. 0 writes at once.\n\nDefaults to 16384, 16 KiB.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 0
         }
       },
       "additionalProperties": false
@@ -494,12 +516,6 @@
           "type": "string",
           "minLength": 1
         },
-        "MaxReceiveMessageSize": {
-          "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
-        },
         "DefaultDeadlineSeconds": {
           "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. A call's own deadline takes its place, and a call that\nstates none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
           "$ref": "#/$defs/Seconds",
@@ -508,6 +524,10 @@
         "Retry": {
           "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
           "$ref": "#/$defs/RetryOptions"
+        },
+        "Receive": {
+          "description": "What a call accepts from the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/GrpcReceiveOptions"
         },
         "Host": {
           "description": "What crosses between the host and the engine on each call.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -557,22 +577,35 @@
       },
       "additionalProperties": false
     },
-    "HostOptions": {
-      "description": "What crosses between the host and the engine on each call, one way and the other.",
+    "GrpcReceiveOptions": {
+      "description": "What a call accepts from the server.",
       "type": "object",
       "properties": {
-        "Sends": {
-          "description": "What the host sends.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
-          "$ref": "#/$defs/SendOptions"
-        },
-        "Receive": {
-          "description": "What the engine delivers to the host.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
-          "$ref": "#/$defs/ReceiveOptions"
+        "MaxMessageSize": {
+          "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
         }
       },
       "additionalProperties": false
     },
-    "SendOptions": {
+    "HostOptions": {
+      "description": "What crosses between the host and the engine on each call, one way and the other.",
+      "type": "object",
+      "properties": {
+        "Send": {
+          "description": "What the host sends.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/HostSendOptions"
+        },
+        "Receive": {
+          "description": "What the engine delivers to the host.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/HostReceiveOptions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "HostSendOptions": {
       "description": "What a call's host sends: the messages it hands the engine.",
       "type": "object",
       "properties": {
@@ -586,7 +619,7 @@
       },
       "additionalProperties": false
     },
-    "ReceiveOptions": {
+    "HostReceiveOptions": {
       "description": "What the engine delivers to a call's host: its payloads and its status.",
       "type": "object",
       "properties": {

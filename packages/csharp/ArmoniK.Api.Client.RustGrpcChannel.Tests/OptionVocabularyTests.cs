@@ -95,8 +95,8 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Host.Receive.CoalescingBytes"] = "the delivery to the host, which only this ABI has",
                                                                        ["Grpc.Retry.CallReplayBytes"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
                                                                        ["Grpc.Retry.ChannelReplayBytes"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
-                                                                       ["Grpc.Host.Sends.Window"] = "the send window, which only this ABI has",
-                                                                       ["Grpc.MaxReceiveMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
+                                                                       ["Grpc.Host.Send.Window"] = "the send window, which only this ABI has",
+                                                                       ["Grpc.Receive.MaxMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
@@ -118,9 +118,9 @@ public class OptionVocabularyTests
                                                                        ["Http2.KeepAliveIntervalSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveTimeoutSeconds"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.KeepAliveWhileIdle"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
-                                                                       ["Http2.StreamWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
-                                                                       ["Http2.ConnectionWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
-                                                                       ["Http2.WriteCoalescingBytes"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Receive.StreamWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Receive.ConnectionWindowSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Send.CoalescingBytes"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                      };
 
   /// <summary>A `GrpcClient__` name the Rust reader knows and the .NET options do not declare.</summary>

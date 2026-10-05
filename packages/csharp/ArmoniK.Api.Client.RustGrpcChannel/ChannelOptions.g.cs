@@ -1590,10 +1590,13 @@ public sealed class Http2Options
     KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
     KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
     KeepAliveWhileIdle = other.KeepAliveWhileIdle;
-    StreamWindowSize = other.StreamWindowSize;
-    ConnectionWindowSize = other.ConnectionWindowSize;
     IdleTimeoutSeconds = other.IdleTimeoutSeconds;
-    WriteCoalescingBytes = other.WriteCoalescingBytes;
+    Send = other.Send is null
+             ? null
+             : new Http2SendOptions(other.Send);
+    Receive = other.Receive is null
+                ? null
+                : new Http2ReceiveOptions(other.Receive);
   }
 
   /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
@@ -1613,22 +1616,6 @@ public sealed class Http2Options
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public bool? KeepAliveWhileIdle { get; set; }
 
-  /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
-  /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
-  [JsonPropertyName("StreamWindowSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? StreamWindowSize { get; set; }
-
-  /// <summary>
-  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
-  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
-  ///   the others receiving. At least 65535, the window every connection starts with.
-  /// </summary>
-  /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
-  [JsonPropertyName("ConnectionWindowSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? ConnectionWindowSize { get; set; }
-
   /// <summary>
   ///   How long the session stays open with no call on it before it is closed, the next call
   ///   dialling a new one. A call holds the session from its dial to the end of its response.
@@ -1638,16 +1625,17 @@ public sealed class Http2Options
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? IdleTimeoutSeconds { get; set; }
 
-  /// <summary>
-  ///   How many bytes a write to the connection may gather before it goes. A write waits while
-  ///   the work already ready adds frames to it, one round of the runtime at a time, and goes once
-  ///   a round adds none or it holds this many bytes: a request's message handed over while its
-  ///   headers wait then goes out with them, in one write rather than two. 0 writes at once.
-  /// </summary>
-  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
-  [JsonPropertyName("WriteCoalescingBytes")]
+  /// <summary>What the session sends.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Send")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? WriteCoalescingBytes { get; set; }
+  public Http2SendOptions? Send { get; set; }
+
+  /// <summary>What the session lets the peer send.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Receive")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public Http2ReceiveOptions? Receive { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -1667,20 +1655,6 @@ public sealed class Http2Options
                                             "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
-    if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
-                                            streamWindowSize,
-                                            "StreamWindowSize has to be at least 1.");
-    }
-
-    if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
-    {
-      throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
-                                            connectionWindowSize,
-                                            "ConnectionWindowSize has to be at least 65535.");
-    }
-
     if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 1E-09 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
@@ -1688,12 +1662,8 @@ public sealed class Http2Options
                                             "IdleTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
-    if (WriteCoalescingBytes is int writeCoalescingBytes && writeCoalescingBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(WriteCoalescingBytes),
-                                            writeCoalescingBytes,
-                                            "WriteCoalescingBytes has to be at least 0.");
-    }
+    Send?.Validate();
+    Receive?.Validate();
   }
 
   /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
@@ -1722,7 +1692,170 @@ public sealed class Http2Options
         bound.KeepAliveWhileIdle = ChannelOptionsConfiguration.Boolean(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "StreamWindowSize"))
+                                              "IdleTimeoutSeconds"))
+      {
+        bound.IdleTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Send"))
+      {
+        bound.Send = ChannelOptionsConfiguration.Holds(entry) ? Http2SendOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Receive"))
+      {
+        bound.Receive = ChannelOptionsConfiguration.Holds(entry) ? Http2ReceiveOptions.Bind(entry) : null;
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "Http2Options");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>What an HTTP/2 session sends.</summary>
+public sealed class Http2SendOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public Http2SendOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public Http2SendOptions(Http2SendOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    CoalescingBytes = other.CoalescingBytes;
+  }
+
+  /// <summary>
+  ///   How many bytes a write to the connection may gather before it goes. A write waits while
+  ///   the work already ready adds frames to it, one round of the runtime at a time, and goes once
+  ///   a round adds none or it holds this many bytes: a request's message handed over while its
+  ///   headers wait then goes out with them, in one write rather than two. 0 writes at once.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 KiB.</remarks>
+  [JsonPropertyName("CoalescingBytes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? CoalescingBytes { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (CoalescingBytes is int coalescingBytes && coalescingBytes < 0)
+    {
+      throw new ArgumentOutOfRangeException(nameof(CoalescingBytes),
+                                            coalescingBytes,
+                                            "CoalescingBytes has to be at least 0.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static Http2SendOptions Bind(IConfigurationSection section)
+  {
+    var bound = new Http2SendOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "CoalescingBytes"))
+      {
+        bound.CoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "Http2SendOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
+/// <summary>What an HTTP/2 session lets its peer send ahead of what is read.</summary>
+public sealed class Http2ReceiveOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public Http2ReceiveOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public Http2ReceiveOptions(Http2ReceiveOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    StreamWindowSize = other.StreamWindowSize;
+    ConnectionWindowSize = other.ConnectionWindowSize;
+  }
+
+  /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
+  /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
+  [JsonPropertyName("StreamWindowSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? StreamWindowSize { get; set; }
+
+  /// <summary>
+  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
+  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
+  ///   the others receiving. At least 65535, the window every connection starts with.
+  /// </summary>
+  /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
+  [JsonPropertyName("ConnectionWindowSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? ConnectionWindowSize { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
+                                            streamWindowSize,
+                                            "StreamWindowSize has to be at least 1.");
+    }
+
+    if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
+    {
+      throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
+                                            connectionWindowSize,
+                                            "ConnectionWindowSize has to be at least 65535.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static Http2ReceiveOptions Bind(IConfigurationSection section)
+  {
+    var bound = new Http2ReceiveOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "StreamWindowSize"))
       {
         bound.StreamWindowSize = ChannelOptionsConfiguration.Int32(entry);
       }
@@ -1731,20 +1864,10 @@ public sealed class Http2Options
       {
         bound.ConnectionWindowSize = ChannelOptionsConfiguration.Int32(entry);
       }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "IdleTimeoutSeconds"))
-      {
-        bound.IdleTimeoutSeconds = ChannelOptionsConfiguration.Double(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
-                                              "WriteCoalescingBytes"))
-      {
-        bound.WriteCoalescingBytes = ChannelOptionsConfiguration.Int32(entry);
-      }
       else
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "Http2Options");
+                                                  "Http2ReceiveOptions");
       }
     }
 
@@ -1774,11 +1897,13 @@ public sealed class GrpcOptions
     }
 
     UserAgent = other.UserAgent;
-    MaxReceiveMessageSize = other.MaxReceiveMessageSize;
     DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
     Retry = other.Retry is null
               ? null
               : new RetryOptions(other.Retry);
+    Receive = other.Receive is null
+                ? null
+                : new GrpcReceiveOptions(other.Receive);
     Host = other.Host is null
              ? null
              : new HostOptions(other.Host);
@@ -1789,16 +1914,6 @@ public sealed class GrpcOptions
   [JsonPropertyName("UserAgent")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? UserAgent { get; set; }
-
-  /// <summary>The largest message this client will accept, in bytes.</summary>
-  /// <remarks>
-  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-  ///   at all.
-  /// </remarks>
-  [JsonPropertyName("MaxReceiveMessageSize")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxReceiveMessageSize { get; set; }
 
   /// <summary>
   ///   The deadline of a call that states none, counted from its start: the call ends
@@ -1824,6 +1939,12 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryOptions? Retry { get; set; }
 
+  /// <summary>What a call accepts from the server.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Receive")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public GrpcReceiveOptions? Receive { get; set; }
+
   /// <summary>What crosses between the host and the engine on each call.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Host")]
@@ -1841,13 +1962,6 @@ public sealed class GrpcOptions
                                             "UserAgent has to be at least 1 character long.");
     }
 
-    if (MaxReceiveMessageSize is int maxReceiveMessageSize && maxReceiveMessageSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxReceiveMessageSize),
-                                            maxReceiveMessageSize,
-                                            "MaxReceiveMessageSize has to be at least 1.");
-    }
-
     if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
@@ -1856,6 +1970,7 @@ public sealed class GrpcOptions
     }
 
     Retry?.Validate();
+    Receive?.Validate();
     Host?.Validate();
   }
 
@@ -1875,11 +1990,6 @@ public sealed class GrpcOptions
         bound.UserAgent = ChannelOptionsConfiguration.Text(entry);
       }
       else if (ChannelOptionsConfiguration.Is(entry,
-                                              "MaxReceiveMessageSize"))
-      {
-        bound.MaxReceiveMessageSize = ChannelOptionsConfiguration.Int32(entry);
-      }
-      else if (ChannelOptionsConfiguration.Is(entry,
                                               "DefaultDeadlineSeconds"))
       {
         bound.DefaultDeadlineSeconds = ChannelOptionsConfiguration.Double(entry);
@@ -1888,6 +1998,11 @@ public sealed class GrpcOptions
                                               "Retry"))
       {
         bound.Retry = ChannelOptionsConfiguration.Holds(entry) ? RetryOptions.Bind(entry) : null;
+      }
+      else if (ChannelOptionsConfiguration.Is(entry,
+                                              "Receive"))
+      {
+        bound.Receive = ChannelOptionsConfiguration.Holds(entry) ? GrpcReceiveOptions.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "Host"))
@@ -2076,6 +2191,75 @@ public sealed class RetryOptions
   }
 }
 
+/// <summary>What a call accepts from the server.</summary>
+public sealed class GrpcReceiveOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public GrpcReceiveOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public GrpcReceiveOptions(GrpcReceiveOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    MaxMessageSize = other.MaxMessageSize;
+  }
+
+  /// <summary>The largest message this client will accept, in bytes.</summary>
+  /// <remarks>
+  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
+  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
+  ///   at all.
+  /// </remarks>
+  [JsonPropertyName("MaxMessageSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxMessageSize { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (MaxMessageSize is int maxMessageSize && maxMessageSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxMessageSize),
+                                            maxMessageSize,
+                                            "MaxMessageSize has to be at least 1.");
+    }
+  }
+
+  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
+  /// <param name="section">The section, whose every key has to name an option.</param>
+  /// <returns>The options, unset where the section states nothing.</returns>
+  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
+  internal static GrpcReceiveOptions Bind(IConfigurationSection section)
+  {
+    var bound = new GrpcReceiveOptions();
+
+    foreach (var entry in ChannelOptionsConfiguration.Entries(section))
+    {
+      if (ChannelOptionsConfiguration.Is(entry,
+                                         "MaxMessageSize"))
+      {
+        bound.MaxMessageSize = ChannelOptionsConfiguration.Int32(entry);
+      }
+      else
+      {
+        throw ChannelOptionsConfiguration.Unknown(entry,
+                                                  "GrpcReceiveOptions");
+      }
+    }
+
+    return bound;
+  }
+}
+
 /// <summary>What crosses between the host and the engine on each call, one way and the other.</summary>
 public sealed class HostOptions
 {
@@ -2094,31 +2278,31 @@ public sealed class HostOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    Sends = other.Sends is null
-              ? null
-              : new SendOptions(other.Sends);
+    Send = other.Send is null
+             ? null
+             : new HostSendOptions(other.Send);
     Receive = other.Receive is null
                 ? null
-                : new ReceiveOptions(other.Receive);
+                : new HostReceiveOptions(other.Receive);
   }
 
   /// <summary>What the host sends.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
-  [JsonPropertyName("Sends")]
+  [JsonPropertyName("Send")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public SendOptions? Sends { get; set; }
+  public HostSendOptions? Send { get; set; }
 
   /// <summary>What the engine delivers to the host.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Receive")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public ReceiveOptions? Receive { get; set; }
+  public HostReceiveOptions? Receive { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    Sends?.Validate();
+    Send?.Validate();
     Receive?.Validate();
   }
 
@@ -2133,14 +2317,14 @@ public sealed class HostOptions
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
       if (ChannelOptionsConfiguration.Is(entry,
-                                         "Sends"))
+                                         "Send"))
       {
-        bound.Sends = ChannelOptionsConfiguration.Holds(entry) ? SendOptions.Bind(entry) : null;
+        bound.Send = ChannelOptionsConfiguration.Holds(entry) ? HostSendOptions.Bind(entry) : null;
       }
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "Receive"))
       {
-        bound.Receive = ChannelOptionsConfiguration.Holds(entry) ? ReceiveOptions.Bind(entry) : null;
+        bound.Receive = ChannelOptionsConfiguration.Holds(entry) ? HostReceiveOptions.Bind(entry) : null;
       }
       else
       {
@@ -2154,17 +2338,17 @@ public sealed class HostOptions
 }
 
 /// <summary>What a call's host sends: the messages it hands the engine.</summary>
-public sealed class SendOptions
+public sealed class HostSendOptions
 {
   /// <summary>Options nobody has set.</summary>
-  public SendOptions()
+  public HostSendOptions()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public SendOptions(SendOptions other)
+  public HostSendOptions(HostSendOptions other)
   {
     if (other is null)
     {
@@ -2196,9 +2380,9 @@ public sealed class SendOptions
   /// <param name="section">The section, whose every key has to name an option.</param>
   /// <returns>The options, unset where the section states nothing.</returns>
   /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static SendOptions Bind(IConfigurationSection section)
+  internal static HostSendOptions Bind(IConfigurationSection section)
   {
-    var bound = new SendOptions();
+    var bound = new HostSendOptions();
 
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
@@ -2210,7 +2394,7 @@ public sealed class SendOptions
       else
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "SendOptions");
+                                                  "HostSendOptions");
       }
     }
 
@@ -2219,17 +2403,17 @@ public sealed class SendOptions
 }
 
 /// <summary>What the engine delivers to a call's host: its payloads and its status.</summary>
-public sealed class ReceiveOptions
+public sealed class HostReceiveOptions
 {
   /// <summary>Options nobody has set.</summary>
-  public ReceiveOptions()
+  public HostReceiveOptions()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public ReceiveOptions(ReceiveOptions other)
+  public HostReceiveOptions(HostReceiveOptions other)
   {
     if (other is null)
     {
@@ -2281,9 +2465,9 @@ public sealed class ReceiveOptions
   /// <param name="section">The section, whose every key has to name an option.</param>
   /// <returns>The options, unset where the section states nothing.</returns>
   /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static ReceiveOptions Bind(IConfigurationSection section)
+  internal static HostReceiveOptions Bind(IConfigurationSection section)
   {
-    var bound = new ReceiveOptions();
+    var bound = new HostReceiveOptions();
 
     foreach (var entry in ChannelOptionsConfiguration.Entries(section))
     {
@@ -2300,7 +2484,7 @@ public sealed class ReceiveOptions
       else
       {
         throw ChannelOptionsConfiguration.Unknown(entry,
-                                                  "ReceiveOptions");
+                                                  "HostReceiveOptions");
       }
     }
 

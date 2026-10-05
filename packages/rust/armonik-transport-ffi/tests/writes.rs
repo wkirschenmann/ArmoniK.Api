@@ -47,7 +47,7 @@ fn a_unary_request_goes_out_in_one_write() {
 /// With no gathering, the same request goes out in two writes, its headers and then its message.
 #[test]
 fn a_limit_of_zero_writes_the_headers_alone() {
-    let writes = writes_of_unary_calls(r#"{"Http2":{"WriteCoalescingBytes":0}}"#);
+    let writes = writes_of_unary_calls(r#"{"Http2":{"Send":{"CoalescingBytes":0}}}"#);
     // The headers go when the connection is first polled after the call starts, and the message
     // comes from another thread after it; a call or two may have it there in time.
     assert!(writes >= 2 * CALLS - 2, "{writes} writes for {CALLS} calls");

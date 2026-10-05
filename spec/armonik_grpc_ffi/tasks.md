@@ -1071,7 +1071,7 @@ reference. The send window's depth, the question below, is not changed by this.
 
 **A fourth question belongs here, because it shares the subject: whether this binding starts using
 the send window's depth.** The window is a memory bound on the arena and it is live for any host -
-at most `Grpc.Host.Sends.Window` buffers lent at once, charged at the lend, refused past it with
+at most `Grpc.Host.Send.Window` buffers lent at once, charged at the lend, refused past it with
 `AK_STATUS_SLOT_BUSY`. What a depth above one buys is pipelining, and not of the network: the
 serialization of message N+1 overlaps the transmission of N, which is a gain on a saturated link
 as much as an idle one.
@@ -1294,7 +1294,7 @@ ABI promises.
 **Why**: the runtime's ceiling bounds only the buffers a host fills to send. A message the engine
 receives and lends to the host is counted for quiescence and not in bytes, so what a runtime holds
 on the receive side is bounded per call - (`Grpc.Host.Receive.Window` plus the few messages the engine reads
-ahead of them) times `Grpc.MaxReceiveMessageSize` - and not at all across calls. A client downloading
+ahead of them) times `Grpc.Receive.MaxMessageSize` - and not at all across calls. A client downloading
 large chunks on many calls at once can exhaust the process's memory with every bound respected.
 
 **Commit**: two thresholds over the one count of bytes that sends and receives then share.
@@ -1342,7 +1342,7 @@ Settled (2026-10-02, `decisions.md`):
 - the event wakes every call refused since the last release, carries no payload and takes no
   delivery credit, as WRITE_DONE does not; its name is the model's to fix;
 - the two `RESOURCE_EXHAUSTED` are told apart by their status message only. The second threshold
-  is transient and runtime-wide, a message past `Grpc.MaxReceiveMessageSize` permanent, and a retry
+  is transient and runtime-wide, a message past `Grpc.Receive.MaxMessageSize` permanent, and a retry
   policy reading the code does not see the difference - which matters only to one that names
   `RESOURCE_EXHAUSTED`, and T6.3's default does not;
 - a send refused for room is served before new reads: while one waits, the threshold where reads

@@ -44,15 +44,15 @@ public class ChannelOptionsTests
        {
          Host = new HostOptions
                 {
-                  Sends = sends is null
-                            ? null
-                            : new SendOptions
-                              {
-                                Window = sends,
-                              },
+                  Send = sends is null
+                           ? null
+                           : new HostSendOptions
+                             {
+                               Window = sends,
+                             },
                   Receive = credits is null
                               ? null
-                              : new ReceiveOptions
+                              : new HostReceiveOptions
                                 {
                                   Window = credits,
                                 },
@@ -172,11 +172,14 @@ public class ChannelOptionsTests
                          {
                            Grpc = new GrpcOptions
                                   {
-                                    MaxReceiveMessageSize = 0,
+                                    Receive = new GrpcReceiveOptions
+                                              {
+                                                MaxMessageSize = 0,
+                                              },
                                   },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("MaxReceiveMessageSize has to be at least 1"));
+                         .With.Message.Contains("MaxMessageSize has to be at least 1"));
 
   /// <summary>And the size the schema admits has no upper bound to run into.</summary>
   [Test]
@@ -185,10 +188,13 @@ public class ChannelOptionsTests
                            {
                              Grpc = new GrpcOptions
                                     {
-                                      MaxReceiveMessageSize = int.MaxValue,
+                                      Receive = new GrpcReceiveOptions
+                                                {
+                                                  MaxMessageSize = int.MaxValue,
+                                                },
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""MaxReceiveMessageSize"":2147483647}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Receive"":{""MaxMessageSize"":2147483647}}}"));
 
   /// <summary>A copy shares nothing with what it copied, one group down included.</summary>
   /// <remarks>
@@ -265,7 +271,7 @@ public class ChannelOptionsTests
   {
     const string prefix = "AKRUSTTEST_";
 
-    Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Sends__Window",
+    Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Send__Window",
                                        "7");
     Environment.SetEnvironmentVariable(prefix + "Section__Transport__ConnectTimeoutSeconds",
                                        "2.5");
@@ -279,11 +285,11 @@ public class ChannelOptionsTests
 
       // The document, because an option bound but not serialized is one the engine never sees.
       Assert.That(Encoded(options),
-                  Is.EqualTo(@"{""Transport"":{""ConnectTimeoutSeconds"":2.5},""Grpc"":{""Host"":{""Sends"":{""Window"":7}}}}"));
+                  Is.EqualTo(@"{""Transport"":{""ConnectTimeoutSeconds"":2.5},""Grpc"":{""Host"":{""Send"":{""Window"":7}}}}"));
     }
     finally
     {
-      Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Sends__Window",
+      Environment.SetEnvironmentVariable(prefix + "Section__Grpc__Host__Send__Window",
                                          null);
       Environment.SetEnvironmentVariable(prefix + "Section__Transport__ConnectTimeoutSeconds",
                                          null);
@@ -382,7 +388,7 @@ public class ChannelOptionsTests
                              Grpc = Windows(1,
                                             536870910),
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""Host"":{""Sends"":{""Window"":536870910},""Receive"":{""Window"":1}}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Host"":{""Send"":{""Window"":536870910},""Receive"":{""Window"":1}}}}"));
 
   /// <summary>An alternative is an object whose one key names it, as the engine reads a Rust enum.</summary>
   /// <remarks>A field left unset is absent, as an option is; one carrying nothing is `true`.</remarks>
@@ -535,8 +541,8 @@ public class ChannelOptionsTests
                       }, "Section:Transport:Tls:Server:CaStore:Location has to be one of"),
                      (new Dictionary<string, string?>
                       {
-                        ["Section:Grpc:Host:Sends:Window"] = "s3cret",
-                      }, "Section:Grpc:Host:Sends:Window has to be an integer"),
+                        ["Section:Grpc:Host:Send:Window"] = "s3cret",
+                      }, "Section:Grpc:Host:Send:Window has to be an integer"),
                    };
 
     foreach (var (values, said) in refusals)

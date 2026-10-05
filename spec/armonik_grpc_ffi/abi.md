@@ -495,7 +495,7 @@ ak_events_consumed(payloads, 3)    // free all three (no next, the terminal is i
 FFI note:
 - **Send**: the host serializes into a buffer lent by `ak_get_call_buffer` and gives it back
   exactly once, by `ak_call_send_message` or `ak_return_call_buffer`. One unfilled buffer at a
-  time, and at most `Grpc.Host.Sends.Window` out of one arena (default 1), counting those committed
+  time, and at most `Grpc.Host.Send.Window` out of one arena (default 1), counting those committed
   and awaiting their WRITE_DONE; WRITE_DONE acquits in send order,
   always arrives, exactly once per accepted send, and always before the terminal event, even
   on error or cancellation - but on a call that declared one request, whose commit settles its

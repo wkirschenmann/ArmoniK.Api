@@ -248,9 +248,9 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 /// The two windows mirror each other. Grpc.Host.Receive.Window bounds the payloads of one call
 /// outstanding at once, each taking one credit, one place of the window - the terminal status takes
 /// none, so a host holds at most one more - and the host chooses it because the host is what has
-/// to hold them. Grpc.Host.Sends.Window
+/// to hold them. Grpc.Host.Send.Window
 /// bounds the buffers one call may have out, counting those being filled and those awaiting their
-/// WRITE_DONE. Grpc.Host.Receive.Window defaults to 4 and Grpc.Host.Sends.Window to 1, and
+/// WRITE_DONE. Grpc.Host.Receive.Window defaults to 4 and Grpc.Host.Send.Window to 1, and
 /// the schema states the range either may take.
 ///
 /// A call whose payloads the host does not consume reads a few messages past its spent credits,
@@ -424,7 +424,7 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
 /// Lends a buffer out of the call's arena to serialize into. The exact length is known before the
 /// first byte is written, so no growable writer is needed.
 ///
-/// One unfilled buffer at a time, whatever Grpc.Host.Sends.Window says: asking for a second while
+/// One unfilled buffer at a time, whatever Grpc.Host.Send.Window says: asking for a second while
 /// still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
 /// counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
 /// the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
