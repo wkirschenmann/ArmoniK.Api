@@ -1460,6 +1460,9 @@ without a change. A caller with a plain `Bytes` still has it framed by a copy.
 together, gathered by a copy into one DATA frame as tonic's encoder gathered them - the replay
 unchanged, and the benchmark's streamed upload measured before and after, throughput and CPU per
 MiB.
+**Status**: done. Measured in benchmarks.md against `21a0b7807`, T6.13 with the four commits
+after it, six passes each side: no difference larger than the spread, on .NET 8 or on .NET
+Framework; h2-batch, measured beside it, is one.
 
 ### T6.14: One configuration loader, every host
 

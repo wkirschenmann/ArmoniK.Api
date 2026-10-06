@@ -119,6 +119,40 @@ What the numbers say:
 What this baseline does not settle: the HTTP/2 window default, which the audit response leaves to
 these benchmarks, needs a link with latency. Loopback has none, so no window size shows here.
 
+## T6.13 and h2-batch
+
+A measurement of its own, not the baseline's engine nor its passes: the native transport alone,
+idle, on .NET Framework 4.8 and .NET 8 just-in-time, on 2026-10-07 on the machine below. Three
+engines: before T6.13 (`d8af8f079`); after it, at `21a0b7807`, which also carries the four
+commits after T6.13 - the Rust client on the engine, and a cancelled call's request reset rather
+than ended, which adds a flag read when a request body ends; and that engine built
+against h2-batch's patch, run as `native-batch`, 16 DATA frames per write. Before and after, six
+passes each, a pass of one interleaved with a pass of the other; h2-batch, three passes,
+interleaved with the first three. Each cell is the median, the range of the passes in brackets.
+
+| Host | Engine | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) | P50 (us) |
+|------|--------|-----------------------:|-------------------------:|----------------------:|------------------------:|---------:|
+| .NET Framework 4.8 | before T6.13 | 340 (319-350) | 7260 (6833-8104) | 252 (195-272) | 3240 (3146-4208) | 346 (332-423) |
+| .NET Framework 4.8 | `21a0b7807` | 322 (266-358) | 7396 (6583-9125) | 242 (201-274) | 3376 (3167-4146) | 342 (323-359) |
+| .NET Framework 4.8 | `21a0b7807`, h2-batch | 515 (414-534) | 5042 (4792-5396) | 374 (345-378) | 1750 (1604-1854) | 360 (346-373) |
+| .NET 8 | before T6.13 | 271 (246-328) | 5750 (5042-6958) | 247 (194-295) | 3406 (2833-4000) | 383 (315-448) |
+| .NET 8 | `21a0b7807` | 318 (270-339) | 5448 (5146-5542) | 261 (223-299) | 3364 (2667-3542) | 356 (310-553) |
+| .NET 8 | `21a0b7807`, h2-batch | 465 (412-539) | 4042 (3521-4188) | 312 (312-356) | 2167 (1792-2229) | 344 (314-390) |
+
+What they say:
+
+- **T6.13 shows no difference larger than the spread**, on either host, in any column: every
+  range of `21a0b7807` overlaps the engine's before it. Probably because the copy it removes, one
+  of 64 KiB per message, is small against the rest of what a message costs on its way out, and
+  loopback does not make it the bottleneck.
+- **h2-batch is a difference.** Against `21a0b7807`, the streamed upload is 1.5 to 1.6 times as
+  fast, its range clear of the engines' without it on both hosts, for 26 to 32 % less CPU per MiB;
+  the unary upload 1.2 to 1.5 times, for 36 to 48 % less CPU per MiB. Latency is unchanged within
+  the spread: a unary call of one character fills no second frame.
+- Three passes showed a gap six did not confirm: the medians of the first three put the .NET
+  Framework streamed upload of `21a0b7807` 22 % below the engine's before it. h2-batch's gap, 46
+  to 60 % over the six-pass median of the same engine, is wider than any range.
+
 ## The machine
 
 Windows 11 Pro 10.0.26100, 13th Gen Intel Core i7-1360P, 16 GB, with the desktop's usual
