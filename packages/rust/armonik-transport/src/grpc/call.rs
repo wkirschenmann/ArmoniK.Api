@@ -317,7 +317,7 @@ impl CallControl {
     /// Stops the call. A call that already ended keeps its request's end as it was.
     pub fn cancel(&self) {
         {
-            // Under the lock `finish` takes: a request whose call has finished is not cut after.
+            // Checked under the lock `finish` takes, so a finished call is never cut.
             let pending = self
                 .body_over
                 .lock()
@@ -490,6 +490,19 @@ mod tests {
             send.send_message(Bytes::from_static(b"second")).await,
             Err(CallError::Ended)
         );
+    }
+
+    /// A cancel cuts a call that is still going, and leaves one that has finished as it was.
+    #[tokio::test]
+    async fn a_cancel_cuts_a_call_only_while_it_is_going() {
+        let (going, messages, _driving) = create(4, None, watch::channel(false).1);
+        going.control.cancel();
+        assert!(messages.cut());
+
+        let (finished, messages, _driving) = create(4, None, watch::channel(false).1);
+        finished.control.finish();
+        finished.control.cancel();
+        assert!(!messages.cut());
     }
 
     /// Messages parked on their queue are woken by the call ending, with the send half still held.
