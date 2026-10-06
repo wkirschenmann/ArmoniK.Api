@@ -34,9 +34,9 @@ name = "h2_batch"
 required-features = ["test-hooks"]
 
 [dependencies]
-# `channel` for `tonic::transport::Endpoint`, which is what `connect` builds; `codegen` for the
+# `codegen` for tonic's client, which carries the engine's gRPC framing, and for the
 # `http`/`tokio_stream` re-exports a dependent reaches through this crate.
-tonic = { workspace = true, features = ["channel", "codegen"] }
+tonic = { workspace = true, features = ["codegen"] }
 snafu.workspace = true
 tracing.workspace = true
 h2 = { workspace = true }
@@ -115,7 +115,7 @@ serde_json.workspace = true
 # `io-util` for the tests that write HTTP/2 frames by hand.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "time", "io-util"] }
 # The integration tests serve a gRPC service to call, which the regular build never does; these features
-# union with the `channel`/`codegen` above for test builds only.
+# union with the `codegen` above for test builds only.
 tonic = { workspace = true, features = ["server", "router"] }
 # The gRPC integration tests run their own accept loop, so they serve HTTP/2 themselves rather
 # than through `tonic::transport::Server`; that is what lets them count connections.

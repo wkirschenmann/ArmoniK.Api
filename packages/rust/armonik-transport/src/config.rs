@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use hyper::{http::HeaderValue, Uri};
-use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName};
 use snafu::{ResultExt, Snafu};
 
 use crate::grpc::GrpcChannelConfig;
@@ -394,8 +394,7 @@ impl ClientConfig {
                     value: rate_limit.clone(),
                 })?
                 .into();
-            // `tower`'s rate limiter asserts both are non-zero, so leaving these to it turns a mistyped
-            // option into a panic inside `connect` rather than an error the caller can read.
+            // A zero count or duration is no rate at all: a mistyped option, refused here by name.
             if limit == 0 || duration.is_zero() {
                 return IncompatibleOptionsSnafu {
                     msg: format!(
@@ -545,6 +544,11 @@ impl ClientConfig {
             .fail();
         }
 
+        // Checked whatever the scheme, so that a mistyped name is refused before it matters.
+        if let Some(target) = &self.override_target {
+            override_server_name(target)?;
+        }
+
         let mut transport = TransportConfig::new(self.endpoint);
         if let Some(timeout) = self.connect_timeout {
             transport.connect_timeout = timeout;
@@ -587,11 +591,29 @@ impl ClientConfig {
     }
 }
 
+/// The name the server certificate is verified against, from the host of an override target.
+///
+/// A host that is neither a DNS name nor an IP address is a mistyped
+/// `GrpcClient__OverrideTargetName`, reported as the configuration error it is: this runs inside a
+/// library, where a panic leaves the caller nothing to read.
+pub(crate) fn override_server_name(target: &Uri) -> Result<ServerName<'static>, ConfigError> {
+    let host = target.host().unwrap_or_default();
+
+    match crate::tls::server_name(host) {
+        Some(server_name) => Ok(server_name),
+        None => IncompatibleOptionsSnafu {
+            msg: format!(
+                "`GrpcClient__OverrideTargetName` names the host `{host}`, which no certificate can \
+                 be verified against. It has to be a DNS name or an IP address, as in \
+                 `server.example.com`, `10.0.0.1` or `[::1]`"
+            ),
+        }
+        .fail(),
+    }
+}
+
 #[derive(Debug, Snafu)]
 #[non_exhaustive]
-// snafu keeps its generated context selectors module-private by default. Visible to the crate so that
-// `connect` can report a bad option value as the configuration error it is.
-#[snafu(visibility(pub(crate)))]
 pub enum ConfigError {
     #[snafu(display("Could not read environment variable [{location}]"))]
     #[non_exhaustive]
@@ -712,6 +734,8 @@ pub enum ConfigError {
 
 #[cfg(test)]
 mod tests {
+    use rustls::pki_types::IpAddr;
+
     use super::*;
 
     /// The minimum viable arguments: an endpoint, and nothing else set.
@@ -726,6 +750,22 @@ mod tests {
     /// outermost `Display` alone would pass whatever the cause turned out to be.
     fn chain(error: &ConfigError) -> String {
         crate::utils::chain(error, " | ")
+    }
+
+    fn override_target(override_target_name: &str) -> Uri {
+        ClientConfig::from_config_args(ClientConfigArgs {
+            override_target_name: String::from(override_target_name),
+            ..args()
+        })
+        .expect("a valid authority")
+        .override_target
+        .expect("an override target")
+    }
+
+    /// The name derived from an override target, for a value that yields one.
+    fn server_name(override_target_name: &str) -> ServerName<'static> {
+        override_server_name(&override_target(override_target_name))
+            .expect("the host should name something verifiable")
     }
 
     /// The password never reaches a message, a span, or the wire.
@@ -899,6 +939,104 @@ mod tests {
         assert_eq!(secure.transport.tls.server_name.as_deref(), Some("other"));
     }
 
+    #[test]
+    fn an_override_written_as_a_bracketed_ipv6_literal_names_the_address() {
+        // `[::1]` is how an IPv6 host is written in an authority, and `http` hands the brackets back
+        // with it. The name a certificate is checked against is the address inside them.
+        assert_eq!(
+            server_name("[::1]"),
+            ServerName::from(IpAddr::try_from("::1").expect("an address")),
+        );
+        assert_eq!(
+            server_name("[2001:db8::1]:5003"),
+            ServerName::from(IpAddr::try_from("2001:db8::1").expect("an address")),
+        );
+    }
+
+    #[test]
+    fn an_override_written_as_a_dns_name_or_an_ipv4_address_is_taken_as_it_stands() {
+        assert_eq!(
+            server_name("server.example.com"),
+            ServerName::try_from("server.example.com").expect("a name"),
+        );
+        assert_eq!(
+            server_name("10.0.0.1:5003"),
+            ServerName::from(IpAddr::try_from("10.0.0.1").expect("an address")),
+        );
+    }
+
+    #[test]
+    fn brackets_around_something_that_is_not_an_address_are_not_read_as_a_name() {
+        // `http` balances the brackets without looking inside them, so `[example.com]` reaches here.
+        // Dropping the brackets and taking what is left would verify against a host nobody wrote.
+        let error = override_server_name(&override_target("[example.com]"))
+            .expect_err("brackets are an IP literal or nothing");
+        assert!(
+            matches!(error, ConfigError::IncompatibleOptions { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_host_that_names_nothing_verifiable_is_refused_against_its_option() {
+        // Whoever set it has a dozen `GrpcClient__*` variables to choose from, so the message has to
+        // name the one at fault and quote what it read.
+        for endpoint in ["https://10.0.0.1:5003", "http://10.0.0.1:5003"] {
+            let error = ClientConfig::from_config_args(ClientConfigArgs {
+                endpoint: String::from(endpoint),
+                override_target_name: String::from("-nope-"),
+                ..args()
+            })
+            .expect("a valid authority")
+            .channel_config()
+            .expect_err("no certificate can be verified against it");
+
+            let rendered = chain(&error);
+            assert!(
+                rendered.contains("GrpcClient__OverrideTargetName"),
+                "{rendered}"
+            );
+            assert!(rendered.contains("-nope-"), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn an_empty_timeout_means_no_timeout_rather_than_a_minute() {
+        // What keeps a one-minute deadline off every call of every caller who set nothing.
+        let config = ClientConfig::from_config_args(args()).expect("valid");
+
+        assert_eq!(config.timeout, None);
+        assert_eq!(
+            config.channel_config().expect("built").default_deadline,
+            None
+        );
+    }
+
+    #[test]
+    fn an_empty_connect_timeout_still_means_a_minute() {
+        // The mirror image of the test above: an absent `ConnectTimeout` bounds the connection at a
+        // minute, which is what a caller who sets nothing gets.
+        let config = ClientConfig::from_config_args(args()).expect("valid");
+
+        assert_eq!(config.connect_timeout, Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn a_timeout_is_parsed_in_the_units_it_was_written_in() {
+        for (written, expected) in [
+            ("30s", Duration::from_secs(30)),
+            ("500ms", Duration::from_millis(500)),
+            ("2m", Duration::from_secs(120)),
+        ] {
+            let config = ClientConfig::from_config_args(ClientConfigArgs {
+                timeout: String::from(written),
+                ..args()
+            })
+            .expect("valid");
+            assert_eq!(config.timeout, Some(expected), "for {written}");
+        }
+    }
+
     #[tokio::test]
     async fn keepalive_probes_with_no_keepalive_are_not_read() {
         let config = ClientConfig::from_config_args(ClientConfigArgs {
@@ -1046,8 +1184,7 @@ mod tests {
 
     #[test]
     fn a_zero_rate_limit_is_rejected_rather_than_left_to_panic() {
-        // `tower`'s `Rate::new` asserts both halves are above zero, so a zero has to be refused here
-        // rather than reaching it: a panic inside `connect` tells the caller nothing.
+        // A zero count or duration is no rate at all, and the message says which option it is.
         for value in ["0/1s", "1/0s", "0/0s"] {
             let error = ClientConfig::from_config_args(ClientConfigArgs {
                 rate_limit: String::from(value),

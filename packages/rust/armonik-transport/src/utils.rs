@@ -26,10 +26,11 @@ pub(crate) fn read_env(name: &str) -> Result<String, ReadEnvError> {
 /// An endpoint as an error or a span may print it: scheme, host and port, and nothing else.
 ///
 /// A URI can carry `user:password@`, and every message that took `{endpoint}` put it in the
-/// caller's log. `http2::dialable` refuses such an endpoint outright, but the tonic path accepts
-/// it, and an error is not the place to find that out. Public because `ClientConfig::endpoint` is
-/// a public field, so a config built by hand rather than read from the environment never met the
-/// check that refuses userinfo - and its holder needs this to say where it is connecting.
+/// caller's log. `http2::dialable` refuses such an endpoint outright, but a config built by hand is
+/// not checked, and an error is not the place to find that out. Public because
+/// `ClientConfig::endpoint` is a public field, so a config built by hand rather than read from the
+/// environment never met the check that refuses userinfo - and its holder needs this to say where
+/// it is connecting.
 pub fn safe_endpoint(endpoint: &http::Uri) -> String {
     let scheme = endpoint.scheme_str().unwrap_or("http");
     match (endpoint.host(), endpoint.port_u16()) {

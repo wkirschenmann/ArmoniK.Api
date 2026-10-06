@@ -6,12 +6,10 @@
 //! generated .NET class its spelling. The Rust client configures it with a [`ClientConfig`], read
 //! from the `GrpcClient__*` environment, through [`ClientConfig::channel_config`], which refuses a
 //! setting the engine has not got rather than drop it.
-//!
-//! [`connect`] builds a `tonic` channel over `hyper-rustls` from the same [`ClientConfig`].
 
 mod coalesce;
 mod config;
-mod connect;
+mod connector;
 pub mod grpc;
 #[cfg(feature = "test-hooks")]
 pub mod hooks;
@@ -26,9 +24,7 @@ mod windows_proxy;
 mod windows_store;
 
 pub use config::{ClientConfig, ClientConfigArgs, ConfigError};
-pub use connect::{connect, https_connector, ConnectionError};
-#[doc(hidden)]
-pub use connect::{ConfigSnafu, IoSnafu, TlsSnafu, TransportSnafu};
+pub use connector::{https_connector, ConnectionError};
 pub use utils::{safe_endpoint, ReadEnvError};
 
 pub mod reexports {

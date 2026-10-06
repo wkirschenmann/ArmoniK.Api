@@ -1,6 +1,6 @@
 //! The rustls client configuration both connectors secure a connection with.
 //!
-//! [`crate::connect`] and the engine's [`crate::http2`] read their settings from different
+//! [`crate::https_connector`] and the engine's [`crate::http2`] read their settings from different
 //! vocabularies, so what they share is the step after: which roots, whether anything is verified
 //! at all, and which identity is presented.
 
