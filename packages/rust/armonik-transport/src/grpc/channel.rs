@@ -705,9 +705,8 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 error => worded(GrpcStatus::unreachable(error)),
             })?;
             // A session that carries a limited number of calls counts one until hyper is done
-            // with its request too. A call whose response ends first has its request reset, and a
-            // call that took the session before that reset would share whatever the peer answers
-            // it with - a GOAWAY, behind nginx.
+            // with its request too: a call whose response ends first keeps its request open until
+            // the driver half-closes it, and the next call would otherwise overlap it.
             let request = if inner.calls_per_session == usize::MAX {
                 request
             } else {

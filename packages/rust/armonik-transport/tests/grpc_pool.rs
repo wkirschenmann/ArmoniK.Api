@@ -164,10 +164,10 @@ async fn closing_an_idle_connection_leaves_another_calls_alone() {
     );
 }
 
-/// A call whose response is whole while its request is still being sent has its request reset,
-/// and lends its connection once hyper is done with it.
+/// A call whose response is whole while its request is still being sent has its request
+/// half-closed, and lends its connection once hyper is done with it.
 #[tokio::test]
-async fn a_call_whose_response_ends_first_lends_its_connection_once_its_request_is_reset() {
+async fn a_call_whose_response_ends_first_lends_its_connection_once_its_request_ends() {
     let server = TestServer::start().await;
     let channel = pooled(&server.endpoint, Some(1), None);
 
@@ -181,8 +181,8 @@ async fn a_call_whose_response_ends_first_lends_its_connection_once_its_request_
     let (_, _, status) = read_to_terminal(&mut recv).await;
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
 
-    // Past the reset, which lands microseconds after the terminal; a lease never let go would
-    // hold the connection for good.
+    // Past the half-close, which lands microseconds after the terminal; a lease never let go
+    // would hold the connection for good.
     tokio::time::sleep(Duration::from_millis(50)).await;
     for _ in 0..3 {
         echo(&channel).await;
